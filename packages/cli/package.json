@@ -1,0 +1,29 @@
+{
+  "name": "open-arch",
+  "version": "0.1.0",
+  "description": "Command line tool for open-arch architecture workspaces: init, check, fmt, new, show, rename.",
+  "type": "module",
+  "bin": {
+    "open-arch": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/main.d.ts",
+      "default": "./dist/main.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "default": "./dist/workspace.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@open-arch/core": "workspace:*",
+    "@open-arch/skill": "workspace:*"
+  }
+}

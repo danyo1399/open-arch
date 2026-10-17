@@ -1,0 +1,16 @@
+appId: dev.openarch.desktop
+productName: open-arch
+directories:
+  output: release
+# Main, preload and the web UI are bundled into dist/, so the app needs no node_modules.
+files:
+  - dist/**
+  - package.json
+mac:
+  target: [dmg, zip]
+  category: public.app-category.developer-tools
+win:
+  target: [nsis]
+linux:
+  target: [AppImage, deb]
+  category: Development

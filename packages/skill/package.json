@@ -1,0 +1,17 @@
+{
+  "name": "@open-arch/skill",
+  "version": "0.1.0",
+  "description": "Agent skill that teaches AI agents to read and change open-arch architecture workspaces.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "open-arch"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@open-arch/desktop",
+  "productName": "open-arch",
+  "version": "0.1.0",
+  "description": "Desktop designer for open-arch architecture workspaces.",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "pnpm --filter @open-arch/web build && node scripts/build.mjs",
+    "start": "pnpm build && electron .",
+    "dev": "node scripts/build.mjs --no-renderer && node scripts/dev.mjs",
+    "smoke": "pnpm build && node scripts/smoke.mjs",
+    "dist": "pnpm build && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "44.8.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2"
+  }
+}

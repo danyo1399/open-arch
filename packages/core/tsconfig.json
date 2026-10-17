@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // Core must run in a browser or Electron renderer too: no Node.js APIs.
+    "types": []
+  },
+  "include": ["src"]
+}
