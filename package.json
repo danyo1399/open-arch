@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc -b packages/core packages/cli",
-    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo",
+    "clean": "node scripts/clean.mjs",
     "test": "vitest run",
     "open-arch": "node packages/cli/dist/bin.js",
     "typecheck": "tsc -b packages/core packages/cli && tsc -p apps/web && tsc -p apps/desktop"

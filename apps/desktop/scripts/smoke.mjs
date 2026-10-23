@@ -24,5 +24,6 @@ const result = spawnSync(electron, [at("./smoke-main.mjs")], {
   env: { ...process.env, OPEN_ARCH_SMOKE_WORKSPACE: workspace, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out },
   timeout: 60_000,
 });
-rmSync(temp, { recursive: true, force: true });
+// On Windows, Electron's helper processes can hold files in userData for a moment after it exits.
+rmSync(temp, { recursive: true, force: true, maxRetries: 10 });
 process.exit(result.status ?? 1);

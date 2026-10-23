@@ -1,11 +1,12 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { run } from "../src/main.js";
 import { VERSION } from "../src/io.js";
 
-const EXAMPLE = new URL("../../../examples/shop", import.meta.url).pathname;
+const EXAMPLE = fileURLToPath(new URL("../../../examples/shop", import.meta.url));
 const temps: string[] = [];
 
 function tempDir(): string {

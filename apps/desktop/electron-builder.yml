@@ -14,3 +14,11 @@ win:
 linux:
   target: [AppImage, deb]
   category: Development
+  # Linux names the executable after package.json's "name", and "@open-arch/desktop" isn't a valid file name.
+  executableName: open-arch
+  # .deb packages must name a maintainer (else the author's email) and a homepage.
+  # CI passes the repository URL as the homepage until package.json has one.
+  maintainer: open-arch
+deb:
+  # The default, ${name}_..., would put the file in a folder named after the @open-arch scope.
+  artifactName: "${productName}_${version}_${arch}.${ext}"

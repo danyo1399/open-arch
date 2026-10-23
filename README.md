@@ -87,3 +87,10 @@ pnpm build
 ```bash
 pnpm open-arch check --root examples/shop
 ```
+
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and pull request:
+
+- **lint** (Ubuntu): typecheck, tests, the CLI build, then `open-arch check` and `fmt --check` on `examples/shop`.
+- **desktop** (macOS, Windows and Linux): the smoke test (under `xvfb-run` on Linux), then unsigned installers built with `dist`. The smoke screenshots and the installers (`.dmg`/`.zip`, `.exe`, `.AppImage`/`.deb`) are uploaded as artifacts of the run.
