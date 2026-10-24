@@ -1,6 +1,6 @@
 /** Finding, reading and writing a workspace on disk. */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
 import { CONFIG_FILE, loadWorkspace, parseConfig, type FileChange, type InputFile, type Workspace } from "@open-arch/core";
 import { CliError } from "./errors.js";
 
@@ -71,8 +71,13 @@ function readTree(root: string, folder: string, out: InputFile[]): void {
   }
 }
 
+/** Write and delete files under `root`. Throws before touching anything if a path would land outside it. */
 export function writeChanges(root: string, changes: FileChange[]): void {
-  const abs = (p: string) => join(root, ...p.split("/"));
+  const abs = (p: string) => fileInside(root, p);
+  for (const change of changes) {
+    abs(change.path);
+    if (change.from !== undefined) abs(change.from);
+  }
   for (const change of changes) {
     if (change.content === null) continue;
     mkdirSync(dirname(abs(change.path)), { recursive: true });
@@ -84,6 +89,18 @@ export function writeChanges(root: string, changes: FileChange[]): void {
     if (existsSync(abs(gone))) unlinkSync(abs(gone));
     removeEmptyDirs(root, dirname(abs(gone)));
   }
+}
+
+/** The file a workspace-relative path names. Changes can come from the desktop renderer, so nothing may escape `root`. */
+function fileInside(root: string, p: string): string {
+  const bad = (why: string) => new CliError(`Refusing to write ${JSON.stringify(p)}: ${why}.`);
+  if (typeof p !== "string" || !p || p.includes("\0")) throw bad("it isn't a file path");
+  if (posix.isAbsolute(p) || win32.isAbsolute(p)) throw bad("paths must be relative to the workspace");
+  if (p.split(/[\\/]/).includes("..")) throw bad("paths can't contain `..`");
+  const file = join(root, ...p.split("/"));
+  const rel = relative(resolve(root), resolve(file));
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw bad("it's outside the workspace");
+  return file;
 }
 
 function removeEmptyDirs(root: string, dir: string): void {
