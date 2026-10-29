@@ -224,6 +224,11 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
     return out;
   }, []);
 
+  const selectNode = (node: FlowNode) => {
+    const id = node.type === "frame" ? node.data.element.id : node.id;
+    if (selection?.kind !== "element" || selection.id !== id) onSelect({ kind: "element", id });
+  };
+
   const onNodeDragStop = useCallback(() => {
     void edit([{ op: "set-layout", view: view.id, positions: currentLayout() }]);
   }, [currentLayout, edit, view.id]);
@@ -265,7 +270,12 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         isValidConnection={(c) => c.source !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
-        onNodeClick={(_, node) => onSelect({ kind: "element", id: node.type === "frame" ? node.data.element.id : node.id })}
+        onNodeClick={(_, node) => selectNode(node)}
+        // Dragging a box swallows its click, so select it when the drag starts; otherwise the
+        // layout saved on drop redraws the boxes with the old selection.
+        onNodeDragStart={(_, node) => selectNode(node)}
+        // A click that wobbles a few pixels is still a click, not nothing.
+        nodeClickDistance={4}
         onEdgeClick={(_, edge) => onSelect({ kind: "arrow", from: edge.source, to: edge.target })}
         onPaneClick={() => {
           setMenuOpen(false);
