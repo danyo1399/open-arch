@@ -1,105 +1,156 @@
-/** Finding, reading and writing a workspace on disk. */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
-import { CONFIG_FILE, loadWorkspace, parseConfig, type FileChange, type InputFile, type Workspace } from "@open-arch/core";
+/** Finding, reading and writing a .openarch file, and keeping its docs folder in sync. Shared with the desktop app. */
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
+import { exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, type ExportedFile, type OpenArchDocument, type Workspace } from "@open-arch/core";
 import { CliError } from "./errors.js";
 
 const SEARCH_DEPTH = 3;
 
-/** The workspace folder: `--root`, else the nearest open-arch.yaml above `cwd`, else the only one below it. */
-export function findRoot(cwd: string, explicit?: string): string {
+function openarchFiles(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith(FILE_EXTENSION))
+      .map((e) => join(dir, e.name))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** The .openarch file to use: `--file`, else the one in the nearest folder at or above `cwd`, else the only one below it. */
+export function findWorkspaceFile(cwd: string, explicit?: string): string {
   if (explicit) {
-    const dir = resolve(cwd, explicit);
-    if (!existsSync(join(dir, CONFIG_FILE))) throw new CliError(`There's no ${CONFIG_FILE} in ${dir}.`);
-    return dir;
+    const path = resolve(cwd, explicit);
+    if (!existsSync(path)) throw new CliError(`${path} doesn't exist.`);
+    if (!statSync(path).isDirectory()) return path;
+    const inside = openarchFiles(path);
+    if (inside.length === 1) return inside[0]!;
+    throw new CliError(inside.length ? `More than one ${FILE_EXTENSION} file in ${path}; name one with --file.` : `There's no ${FILE_EXTENSION} file in ${path}.`);
   }
   for (let dir = resolve(cwd); ; dir = dirname(dir)) {
-    if (existsSync(join(dir, CONFIG_FILE))) return dir;
+    const found = openarchFiles(dir);
+    if (found.length === 1) return found[0]!;
+    if (found.length > 1) throw new CliError(`More than one ${FILE_EXTENSION} file in ${dir}; pick one with --file:\n${found.map((f) => `  ${basename(f)}`).join("\n")}`);
     if (dirname(dir) === dir) break;
   }
-  const found: string[] = [];
+  const below: string[] = [];
   const walk = (dir: string, depth: number) => {
     if (depth > SEARCH_DEPTH) return;
+    below.push(...openarchFiles(dir));
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
     } catch {
       return;
     }
-    if (entries.some((e) => e.isFile() && e.name === CONFIG_FILE)) found.push(dir);
-    for (const e of entries) {
-      if (e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules") walk(join(dir, e.name), depth + 1);
-    }
+    for (const e of entries) if (e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules") walk(join(dir, e.name), depth + 1);
   };
   walk(resolve(cwd), 1);
-  if (found.length === 1) return found[0]!;
-  if (found.length > 1) {
-    throw new CliError(`Found more than one workspace; pick one with --root:\n${found.map((f) => `  ${relative(cwd, f) || "."}`).join("\n")}`);
+  if (below.length === 1) return below[0]!;
+  if (below.length > 1) throw new CliError(`Found more than one ${FILE_EXTENSION} file; pick one with --file:\n${below.map((f) => `  ${relative(cwd, f)}`).join("\n")}`);
+  throw new CliError(`No ${FILE_EXTENSION} file found here, above or below. Run \`open-arch init\` to create one, or pass --file.`);
+}
+
+export function readWorkspaceFile(file: string): Workspace {
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch (error) {
+    throw new CliError(`Can't read ${file}: ${(error as Error).message}`);
   }
-  throw new CliError(`No open-arch workspace found (no ${CONFIG_FILE} here, above or below). Run \`open-arch init\` to create one, or pass --root.`);
+  return loadWorkspace(text);
 }
 
-export interface OpenWorkspace {
-  root: string;
-  ws: Workspace;
+/** Write the canonical text, through a temporary file so a crash never leaves half a file. */
+export function writeWorkspaceFile(file: string, doc: OpenArchDocument): void {
+  const temp = `${file}.${process.pid}.tmp`;
+  writeFileSync(temp, serializeDocument(doc));
+  renameSync(temp, file);
 }
 
-export function openWorkspace(cwd: string, explicit?: string): OpenWorkspace {
-  const root = findRoot(cwd, explicit);
-  const { configText, files } = readWorkspace(root);
-  const { config, diagnostics } = parseConfig(configText);
-  return { root, ws: loadWorkspace(files, config, diagnostics) };
+/** The docs folder a document asks for, resolved next to its file. */
+export function docsFolder(file: string, doc: OpenArchDocument): string | undefined {
+  const docs = doc.export?.docs;
+  if (!docs) return undefined;
+  if (posix.isAbsolute(docs) || win32.isAbsolute(docs)) throw new CliError(`export.docs must be a folder relative to the ${FILE_EXTENSION} file, not ${JSON.stringify(docs)}.`);
+  return resolve(dirname(file), ...docs.split("/"));
 }
 
-/** The config text and every element and view file of the workspace at `root`. */
-export function readWorkspace(root: string): { configText: string; files: InputFile[] } {
-  const configText = readFileSync(join(root, CONFIG_FILE), "utf8");
-  const { config } = parseConfig(configText);
-  const files: InputFile[] = [];
-  for (const folder of [config.model, config.views]) readTree(root, folder, files);
-  return { configText, files };
+export interface DocsResult {
+  dir: string;
+  written: string[];
+  deleted: string[];
+  /** Files in the way that open-arch didn't generate, so it left them alone. */
+  skipped: string[];
 }
 
-function readTree(root: string, folder: string, out: InputFile[]): void {
-  const dir = join(root, ...folder.split("/"));
-  if (!existsSync(dir)) return;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith(".")) continue;
-    const path = `${folder}/${entry.name}`;
-    if (entry.isDirectory()) readTree(root, path, out);
-    else if (entry.isFile() && entry.name.endsWith(".md")) out.push({ path, text: readFileSync(join(dir, entry.name), "utf8") });
+const isGenerated = (path: string) => {
+  try {
+    return readFileSync(path, "utf8").startsWith(GENERATED_MARKER);
+  } catch {
+    return false;
   }
+};
+
+/**
+ * Make `dir` hold exactly these generated pages. Only pages carrying the
+ * generated marker are ever overwritten or deleted; anything else is left alone.
+ */
+export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?: boolean } = {}): DocsResult {
+  const result: DocsResult = { dir, written: [], deleted: [], skipped: [] };
+  const targets = new Map(files.map((f) => [fileInside(dir, f.path), f]));
+  for (const [abs, f] of targets) {
+    if (existsSync(abs)) {
+      if (readFileSync(abs, "utf8") === f.content) continue;
+      if (!isGenerated(abs)) {
+        result.skipped.push(f.path);
+        continue;
+      }
+    }
+    result.written.push(f.path);
+    if (!options.dryRun) {
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, f.content);
+    }
+  }
+  const walk = (folder: string) => {
+    let entries;
+    try {
+      entries = readdirSync(folder, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const abs = join(folder, e.name);
+      if (e.isDirectory()) walk(abs);
+      else if (e.name.endsWith(".md") && !targets.has(abs) && isGenerated(abs)) {
+        result.deleted.push(relative(dir, abs).split(sep).join("/"));
+        if (!options.dryRun) {
+          unlinkSync(abs);
+          removeEmptyDirs(dir, folder);
+        }
+      }
+    }
+  };
+  walk(dir);
+  return result;
 }
 
-/** Write and delete files under `root`. Throws before touching anything if a path would land outside it. */
-export function writeChanges(root: string, changes: FileChange[]): void {
-  const abs = (p: string) => fileInside(root, p);
-  for (const change of changes) {
-    abs(change.path);
-    if (change.from !== undefined) abs(change.from);
-  }
-  for (const change of changes) {
-    if (change.content === null) continue;
-    mkdirSync(dirname(abs(change.path)), { recursive: true });
-    writeFileSync(abs(change.path), change.content);
-  }
-  for (const change of changes) {
-    const gone = change.content === null ? change.path : change.from !== change.path ? change.from : undefined;
-    if (!gone) continue;
-    if (existsSync(abs(gone))) unlinkSync(abs(gone));
-    removeEmptyDirs(root, dirname(abs(gone)));
-  }
+/** Regenerate the document's docs folder, if it names one. */
+export function syncDocs(file: string, ws: Workspace, options: { dryRun?: boolean } = {}): DocsResult | undefined {
+  const dir = docsFolder(file, ws.doc);
+  return dir ? writeDocs(dir, exportDocs(ws, basename(file)), options) : undefined;
 }
 
-/** The file a workspace-relative path names. Changes can come from the desktop renderer, so nothing may escape `root`. */
+/** The file a relative path names inside `root`. Nothing may escape `root`. */
 function fileInside(root: string, p: string): string {
   const bad = (why: string) => new CliError(`Refusing to write ${JSON.stringify(p)}: ${why}.`);
   if (typeof p !== "string" || !p || p.includes("\0")) throw bad("it isn't a file path");
-  if (posix.isAbsolute(p) || win32.isAbsolute(p)) throw bad("paths must be relative to the workspace");
+  if (posix.isAbsolute(p) || win32.isAbsolute(p)) throw bad("paths must be relative");
   if (p.split(/[\\/]/).includes("..")) throw bad("paths can't contain `..`");
   const file = join(root, ...p.split("/"));
   const rel = relative(resolve(root), resolve(file));
-  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw bad("it's outside the workspace");
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw bad("it's outside the folder");
   return file;
 }
 
@@ -114,14 +165,8 @@ function removeEmptyDirs(root: string, dir: string): void {
   }
 }
 
-/** A path the user typed, as a workspace-relative path with `/` separators. */
-export function toWorkspacePath(root: string, cwd: string, p: string): string {
-  return relative(root, resolve(cwd, p)).split(sep).join("/");
-}
-
-/** A workspace-relative path, as the user should see it: relative to where they ran the command. */
-export function displayPath(root: string, cwd: string, wsPath: string): string {
-  const abs = join(root, ...wsPath.split("/"));
+/** A path as the user should see it: relative to where they ran the command when it's below there. */
+export function displayPath(cwd: string, abs: string): string {
   const rel = relative(cwd, abs);
   return rel.startsWith("..") || isAbsolute(rel) ? abs : rel || ".";
 }

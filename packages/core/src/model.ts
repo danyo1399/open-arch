@@ -1,4 +1,4 @@
-import type { Workspace } from "./load.js";
+import type { Workspace } from "./workspace.js";
 import type { ArchElement, ElementKind } from "./types.js";
 
 export const KIND_RANK: Record<ElementKind, number> = { person: 0, system: 1, container: 2, component: 3 };

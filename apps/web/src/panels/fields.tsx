@@ -6,12 +6,13 @@ interface FieldProps {
   value: string;
   onCommit(value: string): void;
   multiline?: boolean;
+  rows?: number;
   placeholder?: string;
   autoFocus?: boolean;
   hint?: ReactNode;
 }
 
-export function Field({ label, value, onCommit, multiline, placeholder, autoFocus, hint }: FieldProps) {
+export function Field({ label, value, onCommit, multiline, rows = 3, placeholder, autoFocus, hint }: FieldProps) {
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   useEffect(() => {
     if (autoFocus && ref.current) {
@@ -35,7 +36,7 @@ export function Field({ label, value, onCommit, multiline, placeholder, autoFocu
       <span className="field-label">{label}</span>
       {multiline ? (
         // key: re-create the input when the saved value changes underneath it, e.g. after an agent's edit.
-        <textarea key={value} {...common} rows={3} />
+        <textarea key={value} {...common} rows={rows} />
       ) : (
         <input
           key={value}

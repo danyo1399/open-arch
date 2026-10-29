@@ -1,18 +1,4 @@
-import {
-  computeView,
-  newElement,
-  parseLayout,
-  scopeProblems,
-  setLayout,
-  showInView,
-  addRelationship,
-  type ArchElement,
-  type Diagnostic,
-  type ElementKind,
-  type NodeLayout,
-  type ViewDef,
-  type Workspace,
-} from "@open-arch/core";
+import { computeView, diagnosticTarget, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Position, type ViewDef, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -27,13 +13,13 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { uniqueId } from "../ids.js";
-import { chain, type Edit } from "../state.js";
+import { uniqueId } from "../model.js";
+import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, type Point } from "./autoLayout.js";
 import { edgeTypes, type ArrowEdge } from "./FloatingEdge.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode } from "./nodes.js";
 
-export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | null;
+export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "workspace" } | null;
 
 type FlowNode = ElementFlowNode | FrameFlowNode;
 
@@ -46,7 +32,7 @@ interface CanvasProps {
   diagnostics: Diagnostic[];
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
-  edit(fn: Edit): Promise<boolean>;
+  edit(edit: Edit): Promise<boolean>;
 }
 
 /** Element kinds that can be added to a view at its level, and the parent each gets. */
@@ -112,11 +98,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
   const cv = useMemo(() => (scopeErrors.length ? null : computeView(ws, view)), [ws, view, scopeErrors]);
 
-  const saved = useMemo<Record<string, NodeLayout>>(() => {
-    const block = ws.files.get(view.path)?.blocks.layout;
-    const parsed = block ? parseLayout(block.json) : undefined;
-    return parsed?.ok ? parsed.layout.nodes : {};
-  }, [ws, view]);
+  // Saved positions, as points.
+  const saved = useMemo<Record<string, Point>>(() => Object.fromEntries(Object.entries(view.layout).map(([id, p]) => [id, { x: p[0], y: p[1] }])), [view]);
 
   const ids = useMemo(() => cv?.nodes.map((n) => n.id) ?? [], [cv]);
   const graphKey = `${view.id}|${ids.join(",")}|${cv?.edges.map((e) => `${e.from}>${e.to}`).join(",") ?? ""}`;
@@ -143,7 +126,10 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
 
   const problemCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const d of diagnostics) counts.set(d.path, (counts.get(d.path) ?? 0) + 1);
+    for (const d of diagnostics) {
+      const target = diagnosticTarget(d);
+      if (target?.kind === "element") counts.set(target.id, (counts.get(target.id) ?? 0) + 1);
+    }
     return counts;
   }, [diagnostics]);
 
@@ -159,7 +145,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
           id: element.id,
           type: "element",
           position: positions[element.id]!,
-          data: { element, problems: problemCounts.get(element.path) ?? 0 },
+          data: { element, problems: problemCounts.get(element.id) ?? 0 },
           selected: selection?.kind === "element" && selection.id === element.id,
           measured: previous.find((p) => p.id === element.id)?.measured,
         })),
@@ -201,20 +187,20 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
     [cv],
   );
 
-  const currentLayout = useCallback((): Record<string, NodeLayout> => {
-    const out: Record<string, NodeLayout> = {};
-    for (const n of nodesRef.current) if (n.type === "element") out[n.id] = { ...saved[n.id], x: n.position.x, y: n.position.y };
+  /** Every box's position as shown now, including ones placed automatically. */
+  const currentLayout = useCallback((): Record<string, Position> => {
+    const out: Record<string, Position> = {};
+    for (const n of nodesRef.current) if (n.type === "element") out[n.id] = [Math.round(n.position.x), Math.round(n.position.y)];
     return out;
-  }, [saved]);
+  }, []);
 
   const onNodeDragStop = useCallback(() => {
-    const layout = currentLayout();
-    void edit((w) => setLayout(w, view.id, layout));
+    void edit([{ op: "set-layout", view: view.id, positions: currentLayout() }]);
   }, [currentLayout, edit, view.id]);
 
   const onConnect = useCallback(
     (c: Connection) => {
-      void edit((w) => addRelationship(w, c.source, c.target)).then((ok) => ok && onSelect({ kind: "arrow", from: c.source, to: c.target }));
+      void edit([{ op: "add-relationship", from: c.source, to: c.target }]).then((ok) => ok && onSelect({ kind: "arrow", from: c.source, to: c.target }));
     },
     [edit, onSelect],
   );
@@ -224,16 +210,12 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
     const center = rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
     const id = uniqueId(ws, `new-${kind}`);
     const existing = currentLayout();
-    const spot = freeSpotAmong({ x: center.x - NODE_W / 2, y: center.y - NODE_H / 2 }, Object.values(existing));
-    const layout: Record<string, NodeLayout> = { ...existing, [id]: { ...spot } };
-    void edit((w) =>
-      chain(
-        w,
-        (x) => newElement(x, { id, kind, parent, name: `New ${kind}` }),
-        (x) => showInView(x, view.id, id),
-        (x) => setLayout(x, view.id, layout),
-      ),
-    ).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
+    const spot = freeSpotAmong({ x: center.x - NODE_W / 2, y: center.y - NODE_H / 2 }, Object.values(existing).map(([x, y]) => ({ x, y })));
+    void edit([
+      { op: "add-element", id, kind, parent, name: `New ${kind}` },
+      { op: "show-in-view", view: view.id, id },
+      { op: "set-layout", view: view.id, positions: { ...existing, [id]: [spot.x, spot.y] } },
+    ]).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
   };
 
   const [menuOpen, setMenuOpen] = useState(false);

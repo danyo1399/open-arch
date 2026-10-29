@@ -15,12 +15,7 @@ interface SidebarProps {
   onShowInView(id: string): void;
   onNewView(): void;
   onOpenProblem(d: Diagnostic): void;
-  /** Run `fmt` over the workspace: regenerates previews and prunes layouts. */
-  onFormat(): void;
 }
-
-/** Problems `fmt` fixes on its own. */
-const FORMAT_FIXES = new Set(["preview-missing", "preview-stale", "preview-edited", "preview-disabled", "layout-stale"]);
 
 export function Sidebar(props: SidebarProps) {
   const { ws, diagnostics, viewId } = props;
@@ -45,7 +40,7 @@ export function Sidebar(props: SidebarProps) {
         <ul className="list">
           {views.map((v: ViewDef) => (
             <li key={v.id}>
-              <button className={v.id === viewId ? "row active" : "row"} onClick={() => props.onSelectView(v.id)} title={v.path}>
+              <button className={v.id === viewId ? "row active" : "row"} onClick={() => props.onSelectView(v.id)} title={v.id}>
                 <span className="dot dot-view" />
                 <span className="grow">{v.title}</span>
                 <span className="muted small">{v.level}</span>
@@ -75,14 +70,6 @@ export function Sidebar(props: SidebarProps) {
           </button>
           <span className={errors ? "count bad" : diagnostics.length ? "count warn" : "count"}>{diagnostics.length}</span>
         </header>
-        {problemsOpen && diagnostics.some((d) => FORMAT_FIXES.has(d.rule)) && (
-          <p className="small">
-            <button className="link" onClick={props.onFormat}>
-              Update previews and layouts
-            </button>{" "}
-            <span className="muted">(same as open-arch fmt)</span>
-          </p>
-        )}
         {problemsOpen && (
           <ul className="list">
             {diagnostics.length === 0 && <li className="muted">No problems.</li>}
@@ -93,8 +80,7 @@ export function Sidebar(props: SidebarProps) {
                   <span className="grow">
                     {d.message}
                     <span className="muted small block">
-                      {d.path}
-                      {d.line ? `:${d.line}` : ""}
+                      {d.path || "the file"}
                     </span>
                   </span>
                 </button>
@@ -115,7 +101,7 @@ function TreeRow({ node, depth, ...props }: { node: TreeNode; depth: number } & 
     <>
       <li>
         <div className={selected ? "row active" : "row"} style={{ paddingLeft: 8 + depth * 14 }}>
-          <button className="row-main" onClick={() => props.onSelect({ kind: "element", id: e.id })} title={e.path}>
+          <button className="row-main" onClick={() => props.onSelect({ kind: "element", id: e.id })} title={e.id}>
             <span className={`dot dot-${e.external ? "external" : e.kind}`} />
             <span className={props.inView.has(e.id) ? "grow" : "grow muted"}>{e.name}</span>
           </button>

@@ -1,142 +1,217 @@
 import { parseArgs, type ParseArgsConfig } from "node:util";
 import { OpError } from "@open-arch/core";
 import { check } from "./commands/check.js";
+import { BUILDERS, commit, tidy, writeOptions, type Values } from "./commands/edit.js";
+import { exportCommand } from "./commands/export.js";
 import { fmt } from "./commands/fmt.js";
 import { init } from "./commands/init.js";
-import { create } from "./commands/new.js";
-import { rename } from "./commands/rename.js";
 import { show } from "./commands/show.js";
 import { CliError, VERSION, type Io } from "./io.js";
 
 export { CliError, type Io } from "./io.js";
 
 type Options = NonNullable<ParseArgsConfig["options"]>;
-type Values = Record<string, string | boolean | string[] | undefined>;
 
 interface Command {
   usage: string;
   options: Options;
-  run(io: Io, values: Values, positionals: string[]): number;
+  run(io: Io, values: Values, positionals: string[], usage: string): number;
 }
 
-const ROOT = { root: { type: "string" } } as const;
+const s = { type: "string" } as const;
+const b = { type: "boolean" } as const;
+const FILE = { file: s };
+const WRITE = { ...FILE, "dry-run": b, json: b, "no-export": b };
+const WRITE_HELP = `
+  --file <path>     The .openarch file (default: the one here, above or below)
+  --dry-run         Check the change and report it, but don't save
+  --json            Print the result as JSON
+  --no-export       Don't refresh the docs folder after saving`;
+
 const str = (v: Values[string]) => (typeof v === "string" ? v : undefined);
 const bool = (v: Values[string]) => v === true;
 
+function writer(usage: string, options: Options): Command {
+  return {
+    usage: `${usage.trimEnd()}\n${WRITE_HELP}\n`,
+    options: { ...WRITE, ...options },
+    run: (io, v, p, u) => {
+      const name = usage.split("\n")[0]!.split(" ")[2]!;
+      return commit(io, writeOptions(v), tidy(BUILDERS[name]!(io, v, p, u)));
+    },
+  };
+}
+
 const COMMANDS: Record<string, Command> = {
   init: {
-    usage: `Usage: open-arch init [dir] [--no-skills] [--no-agents-md]
+    usage: `Usage: open-arch init [file] [--name <name>] [--docs <folder>] [--no-skills] [--no-agents-md]
 
-Creates a workspace in dir (default: the current folder): open-arch.yaml, model/ and views/.
-Also installs the open-arch agent skill into .agents/skills/ and .claude/skills/, and adds an
-open-arch section to AGENTS.md, at the repository root (or the current folder outside a repository).
-Safe to run again: it keeps your files and refreshes the skill and the AGENTS.md section.
+Creates an empty workspace file (default: architecture.openarch) with a docs folder
+(default: docs/architecture, relative to the file). Also installs the open-arch agent skill
+into .agents/skills/ and .claude/skills/ and adds an open-arch section to AGENTS.md, at the
+repository root. Safe to run again: it keeps the file and refreshes the skill and the section.
 `,
-    options: { "no-skills": { type: "boolean" }, "no-agents-md": { type: "boolean" } },
-    run: (io, v, p) => init(io, { dir: p[0], noSkills: bool(v["no-skills"]), noAgentsMd: bool(v["no-agents-md"]) }),
+    options: { name: s, docs: s, "no-skills": b, "no-agents-md": b },
+    run: (io, v, p) => init(io, { file: p[0], name: str(v.name), docs: str(v.docs), noSkills: bool(v["no-skills"]), noAgentsMd: bool(v["no-agents-md"]) }),
   },
   check: {
-    usage: `Usage: open-arch check [files...] [--json] [--strict]
+    usage: `Usage: open-arch check [--file <path>] [--json] [--strict]
 
-Validates the whole workspace. With files, reports only problems in those files.
-Exits 1 when there are errors (or any warnings, with --strict).
+Validates the workspace. Exits 1 when there are errors (or any warnings, with --strict).
 `,
-    options: { ...ROOT, json: { type: "boolean" }, strict: { type: "boolean" } },
-    run: (io, v, p) => check(io, { root: str(v.root), json: bool(v.json), strict: bool(v.strict), files: p }),
-  },
-  fmt: {
-    usage: `Usage: open-arch fmt [files...] [--check]
-
-Rewrites files in the form open-arch saves them, regenerates each view's Mermaid preview,
-and drops layout positions for elements no longer in a view.
-With --check, changes nothing and exits 1 if any file would change.
-`,
-    options: { ...ROOT, check: { type: "boolean" } },
-    run: (io, v, p) => fmt(io, { root: str(v.root), check: bool(v.check), files: p }),
+    options: { ...FILE, json: b, strict: b },
+    run: (io, v) => check(io, { file: str(v.file), json: bool(v.json), strict: bool(v.strict) }),
   },
   show: {
-    usage: `Usage: open-arch show [id] [--json]
+    usage: `Usage: open-arch show [id] [--file <path>] [--json]
 
 Without an id: the model as a tree, and the list of views.
-With an element id: its details, what it uses, what uses it, and the views it appears in.
+With an element id: its fields, notes, what it uses, what uses it, and the views showing it.
 With a view id: the boxes and arrows the view draws.
 `,
-    options: { ...ROOT, json: { type: "boolean" } },
-    run: (io, v, p) => show(io, { root: str(v.root), json: bool(v.json), id: p[0] }),
+    options: { ...FILE, json: b },
+    run: (io, v, p) => show(io, { file: str(v.file), json: bool(v.json), id: p[0] }),
   },
-  new: {
-    usage: `Usage:
-  open-arch new element <id> --kind <person|system|container|component> [--parent <id>]
-                             [--name <name>] [--description <text>] [--technology <text>]
-                             [--external] [--tag <tag>]... [--dir <folder>]
-  open-arch new view <id> --level <landscape|context|container|component> [--scope <id>]
-                          [--title <title>] [--description <text>]
+  fmt: {
+    usage: `Usage: open-arch fmt [--file <path>] [--check]
 
-Containers need --parent <system>, components need --parent <container>.
-Context and container views need --scope <system>, component views need --scope <container>.
+Rewrites the file in canonical form. With --check, changes nothing and exits 1 if it would.
 `,
-    options: {
-      ...ROOT,
-      kind: { type: "string" },
-      parent: { type: "string" },
-      name: { type: "string" },
-      description: { type: "string" },
-      technology: { type: "string" },
-      external: { type: "boolean" },
-      tag: { type: "string", multiple: true },
-      dir: { type: "string" },
-      level: { type: "string" },
-      scope: { type: "string" },
-      title: { type: "string" },
-    },
-    run: (io, v, p) =>
-      create(io, {
-        root: str(v.root),
-        what: p[0],
-        id: p[1],
-        kind: str(v.kind),
-        parent: str(v.parent),
-        name: str(v.name),
-        description: str(v.description),
-        technology: str(v.technology),
-        external: bool(v.external),
-        tag: Array.isArray(v.tag) ? v.tag : undefined,
-        dir: str(v.dir),
-        level: str(v.level),
-        scope: str(v.scope),
-        title: str(v.title),
-      }),
+    options: { ...FILE, check: b },
+    run: (io, v) => fmt(io, { file: str(v.file), check: bool(v.check) }),
   },
-  rename: {
-    usage: `Usage: open-arch rename <old-id> <new-id> [--dry-run]
+  export: {
+    usage: `Usage: open-arch export [folder] [--file <path>] [--check]
 
-Changes an element's or view's ID: renames its file (and the folder of its children),
-and updates every parent, uses, scope, include, exclude and layout reference to it.
-Prose in file bodies isn't changed; the files that mention the old ID are listed.
+Writes the generated markdown docs (an index, a page per element and per view with its
+Mermaid diagram) to the folder, or to the workspace's docs folder. Only pages open-arch
+generated are overwritten or removed. With --check, exits 1 if the docs are out of date.
 `,
-    options: { ...ROOT, "dry-run": { type: "boolean" } },
-    run: (io, v, p) => rename(io, { root: str(v.root), dryRun: bool(v["dry-run"]), from: p[0], to: p[1] }),
+    options: { ...FILE, check: b },
+    run: (io, v, p) => exportCommand(io, { file: str(v.file), dir: p[0], check: bool(v.check) }),
   },
+  apply: writer(
+    `Usage: open-arch apply [file | -]
+
+Applies a JSON list of operations from a file, or from standard input with - (the default),
+all or nothing. Each operation is an object with "op" and the same fields as the matching
+command, e.g. [{ "op": "add-element", "id": "cache", "kind": "container", "parent": "shop" }].
+Operations: add-element, update-element, remove-element, rename, add-relationship,
+update-relationship, remove-relationship, add-view, update-view, remove-view, show-in-view,
+hide-in-view, set-layout, update-workspace. In updates, null removes a field.
+`,
+    {},
+  ),
+  "add-element": writer(
+    `Usage: open-arch add-element <id> --kind <person|system|container|component> [options]
+
+  --parent <id>          Containers need a system; components need a container
+  --name <name>          Display name (default: from the id)
+  --description <text>   One sentence, shown in the box
+  --technology <text>    e.g. Node.js, PostgreSQL
+  --external             A person or system outside your organisation
+  --tags <a,b>           Comma-separated; "database" draws a cylinder
+  --property <key=value> Repeat for more, e.g. --property owner=payments
+  --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
+`,
+    { kind: s, parent: s, name: s, description: s, technology: s, external: b, tags: s, property: { type: "string", multiple: true }, notes: s, "notes-file": s },
+  ),
+  "update-element": writer(
+    `Usage: open-arch update-element <id> [options]
+
+Changes only the fields given. An empty value removes a field, e.g. --technology "".
+  --name, --description, --technology, --notes, --notes-file, --tags <a,b>
+  --parent <id>          Move it into another system (or container, for a component)
+  --external, --internal Mark a person or system as outside your organisation, or not
+  --property <key=value> Set a property; <key>= with no value removes it
+`,
+    { name: s, parent: s, description: s, technology: s, external: b, internal: b, tags: s, property: { type: "string", multiple: true }, notes: s, "notes-file": s },
+  ),
+  "remove-element": writer(
+    `Usage: open-arch remove-element <id>
+
+Removes the element, everything inside it, views scoped to them, and every relationship and
+view entry that refers to them.
+`,
+    {},
+  ),
+  rename: writer(
+    `Usage: open-arch rename <old-id> <new-id>
+
+Changes an element's or view's ID everywhere it's referenced.
+`,
+    {},
+  ),
+  "add-relationship": writer(
+    `Usage: open-arch add-relationship <from> <to> [--description <text>] [--technology <text>] [--tags <a,b>]
+
+Adds "<from> uses <to>". Describe it from <from>'s side, e.g. "Reads and writes orders".
+`,
+    { description: s, technology: s, tags: s },
+  ),
+  "update-relationship": writer(
+    `Usage: open-arch update-relationship <from> <to> [--index <n>] [--description <text>] [--technology <text>] [--tags <a,b>]
+
+--index picks one when <from> has several relationships to <to> (0 is the first).
+An empty value removes a field.
+`,
+    { index: s, description: s, technology: s, tags: s },
+  ),
+  "remove-relationship": writer(
+    `Usage: open-arch remove-relationship <from> <to> [--index <n>]
+`,
+    { index: s },
+  ),
+  "add-view": writer(
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component> [options]
+
+  --scope <id>           A system for context and container views, a container for component views
+  --title <title>        Default: from the scope and level
+  --description <text>
+  --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
+  --exclude <a,b>        What to hide
+`,
+    { level: s, scope: s, title: s, description: s, include: s, exclude: s },
+  ),
+  "update-view": writer(
+    `Usage: open-arch update-view <id> [--title <title>] [--description <text>] [--include <a,b>] [--exclude <a,b>]
+`,
+    { title: s, description: s, include: s, exclude: s },
+  ),
+  "remove-view": writer(`Usage: open-arch remove-view <id>\n`, {}),
+  "show-in-view": writer(`Usage: open-arch show-in-view <view> <id>...\n\nShows elements in a view, removing them from its exclude list or adding them to include.\n`, {}),
+  "hide-in-view": writer(`Usage: open-arch hide-in-view <view> <id>...\n\nHides elements from a view, without removing them from the model.\n`, {}),
+  "update-workspace": writer(
+    `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
+
+--docs sets the folder (relative to the .openarch file) kept up to date with generated docs;
+--docs "" turns that off.
+`,
+    { name: s, description: s, docs: s },
+  ),
 };
 
-const HELP = `open-arch ${VERSION}: an architecture model (C4) kept as markdown files.
+const HELP = `open-arch ${VERSION}: an architecture model (C4) in one .openarch file.
 
 Usage: open-arch <command> [options]
 
-Commands:
-  init [dir]           Create a workspace and install the agent skill
-  check [files...]     Validate the workspace (exits 1 on errors)
-  fmt [files...]       Rewrite files in canonical form and regenerate view previews
-  show [id]            Print the model, an element, or a view
-  new element <id>     Create an element file
-  new view <id>        Create a view file
-  rename <old> <new>   Change an element's or view's ID everywhere
+Read:
+  show [id]              The model, one element, or one view
+  check                  Validate (exits 1 on errors)
+  export [folder]        Write the generated markdown docs
 
-Options:
-  --root <dir>         Workspace folder (default: the nearest open-arch.yaml)
-  --json               Machine-readable output (check, show)
-  -h, --help           Help for a command: open-arch <command> --help
-  -v, --version        Print the version
+Change (each change is checked first; nothing is saved if it would break the model):
+  add-element <id>       update-element <id>       remove-element <id>      rename <old> <new>
+  add-relationship <from> <to>    update-relationship <from> <to>    remove-relationship <from> <to>
+  add-view <id>          update-view <id>          remove-view <id>
+  show-in-view <view> <id>...     hide-in-view <view> <id>...     update-workspace
+  apply [file | -]       Several changes from JSON, all or nothing
+
+Other:
+  init [file]            Create a workspace and install the agent skill
+  fmt                    Rewrite the file in canonical form
+
+Run open-arch <command> --help for its options. Every command takes --file <path>.
 `;
 
 export function run(argv: string[], io: Io): number {
@@ -162,7 +237,7 @@ export function run(argv: string[], io: Io): number {
       io.out(command.usage);
       return 0;
     }
-    return command.run(io, parsed.values as Values, parsed.positionals);
+    return command.run(io, parsed.values as Values, parsed.positionals, command.usage);
   } catch (error) {
     if (error instanceof CliError) {
       io.err(`open-arch: ${error.message}\n`);

@@ -1,142 +1,94 @@
-import { DEFAULT_CONFIG_TEXT } from "@open-arch/core";
+import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
 import { useEffect, useRef, useState } from "react";
 import { Designer } from "./Designer.js";
-import { desktopBridge, DesktopHost, type DesktopBridge } from "./desktop.js";
-import { canOpenFolders, createWorkspace, exampleHost, findWorkspace, FolderHost, hostFromFileList, MemoryHost, pickFolder, type WorkspaceHost } from "./hosts.js";
-import { Modal } from "./panels/dialogs.js";
-
-type PendingCreate = { name: string; create(): Promise<void> };
+import { canSaveFiles, desktopBridge, DesktopHost, exampleHost, FileHandleHost, hostFromFile, MemoryHost, pickFileToOpen, type WorkspaceHost } from "./hosts.js";
 
 export function App() {
   const [host, setHost] = useState<WorkspaceHost | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<PendingCreate | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const desktop = desktopBridge();
-  const writable = !!desktop || canOpenFolders();
+  const savesFiles = !!desktop || canSaveFiles();
 
-  const openDesktopFolder = async (bridge: DesktopBridge, folder: string) => {
-    const found = await bridge.findWorkspace(folder);
-    if ("root" in found) return setHost(new DesktopHost(bridge, found.root, found.name));
-    if (!found.canCreate) return setError(found.error);
-    setPending({
-      name: folder,
-      create: async () => {
-        await bridge.createWorkspace(folder);
-        await openDesktopFolder(bridge, folder);
-      },
-    });
-  };
-
-  // The desktop app reopens the last workspace.
+  // The desktop app reopens the last file.
   useEffect(() => {
     if (!desktop) return;
-    void desktop.lastWorkspace().then((root) => {
-      if (root) void openDesktopFolder(desktop, root);
+    void desktop.lastFile().then((file) => {
+      if (file) setHost(new DesktopHost(desktop, file.path, file.name));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openFolder = async () => {
+  const attempt = (task: () => Promise<void>) => {
     setError(null);
-    try {
+    task().catch((e: Error) => setError(e.message));
+  };
+
+  const open = () =>
+    attempt(async () => {
       if (desktop) {
-        const folder = await desktop.pickFolder();
-        if (folder) await openDesktopFolder(desktop, folder);
-        return;
+        const file = await desktop.openFile();
+        if (file) setHost(new DesktopHost(desktop, file.path, file.name));
+      } else if (canSaveFiles()) {
+        const handle = await pickFileToOpen();
+        if (handle) setHost(new FileHandleHost(handle));
+      } else {
+        fileInput.current?.click();
       }
-      const dir = await pickFolder();
-      if (!dir) return;
-      const found = await findWorkspace(dir);
-      if (found) return setHost(new FolderHost(found.dir));
-      setPending({
-        name: dir.name,
-        create: async () => {
-          await createWorkspace(dir);
-          setHost(new FolderHost(dir));
-        },
-      });
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
+    });
 
-  const openReadOnly = async (files: FileList | null) => {
-    if (!files?.length) return;
-    const result = await hostFromFileList(files);
-    if ("error" in result) setError(result.error);
-    else setHost(result);
-  };
+  const create = () =>
+    attempt(async () => {
+      if (desktop) {
+        const file = await desktop.newFile();
+        if (file) setHost(new DesktopHost(desktop, file.path, file.name));
+      } else {
+        setHost(new MemoryHost(`architecture${FILE_EXTENSION}`, serializeDocument(emptyDocument("Architecture"))));
+      }
+    });
 
-  if (host) return <Designer host={host} onClose={() => setHost(null)} />;
+  if (host) return <Designer key={host.name + host.storage} host={host} onClose={() => setHost(null)} onHostChange={setHost} />;
 
   return (
     <div className="start">
       <div className="start-card">
         <h1>open-arch</h1>
-        <p className="lede">Architecture diagrams kept as markdown files, so people and AI agents can both read and change them.</p>
+        <p className="lede">Architecture diagrams for people and AI agents. One model in a .openarch file; the views are drawn from it, and the docs are generated from it.</p>
         <div className="start-actions">
-          {writable ? (
-            <button className="primary big" onClick={openFolder}>
-              Open folder…
-            </button>
-          ) : (
-            <>
-              <button className="primary big" onClick={() => fileInput.current?.click()}>
-                Open folder (read-only)…
-              </button>
-              <input ref={(el) => {
-                fileInput.current = el;
-                el?.setAttribute("webkitdirectory", "");
-              }} type="file" multiple hidden onChange={(e) => void openReadOnly(e.target.files)} />
-            </>
-          )}
+          <button className="primary big" onClick={open}>
+            Open…
+          </button>
+          <button className="big" onClick={create}>
+            New workspace
+          </button>
           <button className="big" onClick={() => setHost(exampleHost())}>
             Try the example
           </button>
-          {!desktop && (
-            <button className="big" onClick={() => setHost(new MemoryHost("workspace", DEFAULT_CONFIG_TEXT, []))}>
-              Start an empty workspace
-            </button>
-          )}
+          <input
+            ref={fileInput}
+            type="file"
+            accept={`${FILE_EXTENSION},application/json`}
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) attempt(async () => setHost(await hostFromFile(file)));
+            }}
+          />
         </div>
-        {!writable && (
+        {desktop && <p className="muted small">Changes save to the file as you work, and the docs folder it names is kept up to date.</p>}
+        {!desktop && savesFiles && <p className="muted small">Changes save to the file as you work. Use Export docs for markdown pages with diagrams.</p>}
+        {!savesFiles && (
           <p className="muted small">
-            This browser can't save to folders, so edits stay in this tab; use <strong>Download .zip</strong> to keep them. To edit files in place, use Chrome or Edge, or the desktop app.
+            This browser can't save back to files, so changes stay in this tab until you click <strong>Download</strong>. Chrome and Edge, and the desktop app, save as you work.
           </p>
         )}
-        {writable && !desktop && <p className="muted small">Pick a folder that contains open-arch.yaml, or an empty folder to start a new workspace. Changes are saved to the files as you work.</p>}
         {error && (
           <p className="error" role="alert">
             {error}
           </p>
         )}
       </div>
-      {pending && (
-        <Modal
-          title="Start a new workspace here?"
-          onClose={() => setPending(null)}
-          actions={
-            <>
-              <button onClick={() => setPending(null)}>Cancel</button>
-              <button
-                className="primary"
-                onClick={() => {
-                  const p = pending;
-                  setPending(null);
-                  p.create().catch((e: Error) => setError(e.message));
-                }}
-              >
-                Create workspace
-              </button>
-            </>
-          }
-        >
-          <p>
-            There's no open-arch.yaml in <strong>{pending.name}</strong> or the folders below it. Create a new, empty workspace there? This adds open-arch.yaml and the model and views folders.
-          </p>
-        </Modal>
-      )}
     </div>
   );
 }

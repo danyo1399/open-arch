@@ -1,20 +1,20 @@
-import { computeView, describeElement, modelTree, scopeProblems, type ArchElement, type TreeNode, type Workspace } from "@open-arch/core";
+import { computeView, describeElement, modelTree, scopeProblems, suggest, type ArchElement, type TreeNode, type Workspace } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
-import { displayPath, openWorkspace } from "../workspace.js";
+import { displayPath, findWorkspaceFile, readWorkspaceFile } from "../workspace.js";
 
 export interface ShowOptions {
-  root?: string;
+  file?: string;
   json?: boolean;
   id?: string;
 }
 
 export function show(io: Io, opts: ShowOptions): number {
-  const { root, ws } = openWorkspace(io.cwd, opts.root);
-  const path = (p: string) => displayPath(root, io.cwd, p);
+  const file = findWorkspaceFile(io.cwd, opts.file);
+  const ws = readWorkspaceFile(file);
   const print = (value: unknown, text: string) => io.out(opts.json ? JSON.stringify(value, null, 2) + "\n" : text);
 
   if (!opts.id) {
-    print(overviewJson(ws), overviewText(ws, path(""), path));
+    print(overviewJson(ws), overviewText(ws, displayPath(io.cwd, file)));
     return 0;
   }
   const element = ws.elements.get(opts.id);
@@ -22,11 +22,12 @@ export function show(io: Io, opts: ShowOptions): number {
     const d = describeElement(ws, opts.id)!;
     const json = {
       ...summary(element),
-      path: path(element.path),
       description: element.description,
       tags: element.tags,
+      properties: element.properties,
+      notes: element.notes,
       children: d.children.map((c) => c.id),
-      uses: d.uses.map(({ rel, target }) => ({ ...rel, line: undefined, known: !!target })),
+      uses: d.uses.map(({ rel, target }) => ({ to: rel.to, description: rel.description, technology: rel.technology, tags: rel.tags, known: !!target })),
       usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, description: rel.description, technology: rel.technology })),
       contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, description: rel.description, technology: rel.technology })),
       contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, description: rel.description, technology: rel.technology })),
@@ -39,7 +40,8 @@ export function show(io: Io, opts: ShowOptions): number {
     field("technology", element.technology);
     field("description", element.description);
     field("tags", element.tags.join(", "));
-    field("file", path(element.path));
+    for (const [k, v] of Object.entries(element.properties)) field(k, v);
+    if (element.notes) lines.push("", "Notes:", ...element.notes.split("\n").map((l) => `  ${l}`.trimEnd()));
     if (d.children.length) lines.push("", "Contains:", ...table(d.children.map(row)));
     lines.push("", "Uses:");
     if (d.uses.length === 0) lines.push("  (nothing)");
@@ -68,7 +70,6 @@ export function show(io: Io, opts: ShowOptions): number {
       title: view.title,
       level: view.level,
       scope: view.scope,
-      path: path(view.path),
       frame: cv.boundary?.id,
       boxes: cv.nodes.map(summary),
       arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
@@ -77,7 +78,7 @@ export function show(io: Io, opts: ShowOptions): number {
     const lines = [
       `${view.id}: ${view.title}`,
       `  level:       ${view.level}${scope ? ` view of ${scope.id} (${scope.name})` : ""}`,
-      `  file:        ${path(view.path)}`,
+      ...(view.description ? [`  description: ${view.description}`] : []),
       "",
       "Boxes:",
       ...(cv.nodes.length ? table(cv.nodes.map(row)) : ["  (none)"]),
@@ -96,11 +97,11 @@ export function show(io: Io, opts: ShowOptions): number {
     return 0;
   }
 
-  if (ws.brokenIds.has(opts.id)) throw new CliError(`"${opts.id}" has errors that stop it being read. Run \`open-arch check\`.`);
-  throw new CliError(`No element or view has the ID "${opts.id}". Run \`open-arch show\` to list them.`);
+  const near = suggest(opts.id, [...ws.elements.keys(), ...ws.views.keys()]);
+  throw new CliError(`No element or view has the ID "${opts.id}".${near ? ` Did you mean "${near}"?` : ""} Run \`open-arch show\` to list them.`);
 }
 
-function overviewText(ws: Workspace, workspace: string, path: (p: string) => string): string {
+function overviewText(ws: Workspace, workspace: string): string {
   const rows: string[][] = [];
   const walk = (node: TreeNode, depth: number) => {
     const [, kind, name] = row(node.element);
@@ -110,7 +111,7 @@ function overviewText(ws: Workspace, workspace: string, path: (p: string) => str
   modelTree(ws).forEach((n) => walk(n, 0));
   const views = [...ws.views.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
   return [
-    `Workspace ${workspace} (${ws.elements.size} elements, ${ws.views.size} views)`,
+    `${ws.doc.name}: ${workspace} (${ws.elements.size} elements, ${ws.views.size} views)`,
     "",
     "Model:",
     ...(rows.length ? table(rows) : ["  (empty)"]),

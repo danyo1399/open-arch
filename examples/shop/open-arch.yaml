@@ -1,6 +1,0 @@
-# open-arch workspace. Elements live in `model/`, views in `views/`.
-version: 1
-model: model
-views: views
-# Generated Mermaid preview in every view file: mermaid | none
-preview: mermaid

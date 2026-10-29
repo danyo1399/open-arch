@@ -16,5 +16,5 @@
       "open-arch/workspace": ["../../packages/cli/src/workspace.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }

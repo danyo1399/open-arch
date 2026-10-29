@@ -6,6 +6,9 @@ directories:
 files:
   - dist/**
   - package.json
+# The CLI the AI agent runs, and the skill it reads, must be plain files for other processes.
+asarUnpack:
+  - dist/cli/**
 mac:
   target: [dmg, zip]
   category: public.app-category.developer-tools

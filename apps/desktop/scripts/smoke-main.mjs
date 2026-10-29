@@ -1,12 +1,39 @@
 // Electron entry for the smoke test (see smoke.mjs). Loads the real main
 // process, then drives and inspects the window it opens.
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, ipcMain } from "electron";
 
-const { OPEN_ARCH_SMOKE_WORKSPACE: workspace, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out } = process.env;
+const { OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli } = process.env;
+const file = join(folder, "shop.openarch");
 app.setPath("userData", userData);
 await import("../dist/main.js");
+
+// A scripted agent in place of OpenCode: it asks to run a command, and once
+// approved changes the file with the bundled CLI, as a real agent would.
+const runCli = (...args) => execFileSync(process.execPath, [cli, ...args, "--file", file], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
+const agentRequests = [];
+let answer;
+for (const channel of ["agentRun", "agentReply", "agentCancel"]) ipcMain.removeHandler(channel);
+ipcMain.handle(
+  "agentRun",
+  (event, run, path, prompt, context) =>
+    new Promise((resolve) => {
+      const emit = (e) => event.sender.send("agent-event", run, e);
+      agentRequests.push({ path, prompt, context });
+      emit({ type: "progress", text: "$ open-arch show" });
+      emit({ type: "permission", id: "per_1", description: "Run `ls`" });
+      answer = (allow) => {
+        if (allow) runCli("add-element", "cart-cache", "--kind", "container", "--parent", "shop", "--name", "Cart Cache");
+        emit({ type: "permission-replied", id: "per_1" });
+        emit({ type: "done", summary: "Added the Cart Cache container." });
+        resolve();
+      };
+    }),
+);
+ipcMain.handle("agentReply", (_event, _id, allow) => answer?.(allow));
+ipcMain.handle("agentCancel", () => answer?.(false));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const failures = [];
@@ -14,46 +41,78 @@ const check = (ok, what) => {
   console.log(`${ok ? "PASS" : "FAIL"} ${what}`);
   if (!ok) failures.push(what);
 };
+const doc = () => JSON.parse(readFileSync(file, "utf8"));
+const docsPage = (path) => readFileSync(join(folder, "docs", path), "utf8");
 
 app.on("browser-window-created", (_e, win) => {
   const errors = [];
   win.webContents.on("console-message", (event) => {
-    if (event.level === "error") errors.push(event.message);
+    if (event.level === "error") errors.push(`${event.message} (${event.sourceId}:${event.lineNumber})`);
   });
   win.webContents.once("did-finish-load", async () => {
     try {
       const page = (js) => win.webContents.executeJavaScript(js);
       const text = () => page("document.body.innerText");
       await sleep(3000);
-      check((await text()).includes("Checkout API components"), "reopens the last workspace and draws a view");
+      check((await text()).includes("Checkout API components"), "reopens the last file and draws a view");
       check(await page("!!window.openArchDesktop && typeof window.require === 'undefined'"), "exposes only the bridge, not Node");
       writeFileSync(join(out, "1-opened.png"), (await win.webContents.capturePage()).toPNG());
 
-      // Save through the bridge, as the designer does.
-      const path = "views/landscape.md";
-      const before = readFileSync(join(workspace, path), "utf8");
-      await page(`window.openArchDesktop.write(${JSON.stringify(workspace)}, [{ path: ${JSON.stringify(path)}, content: ${JSON.stringify(before.replace("title: System landscape", "title: Everything"))} }])`);
-      check(readFileSync(join(workspace, path), "utf8").includes("title: Everything"), "writes files through the bridge");
-      const outside = await page(`window.openArchDesktop.load("/etc").then(() => "loaded", (e) => e.message)`);
-      check(String(outside).includes("wasn't opened"), "refuses folders the user didn't open");
+      // An edit in the designer: rename the workspace in its settings panel.
+      await page(`(async () => {
+        document.querySelector("button.ws-name").click();
+        await new Promise((r) => setTimeout(r, 300));
+        const input = [...document.querySelectorAll(".properties input")].find((i) => i.getAttribute("aria-label") === "Name");
+        input.value = "Shop (renamed)";
+        // The window may not have focus in a test run, so press Enter rather than relying on blur.
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      })()`);
+      await sleep(1000);
+      check(doc().name === "Shop (renamed)", "saves designer edits to the file");
+      check(docsPage("README.md").includes("# Shop (renamed)"), "refreshes the docs folder on save");
 
-      // An outside edit, like an agent's, shows up without a reload.
-      const file = join(workspace, "model/shop/web-app.md");
-      writeFileSync(file, readFileSync(file, "utf8").replace("name: Web App", "name: Storefront"));
-      await sleep(2500);
+      const outside = await page(`window.openArchDesktop.load("/etc/hosts").then(() => "loaded", (e) => e.message)`);
+      check(String(outside).includes("wasn't opened"), "refuses files the user didn't open");
+
+      // An agent's change through the CLI shows up without a reload.
+      runCli("update-element", "web-app", "--name", "Storefront");
+      await sleep(2000);
       const after = await text();
-      check(after.includes("Storefront") && after.includes("changed outside the designer"), "reloads when files change on disk");
+      check(after.includes("Storefront") && after.includes("changed outside the designer"), "reloads when the CLI changes the file");
+      check(docsPage("elements/web-app.md").includes("# Storefront"), "the CLI refreshes the docs too");
       writeFileSync(join(out, "2-reloaded.png"), (await win.webContents.capturePage()).toPNG());
 
-      // The outside edits left previews stale; the designer's fmt button fixes them on disk.
-      await page(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Update previews"))?.click()`);
+      // Ask AI: send a request, approve what the agent asks to do, then undo its change.
+      const click = (selector, label) => page(`(() => {
+        const button = [...document.querySelectorAll(${JSON.stringify(selector)})].find((b) => b.textContent.trim() === ${JSON.stringify(label)});
+        button?.click();
+        return !!button;
+      })()`);
+      check(await click(".topbar button", "Ask AI"), "offers Ask AI in the desktop app");
+      await page(`(() => {
+        const box = document.querySelector(".ask-ai textarea");
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box, "Add a cart cache");
+        box.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      await sleep(100);
+      await click(".ask-ai button", "Send");
+      await sleep(500);
+      check(agentRequests[0]?.path === file && agentRequests[0]?.prompt === "Add a cart cache" && !!agentRequests[0]?.context.viewId, "sends the request with the open view");
+      check((await page(`document.querySelector(".ask-ai-permission")?.innerText ?? ""`)).includes("ls"), "shows the agent's permission request");
+      await click(".ask-ai button", "Approve");
       await sleep(1500);
-      check((await page(`document.querySelector(".problems .count").textContent`)) === "0", "fixes stale previews with the fmt button");
-      check(readFileSync(join(workspace, "views/shop-containers.md"), "utf8").includes("Storefront<br/>"), "writes the regenerated preview to disk");
+      check("cart-cache" in doc().elements, "the agent changes the file once approved");
+      const panel = await page(`document.querySelector(".ask-ai").innerText`);
+      check(panel.includes("Added the Cart Cache container.") && panel.includes("Undo AI change"), "shows the outcome and offers to undo it");
+      writeFileSync(join(out, "3-ask-ai.png"), (await win.webContents.capturePage()).toPNG());
+      await click(".ask-ai button", "Undo AI change");
+      await sleep(1000);
+      check(!("cart-cache" in doc().elements) && doc().elements["web-app"].name === "Storefront", "Undo AI change restores the file as it was");
+
       const unique = [...new Set(errors)];
       check(errors.length === 0, `no console errors${errors.length ? ` (${errors.length}): ${unique.join(" | ")}` : ""}`);
     } catch (error) {
-      check(false, `smoke test crashed: ${error.stack ?? error}`);
+      check(false, `smoke test crashed: ${error.stack ?? error}${errors.length ? `\nconsole errors: ${errors.join(" | ")}` : ""}`);
     }
     app.exit(failures.length ? 1 : 0);
   });

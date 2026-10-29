@@ -1,55 +1,35 @@
-import { checkWorkspace, type Diagnostic } from "@open-arch/core";
+import { checkWorkspace, errorCount, type Diagnostic } from "@open-arch/core";
 import type { Io } from "../io.js";
-import { displayPath, openWorkspace, toWorkspacePath } from "../workspace.js";
+import { displayPath, findWorkspaceFile, readWorkspaceFile } from "../workspace.js";
 
 export interface CheckOptions {
-  root?: string;
+  file?: string;
   json?: boolean;
   strict?: boolean;
-  files: string[];
 }
 
 export function check(io: Io, opts: CheckOptions): number {
-  const { root, ws } = openWorkspace(io.cwd, opts.root);
-  const show = (p: string) => displayPath(root, io.cwd, p);
-  let diagnostics = checkWorkspace(ws);
-  if (opts.files.length) {
-    const wanted = new Set(opts.files.map((f) => toWorkspacePath(root, io.cwd, f)));
-    diagnostics = diagnostics.filter((d) => wanted.has(d.path));
-  }
-  const errors = diagnostics.filter((d) => d.severity === "error").length;
+  const file = findWorkspaceFile(io.cwd, opts.file);
+  const ws = readWorkspaceFile(file);
+  const diagnostics = checkWorkspace(ws);
+  const errors = errorCount(diagnostics);
   const warnings = diagnostics.length - errors;
   const ok = errors === 0 && !(opts.strict && warnings > 0);
 
   if (opts.json) {
-    io.out(
-      JSON.stringify(
-        {
-          ok,
-          workspace: displayPath(root, io.cwd, ""),
-          elements: ws.elements.size,
-          views: ws.views.size,
-          errors,
-          warnings,
-          diagnostics: diagnostics.map((d) => ({ ...d, path: show(d.path) })),
-        },
-        null,
-        2,
-      ) + "\n",
-    );
+    const report = { ok, file: displayPath(io.cwd, file), elements: ws.elements.size, views: ws.views.size, errors, warnings, diagnostics };
+    io.out(JSON.stringify(report, null, 2) + "\n");
     return ok ? 0 : 1;
   }
-
-  for (const d of diagnostics) io.out(formatDiagnostic(d, show) + "\n");
+  for (const d of diagnostics) io.out(formatDiagnostic(d) + "\n");
   const counts = `${plural(ws.elements.size, "element")}, ${plural(ws.views.size, "view")}`;
-  if (diagnostics.length === 0) io.out(`OK: ${counts}, no problems.\n`);
-  else io.out(`\n${plural(errors, "error")}, ${plural(warnings, "warning")} (${counts}).\n`);
+  if (diagnostics.length === 0) io.out(`OK: ${displayPath(io.cwd, file)}, ${counts}, no problems.\n`);
+  else io.out(`\n${plural(errors, "error")}, ${plural(warnings, "warning")} in ${displayPath(io.cwd, file)} (${counts}).\n`);
   return ok ? 0 : 1;
 }
 
-export function formatDiagnostic(d: Diagnostic, show: (p: string) => string): string {
-  const where = d.line ? `${show(d.path)}:${d.line}` : show(d.path);
-  return `${where}: ${d.severity} [${d.rule}] ${d.message}${d.fix ? `\n  fix: ${d.fix}` : ""}`;
+export function formatDiagnostic(d: Diagnostic): string {
+  return `${d.path || "(file)"}: ${d.severity} [${d.rule}] ${d.message}${d.fix ? `\n  fix: ${d.fix}` : ""}`;
 }
 
 export function plural(n: number, word: string): string {

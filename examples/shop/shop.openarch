@@ -1,0 +1,130 @@
+{
+  "openarch": 1,
+  "name": "Shop",
+  "description": "An online shop, used as the open-arch example.",
+  "export": { "docs": "docs" },
+  "elements": {
+    "customer": {
+      "kind": "person",
+      "name": "Customer",
+      "description": "Someone buying from the shop.",
+      "notes": "Customers use the shop from a browser on desktop or mobile.",
+      "uses": [
+        { "to": "web-app", "description": "Browses products and places orders", "technology": "HTTPS" }
+      ]
+    },
+    "payment-provider": {
+      "kind": "system",
+      "name": "Payment Provider",
+      "description": "Takes card payments.",
+      "external": true,
+      "notes": "A third-party card processor."
+    },
+    "shop": {
+      "kind": "system",
+      "name": "Shop",
+      "description": "Lets customers browse products and place orders.",
+      "notes": "The online shop. Owned by the Checkout team."
+    },
+    "checkout-api": {
+      "kind": "container",
+      "name": "Checkout API",
+      "parent": "shop",
+      "description": "Validates carts, reserves stock and takes payment.",
+      "technology": "Node.js",
+      "notes": "Its relationships are listed on its components, so container views show them as arrows from the Checkout API."
+    },
+    "checkout-controller": {
+      "kind": "component",
+      "name": "Checkout Controller",
+      "parent": "checkout-api",
+      "description": "Handles checkout requests from the web app.",
+      "technology": "Express",
+      "uses": [
+        { "to": "order-repository", "description": "Saves orders" },
+        { "to": "payment-client", "description": "Takes payment" },
+        { "to": "warehouse", "description": "Reserves stock", "technology": "gRPC" }
+      ]
+    },
+    "order-repository": {
+      "kind": "component",
+      "name": "Order Repository",
+      "parent": "checkout-api",
+      "description": "Reads and writes orders.",
+      "technology": "TypeScript",
+      "uses": [
+        { "to": "orders-db", "description": "Reads and writes orders", "technology": "SQL" }
+      ]
+    },
+    "payment-client": {
+      "kind": "component",
+      "name": "Payment Client",
+      "parent": "checkout-api",
+      "description": "Wraps the payment provider's API.",
+      "technology": "TypeScript",
+      "uses": [
+        { "to": "payment-provider", "description": "Charges cards", "technology": "HTTPS" }
+      ]
+    },
+    "orders-db": {
+      "kind": "container",
+      "name": "Orders DB",
+      "parent": "shop",
+      "description": "Stores orders and their status.",
+      "technology": "PostgreSQL",
+      "tags": ["database"]
+    },
+    "web-app": {
+      "kind": "container",
+      "name": "Web App",
+      "parent": "shop",
+      "description": "The storefront customers use.",
+      "technology": "React",
+      "notes": "Single-page app served from a CDN.",
+      "uses": [
+        { "to": "checkout-controller", "description": "Places orders", "technology": "HTTPS/JSON" }
+      ]
+    },
+    "warehouse": {
+      "kind": "system",
+      "name": "Warehouse",
+      "description": "Tracks stock and ships orders.",
+      "notes": "Run by the Fulfilment team. The shop only talks to it to reserve stock."
+    }
+  },
+  "views": {
+    "checkout-api-components": {
+      "title": "Checkout API components",
+      "description": "How a checkout request is handled.",
+      "level": "component",
+      "scope": "checkout-api",
+      "include": ["*"]
+    },
+    "landscape": {
+      "title": "System landscape",
+      "description": "Every person and system, and how they connect.",
+      "level": "landscape",
+      "include": ["*"]
+    },
+    "shop-containers": {
+      "title": "Shop containers",
+      "description": "What runs inside the shop.",
+      "level": "container",
+      "scope": "shop",
+      "include": ["*"],
+      "layout": {
+        "checkout-api": [0, 320],
+        "customer": [0, 0],
+        "orders-db": [0, 480],
+        "web-app": [0, 160]
+      }
+    },
+    "shop-context": {
+      "title": "Shop context",
+      "description": "Who uses the shop, and which systems it depends on.",
+      "level": "context",
+      "scope": "shop",
+      "include": ["*"]
+    }
+  }
+}

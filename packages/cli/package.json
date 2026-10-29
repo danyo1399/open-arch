@@ -1,7 +1,7 @@
 {
   "name": "open-arch",
   "version": "0.1.0",
-  "description": "Command line tool for open-arch architecture workspaces: init, check, fmt, new, show, rename.",
+  "description": "Command line tool for open-arch workspaces: read, check and export a .openarch architecture model, and change it with validated commands.",
   "type": "module",
   "bin": {
     "open-arch": "./dist/bin.js"

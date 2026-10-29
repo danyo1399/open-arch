@@ -1,4 +1,5 @@
-import { newView, planDeleteElement, SCOPE_KIND, suggestId, VIEW_LEVELS, type ViewLevel, type Workspace } from "@open-arch/core";
+import { SCOPE_KIND, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
+import { deletePlan, uniqueId } from "../model.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export function Modal({ title, children, actions, onClose }: { title: string; children: ReactNode; actions: ReactNode; onClose(): void }) {
@@ -18,8 +19,8 @@ export function Modal({ title, children, actions, onClose }: { title: string; ch
 export function DeleteElementDialog({ ws, id, inView, onHide, onDelete, onClose }: { ws: Workspace; id: string; inView: boolean; onHide(): void; onDelete(): void; onClose(): void }) {
   const element = ws.elements.get(id);
   if (!element) return null;
-  const plan = planDeleteElement(ws, id);
-  const inside = plan.elements.filter((e) => e.id !== id);
+  const plan = deletePlan(ws, id);
+  const inside = plan.inside;
   return (
     <Modal
       title={`Delete ${element.name}?`}
@@ -70,7 +71,7 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   component: "Component: the parts of one container",
 };
 
-export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(changes: ReturnType<typeof newView>, id: string): void; onClose(): void }) {
+export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
   const [level, setLevel] = useState<ViewLevel>("container");
   const scopeKind = SCOPE_KIND[level];
   const scopes = scopeKind ? [...ws.elements.values()].filter((e) => e.kind === scopeKind).sort((a, b) => a.name.localeCompare(b.name)) : [];
@@ -79,18 +80,11 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
   const defaultTitle = scopeName ? `${scopeName} ${level === "context" ? "context" : level === "container" ? "containers" : "components"}` : "System landscape";
   const [title, setTitle] = useState("");
-  const [error, setError] = useState<string | null>(null);
 
   const create = () => {
     const finalTitle = title.trim() || defaultTitle;
-    const taken = new Set([...ws.files.values()].map((f) => f.id));
-    let id = suggestId(finalTitle);
-    for (let i = 2; taken.has(id); i++) id = `${suggestId(finalTitle)}-${i}`;
-    try {
-      onCreate(newView(ws, { id, level, scope: scopeId, title: finalTitle }), id);
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    const id = uniqueId(ws, finalTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "view");
+    onCreate({ op: "add-view", id, level, scope: scopeId, title: finalTitle }, id);
   };
 
   return (
@@ -136,7 +130,6 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
         <span className="field-label">Title</span>
         <input value={title} placeholder={defaultTitle} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
-      {error && <p className="error">{error}</p>}
     </Modal>
   );
 }

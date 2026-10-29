@@ -1,21 +1,8 @@
-import {
-  describeElement,
-  kindLabel,
-  PARENT_KIND,
-  removeRelationship,
-  renameId,
-  suggestId,
-  updateElement,
-  updateRelationship,
-  updateView,
-  type ArchElement,
-  type ComputedView,
-  type ViewDef,
-  type Workspace,
-} from "@open-arch/core";
+import { describeElement, kindLabel, PARENT_KIND, type ArchElement, type ComputedView, type ViewDef, type Workspace } from "@open-arch/core";
+import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { PLACEHOLDER_ID, uniqueId } from "../ids.js";
-import { chain, type Edit } from "../state.js";
+import { PLACEHOLDER_ID, relationshipRef, uniqueId } from "../model.js";
+import type { Edit } from "../state.js";
 import { Field } from "./fields.js";
 
 interface PropertiesProps {
@@ -25,11 +12,25 @@ interface PropertiesProps {
   selection: Selection;
   /** The element was just created: focus its name. */
   isNew: boolean;
-  edit(fn: Edit): Promise<boolean>;
+  /** The desktop app keeps a docs folder up to date. */
+  syncsDocs: boolean;
+  docs: DocsSummary | null;
+  fileName: string;
+  edit(edit: Edit): Promise<boolean>;
   onSelect(selection: Selection): void;
   onHide(id: string): void;
   onDelete(id: string): void;
   onDeleteView(id: string): void;
+}
+
+/** "Checkout API" → "checkout-api" */
+function idFromName(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "element"
+  );
 }
 
 export function Properties(props: PropertiesProps) {
@@ -37,8 +38,8 @@ export function Properties(props: PropertiesProps) {
   let body;
   if (selection?.kind === "element" && ws.elements.has(selection.id)) body = <ElementProperties {...props} element={ws.elements.get(selection.id)!} />;
   else if (selection?.kind === "arrow") body = <ArrowProperties {...props} from={selection.from} to={selection.to} />;
-  else if (props.view) body = <ViewProperties {...props} view={props.view} />;
-  else body = <p className="muted">Pick a view on the left.</p>;
+  else if (selection?.kind === "workspace" || !props.view) body = <WorkspaceProperties {...props} />;
+  else body = <ViewProperties {...props} view={props.view} />;
   return (
     <aside className="properties" aria-label="Properties">
       {body}
@@ -48,29 +49,31 @@ export function Properties(props: PropertiesProps) {
 
 function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHide, onDelete }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
-  const set = (fields: Parameters<typeof updateElement>[2]) => void edit((w) => updateElement(w, element.id, fields));
-  // A new element's placeholder ID ("new-container") follows its first real name, so its file gets a meaningful name.
+  const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
+  // A new element's placeholder ID ("new-container") follows its first real name, so the model reads well.
   const rename = (name: string) => {
-    const id = suggestId(name);
+    const id = idFromName(name);
     if (!PLACEHOLDER_ID.test(element.id) || PLACEHOLDER_ID.test(id) || !name.trim()) return set({ name });
     const next = uniqueId(ws, id);
-    void edit((w) => chain(w, (x) => updateElement(x, element.id, { name }), (x) => renameId(x, element.id, next).changes)).then((ok) => ok && onSelect({ kind: "element", id: next }));
+    void edit([
+      { op: "update-element", id: element.id, name },
+      { op: "rename", id: element.id, to: next },
+    ]).then((ok) => ok && onSelect({ kind: "element", id: next }));
   };
   const parentKind = PARENT_KIND[element.kind];
   const parents = parentKind ? [...ws.elements.values()].filter((e) => e.kind === parentKind).sort((a, b) => a.name.localeCompare(b.name)) : [];
   const inView = computed?.nodes.some((n) => n.id === element.id) ?? false;
+  const props = Object.entries(element.properties).sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <>
       <header className="props-header">
         <span className={`badge badge-${element.external ? "external" : element.kind}`}>{kindLabel(element)}</span>
-        <code className="muted small" title={element.path}>
-          {element.id}
-        </code>
+        <code className="muted small">{element.id}</code>
       </header>
       <Field label="Name" value={element.name} onCommit={rename} autoFocus={isNew} />
-      <Field label="Description" value={element.description ?? ""} onCommit={(description) => set({ description })} multiline placeholder="One sentence, shown in the box" />
-      {element.kind !== "person" && <Field label="Technology" value={element.technology ?? ""} onCommit={(technology) => set({ technology })} placeholder="e.g. Node.js, PostgreSQL" />}
+      <Field label="Description" value={element.description ?? ""} onCommit={(description) => set({ description: description || null })} multiline placeholder="One sentence, shown in the box" />
+      {element.kind !== "person" && <Field label="Technology" value={element.technology ?? ""} onCommit={(technology) => set({ technology: technology || null })} placeholder="e.g. Node.js, PostgreSQL" />}
       {parentKind && (
         <label className="field">
           <span className="field-label">Inside</span>
@@ -95,24 +98,51 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
         value={element.tags.join(", ")}
         onCommit={(text) => set({ tags: text.split(",").map((t) => t.trim()).filter(Boolean) })}
         placeholder="comma-separated"
-        hint={<>The tag <code>database</code> draws a cylinder.</>}
+        hint={
+          <>
+            The tag <code>database</code> draws a cylinder.
+          </>
+        }
+      />
+      <Field label="Notes" value={element.notes ?? ""} onCommit={(notes) => set({ notes: notes || null })} multiline rows={6} placeholder="Longer documentation, in markdown" />
+
+      <h3>Properties</h3>
+      {props.map(([key, value]) => (
+        <div className="prop-row" key={key}>
+          <Field label={key} value={value} onCommit={(v) => set({ properties: { [key]: v || null } })} />
+          <button className="icon" aria-label={`Remove ${key}`} title="Remove" onClick={() => set({ properties: { [key]: null } })}>
+            ×
+          </button>
+        </div>
+      ))}
+      <Field
+        label="Add a property"
+        value=""
+        placeholder="key=value, e.g. owner=payments"
+        onCommit={(text) => {
+          const at = text.indexOf("=");
+          if (at > 0 && text.slice(at + 1).trim()) set({ properties: { [text.slice(0, at).trim()]: text.slice(at + 1).trim() } });
+        }}
       />
 
       <h3>Uses</h3>
       {d.uses.length === 0 && <p className="muted small">Nothing. Drag from the dot under a box to another box to add a relationship.</p>}
       <ul className="rels">
-        {d.uses.map(({ rel, target }, i) => (
-          <li key={`${rel.to}-${i}`}>
-            <button className="link" onClick={() => onSelect({ kind: "element", id: rel.to })}>
-              → {target?.name ?? rel.to}
-            </button>
-            <Field label="Description" value={rel.description ?? ""} placeholder="e.g. Reads and writes orders" onCommit={(description) => void edit((w) => updateRelationship(w, element.id, i, { description }))} />
-            <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit((w) => updateRelationship(w, element.id, i, { technology }))} />
-            <button className="link danger" onClick={() => void edit((w) => removeRelationship(w, element.id, i))}>
-              Remove relationship
-            </button>
-          </li>
-        ))}
+        {d.uses.map(({ rel, target }, i) => {
+          const ref = relationshipRef(element, i);
+          return (
+            <li key={`${rel.to}-${i}`}>
+              <button className="link" onClick={() => onSelect({ kind: "element", id: rel.to })}>
+                → {target?.name ?? rel.to}
+              </button>
+              <Field label="Description" value={rel.description ?? ""} placeholder="e.g. Reads and writes orders" onCommit={(description) => void edit([{ op: "update-relationship", ...ref, description: description || null }])} />
+              <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit([{ op: "update-relationship", ...ref, technology: technology || null }])} />
+              <button className="link danger" onClick={() => void edit([{ op: "remove-relationship", ...ref }])}>
+                Remove relationship
+              </button>
+            </li>
+          );
+        })}
       </ul>
 
       {(d.usedBy.length > 0 || d.contentsUsedBy.length > 0) && (
@@ -137,7 +167,6 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
           Delete from model…
         </button>
       </div>
-      <p className="muted small path">{element.path}</p>
     </>
   );
 }
@@ -163,8 +192,10 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
       {edge.implied && <p className="muted small">This arrow stands for relationships between elements inside these boxes. Edit them here or on those elements.</p>}
       <ul className="rels">
         {edge.sources.map(({ element, index }) => {
-          const rel = ws.elements.get(element)?.uses[index];
-          if (!rel) return null;
+          const source = ws.elements.get(element);
+          const rel = source?.uses[index];
+          if (!source || !rel) return null;
+          const ref = relationshipRef(source, index);
           return (
             <li key={`${element}-${index}`}>
               {edge.implied && (
@@ -172,9 +203,15 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
                   {name(element)} → {name(rel.to)}
                 </span>
               )}
-              <Field label="Description" value={rel.description ?? ""} placeholder="e.g. Reads and writes orders" autoFocus={!rel.description && edge.sources.length === 1} onCommit={(description) => void edit((w) => updateRelationship(w, element, index, { description }))} />
-              <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit((w) => updateRelationship(w, element, index, { technology }))} />
-              <button className="link danger" onClick={() => void edit((w) => removeRelationship(w, element, index)).then(() => onSelect(null))}>
+              <Field
+                label="Description"
+                value={rel.description ?? ""}
+                placeholder="e.g. Reads and writes orders"
+                autoFocus={!rel.description && edge.sources.length === 1}
+                onCommit={(description) => void edit([{ op: "update-relationship", ...ref, description: description || null }])}
+              />
+              <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit([{ op: "update-relationship", ...ref, technology: technology || null }])} />
+              <button className="link danger" onClick={() => void edit([{ op: "remove-relationship", ...ref }]).then(() => onSelect(null))}>
                 Remove relationship
               </button>
             </li>
@@ -185,7 +222,7 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
   );
 }
 
-function ViewProperties({ ws, view, computed, edit, onDeleteView }: PropertiesProps & { view: ViewDef }) {
+function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: PropertiesProps & { view: ViewDef }) {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   return (
     <>
@@ -193,8 +230,8 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView }: PropertiesPr
         <span className="badge">View</span>
         <code className="muted small">{view.id}</code>
       </header>
-      <Field label="Title" value={view.title} onCommit={(title) => void edit((w) => updateView(w, view.id, { title }))} />
-      <Field label="Description" value={view.description ?? ""} multiline onCommit={(description) => void edit((w) => updateView(w, view.id, { description }))} />
+      <Field label="Title" value={view.title} onCommit={(title) => void edit([{ op: "update-view", id: view.id, title }])} />
+      <Field label="Description" value={view.description ?? ""} multiline onCommit={(description) => void edit([{ op: "update-view", id: view.id, description: description || null }])} />
       <dl className="facts">
         <dt>Level</dt>
         <dd>{view.level}</dd>
@@ -215,13 +252,54 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView }: PropertiesPr
         <dt>Boxes</dt>
         <dd>{computed?.nodes.length ?? 0}</dd>
       </dl>
-      <p className="muted small">Select a box or arrow to edit it. Drag boxes to arrange them; positions are saved in the view file.</p>
+      <p className="muted small">Select a box or arrow to edit it. Drag boxes to arrange them; their positions are saved with the view.</p>
       <div className="actions">
+        <button onClick={() => onSelect({ kind: "workspace" })}>Workspace settings</button>
         <button className="danger" onClick={() => onDeleteView(view.id)}>
           Delete view…
         </button>
       </div>
-      <p className="muted small path">{view.path}</p>
+    </>
+  );
+}
+
+function WorkspaceProperties({ ws, edit, syncsDocs, docs, fileName }: PropertiesProps) {
+  const suggestedDocs = `${fileName.replace(/\.openarch$/, "")}-docs`;
+  const docsFolder = ws.doc.export?.docs;
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Workspace</span>
+        <code className="muted small">{fileName}</code>
+      </header>
+      <Field label="Name" value={ws.doc.name} onCommit={(name) => void edit([{ op: "update-workspace", name }])} />
+      <Field label="Description" value={ws.doc.description ?? ""} multiline onCommit={(description) => void edit([{ op: "update-workspace", description: description || null }])} />
+      <Field
+        label="Docs folder"
+        value={docsFolder ?? ""}
+        placeholder={suggestedDocs}
+        onCommit={(folder) => void edit([{ op: "update-workspace", docs: folder || null }])}
+        hint={
+          syncsDocs
+            ? docsFolder
+              ? "Relative to the workspace file. Every save rewrites the markdown docs there."
+              : "Set a folder, relative to the workspace file, to keep markdown docs there."
+            : "Used by the desktop app and the open-arch CLI. Here, use Export docs to download them."
+        }
+      />
+      {syncsDocs && !docsFolder && <button onClick={() => void edit([{ op: "update-workspace", docs: suggestedDocs }])}>Keep docs in {suggestedDocs}/</button>}
+      {syncsDocs && docs && (
+        <p className="muted small">
+          Last save {docs.written || docs.deleted ? `updated ${docs.written + docs.deleted} page${docs.written + docs.deleted === 1 ? "" : "s"}` : "left the docs unchanged"} in {docs.dir}.
+          {docs.skipped.length > 0 && ` Left alone (not generated by open-arch): ${docs.skipped.join(", ")}.`}
+        </p>
+      )}
+      <dl className="facts">
+        <dt>Elements</dt>
+        <dd>{ws.elements.size}</dd>
+        <dt>Views</dt>
+        <dd>{ws.views.size}</dd>
+      </dl>
     </>
   );
 }

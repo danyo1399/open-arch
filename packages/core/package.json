@@ -1,7 +1,7 @@
 {
   "name": "@open-arch/core",
   "version": "0.1.0",
-  "description": "Read, validate, format and edit open-arch architecture workspaces (C4 model as markdown files).",
+  "description": "Read, validate, edit and export open-arch workspaces (a C4 architecture model in one .openarch JSON file).",
   "type": "module",
   "exports": {
     ".": {
@@ -11,8 +11,5 @@
   },
   "files": [
     "dist"
-  ],
-  "dependencies": {
-    "yaml": "^2.9.1"
-  }
+  ]
 }

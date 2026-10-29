@@ -2,7 +2,7 @@
  * Working out what a view shows: which elements appear as boxes, and which
  * arrows connect them, including relationships implied by nested elements.
  */
-import type { Workspace } from "./load.js";
+import type { Workspace } from "./workspace.js";
 import { childrenOf, compareElements, lineage, PARENT_KIND, topLevel } from "./model.js";
 import { suggest } from "./suggest.js";
 import type { ArchElement, Diagnostic, ViewDef, ViewLevel } from "./types.js";
@@ -39,7 +39,7 @@ export const SCOPE_KIND: Record<ViewLevel, "system" | "container" | undefined> =
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
 export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
-  const at = { path: view.path, line: view.lines.scope ?? view.lines.level };
+  const at = { path: `${view.path}.${view.scope === undefined ? "level" : "scope"}` };
   const wanted = SCOPE_KIND[view.level];
   if (!wanted) {
     return view.scope === undefined
@@ -49,7 +49,6 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
   if (view.scope === undefined) {
     return [{ ...at, severity: "error", rule: "view-scope-required", message: `A ${view.level} view needs \`scope\`: the ID of the ${wanted} it shows.` }];
   }
-  if (ws.brokenIds.has(view.scope)) return [{ ...at, severity: "error", rule: "view-scope-unknown", message: `Scope "${view.scope}" has errors of its own; fix that file first.` }];
   const scope = ws.elements.get(view.scope);
   if (!scope) {
     return [{ ...at, severity: "error", rule: "view-scope-unknown", message: `Scope "${view.scope}" isn't an element.`, fix: didYouMean(ws, view.scope) }];
@@ -119,7 +118,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
 
   const shown = new Set<string>();
   view.include.forEach((entry, i) => {
-    const line = view.listLines.include[i] ?? view.lines.include;
+    const path = `${view.path}.include[${i}]`;
     if (entry === "*") {
       innerIds.forEach((id) => shown.add(id));
       for (const l of lifted) {
@@ -128,32 +127,30 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
       }
       return;
     }
-    if (ws.brokenIds.has(entry)) return;
     if (!ws.elements.has(entry)) {
-      diagnostics.push({ severity: "error", rule: "view-include-unknown", message: `"${entry}" in \`include\` isn't an element.`, path: view.path, line, fix: didYouMean(ws, entry) });
+      diagnostics.push({ severity: "error", rule: "view-include-unknown", message: `"${entry}" in \`include\` isn't an element.`, path, fix: didYouMean(ws, entry) });
       return;
     }
     const r = rep(entry);
     if (r === null) {
-      diagnostics.push({ severity: "warning", rule: "view-include-boundary", message: `"${entry}" is this view's scope, so it's drawn as the frame, not a box.`, path: view.path, line, fix: `Remove "${entry}" from \`include\`.` });
+      diagnostics.push({ severity: "warning", rule: "view-include-boundary", message: `"${entry}" is this view's scope, so it's drawn as the frame, not a box.`, path, fix: `Remove "${entry}" from \`include\`.` });
       return;
     }
     if (r !== entry) {
-      diagnostics.push({ severity: "warning", rule: "view-include-lifted", message: `"${entry}" is too detailed for a ${view.level} view, so it's shown as "${r}".`, path: view.path, line, fix: `Include "${r}" instead.` });
+      diagnostics.push({ severity: "warning", rule: "view-include-lifted", message: `"${entry}" is too detailed for a ${view.level} view, so it's shown as "${r}".`, path, fix: `Include "${r}" instead.` });
     }
     shown.add(r);
   });
 
   view.exclude.forEach((entry, i) => {
-    const line = view.listLines.exclude[i] ?? view.lines.exclude;
+    const path = `${view.path}.exclude[${i}]`;
     if (shown.delete(entry)) return;
-    const known = ws.elements.has(entry) || ws.brokenIds.has(entry);
+    const known = ws.elements.has(entry);
     diagnostics.push({
       severity: "warning",
       rule: "view-exclude-unused",
       message: known ? `"${entry}" in \`exclude\` isn't in this view anyway.` : `"${entry}" in \`exclude\` isn't an element.`,
-      path: view.path,
-      line,
+      path,
       fix: known ? `Remove "${entry}" from \`exclude\`.` : didYouMean(ws, entry),
     });
   });

@@ -29,8 +29,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - run: pnpm open-arch check --root examples/shop
-      - run: pnpm open-arch fmt --check --root examples/shop
+      - run: pnpm open-arch check --file examples/shop/shop.openarch
+      - run: pnpm open-arch fmt --check --file examples/shop/shop.openarch
+      - run: pnpm open-arch export --check --file examples/shop/shop.openarch
 
   desktop:
     name: desktop (${{ matrix.os }})

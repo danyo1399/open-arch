@@ -1,5 +1,5 @@
 /** Read-only questions about the model, used by `show` and later by the designer. */
-import type { Workspace } from "./load.js";
+import type { Workspace } from "./workspace.js";
 import { childrenOf, compareElements, isInside } from "./model.js";
 import type { ArchElement, Relationship, ViewDef } from "./types.js";
 import { computeView, scopeProblems, type ComputedView } from "./views.js";

@@ -1,12 +1,14 @@
-import { computeView, deleteElement, formatWorkspace, deleteView, hideInView, removeRelationship, scopeProblems, showInView, type ArchElement, type Diagnostic, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeView, diagnosticTarget, scopeProblems, type ArchElement, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
-import { downloadZip, MemoryHost, type WorkspaceHost } from "./hosts.js";
+import { canSaveFiles, desktopBridge, DesktopHost, docsZip, download, FileHandleHost, pickFileToSave, type WorkspaceHost } from "./hosts.js";
+import { relationshipRef } from "./model.js";
+import { AskAI } from "./panels/AskAI.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
 import { Properties } from "./panels/Properties.js";
 import { Sidebar } from "./panels/Sidebar.js";
-import { chain, useWorkspace } from "./state.js";
+import { useWorkspace } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
 
@@ -25,13 +27,23 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): void }) {
+interface DesignerProps {
+  host: WorkspaceHost;
+  onClose(): void;
+  /** After "Save as": carry on with the new file. */
+  onHostChange(host: WorkspaceHost): void;
+}
+
+export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const state = useWorkspace(host);
   const { ws, diagnostics, edit } = state;
   const [viewId, setViewId] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [isNew, setIsNew] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [askOpen, setAskOpen] = useState(false);
+  const desktop = desktopBridge();
+  const agent = host instanceof DesktopHost ? desktop?.agent : undefined;
 
   // Keep a valid view open: the current one if it still exists, else the first by title.
   useEffect(() => {
@@ -44,10 +56,17 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
     if (selection?.kind === "element" && ws && !ws.elements.has(selection.id)) setSelection(null);
   }, [ws, selection]);
 
+  // Warn before closing the tab with changes that live only in memory.
+  useEffect(() => {
+    if (!state.unsaved) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [state.unsaved]);
+
   const view = ws && viewId ? (ws.views.get(viewId) ?? null) : null;
   const computed = useMemo(() => (ws && view && scopeProblems(ws, view).length === 0 ? computeView(ws, view) : null), [ws, view]);
   const inView = useMemo(() => new Set([...(computed?.nodes.map((n) => n.id) ?? []), ...(computed?.boundary ? [computed.boundary.id] : [])]), [computed]);
-
   const showable = useMemo(() => new Set(ws && view ? [...ws.elements.values()].filter((e) => canShowAsBox(ws, view, e)).map((e) => e.id) : []), [ws, view]);
 
   const select = useCallback((next: Selection, options?: { isNew?: boolean }) => {
@@ -62,13 +81,15 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
 
   const removeSelection = useCallback(() => {
     if (selection?.kind === "element") setDialog({ kind: "delete", id: selection.id });
-    if (selection?.kind === "arrow" && computed) {
+    if (selection?.kind === "arrow" && computed && ws) {
       const edge = computed.edges.find((e) => e.from === selection.from && e.to === selection.to);
       if (!edge || edge.implied) return;
-      // Remove the direct relationships drawn by this arrow, last first so earlier positions stay valid.
-      const direct = edge.sources.filter((s) => s.element === selection.from && ws?.elements.get(s.element)?.uses[s.index]?.to === selection.to);
-      const steps = direct.sort((a, b) => b.index - a.index).map((s) => (w: Workspace) => removeRelationship(w, s.element, s.index));
-      void edit((w) => chain(w, ...steps)).then(() => select(null));
+      // Remove the direct relationships this arrow draws, last first so earlier ones keep their place.
+      const ops: Operation[] = edge.sources
+        .filter((s) => s.element === selection.from && ws.elements.get(s.element)?.uses[s.index]?.to === selection.to)
+        .sort((a, b) => b.index - a.index)
+        .map((s) => ({ op: "remove-relationship", ...relationshipRef(ws.elements.get(s.element)!, s.index) }));
+      void edit(ops).then(() => select(null));
     }
   }, [selection, computed, edit, select, ws]);
 
@@ -96,10 +117,23 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
   }, [state, removeSelection, select]);
 
   const openProblem = (d: Diagnostic) => {
-    const file = ws?.files.get(d.path);
-    if (!file) return;
-    if (file.role === "view" && ws!.views.has(file.id)) selectView(file.id);
-    else if (ws!.elements.has(file.id)) select({ kind: "element", id: file.id });
+    const target = diagnosticTarget(d);
+    if (target?.kind === "view" && ws?.views.has(target.id)) selectView(target.id);
+    else if (target?.kind === "element" && ws?.elements.has(target.id)) select({ kind: "element", id: target.id });
+  };
+
+  const saveAs = async () => {
+    if (state.text === null) return;
+    if (desktop) {
+      const file = await desktop.saveAs(state.text);
+      if (file) onHostChange(new DesktopHost(desktop, file.path, file.name));
+      return;
+    }
+    const handle = await pickFileToSave(host.name);
+    if (!handle) return;
+    const next = new FileHandleHost(handle);
+    await next.save(state.text);
+    onHostChange(next);
   };
 
   if (state.loadError) {
@@ -110,19 +144,52 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
       </div>
     );
   }
-  if (!ws) return <div className="center muted">Loading…</div>;
+  if (!ws || state.text === null) return <div className="center muted">Loading…</div>;
 
   const mod = isMac ? "⌘" : "Ctrl+";
+  const selected = selection?.kind === "element" ? [selection.id] : selection?.kind === "arrow" ? [selection.from, selection.to] : [];
+  // While Ask AI is open, the agent's edits reload the file again and again, and the panel already says what it changed.
+  const message = state.message?.kind === "info" && askOpen ? null : state.message;
+  const canSaveAs = !!desktop || canSaveFiles();
+  const status =
+    host.storage === "file" ? (host.syncsDocs && ws.doc.export?.docs ? `Saved · docs in ${ws.doc.export.docs}/` : "Saved") : state.unsaved ? "Not saved" : "Only in this tab";
+
   return (
     <div className="app">
       <header className="topbar">
         <span className="brand">open-arch</span>
-        <span className="ws-name" title={host.name}>
-          {host.name}
-        </span>
-        <span className={`storage storage-${host.storage}`}>{host.storage === "disk" ? "Saves to the folder" : "Changes stay in this tab"}</span>
+        <button className="ws-name link" onClick={() => select({ kind: "workspace" })} title="Workspace settings">
+          {ws.doc.name}
+        </button>
+        <span className="muted small file-name">{host.name}</span>
+        <span className={`storage storage-${host.storage}${state.unsaved ? " unsaved" : ""}`}>{status}</span>
         <span className="spacer" />
-        {host instanceof MemoryHost && <button onClick={() => downloadZip(host)}>Download .zip</button>}
+        {host.storage === "memory" &&
+          (canSaveAs ? (
+            <button className={state.unsaved ? "primary" : ""} onClick={() => void saveAs()}>
+              Save as…
+            </button>
+          ) : (
+            <button
+              className={state.unsaved ? "primary" : ""}
+              onClick={() => {
+                download(host.name, state.text!, "application/json");
+                state.markSaved();
+              }}
+            >
+              Download
+            </button>
+          ))}
+        {!host.syncsDocs && (
+          <button onClick={() => download(`${host.name.replace(/\.openarch$/, "")}-docs.zip`, docsZip(ws, host.name) as BlobPart, "application/zip")} title="Markdown pages with Mermaid diagrams">
+            Export docs
+          </button>
+        )}
+        {agent && (
+          <button className={askOpen ? "active" : ""} aria-pressed={askOpen} onClick={() => setAskOpen((o) => !o)} title="Ask an AI agent to change the model">
+            Ask AI
+          </button>
+        )}
         <button onClick={state.undo} disabled={!state.canUndo} title={`Undo (${mod}Z)`}>
           Undo
         </button>
@@ -141,10 +208,9 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
         selection={selection}
         onSelectView={selectView}
         onSelect={select}
-        onShowInView={(id) => view && void edit((w) => showInView(w, view.id, id))}
+        onShowInView={(id) => view && void edit([{ op: "show-in-view", view: view.id, id }])}
         onNewView={() => setDialog({ kind: "newView" })}
         onOpenProblem={openProblem}
-        onFormat={() => void edit((w) => formatWorkspace(w).changes)}
       />
 
       <main className="main">
@@ -160,6 +226,18 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
             </button>
           </div>
         )}
+        {agent && host instanceof DesktopHost && (
+          <AskAI
+            agent={agent}
+            path={host.path}
+            context={{ viewId: view?.id, selection: selected }}
+            contextLabel={[view ? `In “${view.title}”` : "No view open", selected.length > 0 && `${selected.join(", ")} selected`].filter(Boolean).join(" · ")}
+            text={state.text}
+            restore={state.restore}
+            open={askOpen}
+            onClose={() => setAskOpen(false)}
+          />
+        )}
       </main>
 
       <Properties
@@ -168,16 +246,19 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
         computed={computed}
         selection={selection}
         isNew={isNew}
+        syncsDocs={!!host.syncsDocs}
+        docs={state.docs}
+        fileName={host.name}
         edit={edit}
         onSelect={select}
-        onHide={(id) => view && void edit((w) => hideInView(w, view.id, id)).then(() => select(null))}
+        onHide={(id) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null))}
         onDelete={(id) => setDialog({ kind: "delete", id })}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id })}
       />
 
-      {state.message && (
-        <div className={`toast toast-${state.message.kind}`} role={state.message.kind === "error" ? "alert" : "status"}>
-          <span>{state.message.text}</span>
+      {message && (
+        <div className={`toast toast-${message.kind}`} role={message.kind === "error" ? "alert" : "status"}>
+          <span>{message.text}</span>
           <button className="icon" onClick={state.dismissMessage} aria-label="Dismiss">
             ×
           </button>
@@ -192,23 +273,23 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
           onClose={() => setDialog(null)}
           onHide={() => {
             setDialog(null);
-            if (view) void edit((w) => hideInView(w, view.id, dialog.id)).then(() => select(null));
+            if (view) void edit([{ op: "hide-in-view", view: view.id, id: dialog.id }]).then(() => select(null));
           }}
           onDelete={() => {
             setDialog(null);
-            void edit((w) => deleteElement(w, dialog.id)).then(() => select(null));
+            void edit([{ op: "remove-element", id: dialog.id }]).then(() => select(null));
           }}
         />
       )}
       {dialog?.kind === "deleteView" && (
         <ConfirmDialog
           title={`Delete the view "${ws.views.get(dialog.id)?.title}"?`}
-          text="This deletes the view file and its saved positions. The elements stay in the model."
+          text="This deletes the view and its saved positions. The elements stay in the model."
           confirm="Delete view"
           onClose={() => setDialog(null)}
           onConfirm={() => {
             setDialog(null);
-            void edit((w) => deleteView(w, dialog.id)).then(() => setViewId(null));
+            void edit([{ op: "remove-view", id: dialog.id }]).then(() => setViewId(null));
           }}
         />
       )}
@@ -216,9 +297,9 @@ export function Designer({ host, onClose }: { host: WorkspaceHost; onClose(): vo
         <NewViewDialog
           ws={ws}
           onClose={() => setDialog(null)}
-          onCreate={(changes, id) => {
+          onCreate={(op, id) => {
             setDialog(null);
-            void edit(() => changes).then((ok) => ok && selectView(id));
+            void edit([op]).then((ok) => ok && selectView(id));
           }}
         />
       )}

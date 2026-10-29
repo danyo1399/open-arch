@@ -1,13 +1,14 @@
+import { buildWorkspace, checkWorkspace, loadWorkspace } from "@open-arch/core";
+import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { exampleHost, findWorkspace, FolderHost, hostFromFileList, type DirHandle, type FileHandle } from "../src/hosts.js";
-import { chain, diffFiles, parseSnapshot } from "../src/state.js";
-import { checkWorkspace, newElement, setLayout } from "@open-arch/core";
+import { docsZip, exampleHost, FileHandleHost, hostFromFile, MemoryHost, type FileHandle } from "../src/hosts.js";
+import { deletePlan, relationshipRef, uniqueId } from "../src/model.js";
 
-class FakeFile implements FileHandle {
-  readonly kind = "file";
+class FakeFileHandle implements FileHandle {
+  writes = 0;
   constructor(
     readonly name: string,
-    public text = "",
+    public text: string,
     public lastModified = 1,
   ) {}
   async getFile() {
@@ -20,138 +21,75 @@ class FakeFile implements FileHandle {
       close: async () => {
         this.text = buffer;
         this.lastModified++;
+        this.writes++;
       },
     };
   }
 }
 
-class FakeDir implements DirHandle {
-  readonly kind = "directory";
-  readonly children = new Map<string, FakeDir | FakeFile>();
-  constructor(readonly name: string) {}
-  async *entries(): AsyncGenerator<[string, FakeDir | FakeFile]> {
-    yield* [...this.children.entries()];
-  }
-  async getDirectoryHandle(name: string, options?: { create?: boolean }) {
-    let child = this.children.get(name);
-    if (!child && options?.create) this.children.set(name, (child = new FakeDir(name)));
-    if (!(child instanceof FakeDir)) throw new Error(`NotFoundError: ${name}`);
-    return child;
-  }
-  async getFileHandle(name: string, options?: { create?: boolean }) {
-    let child = this.children.get(name);
-    if (!child && options?.create) this.children.set(name, (child = new FakeFile(name)));
-    if (!(child instanceof FakeFile)) throw new Error(`NotFoundError: ${name}`);
-    return child;
-  }
-  async removeEntry(name: string) {
-    if (!this.children.delete(name)) throw new Error(`NotFoundError: ${name}`);
-  }
-  /** Every file below, as path → text. */
-  dump(prefix = ""): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const [name, child] of this.children) {
-      if (child instanceof FakeFile) out[prefix + name] = child.text;
-      else Object.assign(out, child.dump(`${prefix}${name}/`));
-    }
-    return out;
-  }
-}
-
-function tree(files: Record<string, string>): FakeDir {
-  const root = new FakeDir("project");
-  for (const [path, text] of Object.entries(files)) {
-    const parts = path.split("/");
-    let dir = root;
-    for (const part of parts.slice(0, -1)) {
-      if (!dir.children.has(part)) dir.children.set(part, new FakeDir(part));
-      dir = dir.children.get(part) as FakeDir;
-    }
-    dir.children.set(parts[parts.length - 1]!, new FakeFile(parts[parts.length - 1]!, text));
-  }
-  return root;
-}
-
-const element = (kind: string, name: string, extra = "") => `---\nkind: ${kind}\nname: ${name}\n${extra}---\n\n# ${name}\n`;
-
-describe("FolderHost", () => {
-  const files = {
-    "README.md": "# Project",
-    "docs/arch/open-arch.yaml": "version: 1\n",
-    "docs/arch/model/shop.md": element("system", "Shop"),
-    "docs/arch/model/shop/api.md": element("container", "API", "parent: shop\n"),
-    "docs/arch/model/.draft.md": "ignored",
-    "docs/arch/model/notes.txt": "ignored",
-    "docs/arch/views/landscape.md": "---\nkind: view\ntitle: L\nlevel: landscape\n---\n",
-  };
-
-  it("finds a workspace below the picked folder and reads its files", async () => {
-    const root = tree(files);
-    const found = await findWorkspace(root);
-    expect(found?.dir.name).toBe("arch");
-    const snapshot = await new FolderHost(found!.dir).load();
-    expect(snapshot.configText).toBe("version: 1\n");
-    expect(snapshot.files.map((f) => f.path).sort()).toEqual(["model/shop.md", "model/shop/api.md", "views/landscape.md"]);
-  });
-
-  it("returns null when there's no workspace", async () => {
-    expect(await findWorkspace(tree({ "a/b.md": "x" }))).toBeNull();
-  });
-
-  it("writes, moves and deletes files, removing folders left empty", async () => {
-    const root = tree(files);
-    const dir = (await findWorkspace(root))!.dir as FakeDir;
-    const host = new FolderHost(dir);
-    await host.load();
-    await host.write([
-      { path: "model/shop/db.md", content: "db" },
-      { path: "model/shop/api/handler.md", content: "handler" },
-    ]);
-    await host.write([
-      { path: "model/shop/orders-api/handler.md", content: "moved", from: "model/shop/api/handler.md" },
-      { path: "model/shop/db.md", content: null },
-    ]);
-    const after = dir.dump();
-    expect(after["model/shop/orders-api/handler.md"]).toBe("moved");
-    expect(after["model/shop/db.md"]).toBeUndefined();
-    expect((dir.children.get("model") as FakeDir).children.get("shop") instanceof FakeDir).toBe(true);
-    expect(((dir.children.get("model") as FakeDir).children.get("shop") as FakeDir).children.has("api")).toBe(false);
-  });
-});
-
-describe("in-memory hosts", () => {
+describe("hosts", () => {
   it("bundles a clean example", async () => {
-    const workspace = parseSnapshot(await exampleHost().load());
-    expect(workspace.elements.size).toBe(10);
-    expect(checkWorkspace(workspace)).toEqual([]);
+    const ws = loadWorkspace(await exampleHost().load());
+    expect(ws.elements.size).toBe(10);
+    expect(checkWorkspace(ws)).toEqual([]);
   });
 
-  it("reads a folder picked with webkitdirectory", async () => {
-    const file = (path: string, text: string) => Object.defineProperty(new File([text], path.split("/").pop()!), "webkitRelativePath", { value: path });
-    const host = await hostFromFileList([
-      file("repo/arch/open-arch.yaml", "version: 1\n"),
-      file("repo/arch/model/shop.md", element("system", "Shop")),
-      file("repo/src/index.md", "not part of the workspace"),
-    ]);
-    expect("error" in host).toBe(false);
-    if ("error" in host) return;
-    expect(host.name).toBe("arch");
-    expect((await host.load()).files.map((f) => f.path)).toEqual(["model/shop.md"]);
-    expect(host.zip().byteLength).toBeGreaterThan(0);
-    expect(await hostFromFileList([file("x/y.md", "")])).toEqual({ error: expect.stringContaining("no open-arch.yaml") });
+  it("reads and writes a file through its handle", async () => {
+    const handle = new FakeFileHandle("shop.openarch", "{}");
+    const host = new FileHandleHost(handle);
+    expect(host).toMatchObject({ name: "shop.openarch", storage: "file" });
+    expect(await host.load()).toBe("{}");
+    await host.save('{"x":1}');
+    expect(handle).toMatchObject({ text: '{"x":1}', writes: 1 });
+  });
+
+  it("keeps edits in memory for files opened without write access", async () => {
+    const host = await hostFromFile(new File(['{"openarch":1}'], "mine.openarch"));
+    expect(host).toBeInstanceOf(MemoryHost);
+    expect(host.name).toBe("mine.openarch");
+    await host.save("changed");
+    expect(await host.load()).toBe("changed");
+  });
+
+  it("zips the generated docs into one folder", async () => {
+    const ws = loadWorkspace(await exampleHost().load());
+    const files = unzipSync(docsZip(ws, "shop.openarch"));
+    expect(Object.keys(files)).toContain("shop-docs/README.md");
+    expect(Object.keys(files)).toContain("shop-docs/views/shop-containers.md");
+    expect(strFromU8(files["shop-docs/views/shop-containers.md"]!)).toContain("```mermaid");
   });
 });
 
-describe("chain and diffFiles", () => {
-  it("combines several edits into one set of changes", async () => {
-    const ws = parseSnapshot(await exampleHost().load());
-    const changes = chain(
-      ws,
-      (w) => newElement(w, { id: "cache", kind: "container", parent: "shop" }),
-      (w) => setLayout(w, "shop-containers", { cache: { x: 1, y: 2 } }),
-    );
-    expect(changes.map((c) => c.path).sort()).toEqual(["model/shop/cache.md", "views/shop-containers.md"]);
-    expect(diffFiles(ws.inputs, ws.inputs)).toEqual([]);
-    expect(diffFiles(ws.inputs, ws.inputs.slice(1))).toEqual([{ path: ws.inputs[0]!.path, content: null }]);
+describe("model helpers", () => {
+  const ws = buildWorkspace({
+    openarch: 1,
+    name: "T",
+    elements: {
+      shop: { kind: "system", name: "Shop" },
+      api: { kind: "container", name: "API", parent: "shop" },
+      db: { kind: "container", name: "DB", parent: "shop" },
+      web: { kind: "container", name: "Web", parent: "shop", uses: [{ to: "db", description: "a" }, { to: "api" }, { to: "db", description: "b" }] },
+      handler: { kind: "component", name: "Handler", parent: "api" },
+    },
+    views: { "api-components": { title: "A", level: "component", scope: "api" } },
+  });
+
+  it("names a relationship by its target and which one it is", () => {
+    const web = ws.elements.get("web")!;
+    expect(relationshipRef(web, 2)).toEqual({ from: "web", to: "db", index: 1 });
+    expect(relationshipRef(web, 1)).toEqual({ from: "web", to: "api", index: 0 });
+  });
+
+  it("works out what deleting an element removes", () => {
+    const plan = deletePlan(ws, "api");
+    expect(plan.inside.map((e) => e.id)).toEqual(["handler"]);
+    expect(plan.views.map((v) => v.id)).toEqual(["api-components"]);
+    expect(plan.affected.map((e) => e.id)).toEqual(["web"]);
+  });
+
+  it("finds a free ID", () => {
+    expect(uniqueId(ws, "cache")).toBe("cache");
+    expect(uniqueId(ws, "api")).toBe("api-2");
+    expect(uniqueId(ws, "api-components")).toBe("api-components-2");
   });
 });

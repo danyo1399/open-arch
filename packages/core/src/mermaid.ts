@@ -74,24 +74,3 @@ export function renderMermaid(cv: ComputedView): string {
   if (boundary) lines.push(`  style ${mermaidId(boundary.id)}_boundary fill:none,stroke:#444444,stroke-dasharray:5 5`);
   return lines.join("\n");
 }
-
-/** FNV-1a, 32-bit. Only used to notice hand edits to generated blocks. */
-export function hashText(text: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
-/** The full generated block, as body lines. */
-export function previewBlockLines(mermaid: string): string[] {
-  return [
-    `<!-- open-arch:preview hash=${hashText(mermaid)} — generated from the model by \`open-arch fmt\`. Don't edit: change the element files instead. -->`,
-    "```mermaid",
-    ...mermaid.split("\n"),
-    "```",
-    "<!-- /open-arch:preview -->",
-  ];
-}

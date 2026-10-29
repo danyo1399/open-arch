@@ -20,6 +20,12 @@ importers:
 
   apps/desktop:
     devDependencies:
+      '@opencode/client':
+        specifier: 2.1.4
+        version: 2.1.4(effect@4.0.1)
+      effect:
+        specifier: 4.0.1
+        version: 4.0.1
       electron:
         specifier: 44.8.0
         version: 44.8.0
@@ -73,11 +79,7 @@ importers:
         specifier: workspace:*
         version: link:../skill
 
-  packages/core:
-    dependencies:
-      yaml:
-        specifier: ^2.9.1
-        version: 2.9.1
+  packages/core: {}
 
   packages/skill: {}
 
@@ -313,6 +315,23 @@ packages:
     resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
 
+  '@opencode/client@2.1.4':
+    resolution: {integrity: sha512-xNHP8Xu4wcq4G849Xnbb8IxYxMTzF0TqvohWVUQZH5aURrVHIIbHMfXbZY6s4i4C9kpVbwjXFFwWAo6KIK3oiw==}
+    peerDependencies:
+      effect: 4.0.1
+      solid-js: '>=1.9.0'
+    peerDependenciesMeta:
+      effect:
+        optional: true
+      solid-js:
+        optional: true
+
+  '@opencode/protocol@2.1.4':
+    resolution: {integrity: sha512-dnifgvY6p4xdHkXRH3PEaobfCqrHb1AhihKxPNRNkGn5SueRCFCfK2pZW1GkeC36fGCmcLxlfihuIMaQL1BVzA==}
+
+  '@opencode/schema@2.1.4':
+    resolution: {integrity: sha512-PLr8eFW81Yz6U7YsSgfSUClUUH//8omh3HiXu/L08VX5arorWNAu2uSjoXyHIGkm7TaTbdXBGPmmDfpvrDM2wQ==}
+
   '@oxc-project/types@0.154.0':
     resolution: {integrity: sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA==}
 
@@ -427,6 +446,9 @@ packages:
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
     engines: {node: '>=10'}
+
+  '@standard-schema/spec@1.1.0':
+    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
   '@szmarczak/http-timer@4.0.6':
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
@@ -938,6 +960,9 @@ packages:
 
   duplexer2@0.1.4:
     resolution: {integrity: sha512-asLFVfWWtJ90ZyOUHMqk7/S2w2guQKxUI2itj3d92ADHhxUSbCMGi1f1cBcJ7xM1To+pE/Khbwo1yuNbMEPKeA==}
+
+  effect@4.0.1:
+    resolution: {integrity: sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw==}
 
   ejs@3.1.10:
     resolution: {integrity: sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA==}
@@ -2094,6 +2119,23 @@ snapshots:
 
   '@noble/hashes@2.4.0': {}
 
+  '@opencode/client@2.1.4(effect@4.0.1)':
+    dependencies:
+      '@opencode/protocol': 2.1.4
+      '@opencode/schema': 2.1.4
+    optionalDependencies:
+      effect: 4.0.1
+
+  '@opencode/protocol@2.1.4':
+    dependencies:
+      '@opencode/schema': 2.1.4
+      effect: 4.0.1
+
+  '@opencode/schema@2.1.4':
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      effect: 4.0.1
+
   '@oxc-project/types@0.154.0': {}
 
   '@peculiar/asn1-schema@2.11.0':
@@ -2166,6 +2208,8 @@ snapshots:
   '@rolldown/pluginutils@1.0.1': {}
 
   '@sindresorhus/is@4.6.0': {}
+
+  '@standard-schema/spec@1.1.0': {}
 
   '@szmarczak/http-timer@4.0.6':
     dependencies:
@@ -2659,6 +2703,8 @@ snapshots:
   duplexer2@0.1.4:
     dependencies:
       readable-stream: 2.3.8
+
+  effect@4.0.1: {}
 
   ejs@3.1.10:
     dependencies:
@@ -3591,7 +3637,8 @@ snapshots:
 
   yallist@5.0.0: {}
 
-  yaml@2.9.1: {}
+  yaml@2.9.1:
+    optional: true
 
   yargs-parser@21.1.1: {}
 

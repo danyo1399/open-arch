@@ -1,34 +1,53 @@
 # open-arch
 
-An architecture model (C4) kept as markdown files, readable and editable by people and AI agents.
+An architecture model (C4) that people and AI agents can both read and change safely.
 
-- **Model:** one markdown file per person, system, container and component, with YAML frontmatter (`kind`, `name`, `parent`, `technology`, `uses`, ...) and free-form documentation below it.
-- **Views:** one markdown file per diagram. A view picks elements from the shared model; the boxes and arrows are computed, including relationships implied by nested elements. Each view carries a generated Mermaid preview, so GitHub shows the diagram, and a layout comment for box positions saved by the designer.
+- **One file:** the whole model lives in a `.openarch` file, JSON with a canonical layout: people, systems, containers and components, keyed by ID, each with its relationships, notes and properties, plus views (diagrams) with their saved box positions.
+- **Views are computed:** a view picks elements from the shared model, and the boxes and arrows are worked out from it, including relationships implied by nested elements.
+- **Docs are generated:** markdown pages with Mermaid diagrams (an index, a page per element and per view) are generated from the model for people to read, on GitHub or anywhere else.
+- **Changes are checked:** people change the model in the designer and agents change it with `open-arch` commands. Both go through the same validated operations, so a change that would break the model is refused and nothing is saved.
 
-People edit the files in the designer (web or desktop), agents edit them directly using the skill, and the `open-arch` CLI checks the result. See [`examples/shop`](examples/shop) for a small workspace, and [the format reference](packages/skill/open-arch/references/format.md) for the details.
+See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.openarch) and the [docs generated from it](examples/shop/docs/README.md). The [skill](packages/skill/open-arch/SKILL.md) explains the commands and the [format reference](packages/skill/open-arch/references/format.md) the file.
 
 ## Packages
 
 | Package | What it is |
 |---|---|
-| [`packages/core`](packages/core) (`@open-arch/core`) | Reads, validates, formats and edits workspaces. No Node.js APIs, so the designer runs it in the browser. |
-| [`packages/cli`](packages/cli) (`open-arch`) | The `open-arch` command: `init`, `check`, `fmt`, `show`, `new`, `rename`. |
-| [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill (`SKILL.md` + reference) that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`. |
+| [`packages/core`](packages/core) (`@open-arch/core`) | Parses, checks, edits (through validated operations) and exports workspaces. No dependencies and no Node.js APIs, so the designer runs it in the browser. |
+| [`packages/cli`](packages/cli) (`open-arch`) | The `open-arch` command: `show`, `check`, `export`, an edit command for every operation, `apply` for JSON batches, `init` and `fmt`. |
+| [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`: agents read with `show` and change the model only with commands. |
 | [`apps/web`](apps/web) | The designer as a static web app (React, React Flow, ELK). |
 | [`apps/desktop`](apps/desktop) | The same designer in Electron, for Windows, macOS and Linux. |
 
 ## The designer
 
-One UI, two ways to run it. Both read and write the same files, and both reload when an agent or editor changes them.
+One UI, two ways to run it. Both reload when an agent or editor changes the file.
 
 | | Web app | Desktop app |
 |---|---|---|
-| Open a folder and save as you edit | Chrome and Edge (File System Access API) | Yes |
-| Other browsers | Open a folder read-only; edits stay in the tab, download them as a .zip | n/a |
-| Notices outside edits | Checks every 2 seconds while the tab is visible | Watches the folder |
-| Try without files | Bundled example, or an empty workspace in the tab | Bundled example |
+| Open and save a .openarch file | Chrome and Edge save to the file as you work; other browsers open it and **Download** a copy | Saves to the file as you work |
+| Docs | **Export docs** downloads them as a .zip | Every save rewrites the docs folder the workspace names |
+| Notices outside edits | Checks every 2 seconds while the tab is visible | Watches the file |
+| Try without a file | The bundled example, or a new workspace in the tab | The bundled example |
+| Ask AI | | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
 
 The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere, including GitHub Pages.
+
+### Ask AI (desktop)
+
+**Ask AI** sends a request, with the open view and the selection, to OpenCode's local background service, starting it if needed (`opencode serve --service`). Each request gets its own OpenCode session in the file's folder, with the project's `open-arch` skill if `open-arch init` installed it, or else the app's copy.
+
+The agent changes the model only by running the CLI bundled with the app, which checks every change. It asks before running any other command or editing any other file, and it can't edit the .openarch file directly. Approve or deny its requests in the panel. **Undo AI change** puts the file back as it was before the request.
+
+OpenCode's default model is used. To use another, start the app with `OPEN_ARCH_AGENT_MODEL=<provider>/<model>`.
+
+## Using it in a project
+
+```bash
+open-arch init
+```
+
+This creates `architecture.openarch`, generates its docs into `docs/architecture/`, installs the agent skill, and adds a section to `AGENTS.md` telling agents to use it. Then open the file in the designer, or ask an agent to model the system.
 
 ## Development
 
@@ -85,12 +104,12 @@ pnpm build
 ```
 
 ```bash
-pnpm open-arch check --root examples/shop
+pnpm open-arch show --file examples/shop/shop.openarch
 ```
 
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and pull request:
 
-- **lint** (Ubuntu): typecheck, tests, the CLI build, then `open-arch check` and `fmt --check` on `examples/shop`.
+- **lint** (Ubuntu): typecheck, tests, the CLI build, then `open-arch check`, `fmt --check` and `export --check` on the example.
 - **desktop** (macOS, Windows and Linux): the smoke test (under `xvfb-run` on Linux), then unsigned installers built with `dist`. The smoke screenshots and the installers (`.dmg`/`.zip`, `.exe`, `.AppImage`/`.deb`) are uploaded as artifacts of the run.

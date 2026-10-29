@@ -1,68 +1,49 @@
-/** The open workspace: its files, the parsed model, problems, edits and undo. */
-import { applyChanges, checkWorkspace, loadWorkspace, OpError, parseConfig, type Diagnostic, type FileChange, type InputFile, type Workspace } from "@open-arch/core";
+/** The open workspace: its file text, the model built from it, problems, edits and undo. */
+import { applyOperations, checkWorkspace, loadWorkspace, OpError, serializeDocument, type Diagnostic, type Operation, type Workspace } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { WorkspaceHost, WorkspaceSnapshot } from "./hosts.js";
+import type { DocsSummary } from "./bridge.js";
+import type { WorkspaceHost } from "./hosts.js";
 
-export type Edit = (ws: Workspace) => FileChange[] | undefined;
+/** Operations to apply, or a function that works them out from the current workspace. */
+export type Edit = Operation[] | ((ws: Workspace) => Operation[]);
 
 export interface WorkspaceState {
   ws: Workspace | null;
+  text: string | null;
   diagnostics: Diagnostic[];
   loadError: string | null;
-  /** Apply an edit and save it. Resolves to false when the edit was refused. */
-  edit(fn: Edit): Promise<boolean>;
+  /** Apply operations and save. Resolves to false when they were refused. */
+  edit(edit: Edit): Promise<boolean>;
+  /** Save an earlier version of the file, as one step that Undo takes back. Resolves to false if it couldn't be saved. */
+  restore(text: string): Promise<boolean>;
   undo(): void;
   redo(): void;
   canUndo: boolean;
   canRedo: boolean;
+  /** Changes since the file was last written to disk or downloaded (memory hosts only). */
+  unsaved: boolean;
+  markSaved(): void;
+  /** What the last save did to the docs folder (desktop). */
+  docs: DocsSummary | null;
   message: { kind: "error" | "info"; text: string } | null;
   dismissMessage(): void;
 }
 
 const HISTORY_LIMIT = 100;
 
-export function parseSnapshot(snapshot: WorkspaceSnapshot): Workspace {
-  const { config, diagnostics } = parseConfig(snapshot.configText);
-  return loadWorkspace(snapshot.files, config, diagnostics);
-}
-
-/** The file changes that turn `from` into `to`. */
-export function diffFiles(from: InputFile[], to: InputFile[]): FileChange[] {
-  const before = new Map(from.map((f) => [f.path, f.text]));
-  const after = new Map(to.map((f) => [f.path, f.text]));
-  const changes: FileChange[] = [];
-  for (const [path, text] of after) if (before.get(path) !== text) changes.push({ path, content: text });
-  for (const path of before.keys()) if (!after.has(path)) changes.push({ path, content: null });
-  return changes;
-}
-
-/** Run several edits in a row, each seeing the result of the last, as one set of changes. */
-export function chain(ws: Workspace, ...steps: Edit[]): FileChange[] {
-  let current = ws;
-  for (const step of steps) {
-    const changes = step(current);
-    if (changes?.length) current = loadWorkspace(applyChanges(current.inputs, changes), current.config);
-  }
-  return diffFiles(ws.inputs, current.inputs);
-}
-
-function sameSnapshot(a: WorkspaceSnapshot, b: WorkspaceSnapshot): boolean {
-  if (a.configText !== b.configText || a.files.length !== b.files.length) return false;
-  const map = new Map(a.files.map((f) => [f.path, f.text]));
-  return b.files.every((f) => map.get(f.path) === f.text);
-}
-
 export function useWorkspace(host: WorkspaceHost): WorkspaceState {
-  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
+  const [text, setText] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ undo: InputFile[][]; redo: InputFile[][] }>({ undo: [], redo: [] });
+  const [history, setHistory] = useState<{ undo: string[]; redo: string[] }>({ undo: [], redo: [] });
   const [message, setMessage] = useState<WorkspaceState["message"]>(null);
-  const current = useRef<WorkspaceSnapshot | null>(null);
+  const [savedText, setSavedText] = useState<string | null>(null);
+  const [docs, setDocs] = useState<DocsSummary | null>(null);
+  const current = useRef<string | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
 
-  const commit = (next: WorkspaceSnapshot) => {
+  const commit = (next: string) => {
     current.current = next;
-    setSnapshot(next);
+    setText(next);
   };
 
   // Every write goes through one queue, so edits made quickly apply in order.
@@ -76,56 +57,87 @@ export function useWorkspace(host: WorkspaceHost): WorkspaceState {
     let cancelled = false;
     host
       .load()
-      .then((s) => !cancelled && commit(s))
+      .then((t) => {
+        if (cancelled) return;
+        commit(t);
+        setSavedText(t);
+      })
       .catch((e: Error) => !cancelled && setLoadError(e.message));
     const stop = host.watch?.(() => {
       void enqueue(async () => {
         const next = await host.load();
-        if (cancelled || (current.current && sameSnapshot(current.current, next))) return;
+        if (cancelled || next === current.current) return;
         commit(next);
+        setSavedText(next);
         setHistory({ undo: [], redo: [] });
-        setMessage({ kind: "info", text: "Files changed outside the designer, so the workspace was reloaded." });
+        setMessage({ kind: "info", text: "The file changed outside the designer, so it was reloaded." });
       });
     });
     return () => {
       cancelled = true;
       stop?.();
-      host.close?.();
     };
   }, [host, enqueue]);
 
-  const ws = useMemo(() => (snapshot ? parseSnapshot(snapshot) : null), [snapshot]);
+  const ws = useMemo(() => (text === null ? null : loadWorkspace(text)), [text]);
   const diagnostics = useMemo(() => (ws ? checkWorkspace(ws) : []), [ws]);
 
   const write = useCallback(
-    async (files: InputFile[], changes: FileChange[]) => {
-      await host.write(changes);
-      commit({ configText: current.current!.configText, files });
+    async (next: string) => {
+      const summary = await host.save(next);
+      if (summary) setDocs(summary);
+      if (host.storage === "file") setSavedText(next);
+      commit(next);
     },
     [host],
   );
 
   const edit = useCallback(
-    (fn: Edit) =>
+    (change: Edit) =>
       enqueue(async () => {
-        const snap = current.current;
-        if (!snap) return false;
-        let changes: FileChange[] | undefined;
+        const before = current.current;
+        if (before === null) return false;
+        const workspace = loadWorkspace(before);
+        if (!workspace.valid) {
+          setMessage({ kind: "error", text: "This file has errors that stop it being changed safely. Fix it by hand (the Problems list says where), or restore it from version control." });
+          return false;
+        }
+        let next: string;
         try {
-          changes = fn(parseSnapshot(snap));
+          const ops = typeof change === "function" ? change(workspace) : change;
+          if (ops.length === 0) return true;
+          next = serializeDocument(applyOperations(workspace.doc, ops).doc);
         } catch (error) {
           if (!(error instanceof OpError)) throw error;
           setMessage({ kind: "error", text: error.message });
           return false;
         }
-        if (!changes?.length) return true;
+        if (next === before) return true;
         try {
-          await write(applyChanges(snap.files, changes), changes);
+          await write(next);
         } catch (error) {
           setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
           return false;
         }
-        setHistory((h) => ({ undo: [...h.undo, snap.files].slice(-HISTORY_LIMIT), redo: [] }));
+        setHistory((h) => ({ undo: [...h.undo, before].slice(-HISTORY_LIMIT), redo: [] }));
+        return true;
+      }),
+    [enqueue, write],
+  );
+
+  const restore = useCallback(
+    (target: string) =>
+      enqueue(async () => {
+        const before = current.current;
+        if (before === null) return false;
+        if (target === before) return true;
+        try {
+          await write(target);
+        } catch (error) {
+          setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
+          return false;
+        }
+        setHistory((h) => ({ undo: [...h.undo, before].slice(-HISTORY_LIMIT), redo: [] }));
         return true;
       }),
     [enqueue, write],
@@ -134,15 +146,13 @@ export function useWorkspace(host: WorkspaceHost): WorkspaceState {
   const step = useCallback(
     (direction: "undo" | "redo") =>
       void enqueue(async () => {
-        const snap = current.current;
+        const now = current.current;
         const stack = history[direction];
         const target = stack[stack.length - 1];
-        if (!snap || !target) return;
-        await write(target, diffFiles(snap.files, target));
+        if (now === null || target === undefined) return;
+        await write(target);
         setHistory((h) =>
-          direction === "undo"
-            ? { undo: h.undo.slice(0, -1), redo: [...h.redo, snap.files] }
-            : { redo: h.redo.slice(0, -1), undo: [...h.undo, snap.files] },
+          direction === "undo" ? { undo: h.undo.slice(0, -1), redo: [...h.redo, now] } : { redo: h.redo.slice(0, -1), undo: [...h.undo, now] },
         );
       }),
     [enqueue, history, write],
@@ -150,13 +160,18 @@ export function useWorkspace(host: WorkspaceHost): WorkspaceState {
 
   return {
     ws,
+    text,
     diagnostics,
     loadError,
     edit,
+    restore,
     undo: () => step("undo"),
     redo: () => step("redo"),
     canUndo: history.undo.length > 0,
     canRedo: history.redo.length > 0,
+    unsaved: host.storage === "memory" && text !== null && text !== savedText,
+    markSaved: () => setSavedText(current.current),
+    docs,
     message,
     dismissMessage: () => setMessage(null),
   };

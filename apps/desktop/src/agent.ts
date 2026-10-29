@@ -1,17 +1,16 @@
 /**
- * Where AI edits will plug in. The planned OpenCode 2 integration implements
- * this in the main process with `@opencode/client`: `Service.ensure()` to find
- * or start the local OpenCode service, `session.create({ location: { directory } })`
- * on the workspace folder, `session.prompt` with the open-arch skill attached,
- * and `event.subscribe()` for progress and permission requests. The agent
- * edits the markdown files; the folder watcher reloads the designer.
- *
- * Nothing implements it yet.
+ * Where AI edits plug in. A backend runs one request at a time against a
+ * .openarch file: the agent changes it only through the open-arch CLI, which
+ * checks every change, and the designer's file watcher shows the result.
+ * `opencode.ts` implements this with OpenCode 2.
  */
+import type { AgentEvent } from "../../web/src/bridge.js";
+
+export type { AgentEvent };
 
 export interface AgentRequest {
-  /** Workspace folder the agent works in. */
-  root: string;
+  /** The .openarch file to change. The agent works in its folder. */
+  file: string;
   /** What the user asked for. */
   prompt: string;
   /** IDs of the elements selected in the designer, for context. */
@@ -20,15 +19,35 @@ export interface AgentRequest {
   viewId?: string;
 }
 
-export type AgentEvent =
-  | { type: "progress"; text: string }
-  | { type: "permission"; id: string; description: string }
-  | { type: "done"; summary: string }
-  | { type: "error"; message: string };
-
 export interface AgentBackend {
+  /** Emits progress, then exactly one "done" or "error", then resolves. Never rejects. */
   run(request: AgentRequest, onEvent: (event: AgentEvent) => void): Promise<void>;
   /** Answer a permission request raised during `run`. */
   reply(permissionId: string, allow: boolean): Promise<void>;
   cancel(): Promise<void>;
+}
+
+/** Quote a path for the agent's shell when it needs it. */
+export function shellQuote(path: string): string {
+  return /^[\w@%+=:,./\\-]+$/.test(path) ? path : `"${path}"`;
+}
+
+/** What the agent is told, whichever backend runs it. `cli` is the command that runs the open-arch CLI. */
+export function agentPrompt(request: AgentRequest, cli: string): string {
+  const file = shellQuote(request.file);
+  const lines = [
+    `Change the architecture model in the open-arch workspace ${file} as the user asks below.`,
+    "",
+    `Use the open-arch skill. Change the model only with open-arch commands: run them as \`${cli}\` and pass \`--file ${file}\` to every one. Never edit the .openarch file or its docs folder directly.`,
+  ];
+  if (request.viewId) lines.push(`The user has the view \`${request.viewId}\` open in the designer.`);
+  if (request.selection.length > 0) lines.push(`They have selected: ${request.selection.map((id) => `\`${id}\``).join(", ")}.`);
+  lines.push(
+    "",
+    "Request:",
+    request.prompt.trim(),
+    "",
+    `When you're done, run \`${cli} check --file ${file}\`, then reply in one or two sentences saying what you changed.`,
+  );
+  return lines.join("\n");
 }

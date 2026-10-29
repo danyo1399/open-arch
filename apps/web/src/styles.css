@@ -820,3 +820,133 @@ button.heading {
   gap: 10px;
   margin-bottom: 14px;
 }
+
+/* --- Workspace file status ------------------------------------------------- */
+
+button.ws-name {
+  font-weight: 600;
+  color: var(--text);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-name {
+  white-space: nowrap;
+}
+.storage.unsaved {
+  color: #b54708;
+  border-color: #f5c37a;
+  font-weight: 600;
+}
+.storage-memory:not(.unsaved) {
+  color: var(--muted);
+  border-color: var(--border);
+}
+.prop-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+.prop-row .field {
+  flex: 1;
+}
+.prop-row button.icon {
+  margin-bottom: 18px;
+}
+@media (max-width: 600px) {
+  .file-name {
+    display: none;
+  }
+}
+
+/* --- Ask AI (desktop) ------------------------------------------------------ */
+
+button.active {
+  background: var(--active);
+  border-color: var(--accent);
+}
+.ask-ai {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  width: min(400px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+}
+.ask-ai[hidden] {
+  display: none;
+}
+.ask-ai-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ask-ai-header h2 {
+  margin: 0;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.ask-ai-header .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ask-ai-log {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.ask-ai-log p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ask-ai-prompt {
+  align-self: flex-end;
+  max-width: 90%;
+  background: var(--active);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.ask-ai-progress {
+  color: var(--muted);
+}
+.ask-ai-progress.command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.ask-ai-permission {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid #f5c37a;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.ask-ai-permission .actions {
+  margin: 0;
+}
+.ask-ai-undo,
+.ask-ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ask-ai form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
