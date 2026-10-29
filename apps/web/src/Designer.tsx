@@ -251,6 +251,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         fileName={host.name}
         edit={edit}
         onSelect={select}
+        onSelectView={selectView}
         onHide={(id) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null))}
         onDelete={(id) => setDialog({ kind: "delete", id })}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id })}

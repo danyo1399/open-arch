@@ -1,5 +1,5 @@
 import { SCOPE_KIND, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
-import { deletePlan, uniqueId } from "../model.js";
+import { deletePlan, idFromName, uniqueId } from "../model.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export function Modal({ title, children, actions, onClose }: { title: string; children: ReactNode; actions: ReactNode; onClose(): void }) {
@@ -83,7 +83,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
 
   const create = () => {
     const finalTitle = title.trim() || defaultTitle;
-    const id = uniqueId(ws, finalTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "view");
+    const id = uniqueId(ws, idFromName(finalTitle) || "view");
     onCreate({ op: "add-view", id, level, scope: scopeId, title: finalTitle }, id);
   };
 

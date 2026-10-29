@@ -1,7 +1,7 @@
-import { describeElement, kindLabel, PARENT_KIND, type ArchElement, type ComputedView, type ViewDef, type Workspace } from "@open-arch/core";
+import { describeElement, kindLabel, PARENT_KIND, type ArchElement, type ComputedView, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { PLACEHOLDER_ID, relationshipRef, uniqueId } from "../model.js";
+import { followsName, idFromName, relationshipRef, uniqueId } from "../model.js";
 import type { Edit } from "../state.js";
 import { Field } from "./fields.js";
 
@@ -18,19 +18,24 @@ interface PropertiesProps {
   fileName: string;
   edit(edit: Edit): Promise<boolean>;
   onSelect(selection: Selection): void;
+  onSelectView(id: string): void;
   onHide(id: string): void;
   onDelete(id: string): void;
   onDeleteView(id: string): void;
 }
 
-/** "Checkout API" → "checkout-api" */
-function idFromName(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "element"
-  );
+/**
+ * The operations that give an element or view a new name (`update`), plus a rename
+ * of its ID when the ID follows the name. Returns the ID it will have afterwards.
+ */
+function renameOps(ws: Workspace, id: string, oldName: string, newName: string, update: Operation): { ops: Operation[]; id: string } {
+  const base = idFromName(newName);
+  const next = base && followsName(id, oldName) ? uniqueId(ws, base, id) : id;
+  return { ops: next === id ? [update] : [update, { op: "rename", id, to: next }], id: next };
+}
+
+function idHint(follows: boolean): string {
+  return follows ? "Changes with the name." : "Doesn't match the name, so it stays put when you rename. Edit it to match and it follows the name again.";
 }
 
 export function Properties(props: PropertiesProps) {
@@ -50,15 +55,15 @@ export function Properties(props: PropertiesProps) {
 function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHide, onDelete }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
-  // A new element's placeholder ID ("new-container") follows its first real name, so the model reads well.
+  // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
   const rename = (name: string) => {
-    const id = idFromName(name);
-    if (!PLACEHOLDER_ID.test(element.id) || PLACEHOLDER_ID.test(id) || !name.trim()) return set({ name });
-    const next = uniqueId(ws, id);
-    void edit([
-      { op: "update-element", id: element.id, name },
-      { op: "rename", id: element.id, to: next },
-    ]).then((ok) => ok && onSelect({ kind: "element", id: next }));
+    const { ops, id } = renameOps(ws, element.id, element.name, name, { op: "update-element", id: element.id, name });
+    void edit(ops).then((ok) => ok && id !== element.id && onSelect({ kind: "element", id }));
+  };
+  const changeId = (text: string) => {
+    const to = idFromName(text);
+    if (!to || to === element.id) return;
+    void edit([{ op: "rename", id: element.id, to }]).then((ok) => ok && onSelect({ kind: "element", id: to }));
   };
   const parentKind = PARENT_KIND[element.kind];
   const parents = parentKind ? [...ws.elements.values()].filter((e) => e.kind === parentKind).sort((a, b) => a.name.localeCompare(b.name)) : [];
@@ -69,9 +74,9 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
     <>
       <header className="props-header">
         <span className={`badge badge-${element.external ? "external" : element.kind}`}>{kindLabel(element)}</span>
-        <code className="muted small">{element.id}</code>
       </header>
       <Field label="Name" value={element.name} onCommit={rename} autoFocus={isNew} />
+      <Field label="ID" value={element.id} onCommit={changeId} hint={idHint(followsName(element.id, element.name))} />
       <Field label="Description" value={element.description ?? ""} onCommit={(description) => set({ description: description || null })} multiline placeholder="One sentence, shown in the box" />
       {element.kind !== "person" && <Field label="Technology" value={element.technology ?? ""} onCommit={(technology) => set({ technology: technology || null })} placeholder="e.g. Node.js, PostgreSQL" />}
       {parentKind && (
@@ -222,15 +227,24 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
   );
 }
 
-function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: PropertiesProps & { view: ViewDef }) {
+function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onSelectView }: PropertiesProps & { view: ViewDef }) {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  const retitle = (title: string) => {
+    const { ops, id } = renameOps(ws, view.id, view.title, title, { op: "update-view", id: view.id, title });
+    void edit(ops).then((ok) => ok && id !== view.id && onSelectView(id));
+  };
+  const changeId = (text: string) => {
+    const to = idFromName(text);
+    if (!to || to === view.id) return;
+    void edit([{ op: "rename", id: view.id, to }]).then((ok) => ok && onSelectView(to));
+  };
   return (
     <>
       <header className="props-header">
         <span className="badge">View</span>
-        <code className="muted small">{view.id}</code>
       </header>
-      <Field label="Title" value={view.title} onCommit={(title) => void edit([{ op: "update-view", id: view.id, title }])} />
+      <Field label="Title" value={view.title} onCommit={retitle} />
+      <Field label="ID" value={view.id} onCommit={changeId} hint={idHint(followsName(view.id, view.title))} />
       <Field label="Description" value={view.description ?? ""} multiline onCommit={(description) => void edit([{ op: "update-view", id: view.id, description: description || null }])} />
       <dl className="facts">
         <dt>Level</dt>

@@ -4,11 +4,30 @@ import { isInside, type ArchElement, type ViewDef, type Workspace } from "@open-
 /** IDs the designer gives new elements before they have a name. */
 export const PLACEHOLDER_ID = /^new-(person|system|container|component)(-\d+)?$/;
 
-/** `base`, or `base-2`, `base-3`, ... whichever isn't taken by an element or view. */
-export function uniqueId(ws: Workspace, base: string): string {
-  const taken = (id: string) => ws.elements.has(id) || ws.views.has(id);
+/** `base`, or `base-2`, `base-3`, ... whichever isn't taken by an element or view other than `self`. */
+export function uniqueId(ws: Workspace, base: string, self?: string): string {
+  const taken = (id: string) => id !== self && (ws.elements.has(id) || ws.views.has(id));
   if (!taken(base)) return base;
   for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
+}
+
+/** "Checkout API" → "checkout-api", or "" when the name has no letters or digits. */
+export function idFromName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Whether `id` is the one the designer would make from `name` ("checkout-api",
+ * or "checkout-api-2" when that was taken), or a placeholder. Such an ID keeps
+ * following the name; one that differs was chosen on purpose and stays put.
+ */
+export function followsName(id: string, name: string): boolean {
+  if (PLACEHOLDER_ID.test(id)) return true;
+  const base = idFromName(name);
+  return base !== "" && (id === base || (id.startsWith(`${base}-`) && /^\d+$/.test(id.slice(base.length + 1))));
 }
 
 /**
