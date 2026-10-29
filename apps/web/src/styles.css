@@ -733,10 +733,6 @@ button.heading {
 .arrow-label.selected {
   border-color: var(--accent);
 }
-.arrow-label.missing {
-  color: var(--muted);
-  font-style: italic;
-}
 .arrow-tech {
   color: var(--muted);
 }

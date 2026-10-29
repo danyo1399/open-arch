@@ -1,4 +1,4 @@
-import { computeView, diagnosticTarget, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Position, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeView, diagnosticTarget, kindLabel, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Position, type ViewDef, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -16,14 +16,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { uniqueId } from "../model.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, type Point } from "./autoLayout.js";
-import { edgeTypes, type ArrowEdge } from "./FloatingEdge.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode } from "./nodes.js";
+import { edgeTypes, labelSize, type ArrowEdge } from "./RoutedEdge.js";
+import { placeLabels, routeLinks, type Box } from "./routing.js";
 
 export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "workspace" } | null;
 
 type FlowNode = ElementFlowNode | FrameFlowNode;
 
 const FRAME_ID = "__frame";
+const arrowId = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
 const FRAME_PAD = { x: 40, top: 56, bottom: 40 };
 
 interface CanvasProps {
@@ -154,18 +156,46 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
     );
   }, [cv, positions, problemCounts, selection]);
 
+  // Routed together from the boxes as drawn now, so arrows keep clear of each other and follow boxes being dragged.
+  const { routes, labels } = useMemo(() => {
+    const boxes = new Map<string, Box>();
+    const frames: Box[] = [];
+    // The frame's name, in its bottom left corner (see .frame-label).
+    const frameNames: Box[] = [];
+    for (const n of nodes) {
+      if (n.type === "element") {
+        boxes.set(n.id, { x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H });
+      } else {
+        frames.push({ x: n.position.x, y: n.position.y, w: n.data.width, h: n.data.height });
+        const width = n.data.element.name.length * 8 + kindLabel(n.data.element).length * 6.5 + 12;
+        frameNames.push({ x: n.position.x + 14, y: n.position.y + n.data.height - 28, w: width, h: 20 });
+      }
+    }
+    const edges = cv?.edges ?? [];
+    const routes = routeLinks(boxes, edges.map((e) => ({ id: arrowId(e), from: e.from, to: e.to })), frames);
+    const sizes = new Map<string, { w: number; h: number }>();
+    for (const e of edges) {
+      const size = labelSize(e);
+      if (size) sizes.set(arrowId(e), size);
+    }
+    return { routes, labels: placeLabels(routes, sizes, [...boxes.values(), ...frameNames]) };
+  }, [nodes, cv]);
+
   const edges = useMemo<ArrowEdge[]>(
     () =>
-      cv?.edges.map((e) => ({
-        id: `${e.from}->${e.to}`,
-        type: "arrow",
-        source: e.from,
-        target: e.to,
-        selected: selection?.kind === "arrow" && selection.from === e.from && selection.to === e.to,
-        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
-        data: { edge: e, offset: cv.edges.some((o) => o.from === e.to && o.to === e.from) ? 14 : 0, onSelect: () => onSelect({ kind: "arrow", from: e.from, to: e.to }) },
-      })) ?? [],
-    [cv, selection, onSelect],
+      cv?.edges.map((e) => {
+        const id = arrowId(e);
+        return {
+          id,
+          type: "arrow",
+          source: e.from,
+          target: e.to,
+          selected: selection?.kind === "arrow" && selection.from === e.from && selection.to === e.to,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
+          data: { edge: e, points: routes.get(id) ?? [], label: labels.get(id), onSelect: () => onSelect({ kind: "arrow", from: e.from, to: e.to }) },
+        };
+      }) ?? [],
+    [cv, routes, labels, selection, onSelect],
   );
 
   // Fit the diagram to the window once per view, after its boxes have been measured.

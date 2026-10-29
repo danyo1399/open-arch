@@ -1,0 +1,468 @@
+/**
+ * Routes arrows as horizontal and vertical runs that go around boxes instead
+ * of through them, and that avoid crossing or running along each other.
+ *
+ * Each arrow is the cheapest path on a grid of lines just outside every box's
+ * sides, through the points where arrows attach, and down the middle of the
+ * gaps between boxes. Corners, crossings and shared runs add to a path's cost,
+ * so a slightly longer path wins when it's tidier. Arrows are routed shortest
+ * first, then all routed again so the early ones can make way for the rest.
+ */
+import type { Point } from "./autoLayout.js";
+
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface Link {
+  id: string;
+  from: string;
+  to: string;
+}
+
+/** Space kept clear around each box. */
+const MARGIN = 24;
+/** Fractions along each side that always get a grid line, so every side has places for arrows to attach. */
+const ANCHORS = [0.25, 0.5, 0.75];
+/** Arrows attach at least this fraction of a side's length from its ends, clear of rounded corners. */
+const CORNER_INSET = 0.2;
+/** Arrows attached to the same side closer together than this cost extra. */
+const PORT_SPACING = 24;
+
+// Costs, in pixels of line length.
+const BEND = 40;
+const CROSSING = 120;
+/** Per pixel run alongside another arrow. */
+const OVERLAP = 3;
+/** Per pixel an attachment point is from the middle of its side. */
+const OFF_CENTRE = 0.2;
+const SHARED_PORT = 200;
+/** Runs closer than this to a boundary frame's side cost as much as running along another arrow. There's a lane this far outside each side. */
+const FRAME_GAP = 16;
+
+/** Directions of movement, which are also the axis of a run. */
+const H = 0;
+const V = 1;
+
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+interface Port {
+  /** The box and side, such as `api:top`. */
+  side: string;
+  /** Where along the side: x for the top and bottom, y for the left and right. */
+  pos: number;
+  /** On the box's border. */
+  at: Point;
+  /** Just outside the box, where the route on the grid starts or ends. */
+  stub: Point;
+  /** Axis of the run between `at` and `stub`. */
+  axis: typeof H | typeof V;
+  cost: number;
+}
+
+interface Route {
+  states: number[];
+  ports: [Port, Port];
+  points: Point[];
+}
+
+/** A box's sides in whole pixels, so the grid lines built from them match exactly. */
+function rect(b: Box): Rect {
+  return { left: Math.round(b.x), top: Math.round(b.y), right: Math.round(b.x + b.w), bottom: Math.round(b.y + b.h) };
+}
+
+function inflate(r: Rect): Rect {
+  return { left: r.left - MARGIN, top: r.top - MARGIN, right: r.right + MARGIN, bottom: r.bottom + MARGIN };
+}
+
+
+/** Sorted grid lines: the given ones, plus one down the middle of each gap between a box's far side and the next box's near side. */
+function lines(near: Set<number>, far: Set<number>, others: number[]): number[] {
+  const sorted = [...new Set([...near, ...far, ...others])].sort((a, b) => a - b);
+  const out: number[] = [];
+  sorted.forEach((v, k) => {
+    const next = sorted[k + 1];
+    out.push(v);
+    if (next !== undefined && far.has(v) && near.has(next)) out.push((v + next) / 2);
+  });
+  return out;
+}
+
+class MinHeap {
+  private keys: number[] = [];
+  private values: number[] = [];
+
+  get size() {
+    return this.keys.length;
+  }
+
+  push(key: number, value: number) {
+    const { keys, values } = this;
+    let k = keys.length;
+    keys.push(key);
+    values.push(value);
+    while (k > 0) {
+      const parent = (k - 1) >> 1;
+      if (keys[parent]! <= key) break;
+      keys[k] = keys[parent]!;
+      values[k] = values[parent]!;
+      k = parent;
+    }
+    keys[k] = key;
+    values[k] = value;
+  }
+
+  pop(): number {
+    const { keys, values } = this;
+    const top = values[0]!;
+    const key = keys.pop()!;
+    const value = values.pop()!;
+    const n = keys.length;
+    if (n === 0) return top;
+    let k = 0;
+    for (;;) {
+      let child = 2 * k + 1;
+      if (child >= n) break;
+      if (child + 1 < n && keys[child + 1]! < keys[child]!) child++;
+      if (keys[child]! >= key) break;
+      keys[k] = keys[child]!;
+      values[k] = values[child]!;
+      k = child;
+    }
+    keys[k] = key;
+    values[k] = value;
+    return top;
+  }
+}
+
+/**
+ * The routing grid. Point `p` is column `p % nx`, row `p / nx`. Runs are
+ * indexed by their left or upper end. A search state is a point and the axis
+ * the route is moving along there: `p * 2 + axis`.
+ */
+class Grid {
+  readonly xs: number[];
+  readonly ys: number[];
+  readonly nx: number;
+  readonly ny: number;
+  private readonly xIndex: Map<number, number>;
+  private readonly yIndex: Map<number, number>;
+  /** Runs inside the clear space around some box. */
+  readonly blockedH: Uint8Array;
+  readonly blockedV: Uint8Array;
+  /** How many routed arrows use each run, and how many go straight through each point. */
+  readonly usedH: Uint16Array;
+  readonly usedV: Uint16Array;
+  /** Runs alongside a boundary frame's side. */
+  readonly alongFrameH: Uint8Array;
+  readonly alongFrameV: Uint8Array;
+  readonly throughH: Uint16Array;
+  readonly throughV: Uint16Array;
+  /** Where routed arrows attach on each side, by `Port.side`. */
+  private readonly attached = new Map<string, number[]>();
+  // Search state, reused between searches.
+  private readonly cost: Float64Array;
+  private readonly prev: Int32Array;
+  private readonly done: Uint8Array;
+
+  constructor(rects: Rect[], frames: Rect[]) {
+    const near = { x: new Set<number>(), y: new Set<number>() };
+    const far = { x: new Set<number>(), y: new Set<number>() };
+    for (const r of rects.map(inflate)) {
+      near.x.add(r.left);
+      far.x.add(r.right);
+      near.y.add(r.top);
+      far.y.add(r.bottom);
+    }
+    const lanes = frames.map((f) => ({ left: f.left - FRAME_GAP, top: f.top - FRAME_GAP, right: f.right + FRAME_GAP, bottom: f.bottom + FRAME_GAP }));
+    const anchors = (from: number, to: number) => ANCHORS.map((f) => Math.round(from + (to - from) * f));
+    this.xs = lines(near.x, far.x, [...rects.flatMap((r) => anchors(r.left, r.right)), ...lanes.flatMap((l) => [l.left, l.right])]);
+    this.ys = lines(near.y, far.y, [...rects.flatMap((r) => anchors(r.top, r.bottom)), ...lanes.flatMap((l) => [l.top, l.bottom])]);
+    this.nx = this.xs.length;
+    this.ny = this.ys.length;
+    this.xIndex = new Map(this.xs.map((x, i) => [x, i]));
+    this.yIndex = new Map(this.ys.map((y, j) => [y, j]));
+
+    const n = this.nx * this.ny;
+    this.blockedH = new Uint8Array(n);
+    this.blockedV = new Uint8Array(n);
+    this.usedH = new Uint16Array(n);
+    this.usedV = new Uint16Array(n);
+    this.alongFrameH = new Uint8Array(n);
+    this.alongFrameV = new Uint8Array(n);
+    this.throughH = new Uint16Array(n);
+    this.throughV = new Uint16Array(n);
+    this.cost = new Float64Array(2 * n + 1);
+    this.prev = new Int32Array(2 * n + 1);
+    this.done = new Uint8Array(2 * n + 1);
+
+    const { xs, ys, nx, ny } = this;
+    const closeTo = (v: number, a: number, b: number) => Math.abs(v - a) < FRAME_GAP || Math.abs(v - b) < FRAME_GAP;
+    for (const f of frames) {
+      for (let j = 0; j < ny; j++) {
+        for (let i = 0; i < nx; i++) {
+          const p = j * nx + i;
+          if (i + 1 < nx && xs[i]! < f.right && xs[i + 1]! > f.left && closeTo(ys[j]!, f.top, f.bottom)) this.alongFrameH[p] = 1;
+          if (j + 1 < ny && ys[j]! < f.bottom && ys[j + 1]! > f.top && closeTo(xs[i]!, f.left, f.right)) this.alongFrameV[p] = 1;
+        }
+      }
+    }
+
+    // Box sides are grid lines, so a run is either wholly inside a box's clear space or wholly outside it.
+    for (const r of rects.map(inflate)) {
+      const [i0, i1, j0, j1] = [this.xIndex.get(r.left)!, this.xIndex.get(r.right)!, this.yIndex.get(r.top)!, this.yIndex.get(r.bottom)!];
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const p = j * nx + i;
+          if (j > j0 && j < j1 && i < i1) this.blockedH[p] = 1;
+          if (i > i0 && i < i1 && j < j1) this.blockedV[p] = 1;
+        }
+      }
+    }
+  }
+
+  point(at: Point): number {
+    const i = this.xIndex.get(at.x);
+    const j = this.yIndex.get(at.y);
+    return i === undefined || j === undefined ? -1 : j * this.nx + i;
+  }
+
+  at(p: number): Point {
+    return { x: this.xs[p % this.nx]!, y: this.ys[Math.floor(p / this.nx)]! };
+  }
+
+  /** Where an arrow can attach to a box: wherever a grid line meets one of its sides, away from the corners. */
+  portsOf(id: string, r: Rect): Port[] {
+    const out: Port[] = [];
+    const o = inflate(r);
+    const [w, h] = [r.right - r.left, r.bottom - r.top];
+    for (const x of this.xs) {
+      if (x < r.left + w * CORNER_INSET || x > r.right - w * CORNER_INSET) continue;
+      const cost = OFF_CENTRE * Math.abs(x - (r.left + r.right) / 2);
+      out.push(
+        { side: `${id}:top`, pos: x, at: { x, y: r.top }, stub: { x, y: o.top }, axis: V, cost },
+        { side: `${id}:bottom`, pos: x, at: { x, y: r.bottom }, stub: { x, y: o.bottom }, axis: V, cost },
+      );
+    }
+    for (const y of this.ys) {
+      if (y < r.top + h * CORNER_INSET || y > r.bottom - h * CORNER_INSET) continue;
+      const cost = OFF_CENTRE * Math.abs(y - (r.top + r.bottom) / 2);
+      out.push(
+        { side: `${id}:left`, pos: y, at: { x: r.left, y }, stub: { x: o.left, y }, axis: H, cost },
+        { side: `${id}:right`, pos: y, at: { x: r.right, y }, stub: { x: o.right, y }, axis: H, cost },
+      );
+    }
+    return out;
+  }
+
+  private portCost(port: Port) {
+    let cost = port.cost;
+    for (const pos of this.attached.get(port.side) ?? []) cost += SHARED_PORT * Math.max(0, 1 - Math.abs(pos - port.pos) / PORT_SPACING);
+    return cost;
+  }
+
+  /** The cheapest route from any of `starts` to any of `goals`, as search states. */
+  search(starts: Port[], goals: Port[], target: Rect): { states: number[]; ports: [Port, Port] } | undefined {
+    const { nx, ny, xs, ys, cost, prev, done } = this;
+    const goal = 2 * nx * ny;
+    cost.fill(Infinity);
+    prev.fill(-1);
+    done.fill(0);
+    const heap = new MinHeap();
+    // Distance to the target's clear space, which every route has to reach.
+    const estimate = (p: number) => {
+      const x = xs[p % nx]!;
+      const y = ys[Math.floor(p / nx)]!;
+      return Math.max(0, target.left - x, x - target.right) + Math.max(0, target.top - y, y - target.bottom);
+    };
+    const relax = (s: number, c: number, from: number, h: number) => {
+      if (c >= cost[s]!) return;
+      cost[s] = c;
+      prev[s] = from;
+      heap.push(c + h, s);
+    };
+
+    const startPorts = new Map<number, Port>();
+    for (const port of starts) {
+      const p = this.point(port.stub);
+      if (p < 0) continue;
+      const s = p * 2 + port.axis;
+      if (this.portCost(port) < cost[s]!) startPorts.set(s, port);
+      relax(s, this.portCost(port), -1, estimate(p));
+    }
+    const goalPorts = new Map<number, Port>();
+    for (const port of goals) {
+      const p = this.point(port.stub);
+      if (p < 0) continue;
+      const s = p * 2 + port.axis;
+      const existing = goalPorts.get(s);
+      if (!existing || this.portCost(port) < this.portCost(existing)) goalPorts.set(s, port);
+    }
+
+    while (heap.size) {
+      const s = heap.pop();
+      if (done[s]) continue;
+      done[s] = 1;
+      if (s === goal) break;
+      const c = cost[s]!;
+      const p = s >> 1;
+      const axis = s & 1;
+      const arriving = goalPorts.get(s);
+      if (arriving) relax(goal, c + this.portCost(arriving), s, 0);
+      relax(p * 2 + (1 - axis), c + BEND, s, estimate(p));
+      const i = p % nx;
+      const j = (p - i) / nx;
+      const step = (q: number, run: number, length: number, used: Uint16Array, along: Uint8Array, crossed: Uint16Array) =>
+        relax(q * 2 + axis, c + length + OVERLAP * length * (used[run]! + along[run]!) + CROSSING * crossed[q]!, s, estimate(q));
+      if (axis === H) {
+        if (i + 1 < nx && !this.blockedH[p]) step(p + 1, p, xs[i + 1]! - xs[i]!, this.usedH, this.alongFrameH, this.throughV);
+        if (i > 0 && !this.blockedH[p - 1]) step(p - 1, p - 1, xs[i]! - xs[i - 1]!, this.usedH, this.alongFrameH, this.throughV);
+      } else {
+        if (j + 1 < ny && !this.blockedV[p]) step(p + nx, p, ys[j + 1]! - ys[j]!, this.usedV, this.alongFrameV, this.throughH);
+        if (j > 0 && !this.blockedV[p - nx]) step(p - nx, p - nx, ys[j]! - ys[j - 1]!, this.usedV, this.alongFrameV, this.throughH);
+      }
+    }
+    if (prev[goal] === -1) return undefined;
+
+    const states: number[] = [];
+    for (let s = prev[goal]!; s !== -1; s = prev[s]!) states.push(s);
+    states.reverse();
+    return { states, ports: [startPorts.get(states[0]!)!, goalPorts.get(states[states.length - 1]!)!] };
+  }
+
+  /** Records a route's runs and ports, so later routes avoid them; `by` is 1 to add, -1 to remove. */
+  mark(route: Route, by: 1 | -1) {
+    const points = route.states.map((s) => s >> 1).filter((p, k, all) => k === 0 || p !== all[k - 1]);
+    const axes = points.slice(1).map((p, k) => (Math.abs(p - points[k]!) === 1 ? H : V));
+    axes.forEach((axis, k) => {
+      const run = Math.min(points[k]!, points[k + 1]!);
+      (axis === H ? this.usedH : this.usedV)[run]! += by;
+      if (k > 0 && axes[k - 1] === axis) (axis === H ? this.throughH : this.throughV)[points[k]!]! += by;
+    });
+    for (const port of route.ports) {
+      const list = this.attached.get(port.side) ?? [];
+      if (by === 1) list.push(port.pos);
+      else list.splice(list.indexOf(port.pos), 1);
+      this.attached.set(port.side, list);
+    }
+  }
+}
+
+/** Drops repeated points and points in the middle of a straight run. */
+function simplify(points: Point[]): Point[] {
+  const out: Point[] = [];
+  for (const p of points) {
+    const a = out[out.length - 2];
+    const b = out[out.length - 1];
+    if (b && b.x === p.x && b.y === p.y) continue;
+    if (a && b && ((a.x === b.x && b.x === p.x) || (a.y === b.y && b.y === p.y))) out.pop();
+    out.push(p);
+  }
+  return out;
+}
+
+/** A straight line between the borders of two boxes, for when there's no way around. */
+function straight(from: Box, to: Box): Point[] {
+  const centre = (b: Box) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+  const border = (b: Box, toward: Point) => {
+    const c = centre(b);
+    const dx = toward.x - c.x;
+    const dy = toward.y - c.y;
+    if (dx === 0 && dy === 0) return c;
+    const scale = 1 / Math.max(Math.abs(dx) / (b.w / 2), Math.abs(dy) / (b.h / 2));
+    return { x: c.x + dx * scale, y: c.y + dy * scale };
+  };
+  return [border(from, centre(to)), border(to, centre(from))];
+}
+
+/**
+ * Each link's route, from a point on its source box's border to one on its target's.
+ * Routes cross `frames` (boundaries drawn around boxes) freely but keep off their sides.
+ */
+export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = []): Map<string, Point[]> {
+  const rects = new Map([...boxes].map(([id, b]) => [id, rect(b)]));
+  const grid = new Grid([...rects.values()], frames.map(rect));
+  const ports = new Map([...rects].map(([id, r]) => [id, grid.portsOf(id, r)]));
+
+  const distance = (l: Link) => {
+    const a = rects.get(l.from)!;
+    const b = rects.get(l.to)!;
+    return Math.abs(a.left + a.right - b.left - b.right) + Math.abs(a.top + a.bottom - b.top - b.bottom);
+  };
+  const routable = links
+    .filter((l) => l.from !== l.to && rects.has(l.from) && rects.has(l.to))
+    .sort((a, b) => distance(a) - distance(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  const routes = new Map<string, Route>();
+  for (let pass = 0; pass < 2; pass++) {
+    for (const link of routable) {
+      const old = routes.get(link.id);
+      if (old) grid.mark(old, -1);
+      const found = grid.search(ports.get(link.from)!, ports.get(link.to)!, inflate(rects.get(link.to)!));
+      if (!found) {
+        routes.delete(link.id);
+        continue;
+      }
+      const [start, end] = found.ports;
+      const route = { ...found, points: simplify([start.at, ...found.states.map((s) => grid.at(s >> 1)), end.at]) };
+      grid.mark(route, 1);
+      routes.set(link.id, route);
+    }
+  }
+
+  const out = new Map<string, Point[]>();
+  for (const link of links) {
+    const from = boxes.get(link.from);
+    const to = boxes.get(link.to);
+    if (from && to) out.set(link.id, routes.get(link.id)?.points ?? straight(from, to));
+  }
+  return out;
+}
+
+/** How much of `a` lies inside `b`. */
+function overlap(a: Box, b: Box): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * Where to centre each route's label: on the route, clear of `obstacles` and
+ * of labels already placed where it can be, and otherwise as near the middle
+ * of the route as it can be. `sizes` holds the labels' sizes, by link ID.
+ */
+export function placeLabels(routes: Map<string, Point[]>, sizes: Map<string, { w: number; h: number }>, obstacles: Box[]): Map<string, Point> {
+  const placed: Box[] = [];
+  const out = new Map<string, Point>();
+  for (const [id, points] of routes) {
+    const size = sizes.get(id);
+    if (!size) continue;
+    const runs = points.slice(1).map((b, k) => ({ a: points[k]!, b, length: Math.hypot(b.x - points[k]!.x, b.y - points[k]!.y) }));
+    const total = runs.reduce((sum, r) => sum + r.length, 0);
+    let best: { at: Point; score: number } | undefined;
+    let before = 0;
+    for (const { a, b, length } of runs) {
+      for (const t of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+        const at = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+        const box = { x: at.x - size.w / 2, y: at.y - size.h / 2, w: size.w, h: size.h };
+        const onBoxes = obstacles.reduce((sum, o) => sum + overlap(box, o), 0);
+        const onLabels = placed.reduce((sum, o) => sum + overlap(box, o), 0);
+        const score = (onBoxes ? 10_000 + onBoxes : 0) + (onLabels ? 5_000 + onLabels : 0) + Math.abs(before + length * t - total / 2);
+        if (!best || score < best.score) best = { at, score };
+      }
+      before += length;
+    }
+    if (!best) continue;
+    out.set(id, best.at);
+    placed.push({ x: best.at.x - size.w / 2, y: best.at.y - size.h / 2, w: size.w, h: size.h });
+  }
+  return out;
+}
