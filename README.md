@@ -30,8 +30,9 @@ One UI, two ways to run it. Both reload when an agent or editor changes the file
 | Notices outside edits | Checks every 2 seconds while the tab is visible | Watches the file |
 | Try without a file | The bundled example, or a new workspace in the tab | The bundled example |
 | Ask AI | | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
+| Install | Installable as an app (Chrome, Edge, Safari's **Add to Dock** or **Add to Home Screen**) that opens offline | An installer per OS |
 
-The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere, including GitHub Pages.
+The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere, including GitHub Pages. Served over HTTPS (or from localhost), it has a service worker that caches the build, so it can be installed and opened offline; opening it online always loads the latest build. The app icons in `apps/web/public` are rendered from `apps/web/icons` by `sh icons/render.sh`.
 
 ### Ask AI (desktop)
 

@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@open-arch/web", "dev"],
       "port": 5173
+    },
+    {
+      "name": "web-build",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@open-arch/web", "preview", "--port", "4173", "--strictPort"],
+      "port": 4173
     }
   ]
 }
