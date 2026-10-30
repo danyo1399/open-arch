@@ -18,7 +18,6 @@ interface PropertiesProps {
   fileName: string;
   edit(edit: Edit): Promise<boolean>;
   onSelect(selection: Selection): void;
-  onSelectView(id: string): void;
   onHide(id: string): void;
   onDelete(id: string): void;
   /** Also on an element's right-click menu, which touch screens may have no way to open. */
@@ -27,13 +26,13 @@ interface PropertiesProps {
 }
 
 /**
- * The operations that give an element or view a new name (`update`), plus a rename
- * of its ID when the ID follows the name. Returns the ID it will have afterwards.
+ * The operations that give an element or view a new name (`update`), plus a rename of its ID
+ * when the ID follows the name. The designer keeps whatever has the old ID open under the new one.
  */
-function renameOps(ws: Workspace, id: string, oldName: string, newName: string, update: Operation): { ops: Operation[]; id: string } {
+function renameOps(ws: Workspace, id: string, oldName: string, newName: string, update: Operation): Operation[] {
   const base = idFromName(newName);
   const next = base && followsName(id, oldName) ? uniqueId(ws, base, id) : id;
-  return { ops: next === id ? [update] : [update, { op: "rename", id, to: next }], id: next };
+  return next === id ? [update] : [update, { op: "rename", id, to: next }];
 }
 
 function idHint(follows: boolean): string {
@@ -77,13 +76,12 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
   const rename = (name: string) => {
-    const { ops, id } = renameOps(ws, element.id, element.name, name, { op: "update-element", id: element.id, name });
-    void edit(ops).then((ok) => ok && id !== element.id && onSelect({ kind: "element", id }));
+    void edit(renameOps(ws, element.id, element.name, name, { op: "update-element", id: element.id, name }));
   };
   const changeId = (text: string) => {
     const to = idFromName(text);
     if (!to || to === element.id) return;
-    void edit([{ op: "rename", id: element.id, to }]).then((ok) => ok && onSelect({ kind: "element", id: to }));
+    void edit([{ op: "rename", id: element.id, to }]);
   };
   const parentKind = PARENT_KIND[element.kind];
   const parents = parentKind ? [...ws.elements.values()].filter((e) => e.kind === parentKind).sort((a, b) => a.name.localeCompare(b.name)) : [];
@@ -264,16 +262,15 @@ function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { 
   );
 }
 
-function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onSelectView }: PropertiesProps & { view: ViewDef }) {
+function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: PropertiesProps & { view: ViewDef }) {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const retitle = (title: string) => {
-    const { ops, id } = renameOps(ws, view.id, view.title, title, { op: "update-view", id: view.id, title });
-    void edit(ops).then((ok) => ok && id !== view.id && onSelectView(id));
+    void edit(renameOps(ws, view.id, view.title, title, { op: "update-view", id: view.id, title }));
   };
   const changeId = (text: string) => {
     const to = idFromName(text);
     if (!to || to === view.id) return;
-    void edit([{ op: "rename", id: view.id, to }]).then((ok) => ok && onSelectView(to));
+    void edit([{ op: "rename", id: view.id, to }]);
   };
   return (
     <>

@@ -31,7 +31,12 @@ export interface WorkspaceState {
 
 const HISTORY_LIMIT = 100;
 
-export function useWorkspace(host: WorkspaceHost): WorkspaceState {
+/**
+ * `onApplied` hears the operations of each edit as it's applied, in the same render as the
+ * workspace they make, so what the designer has open can follow a rename without a render in
+ * between where it points at an ID that's gone.
+ */
+export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[]) => void): WorkspaceState {
   const [text, setText] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [history, setHistory] = useState<{ undo: string[]; redo: string[] }>({ undo: [], redo: [] });
@@ -39,6 +44,8 @@ export function useWorkspace(host: WorkspaceHost): WorkspaceState {
   const [savedText, setSavedText] = useState<string | null>(null);
   const [docs, setDocs] = useState<DocsSummary | null>(null);
   const current = useRef<string | null>(null);
+  const applied = useRef(onApplied);
+  applied.current = onApplied;
   const queue = useRef<Promise<unknown>>(Promise.resolve());
 
   const commit = (next: string) => {
@@ -82,12 +89,14 @@ export function useWorkspace(host: WorkspaceHost): WorkspaceState {
   const ws = useMemo(() => (text === null ? null : loadWorkspace(text)), [text]);
   const diagnostics = useMemo(() => (ws ? checkWorkspace(ws) : []), [ws]);
 
+  /** Saves, then shows the new text, and runs `then` in the same render. */
   const write = useCallback(
-    async (next: string) => {
+    async (next: string, then?: () => void) => {
       const summary = await host.save(next);
       if (summary) setDocs(summary);
       if (host.storage === "file") setSavedText(next);
       commit(next);
+      then?.();
     },
     [host],
   );
@@ -103,8 +112,9 @@ export function useWorkspace(host: WorkspaceHost): WorkspaceState {
           return false;
         }
         let next: string;
+        let ops: Operation[];
         try {
-          const ops = typeof change === "function" ? change(workspace) : change;
+          ops = typeof change === "function" ? change(workspace) : change;
           if (ops.length === 0) return true;
           next = serializeDocument(applyOperations(workspace.doc, ops).doc);
         } catch (error) {
@@ -114,7 +124,7 @@ export function useWorkspace(host: WorkspaceHost): WorkspaceState {
         }
         if (next === before) return true;
         try {
-          await write(next);
+          await write(next, () => applied.current?.(ops));
         } catch (error) {
           setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
           return false;

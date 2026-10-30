@@ -155,8 +155,9 @@ textarea {
   resize: vertical;
 }
 /* Phones and tablets zoom in on a text box with smaller text when it gets focus, and stay
-   zoomed in. That includes a sticky note's, on the diagram. */
-@media (pointer: coarse) {
+   zoomed in. That includes a sticky note's, on the diagram. Any touch screen, even with a
+   trackpad as well. */
+@media (any-pointer: coarse) {
   input,
   select,
   textarea {
