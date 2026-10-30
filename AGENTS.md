@@ -4,9 +4,9 @@ How agents (and people) build features and fix bugs in this repo. What open-arch
 
 ## Before you start
 
-- Several agents often work in this checkout at once. Do each feature or fix on its own branch, in its own git worktree, so your changes don't get mixed up with someone else's. Never commit straight to `main`: a branch reaches it only through [review and merge](#review-and-merge). Questions that only read code don't need a branch.
+- Several agents often work in this repo at once. Do each feature or fix on its own branch, in its own git worktree, started from `origin/main`: `git fetch origin && git worktree add -b <branch> <path> origin/main`. Never commit straight to `main`: a branch reaches it only through [review and merge](#review-and-merge). Questions that only read code don't need a branch.
 - A new worktree has no `node_modules`: run `pnpm install` first.
-- Port 5173 may already be another worktree's web dev server. Vite moves to the next free port; don't commit a `.claude/launch.json` entry for it.
+- Port 5173 may already be another worktree's web dev server, and the dev server won't move off it (`strictPort`). Start yours on another port, `pnpm --filter @open-arch/web dev --port 5174`, and don't commit a `.claude/launch.json` entry for it. Before trusting what the browser shows, make sure that server was started from your worktree.
 - Read the code around the change before writing any, and match its naming, comments and style.
 
 ## How the code fits together
@@ -19,17 +19,17 @@ How agents (and people) build features and fix bugs in this repo. What open-arch
 ## Building a feature
 
 1. Work out which layers it touches. A change to the model usually runs through all of them:
-   - format and parsing: `packages/core/src/types.ts`, `document.ts`
-   - checks: `check.ts`
-   - operations: `operations.ts`
-   - CLI commands and their help: `packages/cli/src/main.ts`, `commands/`
+   - format and parsing: `packages/core/src/types.ts`, `packages/core/src/document.ts`
+   - checks: `packages/core/src/check.ts`
+   - operations: `packages/core/src/operations.ts`
+   - CLI commands and their help: `packages/cli/src/main.ts`, `packages/cli/src/commands/`
    - the designer: `apps/web`
-   - generated docs and Mermaid: `export.ts`, `mermaid.ts`
-   - the skill: `SKILL.md`, `references/commands.md`, `references/format.md`
+   - generated docs and Mermaid: `packages/core/src/export.ts`, `packages/core/src/mermaid.ts`
+   - the skill: `packages/skill/open-arch/SKILL.md`, `packages/skill/open-arch/references/commands.md`, `packages/skill/open-arch/references/format.md`
    - the examples and the README
 2. If the file format changes, raise `FORMAT_VERSION` and upgrade older files as they're read, as `document.ts` does for version 1, so existing files keep opening. The next save writes the new version.
 3. Add tests beside the existing ones (`packages/*/test`, `apps/*/test`, Vitest).
-4. For a change you can see, run the designer and check it in the browser. For the desktop app, run the smoke test.
+4. For a change you can see, run the designer and check it in the browser.
 5. Run the checks below, then [review and merge](#review-and-merge).
 
 ## Fixing a bug
@@ -39,21 +39,21 @@ How agents (and people) build features and fix bugs in this repo. What open-arch
 3. Fix it, and keep the test.
 4. Run the checks below, then [review and merge](#review-and-merge).
 
-## Checks before you finish
+## Checks
 
-The same as [CI](.github/workflows/ci.yml):
+The same as [CI](.github/workflows/ci.yml). Every one must pass before a branch is merged into `main`.
 
 ```bash
 pnpm typecheck && pnpm test && pnpm build
 ```
 
 ```bash
-for f in examples/*/*.openarch; do pnpm open-arch check --file "$f" && pnpm open-arch fmt --check --file "$f" && pnpm open-arch export --check --file "$f" || break; done
+(for f in examples/*/*.openarch; do pnpm open-arch check --file "$f" && pnpm open-arch fmt --check --file "$f" && pnpm open-arch export --check --file "$f" || exit 1; done)
 ```
 
 If `export --check` fails because the docs were meant to change, regenerate them with `pnpm open-arch export --file <example>` and include them in the change.
 
-If you changed `apps/desktop`, or anything it uses:
+Unless the change only touches Markdown, also run the desktop smoke test. The desktop app bundles the designer, core, the CLI and the skill, so most changes reach it.
 
 ```bash
 pnpm --filter @open-arch/desktop smoke
@@ -63,20 +63,20 @@ Done means: the checks pass, new behaviour has tests, everything that describes 
 
 ## Review and merge
 
-Every change is reviewed by a subagent, and keeps going back to it until it's approved.
+Every change is reviewed by a subagent before it reaches `main`.
 
 1. Commit your work on the branch.
-2. Ask a subagent to review the branch. Give it the task and how to see the change (`git diff main...HEAD` in the worktree), point it at this file, and ask for its findings and a verdict: **approved** or **changes requested**. Don't give it your own view of the change; let it read the code fresh. It reviews only: it doesn't edit files.
-3. If changes are requested, fix them, commit, and ask for another review of the whole branch. If you think a finding is wrong, don't skip it quietly: say why in the next request, and let the reviewer decide.
-4. Repeat until the verdict is approved.
-5. Bring the branch up to date: `git fetch origin`, then `git rebase origin/main` in the worktree. Run all the checks again on the result, including the smoke test if the desktop app is affected. Nothing is merged until they pass. If they fail, fix it and go back to step 2.
-6. Merge and push, from the main checkout: `git pull --ff-only`, then `git merge --ff-only <branch>`, then `git push origin main`. If the merge isn't a fast-forward, `main` moved again: go back to step 5.
-7. Remove the worktree (`git worktree remove <path>`) and the branch (`git branch -d <branch>`).
+2. Ask a subagent to review the branch. Give it the task and how to see the change: `git fetch origin`, then `git diff origin/main...HEAD` and `git log origin/main..HEAD` in the worktree. Point it at this file, and ask for its findings and a verdict: **approved** or **changes requested**. Don't give it your own view of the change; let it read the code fresh. It reviews only: it doesn't edit files.
+3. If it approves, go on to step 4: an approval on the first review is enough. If it requests changes, fix them, commit, and go back to step 2 for a review of the whole branch. If you think a finding is wrong, don't skip it quietly: say why in the next request, and let the reviewer decide.
+4. Bring the branch up to date: `git fetch origin`, then `git rebase origin/main` in the worktree. If the rebase had conflicts, go back to step 2 once they're resolved.
+5. Run all the [checks](#checks) on the result. Nothing is merged until every one passes. If one fails, fix it and go back to step 2.
+6. Push from the worktree: `git push origin HEAD:main`. Git refuses unless it's a fast-forward; if it does, `main` moved: go back to step 4.
+7. Update the main checkout (the first path in `git worktree list`), but only if `git -C <main> branch --show-current` prints `main`: `git -C <main> merge --ff-only origin/main`. If that refuses, because of local commits or another session's uncommitted changes, stop and tell the user. Never stash, reset or check out over changes there.
+8. Remove the worktree and the branch, from the main checkout in one command: `git -C <main> worktree remove <path> && git -C <main> branch -d <branch>`. If a tool created the worktree, let the tool remove it.
 
 ## Commits
 
-- Commit on your branch as you go. Only an approved branch whose checks pass is merged into `main` and pushed.
-- One feature or fix per commit. Fixes for a review's findings go in their own commit: "Fix review findings in the phone layout".
+- Each commit is one complete feature or fix, with a full message. Commits land on `main` as they are, so squash work in progress before the first review. Fixes for a review's findings go in their own commit: "Fix review findings in the phone layout".
 - The subject says what changed, in plain words: "Pick a box's shape from a list, and give tags values". The body explains what and why, with a bullet per layer (Format, Operations, CLI, Designer, Docs, the skill), wrapped at 72 columns. See `git log` for examples.
 
 ## Writing
