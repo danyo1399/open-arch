@@ -389,12 +389,61 @@ describe("routeLinks", () => {
     }
   });
 
-  it("keeps an arrow straight between two boxes under the same note", () => {
+  it("keeps an arrow straight between two boxes under the same note, while others go round it", () => {
+    // c->d would run straight across the note, so the note goes on the grid, but a and b are both under it.
     const boxes = new Map([
       ["a", { x: 100, y: 50, w: 200, h: 100 }],
       ["b", { x: 100, y: 700, w: 200, h: 100 }],
+      ["c", { x: 700, y: 400, w: 200, h: 100 }],
+      ["d", { x: -500, y: 400, w: 200, h: 100 }],
     ]);
-    expect(routeLinks(boxes, [link("a", "b")], [], [{ x: 0, y: 0, w: 400, h: 500 }]).get("a->b")).toHaveLength(2);
+    const note = { x: 0, y: 0, w: 400, h: 900 };
+    const routes = routeLinks(boxes, [link("a", "b"), link("c", "d")], [], [note]);
+    expect(routes.get("a->b")).toHaveLength(2);
+    for (const s of segments(routes.get("c->d")!)) expect(cuts(s, note), "c->d goes under the note").toBe(false);
+  });
+
+  it("never leaves a box with no way out between notes, but goes under them", () => {
+    // Notes 10px off both sides of b, and boxes 30px above and below it, close every way out.
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 120 }],
+      ["b", { x: 300, y: 300, w: 220, h: 120 }],
+      ["u", { x: 300, y: 150, w: 220, h: 120 }],
+      ["d", { x: 300, y: 450, w: 220, h: 120 }],
+    ]);
+    const notes = [
+      { x: 240, y: 100, w: 50, h: 500 },
+      { x: 530, y: 100, w: 50, h: 500 },
+    ];
+    for (const [p, q] of segments(routeLinks(boxes, [link("a", "b")], [], notes).get("a->b")!)) expect(p.x === q.x || p.y === q.y, "a->b runs straight across or down").toBe(true);
+  });
+
+  it("goes round a note between two boxes close together", () => {
+    for (const gap of [30, 48]) {
+      const boxes = new Map([
+        ["a", { x: 0, y: 0, w: 220, h: 120 }],
+        ["b", { x: 0, y: 120 + gap, w: 220, h: 120 }],
+      ]);
+      const note = { x: 90, y: 122, w: 40, h: gap - 4 };
+      for (const s of segments(routeLinks(boxes, [link("a", "b")], [], [note]).get("a->b")!)) expect(cuts(s, note), `${gap}px apart: a->b goes under the note`).toBe(false);
+    }
+  });
+
+  it("goes round however many notes are in the way", () => {
+    // A note between each of 34 pairs of boxes.
+    const boxes = new Map<string, Box>();
+    const notes: Box[] = [];
+    const links: Link[] = [];
+    for (let k = 0; k < 34; k++) {
+      boxes.set(`t${k}`, at(300 * k, 0));
+      boxes.set(`b${k}`, at(300 * k, 420));
+      notes.push({ x: 300 * k + 60, y: 210, w: 100, h: 80 });
+      links.push(link(`t${k}`, `b${k}`));
+    }
+    const routes = routeLinks(boxes, links, [], notes);
+    links.forEach((l, k) => {
+      for (const s of segments(routes.get(l.id)!)) expect(cuts(s, notes[k]!), `${l.id} goes under its note`).toBe(false);
+    });
   });
 
   it("goes round a note on a box for links that don't start or end there", () => {
@@ -408,7 +457,7 @@ describe("routeLinks", () => {
     const note = { x: 0, y: -20, w: 800, h: 160 };
     const routes = routeLinks(boxes, [link("a", "b"), link("c", "d")], [], [note]);
     for (const s of segments(routes.get("c->d")!)) expect(cuts(s, note), "c->d goes under the note").toBe(false);
-    for (const [p, q] of segments(routes.get("a->b")!)) expect(p.x === q.x || p.y === q.y, "a->b runs straight across or down").toBe(true);
+    expect(routes.get("a->b"), "a->b goes straight down, under the note on a").toHaveLength(2);
   });
 
   it("falls back to a straight line when there's no way out", () => {
