@@ -70,9 +70,8 @@ describe("measureLabelSizes", () => {
   // Just enough of a page to measure in: a label on the page is 6px a letter on its longest line, up to
   // its max-width, and 20px a line; one that isn't on the page measures nothing, as in a browser.
   let measures = 0;
-  type Fake = { parent?: Fake; onPage?: boolean; children: Fake[]; textContent: string };
-  const onPage = (el: Fake): boolean => !!el.onPage || (!!el.parent && onPage(el.parent));
-  const element = () => {
+  type Fake = { parent?: Fake; children: Fake[]; textContent: string };
+  const element = (): Fake & Record<string, unknown> => {
     const el = {
       className: "",
       textContent: "",
@@ -81,25 +80,32 @@ describe("measureLabelSizes", () => {
       parent: undefined as Fake | undefined,
       setAttribute() {},
       append(...kids: Fake[]) {
-        el.children.push(...kids);
+        for (const kid of kids) el.appendChild(kid);
       },
       appendChild(kid: Fake) {
         kid.parent = el;
         el.children.push(kid);
         return kid;
       },
-      remove() {},
+      remove() {
+        if (el.parent) el.parent.children = el.parent.children.filter((c) => c !== el);
+        el.parent = undefined;
+      },
       getBoundingClientRect() {
         measures++;
-        if (!onPage(el)) return { width: 0, height: 0 };
+        let top: Fake = el;
+        while (top.parent) top = top.parent;
+        if (top !== body) return { width: 0, height: 0 };
         const maxWidth = Number(/max-width: (\d+)px/.exec(el.style.cssText)![1]);
         return { width: Math.min(maxWidth, 6 * Math.max(...el.children.map((c) => c.textContent.length))), height: 20 * el.children.length };
       },
     };
     return el;
   };
+  let body = element();
   beforeEach(() => {
-    vi.stubGlobal("document", { createElement: element, body: { onPage: true, children: [], textContent: "", appendChild: (kid: Fake) => ((kid.onPage = true), kid) } });
+    body = element();
+    vi.stubGlobal("document", { createElement: element, body });
     forgetLabelSizes();
     measures = 0;
   });
@@ -113,12 +119,12 @@ describe("measureLabelSizes", () => {
   it("measures each label once at each width, and has every size after", () => {
     const edges = [edge("first label to measure"), edge("a second, rather longer label to measure")];
     const sizes = measureLabelSizes(edges);
-    // 22 letters is 132px: as wide at 140 as at 190, so 140 is left out, but narrower at 100.
+    // With widths 190, 140 and 100: 22 letters is 132px, as wide at 140 as at 190, so 140 is left out, but narrower at 100.
     expect(sizes[0]!.map((s) => [s.maxWidth, s.w])).toEqual([
       [190, 132],
       [100, 100],
     ]);
-    expect(sizes[1]!.map((s) => s.maxWidth)).toEqual([190, 140, 100]);
+    expect(sizes[1]!.map((s) => s.maxWidth)).toEqual(LABEL_WIDTHS);
     expect(measures).toBe(2 * LABEL_WIDTHS.length);
     measureLabelSizes(edges);
     expect(measures).toBe(2 * LABEL_WIDTHS.length);

@@ -483,10 +483,9 @@ class Grid {
     return this.placed;
   }
 
-  /** Puts `route` on the grid as link `id`'s, in place of any it had, or with none, just removes that. Later routes avoid what's there. */
-  place(id: string, route: Route | undefined): void {
+  /** Puts `route` on the grid as link `id`'s, in place of any it had. Later routes avoid what's there. */
+  place(id: string, route: Route): void {
     this.remove(id);
-    if (!route) return;
     this.mark(route, 1);
     this.placed.set(id, route);
   }
@@ -702,7 +701,8 @@ function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[],
     for (const link of links) {
       grid.remove(link.id);
       const [from, to, starts, goals] = [rects.get(link.from)!, rects.get(link.to)!, ports.get(link.from)!, ports.get(link.to)!];
-      grid.place(link.id, acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to));
+      const route = acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to);
+      if (route) grid.place(link.id, route);
     }
   }
   return { grid, ports, routes: grid.routes };
@@ -744,7 +744,8 @@ function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<st
     const to = boxes.get(link.to);
     if (!from || !to) continue;
     const route = routes.get(link.id);
-    out.set(link.id, route ? [...route.points] : straight(from, to));
+    // Copies, as a route's points are shared with other routes and its ports.
+    out.set(link.id, route ? route.points.map((p) => ({ ...p })) : straight(from, to));
   }
   return out;
 }

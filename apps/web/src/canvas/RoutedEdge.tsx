@@ -68,7 +68,7 @@ export function pathThrough(points: Point[], crossings: Point[] = []): string {
 }
 
 /** The widths a label can be drawn at, widest first. Narrower ones wrap onto more lines, to fit between boxes close together. */
-export const LABEL_WIDTHS = [190, 140, 100];
+export const LABEL_WIDTHS: readonly number[] = [190, 140, 100];
 
 /** How big a label is drawn (see .arrow-label) when it's at most `maxWidth` wide. */
 export type LabelSize = { w: number; h: number; maxWidth: number };
