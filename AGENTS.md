@@ -6,7 +6,7 @@ How agents (and people) build features and fix bugs in this repo. What open-arch
 
 - Several agents often work in this repo at once. Do each feature or fix on its own branch, in its own git worktree, started from `origin/main`: `git fetch origin && git worktree add -b <branch> <path> origin/main`. Never commit straight to `main`: a branch reaches it only through [review and merge](#review-and-merge). Questions that only read code don't need a branch.
 - A new worktree has no `node_modules`: run `pnpm install` first.
-- Port 5173 may already be another worktree's web dev server, and the dev server won't move off it (`strictPort`). Start yours on another port, `pnpm --filter @open-arch/web dev --port 5174`, and don't commit a `.claude/launch.json` entry for it. Before trusting what the browser shows, make sure that server was started from your worktree.
+- Port 5173 may already be another worktree's web dev server, and the dev server won't move off it (`strictPort`). Start yours on another port, `pnpm --filter @open-arch/web dev --port 5174`. The desktop dev app loads 5173 unless told otherwise: `OPEN_ARCH_DEV_URL=http://localhost:5174 pnpm --filter @open-arch/desktop dev`. Before trusting what the browser or the app shows, make sure that server was started from your worktree. Don't commit a `.claude/launch.json` entry for another port, and undo any change to that file before removing the worktree.
 - Read the code around the change before writing any, and match its naming, comments and style.
 
 ## How the code fits together
@@ -71,7 +71,7 @@ Every change is reviewed by a subagent before it reaches `main`.
 4. Bring the branch up to date: `git fetch origin`, then `git rebase origin/main` in the worktree. If the rebase had conflicts, go back to step 2 once they're resolved.
 5. Run all the [checks](#checks) on the result. Nothing is merged until every one passes. If one fails, fix it and go back to step 2.
 6. Push from the worktree: `git push origin HEAD:main`. Git refuses unless it's a fast-forward; if it does, `main` moved: go back to step 4.
-7. Update the main checkout (the first path in `git worktree list`), but only if `git -C <main> branch --show-current` prints `main`: `git -C <main> merge --ff-only origin/main`. If that refuses, because of local commits or another session's uncommitted changes, stop and tell the user. Never stash, reset or check out over changes there.
+7. Update the main checkout (the first path in `git worktree list`), but only if `git -C <main> branch --show-current` prints `main`: `git -C <main> merge --ff-only origin/main`. If it's on another branch, or the merge refuses because of local commits or another session's uncommitted changes, leave it and tell the user. Never stash, reset or check out over changes there.
 8. Remove the worktree and the branch, from the main checkout in one command: `git -C <main> worktree remove <path> && git -C <main> branch -d <branch>`. If a tool created the worktree, let the tool remove it.
 
 ## Commits
