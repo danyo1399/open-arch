@@ -1,6 +1,6 @@
 import { computeView, diagnosticTarget, scopeProblems, type ArchElement, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { canSaveFiles, desktopBridge, DesktopHost, docsZip, download, FileHandleHost, pickFileToSave, type WorkspaceHost } from "./hosts.js";
 import { relationshipRef } from "./model.js";
@@ -47,12 +47,12 @@ function useMediaQuery(query: string): boolean {
 /** On a narrow screen, the one panel that fills it. */
 type Pane = "diagram" | "browse" | "details";
 
-/** What the details panel shows, in a few words. */
+/** What the details panel shows, in a few words: the same choice Properties makes. */
 function detailsName(ws: Workspace, view: ViewDef | null, selection: Selection): string {
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
-  if (selection?.kind === "element") return name(selection.id);
+  if (selection?.kind === "element" && ws.elements.has(selection.id)) return name(selection.id);
   if (selection?.kind === "arrow") return `${name(selection.from)} → ${name(selection.to)}`;
-  if (selection?.kind === "sticky") return "Sticky note";
+  if (selection?.kind === "sticky" && view?.stickies.some((s) => s.id === selection.id)) return "Sticky note";
   return selection?.kind === "workspace" || !view ? "Workspace" : "This view";
 }
 
@@ -88,6 +88,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const narrow = useMediaQuery(NARROW);
   const [pane, setPane] = useState<Pane>("diagram");
   const [more, setMore] = useState<{ x: number; y: number } | null>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
   const desktop = desktopBridge();
   const agent = host instanceof DesktopHost ? desktop?.agent : undefined;
 
@@ -145,6 +146,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     [select],
   );
   const closeMore = useCallback(() => setMore(null), []);
+  // Narrowing the window starts on the diagram, not on whichever pane was picked while it was wide.
+  useEffect(() => setPane("diagram"), [narrow]);
+  /** The usages panel is drawn over the diagram. */
+  const findUsages = (id: string) => {
+    setUsagesOf(id);
+    setPane("diagram");
+  };
 
   // Right-clicking an element selects it too, so it's clear which one the menu is for.
   const openElementMenu = (id: string, at: { x: number; y: number }) => {
@@ -241,7 +249,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     host.storage === "file" ? (host.syncsDocs && ws.doc.export?.docs ? `Saved · docs in ${ws.doc.export.docs}/` : "Saved") : state.unsaved ? "Not saved" : "Only in this tab";
   const exportDocs = () => download(`${host.name.replace(/\.openarch$/, "")}-docs.zip`, docsZip(ws, host.name) as BlobPart, "application/zip");
   const toggleAsk = () => {
-    setAskOpen(!askOpen);
+    setAskOpen((o) => !o);
     setPane("diagram");
   };
   // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu.
@@ -311,6 +319,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         </button>
         {narrow ? (
           <button
+            ref={moreButton}
             className="square"
             title="More"
             aria-label="More"
@@ -318,7 +327,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             aria-expanded={!!more}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
-              setMore({ x: r.right, y: r.bottom + 4 });
+              setMore((m) => (m ? null : { x: r.right, y: r.bottom + 4 }));
             }}
           >
             <Icon d={MORE_ICON} stroke={3} />
@@ -386,6 +395,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onSelectView={selectView}
         onHide={(id) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null))}
         onDelete={(id) => setDialog({ kind: "delete", id })}
+        onFindUsages={findUsages}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id })}
       />
 
@@ -413,19 +423,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={[
-            {
-              label: "Find usages",
-              onSelect: () => {
-                setUsagesOf(menu.id);
-                setPane("diagram");
-              },
-            },
-          ]}
+          items={[{ label: "Find usages", onSelect: () => findUsages(menu.id) }]}
           onClose={closeMenu}
         />
       )}
-      {more && <ContextMenu x={more.x} y={more.y} items={moreItems} note={`${host.name} · ${status}`} onClose={closeMore} />}
+      {more && <ContextMenu x={more.x} y={more.y} items={moreItems} note={`${host.name} · ${status}`} anchor={moreButton} onClose={closeMore} />}
       {dialog?.kind === "delete" && (
         <DeleteElementDialog
           ws={ws}

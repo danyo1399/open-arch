@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 
 export interface MenuItem {
   label: string;
@@ -14,10 +14,26 @@ export function menuPoint(e: { clientX: number; clientY: number; currentTarget: 
 
 /**
  * A menu at a point on the screen, as a right-click opens. A click elsewhere, Escape, scrolling or
- * resizing closes it. A note is a line of text above the items.
+ * resizing closes it. A note is a line of text above the items. A click on the anchor, the button
+ * that opened it, is left to that button, so it can close the menu rather than open it again.
  */
-export function ContextMenu({ x, y, items, note, onClose }: { x: number; y: number; items: MenuItem[]; note?: string; onClose(): void }) {
+export function ContextMenu({
+  x,
+  y,
+  items,
+  note,
+  anchor,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  items: MenuItem[];
+  note?: string;
+  anchor?: RefObject<HTMLElement | null>;
+  onClose(): void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  const noteId = useId();
   const [at, setAt] = useState({ x, y });
 
   // Keep it on screen, before it's painted.
@@ -29,7 +45,9 @@ export function ContextMenu({ x, y, items, note, onClose }: { x: number; y: numb
 
   useEffect(() => {
     const outside = (e: Event) => {
-      if (!(e.target instanceof Node && ref.current?.contains(e.target))) onClose();
+      const target = e.target;
+      if (target instanceof Node && (ref.current?.contains(target) || anchor?.current?.contains(target))) return;
+      onClose();
     };
     // Capture, so the canvas can't swallow the click before it closes the menu.
     window.addEventListener("pointerdown", outside, true);
@@ -42,7 +60,7 @@ export function ContextMenu({ x, y, items, note, onClose }: { x: number; y: numb
       window.removeEventListener("resize", onClose);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, [onClose, anchor]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     // Keys are for the menu, not the designer's shortcuts (Delete, Escape...).
@@ -60,8 +78,20 @@ export function ContextMenu({ x, y, items, note, onClose }: { x: number; y: numb
   };
 
   return (
-    <div ref={ref} className="menu-items context-menu" role="menu" style={{ left: at.x, top: at.y }} onKeyDown={onKeyDown} onContextMenu={(e) => e.preventDefault()}>
-      {note && <p className="menu-note muted small">{note}</p>}
+    <div
+      ref={ref}
+      className="menu-items context-menu"
+      role="menu"
+      aria-describedby={note ? noteId : undefined}
+      style={{ left: at.x, top: at.y }}
+      onKeyDown={onKeyDown}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {note && (
+        <p id={noteId} className="menu-note muted small">
+          {note}
+        </p>
+      )}
       {items.map((item) => (
         <button
           key={item.label}

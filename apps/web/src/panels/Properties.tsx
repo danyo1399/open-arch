@@ -21,6 +21,8 @@ interface PropertiesProps {
   onSelectView(id: string): void;
   onHide(id: string): void;
   onDelete(id: string): void;
+  /** Also on an element's right-click menu, which touch screens may have no way to open. */
+  onFindUsages(id: string): void;
   onDeleteView(id: string): void;
 }
 
@@ -54,7 +56,7 @@ export function Properties(props: PropertiesProps) {
   );
 }
 
-function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHide, onDelete }: PropertiesProps & { element: ArchElement }) {
+function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
@@ -154,6 +156,7 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
       )}
 
       <div className="actions">
+        <button onClick={() => onFindUsages(element.id)}>Find usages</button>
         {inView && computed?.boundary?.id !== element.id && <button onClick={() => onHide(element.id)}>Hide from this view</button>}
         <button className="danger" onClick={() => onDelete(element.id)}>
           Delete from model…

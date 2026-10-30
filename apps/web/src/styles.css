@@ -201,6 +201,13 @@ code {
   border-bottom: 1px solid var(--border);
   min-width: 0;
 }
+/* Only the workspace name gives way when it's tight; buttons would wrap their text and squeeze. */
+.topbar > * {
+  flex-shrink: 0;
+}
+.topbar > .ws-name {
+  flex-shrink: 1;
+}
 .brand {
   font-weight: 700;
   color: var(--accent);
@@ -312,13 +319,10 @@ button.square {
 .app.narrow :is(.properties, .modal, .ask-ai) :is(input, select, textarea) {
   font-size: 16px;
 }
-.app.narrow .toolbar {
-  max-width: calc(100% - 30px);
-}
-/* + Add is at the toolbar's right end, so its menu opens leftwards, onto the screen. */
-.app.narrow .toolbar .menu-items {
-  left: auto;
-  right: 0;
+/* + Add's menu opens under the toolbar's left end, not its own: from the button it ran off
+   the right of the screen, and right-aligned to it, off the left of a short toolbar. */
+.app.narrow .toolbar .menu {
+  position: static;
 }
 .app.narrow .toast {
   bottom: 72px;
@@ -362,6 +366,9 @@ button.pane-tab.active {
   font-size: 11px;
   font-weight: 400;
   color: var(--muted);
+}
+.pane-tab-detail.error {
+  color: var(--danger);
 }
 @media (max-width: 360px) {
   .pane-tab {
@@ -653,6 +660,12 @@ button.heading {
   border-radius: 8px;
   padding: 6px 8px 6px 12px;
   box-shadow: var(--shadow);
+  /* Inside the canvas, less React Flow's 15px panel margins, so a long title shrinks, not + Add. */
+  max-width: calc(100% - 30px);
+}
+/* A long title shortens; + Add keeps its size. */
+.toolbar > .menu {
+  flex-shrink: 0;
 }
 .toolbar-title {
   display: flex;
