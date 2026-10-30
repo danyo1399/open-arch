@@ -319,21 +319,21 @@ describe("routeLinks", () => {
         ["routeLinks", routeLinks(boxes, links)],
         ["layoutArrows", layoutArrows(boxes, links, new Map(links.map((l) => [l.id, [{ w: 190, h: 37 }]]))).routes],
       ] as const) {
-        const straight = (p: Point, q: Point) => p.x === q.x || p.y === q.y;
-        // A route with nowhere to go is drawn as a diagonal line, which this doesn't check.
+        // Every route here has a way round, so none falls back to a diagonal line.
+        for (const [id, points] of routes) for (const [p, q] of segments(points)) expect(p.x === q.x || p.y === q.y, `${how}: ${id} runs straight across or down`).toBe(true);
         const ends = [...routes].flatMap(([id, points]) =>
           (
             [
               [points[0]!, points[1]!],
               [points[points.length - 1]!, points[points.length - 2]!],
             ] as const
-          ).filter(([at, next]) => straight(at, next)).map(([at, next]) => {
+          ).map(([at, next]) => {
             const d = Math.hypot(next.x - at.x, next.y - at.y);
             return { id, at, stub: { x: at.x + ((next.x - at.x) * Math.min(MARGIN, d)) / d, y: at.y + ((next.y - at.y) * Math.min(MARGIN, d)) / d } };
           }),
         );
         for (const [id, points] of routes) {
-          for (const [p, q] of segments(points).filter(([p, q]) => straight(p, q))) {
+          for (const [p, q] of segments(points)) {
             for (const end of ends) {
               // Arrows sharing a place to attach share that stretch too.
               if (end.id === id || same(points[0]!, end.at) || same(points[points.length - 1]!, end.at)) continue;
