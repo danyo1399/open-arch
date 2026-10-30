@@ -483,7 +483,11 @@ class Grid {
     for (const port of ports) {
       const list = this.attached.get(port.side) ?? [];
       if (by === 1) list.push(port);
-      else list.splice(list.indexOf(port), 1);
+      else {
+        // Only this arrow's own: indexOf gives -1 for one that isn't there, and splice(-1) would take away another's.
+        const at = list.indexOf(port);
+        if (at >= 0) list.splice(at, 1);
+      }
       this.attached.set(port.side, list);
     }
   }
@@ -546,7 +550,8 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
       const points = simplify(option);
       const ports: [Port, Port] = [movedTo(best.ports[0], from, points[0]!), movedTo(best.ports[1], to, points[points.length - 1]!)];
       // The search found the cheapest route between its ends, so keeping both of those can't help.
-      if (ports[0] === route.ports[0] && ports[1] === route.ports[1]) continue;
+      const same = (a: Port, b: Port) => a.side === b.side && a.pos === b.pos;
+      if (same(ports[0], route.ports[0]) && same(ports[1], route.ports[1])) continue;
       const cells = grid.cellsOf(points, ports);
       if (!cells) continue;
       const cost = grid.costOf(cells, ports);

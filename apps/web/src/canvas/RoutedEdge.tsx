@@ -165,18 +165,21 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
   });
   const wanted = new Map(keys.flat().map(([key, lines, maxWidth]) => [key, [lines, maxWidth] as const]));
   // The sizes these labels need are used now, so they're the last to be let go.
-  for (const key of wanted.keys()) {
-    const size = measured.get(key);
-    if (!size) continue;
-    measured.delete(key);
-    measured.set(key, size);
-  }
-  const missing = [...wanted].filter(([key]) => !measured.has(key));
-  if (missing.length) {
-    for (const key of measured.keys()) {
-      if (measured.size + missing.length <= MEASURED_LIMIT) break;
-      if (!wanted.has(key)) measured.delete(key);
+  const missing: [string, readonly [LabelLine[], number]][] = [];
+  for (const entry of wanted) {
+    const size = measured.get(entry[0]);
+    if (!size) missing.push(entry);
+    else {
+      measured.delete(entry[0]);
+      measured.set(entry[0], size);
     }
+  }
+  // The least recently used first, up to the first these labels need, which come last.
+  for (const key of measured.keys()) {
+    if (measured.size + missing.length <= MEASURED_LIMIT || wanted.has(key)) break;
+    measured.delete(key);
+  }
+  if (missing.length) {
     const probes = missing.map(([key, [lines, maxWidth]]) => [key, probe(lines, maxWidth)] as const);
     const holder = document.body.appendChild(document.createElement("div"));
     holder.append(...probes.map(([, div]) => div));

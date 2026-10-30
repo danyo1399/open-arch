@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { ViewEdge } from "@open-arch/core";
-import { estimateLabel, labelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
+import { estimateLabel, labelSizes, measureLabelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
 
 describe("pathThrough", () => {
   it("hops over the top of an arrow it crosses, whichever way it runs", () => {
@@ -63,5 +63,62 @@ describe("labelSizes", () => {
 
   it("has no size for an arrow with nothing to say", () => {
     expect(labelSizes(edge(""), estimateLabel)).toEqual([]);
+  });
+});
+
+describe("measureLabelSizes", () => {
+  // Just enough of a page to measure in: a label is 6px a letter on its longest line, up to its max-width, and 20px a line.
+  let measures = 0;
+  const element = () => {
+    const el = {
+      className: "",
+      textContent: "",
+      style: { cssText: "" },
+      children: [] as { textContent: string }[],
+      setAttribute() {},
+      append(...kids: { textContent: string }[]) {
+        el.children.push(...kids);
+      },
+      appendChild: <T,>(kid: T) => kid,
+      remove() {},
+      getBoundingClientRect() {
+        measures++;
+        const maxWidth = Number(/max-width: (\d+)px/.exec(el.style.cssText)![1]);
+        return { width: Math.min(maxWidth, 6 * Math.max(...el.children.map((c) => c.textContent.length))), height: 20 * el.children.length };
+      },
+    };
+    return el;
+  };
+  const page = () => {
+    (globalThis as { document?: unknown }).document = { createElement: element, body: { appendChild: <T,>(kid: T) => kid } };
+  };
+  afterEach(() => {
+    delete (globalThis as { document?: unknown }).document;
+  });
+  const edge = (description: string) => ({ description }) as ViewEdge;
+
+  it("measures each label once at each width, and has every size after", () => {
+    page();
+    measures = 0;
+    const edges = [edge("first label to measure"), edge("a second, rather longer label to measure")];
+    const sizes = measureLabelSizes(edges);
+    // 22 letters is 132px: as wide at 140 as at 190, so 140 is left out, but narrower at 100.
+    expect(sizes[0]!.map((s) => [s.maxWidth, s.w])).toEqual([
+      [190, 132],
+      [100, 100],
+    ]);
+    expect(sizes[1]!.map((s) => s.maxWidth)).toEqual([190, 140, 100]);
+    expect(measures).toBe(6);
+    measureLabelSizes(edges);
+    expect(measures).toBe(6);
+  });
+
+  it("has a size for every label even when the view needs more than it keeps", () => {
+    // 3,000 labels measured, then a view of 3,500 that includes them: 10,500 sizes, more than the 10,000 kept,
+    // and making room mustn't let go of the ones the view already had.
+    page();
+    const edges = Array.from({ length: 3500 }, (_, k) => edge(`label number ${k} with some words in it`));
+    measureLabelSizes(edges.slice(0, 3000));
+    for (const sizes of measureLabelSizes(edges)) for (const size of sizes) expect(size.w).toBeGreaterThan(0);
   });
 });
