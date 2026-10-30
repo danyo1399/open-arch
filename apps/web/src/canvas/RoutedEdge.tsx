@@ -35,7 +35,7 @@ function toward(from: Point, to: Point, by: number): Point {
  * crosses at `crossings`. A crossing too near a corner, or too near the last
  * hop to fit another, is drawn as a plain crossing.
  */
-export function pathThrough(points: readonly Point[], crossings: readonly Point[] = []): string {
+export function pathThrough(points: readonly Readonly<Point>[], crossings: readonly Readonly<Point>[] = []): string {
   const first = points[0]!;
   const last = points[points.length - 1]!;
   let d = `M ${first.x} ${first.y}`;

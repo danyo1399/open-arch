@@ -380,6 +380,12 @@ describe("routeLinks", () => {
       ["layoutArrows", layoutArrows(boxes, links, new Map(links.map((l) => [l.id, [{ w: 190, h: 37 }]])), { notes: [overA, betweenDE] }).routes],
     ] as const) {
       for (const s of segments(routes.get("d->e")!)) expect(cuts(s, betweenDE), `${how}: d->e goes under the note between d and e`).toBe(false);
+      const ab = routes.get("a->b")!;
+      expect(ab.length, `${how}: a->b has a route of its own`).toBeGreaterThan(2);
+      for (const [p, q] of segments(ab)) {
+        expect(p.x === q.x || p.y === q.y, `${how}: a->b runs straight across or down`).toBe(true);
+        expect(cuts([p, q], boxes.get("c")!), `${how}: a->b goes through c`).toBe(false);
+      }
     }
   });
 

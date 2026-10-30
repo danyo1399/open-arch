@@ -150,7 +150,7 @@ describe("measureLabelSizes", () => {
 
   it("takes its hidden labels off the page even if measuring them fails", () => {
     failing = true;
-    expect(() => measureLabelSizes([edge("a label that can't be measured")])).toThrow();
+    expect(() => measureLabelSizes([edge("a label that can't be measured")])).toThrow("can't measure");
     expect(body.children).toHaveLength(0);
   });
 
