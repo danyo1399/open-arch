@@ -8,7 +8,7 @@ interface SidebarProps {
   diagnostics: Diagnostic[];
   viewId: string | null;
   inView: Set<string>;
-  /** Elements the current view could draw as their own box. */
+  /** Elements the open view could draw as their own box but doesn't. */
   showable: Set<string>;
   selection: Selection;
   onSelectView(id: string): void;
@@ -99,7 +99,6 @@ export function Sidebar(props: SidebarProps) {
 function TreeRow({ node, depth, ...props }: { node: TreeNode; depth: number } & SidebarProps) {
   const e = node.element;
   const selected = props.selection?.kind === "element" && props.selection.id === e.id;
-  const canShow = props.viewId && !props.inView.has(e.id) && props.showable.has(e.id);
   return (
     <>
       <li>
@@ -115,7 +114,7 @@ function TreeRow({ node, depth, ...props }: { node: TreeNode; depth: number } & 
             <span className={`dot dot-${e.external ? "external" : e.kind}`} />
             <span className={props.inView.has(e.id) ? "grow" : "grow muted"}>{e.name}</span>
           </button>
-          {canShow && (
+          {props.showable.has(e.id) && (
             <button className="icon" title="Show in this view" aria-label={`Show ${e.name} in this view`} onClick={() => props.onShowInView(e.id)}>
               +
             </button>

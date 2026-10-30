@@ -66,6 +66,7 @@ describe("viewAction", () => {
     },
     views: {
       landscape: { title: "Landscape", level: "landscape" },
+      context: { title: "Context", level: "context", scope: "shop" },
       containers: { title: "Containers", level: "container", scope: "shop", exclude: ["db"] },
       components: { title: "Components", level: "component", scope: "web" },
     },
@@ -78,6 +79,10 @@ describe("viewAction", () => {
   it("hides a box the view draws", () => {
     expect(action("landscape", "customer")).toBe("hide");
     expect(action("containers", "web")).toBe("hide");
+  });
+
+  it("hides a context view's own system, which is a box there, not a frame", () => {
+    expect(action("context", "shop")).toBe("hide");
   });
 
   it("shows an element the view could draw but doesn't", () => {
@@ -97,10 +102,9 @@ describe("viewAction", () => {
     expect(action(null, "customer")).toBeNull();
   });
 
-  it("only shows, in a view that can't be drawn", () => {
+  it("does neither in a view that can't be drawn, whose operations would be refused", () => {
     const view = shop.views.get("containers")!;
-    expect(viewAction(shop, view, null, "web")).toBe("show");
-    expect(viewAction(shop, view, null, "customer")).toBe("show");
-    expect(viewAction(shop, view, null, "shop")).toBeNull();
+    expect(viewAction(shop, view, null, "web")).toBeNull();
+    expect(viewAction(shop, view, null, "customer")).toBeNull();
   });
 });

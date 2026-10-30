@@ -50,7 +50,7 @@ export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; 
 }
 
 /** Whether a view can draw this element as its own box (rather than as the system or container around it). */
-export function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boolean {
+function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boolean {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   if (element.kind === "person" || element.kind === "system") {
     // The frame's own system has no box of its own.
@@ -65,12 +65,12 @@ export function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement)
 /**
  * What the open view can do with an element: hide its box, show it as a box, or neither,
  * as for the frame around the view or an element the view can't draw. `computed` is the
- * view as drawn, or null when it can't be drawn, which leaves nothing to hide.
+ * view as drawn, or null when it can't be drawn, which can't show or hide anything.
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  if (!view || !element || computed?.boundary?.id === id) return null;
-  if (computed?.nodes.some((n) => n.id === id)) return "hide";
+  if (!view || !computed || !element || computed.boundary?.id === id) return null;
+  if (computed.nodes.some((n) => n.id === id)) return "hide";
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
 

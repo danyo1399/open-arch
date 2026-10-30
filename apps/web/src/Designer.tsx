@@ -3,7 +3,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { canSaveFiles, desktopBridge, DesktopHost, docsZip, download, FileHandleHost, pickFileToSave, type WorkspaceHost } from "./hosts.js";
-import { canShowAsBox, relationshipRef, viewAction } from "./model.js";
+import { relationshipRef, viewAction } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
@@ -114,7 +114,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const view = ws && viewId ? (ws.views.get(viewId) ?? null) : null;
   const computed = useMemo(() => (ws && view && scopeProblems(ws, view).length === 0 ? computeView(ws, view) : null), [ws, view]);
   const inView = useMemo(() => new Set([...(computed?.nodes.map((n) => n.id) ?? []), ...(computed?.boundary ? [computed.boundary.id] : [])]), [computed]);
-  const showable = useMemo(() => new Set(ws && view ? [...ws.elements.values()].filter((e) => canShowAsBox(ws, view, e)).map((e) => e.id) : []), [ws, view]);
+  const showable = useMemo(() => new Set(ws ? [...ws.elements.keys()].filter((id) => viewAction(ws, view, computed, id) === "show") : []), [ws, view, computed]);
 
   const select = useCallback((next: Selection, options?: { isNew?: boolean }) => {
     setSelection(next);
