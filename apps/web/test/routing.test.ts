@@ -170,6 +170,48 @@ describe("routeLinks", () => {
     for (let x = 200; x <= 500; x += 30) expect(routeLinks(boxes, links, [], [{ x, y: 600, w: 200, h: 150 }])).toEqual(without);
   });
 
+  it("leaves arrows alone when a box they don't touch moves past", () => {
+    // c slides along under b, its sides lining up with b's in different places.
+    const boxes = (x: number) =>
+      new Map([
+        ["a", at(0, 0)],
+        ["b", at(300, 300)],
+        ["d", at(700, 0)],
+        ["c", at(x, 700)],
+      ]);
+    const links = [link("a", "b"), link("d", "b"), link("a", "d")];
+    const first = routeLinks(boxes(200), links);
+    for (let x = 208; x <= 520; x += 8) {
+      const now = routeLinks(boxes(x), links);
+      for (const l of links) expect(now.get(l.id), `${l.id} with c at x=${x}`).toEqual(first.get(l.id));
+    }
+  });
+
+  it("keeps arrows from running just beside each other", () => {
+    // Without the rule, b->c turns along y=288, 3px from d->a along y=291.
+    const boxes = new Map([
+      ["a", at(275, 268)],
+      ["b", at(433, 37)],
+      ["c", at(584, 509)],
+      ["d", at(595, 213)],
+    ]);
+    const links = [link("a", "c"), link("b", "c"), link("d", "a")];
+    const routes = [...check(boxes, links).values()];
+    routes.forEach((route, k) => {
+      for (const other of routes.slice(k + 1)) {
+        for (const [p, q] of segments(route)) {
+          for (const [r, t] of segments(other)) {
+            const overlap = (a: number, b: number, c: number, d: number) => Math.min(Math.max(a, b), Math.max(c, d)) - Math.max(Math.min(a, b), Math.min(c, d));
+            const beside =
+              (p.x === q.x && r.x === t.x && p.x !== r.x && Math.abs(p.x - r.x) < 10 && overlap(p.y, q.y, r.y, t.y) > 0) ||
+              (p.y === q.y && r.y === t.y && p.y !== r.y && Math.abs(p.y - r.y) < 10 && overlap(p.x, q.x, r.x, t.x) > 0);
+            expect(beside, `${JSON.stringify([p, q])} beside ${JSON.stringify([r, t])}`).toBe(false);
+          }
+        }
+      }
+    });
+  });
+
   it("goes around a note in the way", () => {
     const boxes = new Map([
       ["a", at(0, 0)],

@@ -37,6 +37,8 @@ const BEND = 40;
 const CROSSING = 120;
 /** Per pixel run alongside another arrow. */
 const OVERLAP = 3;
+/** Runs this close beside another arrow's count as running along it: they'd look like one thick line. */
+const NEAR = 10;
 /** Per pixel an attachment point is from the middle of its side. */
 const OFF_CENTRE = 0.2;
 const SHARED_PORT = 200;
@@ -246,13 +248,13 @@ class Grid {
     return { x: this.xs[p % this.nx]!, y: this.ys[Math.floor(p / this.nx)]! };
   }
 
-  /** Where an arrow can attach to a box: wherever a grid line meets one of its sides, away from the corners. */
-  portsOf(id: string, r: Rect): Port[] {
+  /** Where an arrow can attach to a box: where the lines `at` meet its sides, away from the corners. */
+  portsOf(id: string, r: Rect, at: { xs: Set<number>; ys: Set<number> }): Port[] {
     const out: Port[] = [];
     const o = inflate(r);
     const [w, h] = [r.right - r.left, r.bottom - r.top];
     for (const x of this.xs) {
-      if (x < r.left + w * CORNER_INSET || x > r.right - w * CORNER_INSET) continue;
+      if (!at.xs.has(x) || x < r.left + w * CORNER_INSET || x > r.right - w * CORNER_INSET) continue;
       const cost = OFF_CENTRE * Math.abs(x - (r.left + r.right) / 2);
       out.push(
         { side: `${id}:top`, pos: x, at: { x, y: r.top }, stub: { x, y: o.top }, axis: V, cost },
@@ -260,7 +262,7 @@ class Grid {
       );
     }
     for (const y of this.ys) {
-      if (y < r.top + h * CORNER_INSET || y > r.bottom - h * CORNER_INSET) continue;
+      if (!at.ys.has(y) || y < r.top + h * CORNER_INSET || y > r.bottom - h * CORNER_INSET) continue;
       const cost = OFF_CENTRE * Math.abs(y - (r.top + r.bottom) / 2);
       out.push(
         { side: `${id}:left`, pos: y, at: { x: r.left, y }, stub: { x: o.left, y }, axis: H, cost },
@@ -327,8 +329,13 @@ class Grid {
       relax(p * 2 + (1 - axis), c + BEND, s, estimate(p));
       const i = p % nx;
       const j = (p - i) / nx;
-      const step = (q: number, run: number, length: number, used: Uint16Array, along: Uint8Array, crossed: Uint16Array) =>
-        relax(q * 2 + axis, c + length + OVERLAP * length * (used[run]! + along[run]!) + CROSSING * crossed[q]!, s, estimate(q));
+      // Lines either side close enough that a run on them would look like the same line, as steps to the run beside this one.
+      const [before, after] =
+        axis === H ? [j > 0 && ys[j]! - ys[j - 1]! < NEAR ? -nx : 0, j + 1 < ny && ys[j + 1]! - ys[j]! < NEAR ? nx : 0] : [i > 0 && xs[i]! - xs[i - 1]! < NEAR ? -1 : 0, i + 1 < nx && xs[i + 1]! - xs[i]! < NEAR ? 1 : 0];
+      const step = (q: number, run: number, length: number, used: Uint16Array, along: Uint8Array, crossed: Uint16Array) => {
+        const beside = (before ? used[run + before]! : 0) + (after ? used[run + after]! : 0);
+        relax(q * 2 + axis, c + length + OVERLAP * length * (used[run]! + along[run]! + beside) + CROSSING * crossed[q]!, s, estimate(q));
+      };
       if (axis === H) {
         if (i + 1 < nx && !this.blockedH[p]) step(p + 1, p, xs[i + 1]! - xs[i]!, this.usedH, this.alongFrameH, this.throughV);
         if (i > 0 && !this.blockedH[p - 1]) step(p - 1, p - 1, xs[i]! - xs[i - 1]!, this.usedH, this.alongFrameH, this.throughV);
@@ -492,18 +499,27 @@ function acrossGap(from: Rect, to: Rect, starts: Port[], goals: Port[], others: 
 
 /** Routes for the links that have one, around the boxes and `obstacles`, shortest first. */
 function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[], frames: Rect[]): Routing {
-  // A line down the middle of where two linked boxes face each other, so the arrow between them can be straight.
+  // Arrows attach to a box only at its own anchors, and at a line down the middle of
+  // where it faces a box it's linked to, so the arrow between them can be straight.
+  // Lines from boxes it has nothing to do with would give it places to attach that
+  // come and go as those boxes move.
+  const anchors = (from: number, to: number) => ANCHORS.map((f) => Math.round(from + (to - from) * f));
+  const at = new Map([...rects].map(([id, r]) => [id, { xs: new Set(anchors(r.left, r.right)), ys: new Set(anchors(r.top, r.bottom)) }]));
   const aligned = { xs: [] as number[], ys: [] as number[] };
   for (const l of links) {
     const [a, b] = [rects.get(l.from)!, rects.get(l.to)!];
     const x = facing(a.left, a.right, b.left, b.right);
     const y = facing(a.top, a.bottom, b.top, b.bottom);
+    for (const id of [l.from, l.to]) {
+      if (x !== undefined) at.get(id)!.xs.add(x);
+      if (y !== undefined) at.get(id)!.ys.add(y);
+    }
     if (x !== undefined) aligned.xs.push(x);
     if (y !== undefined) aligned.ys.push(y);
   }
   const all = [...rects.values(), ...obstacles];
   const grid = new Grid(all, frames, aligned);
-  const ports = new Map([...rects].map(([id, r]) => [id, grid.portsOf(id, r)]));
+  const ports = new Map([...rects].map(([id, r]) => [id, grid.portsOf(id, r, at.get(id)!)]));
 
   const routes = new Map<string, Route>();
   for (let pass = 0; pass < 2; pass++) {
