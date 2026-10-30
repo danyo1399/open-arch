@@ -18,7 +18,7 @@ import { menuPoint } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY_W, stickyHeight, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
-import { edgeTypes, labelSizes, type ArrowEdge, type LabelSize } from "./RoutedEdge.js";
+import { edgeTypes, labelSizes, measureLabel, type ArrowEdge, type LabelSize } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 
 export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "sticky"; id: string } | { kind: "workspace" } | null;
@@ -197,6 +197,16 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     ]);
   }, [cv, positions, problemCounts, selection, view.stickies, editing, finishEditing]);
 
+  // The sizes each arrow's label can be drawn at, which don't change as boxes move.
+  const sizes = useMemo(() => {
+    const out = new Map<string, LabelSize[]>();
+    for (const e of cv?.edges ?? []) {
+      const options = labelSizes(e, measureLabel);
+      if (options.length) out.set(arrowId(e), options);
+    }
+    return out;
+  }, [cv]);
+
   // Routed together from the boxes as drawn now, so arrows keep clear of each other and follow boxes being dragged.
   const { routes, labels, crossed } = useMemo(() => {
     const boxes = new Map<string, Box>();
@@ -216,16 +226,10 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         frameNames.push({ x: n.position.x + 14, y: n.position.y + n.data.height - 28, w: width, h: 20 });
       }
     }
-    const edges = cv?.edges ?? [];
-    const sizes = new Map<string, LabelSize[]>();
-    for (const e of edges) {
-      const options = labelSizes(e);
-      if (options.length) sizes.set(arrowId(e), options);
-    }
-    const links = edges.map((e) => ({ id: arrowId(e), from: e.from, to: e.to }));
+    const links = (cv?.edges ?? []).map((e) => ({ id: arrowId(e), from: e.from, to: e.to }));
     const { routes, labels } = layoutArrows(boxes, links, sizes, { frames, notes, keepClear: frameNames });
     return { routes, labels, crossed: crossings(routes) };
-  }, [nodes, cv]);
+  }, [nodes, cv, sizes]);
 
   const edges = useMemo<ArrowEdge[]>(
     () =>

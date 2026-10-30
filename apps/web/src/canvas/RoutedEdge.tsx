@@ -70,41 +70,70 @@ export function pathThrough(points: Point[], crossings: Point[] = []): string {
 /** The widths a label can be drawn at, widest first. Narrower ones wrap onto more lines, to fit between boxes close together. */
 const LABEL_WIDTHS = [190, 140, 100];
 
-/** Roughly how big a label is drawn (see .arrow-label) when it's at most `maxWidth` wide. */
+/** How big a label is drawn (see .arrow-label) when it's at most `maxWidth` wide. */
 export type LabelSize = { w: number; h: number; maxWidth: number };
 
-/** How big an arrow's label is at each width it can be drawn, widest first, leaving out widths that make no difference; none when it has no label. */
-export function labelSizes(edge: ViewEdge): LabelSize[] {
-  const lines = [edge.description, edge.technology && `[${edge.technology}]`].filter((t): t is string => !!t);
-  if (!lines.length) return [];
+/** How big a label saying `description` and `technology` is drawn at most `maxWidth` wide. */
+export type MeasureLabel = (description: string | undefined, technology: string | undefined, maxWidth: number) => { w: number; h: number };
+
+/**
+ * Roughly how big a label is drawn, from how many characters it has: for where
+ * there's no page to measure it in, as in tests. It wraps at spaces, and breaks a
+ * word too long for a line between letters.
+ */
+export const estimateLabel: MeasureLabel = (description, technology, maxWidth) => {
+  const lines = [description, technology && `[${technology}]`].filter((t): t is string => !!t);
   const [charWidth, lineHeight, padX, padY] = [6, 14.3, 16, 8];
+  const room = maxWidth - padX;
+  const perLine = Math.max(1, Math.floor(room / charWidth));
+  let rows = 0;
+  for (const line of lines) {
+    let width = 0;
+    for (const word of line.split(" ").filter(Boolean)) {
+      const next = width + (width ? charWidth : 0) + charWidth * word.length;
+      if (width && next <= room) {
+        width = next;
+        continue;
+      }
+      if (width) rows++;
+      const full = Math.max(0, Math.ceil(word.length / perLine) - 1);
+      rows += full;
+      width = charWidth * (word.length - full * perLine);
+    }
+    rows++;
+  }
+  // A label that wraps is as wide as it's allowed to be, not as wide as its longest line.
+  const widest = Math.max(0, ...lines.map((t) => t.length * charWidth));
+  return { w: Math.min(widest, room) + padX, h: rows * lineHeight + padY };
+};
+
+let probe: HTMLDivElement | undefined;
+const measured = new Map<string, { w: number; h: number }>();
+
+/** How big a label is drawn, measured in a hidden label off the page with the same styles, once for each text and width. */
+export const measureLabel: MeasureLabel = (description, technology, maxWidth) => {
+  const key = JSON.stringify([description, technology, maxWidth]);
+  const known = measured.get(key);
+  if (known) return known;
+  probe ??= document.body.appendChild(document.createElement("div"));
+  probe.className = "arrow-label";
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText = `visibility: hidden; left: -10000px; top: 0; max-width: ${maxWidth}px`;
+  const lines = [description && Object.assign(document.createElement("div"), { textContent: description })];
+  if (technology) lines.push(Object.assign(document.createElement("div"), { className: "arrow-tech", textContent: `[${technology}]` }));
+  probe.replaceChildren(...lines.filter((l): l is HTMLDivElement => !!l));
+  const { width, height } = probe.getBoundingClientRect();
+  const size = { w: width, h: height };
+  measured.set(key, size);
+  return size;
+};
+
+/** How big an arrow's label is at each width it can be drawn, widest first, leaving out widths that make no difference; none when it has no label. */
+export function labelSizes(edge: ViewEdge, measure: MeasureLabel = estimateLabel): LabelSize[] {
+  if (!edge.description && !edge.technology) return [];
   const out: LabelSize[] = [];
   for (const maxWidth of LABEL_WIDTHS) {
-    const room = maxWidth - padX;
-    // A piece too long for a line is broken between letters (see .arrow-label), so a full line holds this many.
-    const perLine = Math.max(1, Math.floor(room / charWidth));
-    let rows = 0;
-    // Piece by piece, as the browser wraps them: it can break at a space, or after a slash or hyphen.
-    for (const line of lines) {
-      let width = 0;
-      for (const word of line.split(" ")) {
-        (word.match(/[^/-]*[/-]+|[^/-]+/g) ?? [""]).forEach((piece, k) => {
-          const gap = k === 0 && width ? charWidth : 0;
-          if (width && width + gap + charWidth * piece.length <= room) {
-            width += gap + charWidth * piece.length;
-            return;
-          }
-          if (width) rows++;
-          const full = Math.max(0, Math.ceil(piece.length / perLine) - 1);
-          rows += full;
-          width = charWidth * (piece.length - full * perLine);
-        });
-      }
-      rows++;
-    }
-    // A label that wraps is as wide as it's allowed to be, not as wide as its longest line.
-    const widest = Math.max(...lines.map((t) => t.length * charWidth));
-    const size = { w: Math.min(widest, room) + padX, h: rows * lineHeight + padY, maxWidth };
+    const size = { ...measure(edge.description, edge.technology, maxWidth), maxWidth };
     if (!out.length || size.w < out[out.length - 1]!.w) out.push(size);
   }
   return out;

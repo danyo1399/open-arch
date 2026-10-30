@@ -271,6 +271,28 @@ describe("routeLinks", () => {
     for (const s of segments(route)) expect(cuts(s, note), "goes under the note").toBe(false);
   });
 
+  it("doesn't straighten a route into crossing another by its arrowhead", () => {
+    // Straightening b2->b0 by turning it 20px off b2's side, inside b2's clear space, would cross b0->b2 just before it reaches b2.
+    const boxes = new Map([
+      ["b0", { x: 398, y: 140, w: 214, h: 91 }],
+      ["b1", { x: 97, y: 46, w: 214, h: 120 }],
+      ["b2", { x: 217, y: 279, w: 226, h: 95 }],
+      ["b3", { x: 8, y: 271, w: 163, h: 112 }],
+      ["b4", { x: 368, y: 2, w: 203, h: 97 }],
+    ]);
+    const links = [
+      link("b0", "b1"),
+      link("b2", "b4"),
+      link("b4", "b0"),
+      link("b3", "b4"),
+      link("b0", "b2"),
+      link("b2", "b0"),
+      link("b2", "b1"),
+      link("b0", "b4"),
+    ];
+    expect(crossings(check(boxes, links)).size).toBe(0);
+  });
+
   it("falls back to a straight line when there's no way out", () => {
     const boxes = new Map([
       ["a", { x: 0, y: 0, w: 500, h: 400 }],
@@ -394,6 +416,23 @@ describe("layoutArrows", () => {
     const links = [link("a", "b"), link("c", "b"), link("a", "c")];
     const without = layoutArrows(boxes, links, labelled(links));
     for (let x = 200; x <= 500; x += 30) expect(layoutArrows(boxes, links, labelled(links), { notes: [{ x, y: 600, w: 200, h: 150 }] })).toEqual(without);
+  });
+
+  it("still reroutes an arrow it can help when arrows it can't help are more crowded", () => {
+    // As above, plus pairs of boxes 30px apart whose labels are squeezed between them:
+    // any other route between them would be far too long, so they don't take a turn.
+    const boxes = new Map([
+      ["a", { x: 46, y: 28, w: 220, h: 103 }],
+      ["b", { x: 441, y: 52, w: 220, h: 103 }],
+      ["c", { x: 320, y: 260, w: 220, h: 113 }],
+    ]);
+    const links = [link("a", "c"), link("b", "c")];
+    for (let k = 0; k < 10; k++) {
+      boxes.set(`p${k}`, { x: 1000 + 300 * k, y: 0, w: 220, h: 120 });
+      boxes.set(`q${k}`, { x: 1000 + 300 * k, y: 150, w: 220, h: 120 });
+      links.push(link(`p${k}`, `q${k}`));
+    }
+    expect(layoutArrows(boxes, links, labelled(links)).routes.get("a->c")![0]!.y, "leaves a's bottom").toBe(131);
   });
 
   it("keeps a straight arrow between boxes too close for its label", () => {

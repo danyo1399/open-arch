@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ViewEdge } from "@open-arch/core";
-import { labelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
+import { estimateLabel, labelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
 
 describe("pathThrough", () => {
   it("hops over the top of an arrow it crosses, whichever way it runs", () => {
@@ -45,17 +45,19 @@ describe("labelSizes", () => {
   });
 
   it("breaks a long word between letters, as many as fit on a line", () => {
-    // 41 characters with the brackets: a 140px label has room for 20 a line, so 3 lines.
-    const sizes = labelSizes(edge("", "https://example.com/a-very-long/path/xy"));
-    expect(sizes[1]!.maxWidth).toBe(140);
-    expect(sizes[1]!.h).toBeCloseTo(3 * 14.3 + 8);
+    // At 140px there's room for 20 letters a line: 41 letters take 3 lines, and " end" fits after the last one.
+    expect(estimateLabel(`${"x".repeat(41)} end`, undefined, 140).h).toBeCloseTo(3 * 14.3 + 8);
   });
 
-  it("breaks a URL after its slashes, as the browser does", () => {
-    // At 140px: "[https://", "example.com/", then the 27-letter rest split 20 and 7.
-    const sizes = labelSizes(edge("", "https://example.com/abcdefghijklmnopqrstuvwxyz"));
-    expect(sizes[1]!.maxWidth).toBe(140);
-    expect(sizes[1]!.h).toBeCloseTo(4 * 14.3 + 8);
+  it("doesn't count repeated or trailing spaces as taking room", () => {
+    expect(estimateLabel("abcdefghijklmnopqrst ", undefined, 140).h).toBeCloseTo(14.3 + 8);
+    expect(estimateLabel("abcdefghi  jklmnopqr", undefined, 140).h).toBeCloseTo(14.3 + 8);
+  });
+
+  it("takes each size from the measure it's given, leaving out widths that make no difference", () => {
+    const measure = (_d: string | undefined, _t: string | undefined, maxWidth: number) => ({ w: Math.min(maxWidth, 150), h: 300 / maxWidth });
+    expect(labelSizes(edge("anything"), measure).map((s) => s.maxWidth)).toEqual([190, 140, 100]);
+    expect(labelSizes(edge("anything"), (_d, _t, maxWidth) => ({ w: Math.min(maxWidth, 120), h: 20 })).map((s) => s.maxWidth)).toEqual([190, 100]);
   });
 
   it("has no size for an arrow with nothing to say", () => {
