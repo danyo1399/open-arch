@@ -42,6 +42,8 @@ interface CanvasProps {
   edit(edit: Edit): Promise<boolean>;
   /** A right-click on an element's box or on the frame, at that point on the screen. */
   onElementMenu(id: string, at: { x: number; y: number }): void;
+  /** An ID this render shows, after any rename applied since. */
+  current(id: string): string;
 }
 
 /** Element kinds that can be added to a view at its level, and the parent each gets. */
@@ -109,7 +111,7 @@ function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined): FlowNo
   return [frame, ...rest];
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, current }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -331,9 +333,17 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     [currentLayout, edit, view.id],
   );
 
+  // An arrow comes from the ID its box had when the drag, or the first click, began. Pressing the
+  // box saves a name being typed in the details, and the rename that follows can land before the drop.
+  const connectingFrom = useRef<(id: string) => string>((id) => id);
+  const onConnectStart = () => {
+    connectingFrom.current = current;
+  };
+
   const onConnect = useCallback(
     (c: Connection) => {
-      void edit([{ op: "add-relationship", from: c.source, to: c.target }]).then((ok) => ok && onSelect({ kind: "arrow", from: c.source, to: c.target }));
+      const from = connectingFrom.current(c.source);
+      void edit([{ op: "add-relationship", from, to: c.target }]).then((ok) => ok && onSelect({ kind: "arrow", from, to: c.target }));
     },
     [edit, onSelect],
   );
@@ -379,8 +389,10 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeDragStop={onNodeDragStop}
+        onConnectStart={onConnectStart}
+        onClickConnectStart={onConnectStart}
         onConnect={onConnect}
-        isValidConnection={(c) => c.source !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
+        isValidConnection={(c) => connectingFrom.current(c.source) !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
         onNodeClick={(_, node) => selectNode(node)}
         onNodeContextMenu={(event, node) => {
           if (node.type !== "element" && node.type !== "frame") return;

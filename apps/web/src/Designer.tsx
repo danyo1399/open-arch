@@ -415,7 +415,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       <main className="main" inert={narrow && pane !== "diagram"}>
         {view ? (
           <ReactFlowProvider key={view.id}>
-            <Canvas ws={ws} view={view} diagnostics={diagnostics} selection={selection} onSelect={selectOnCanvas} edit={edit} onElementMenu={openElementMenu} />
+            <Canvas ws={ws} view={view} diagnostics={diagnostics} selection={selection} onSelect={selectOnCanvas} edit={edit} onElementMenu={openElementMenu} current={current} />
           </ReactFlowProvider>
         ) : (
           <div className="canvas-message">
