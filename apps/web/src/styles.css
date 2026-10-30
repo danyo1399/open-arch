@@ -260,17 +260,119 @@ code {
     border-top: 1px solid var(--border);
   }
 }
-@media (max-width: 600px) {
-  .app {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 46px 30% minmax(0, 1fr) 30%;
+/* Narrow screens (see NARROW in Designer.tsx): one panel fills the screen, picked with the
+   tabs along the bottom. The others stack under it in the same cell; the canvas stays laid
+   out there, so the diagram keeps its size and zoom while it's covered. */
+.app.narrow {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 46px minmax(0, 1fr) auto;
+}
+.app.narrow > .sidebar,
+.app.narrow > .main,
+.app.narrow > .properties {
+  grid-area: 2 / 1;
+  border: none;
+}
+.app.narrow > .main {
+  /* Holds React Flow's layers, so the panels above cover all of them. */
+  z-index: 0;
+}
+.app.narrow > .sidebar,
+.app.narrow > .properties {
+  z-index: 1;
+}
+.app.narrow:not(.pane-browse) > .sidebar,
+.app.narrow:not(.pane-details) > .properties {
+  display: none;
+}
+.app.narrow .topbar {
+  gap: 6px;
+  padding: 0 8px;
+}
+.app.narrow .topbar button {
+  min-height: 34px;
+}
+button.square {
+  width: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+/* Room for a finger. */
+.app.narrow .row {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+.app.narrow .row button.icon {
+  margin: -6px 0;
+  padding: 6px 12px;
+  font-size: 18px;
+}
+/* Phones zoom in on a text box with smaller text when it gets focus, and stay zoomed in. */
+.app.narrow :is(.properties, .modal, .ask-ai) :is(input, select, textarea) {
+  font-size: 16px;
+}
+.app.narrow .toolbar {
+  max-width: calc(100% - 30px);
+}
+/* + Add is at the toolbar's right end, so its menu opens leftwards, onto the screen. */
+.app.narrow .toolbar .menu-items {
+  left: auto;
+  right: 0;
+}
+.app.narrow .toast {
+  bottom: 72px;
+}
+
+.panes {
+  grid-row: 3;
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.pane-tab {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 4px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--muted);
+}
+/* Over the hover colour too, which a tap leaves behind on a touch screen. */
+button.pane-tab.active {
+  background: var(--active);
+  color: var(--text);
+}
+.pane-tab-label,
+.pane-tab-detail {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-tab-detail {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+@media (max-width: 360px) {
+  .pane-tab {
+    padding-left: 0;
+    padding-right: 0;
+    font-size: 13px;
   }
-  .sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-  .storage,
-  .ws-name {
+}
+/* A phone on its side has little height to spare. */
+@media (max-height: 500px) {
+  .pane-tab-detail {
     display: none;
   }
 }
@@ -555,7 +657,13 @@ button.heading {
 .toolbar-title {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   line-height: 1.25;
+}
+.toolbar-title > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .toolbar-title span {
   font-size: 12px;
@@ -633,6 +741,10 @@ button.heading {
 }
 .usage .dot {
   margin-top: 5px;
+}
+.menu-note {
+  margin: 4px 10px 6px;
+  overflow-wrap: anywhere;
 }
 .menu-items hr {
   width: 100%;
@@ -1050,6 +1162,7 @@ button.heading {
 button.ws-name {
   font-weight: 600;
   color: var(--text);
+  min-width: 0;
   max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1077,7 +1190,7 @@ button.ws-name {
 .tag-row button.icon {
   font-size: 16px;
 }
-@media (max-width: 600px) {
+@media (max-width: 900px) {
   .file-name {
     display: none;
   }

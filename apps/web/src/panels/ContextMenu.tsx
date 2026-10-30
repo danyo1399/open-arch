@@ -12,8 +12,11 @@ export function menuPoint(e: { clientX: number; clientY: number; currentTarget: 
   return { x: r.left, y: r.bottom };
 }
 
-/** A menu at a point on the screen, as a right-click opens. A click elsewhere, Escape, scrolling or resizing closes it. */
-export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose(): void }) {
+/**
+ * A menu at a point on the screen, as a right-click opens. A click elsewhere, Escape, scrolling or
+ * resizing closes it. A note is a line of text above the items.
+ */
+export function ContextMenu({ x, y, items, note, onClose }: { x: number; y: number; items: MenuItem[]; note?: string; onClose(): void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState({ x, y });
 
@@ -58,6 +61,7 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
 
   return (
     <div ref={ref} className="menu-items context-menu" role="menu" style={{ left: at.x, top: at.y }} onKeyDown={onKeyDown} onContextMenu={(e) => e.preventDefault()}>
+      {note && <p className="menu-note muted small">{note}</p>}
       {items.map((item) => (
         <button
           key={item.label}
