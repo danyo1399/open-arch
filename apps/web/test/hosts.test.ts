@@ -1,31 +1,8 @@
 import { buildWorkspace, checkWorkspace, loadWorkspace } from "@open-arch/core";
 import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { docsZip, exampleHost, FileHandleHost, hostFromFile, MemoryHost, type FileHandle } from "../src/hosts.js";
+import { docsZip, exampleHost } from "../src/hosts.js";
 import { deletePlan, relationshipRef, uniqueId } from "../src/model.js";
-
-class FakeFileHandle implements FileHandle {
-  writes = 0;
-  constructor(
-    readonly name: string,
-    public text: string,
-    public lastModified = 1,
-  ) {}
-  async getFile() {
-    return { text: async () => this.text, lastModified: this.lastModified, size: this.text.length };
-  }
-  async createWritable() {
-    let buffer = "";
-    return {
-      write: async (data: string) => void (buffer += data),
-      close: async () => {
-        this.text = buffer;
-        this.lastModified++;
-        this.writes++;
-      },
-    };
-  }
-}
 
 describe("hosts", () => {
   it("bundles a clean example", async () => {
@@ -34,19 +11,9 @@ describe("hosts", () => {
     expect(checkWorkspace(ws)).toEqual([]);
   });
 
-  it("reads and writes a file through its handle", async () => {
-    const handle = new FakeFileHandle("shop.openarch", "{}");
-    const host = new FileHandleHost(handle);
-    expect(host).toMatchObject({ name: "shop.openarch", storage: "file" });
-    expect(await host.load()).toBe("{}");
-    await host.save('{"x":1}');
-    expect(handle).toMatchObject({ text: '{"x":1}', writes: 1 });
-  });
-
-  it("keeps edits in memory for files opened without write access", async () => {
-    const host = await hostFromFile(new File(['{"openarch":1}'], "mine.openarch"));
-    expect(host).toBeInstanceOf(MemoryHost);
-    expect(host.name).toBe("mine.openarch");
+  it("keeps an example's edits in memory", async () => {
+    const host = exampleHost();
+    expect(host).toMatchObject({ name: "shop.openarch", storage: "memory" });
     await host.save("changed");
     expect(await host.load()).toBe("changed");
   });

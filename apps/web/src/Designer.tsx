@@ -2,12 +2,14 @@ import { computeView, diagnosticTarget, scopeProblems, type Diagnostic, type Ope
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
-import { canSaveFiles, desktopBridge, DesktopHost, docsZip, download, FileHandleHost, pickFileToSave, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
+import { browserLibrary } from "./library.js";
 import { followRenames, relationshipRef, renamedId, renamesIn, shownInProperties, viewAction, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
 import { Properties } from "./panels/Properties.js";
+import { providers, type FileProvider } from "./providers.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
 import { useWorkspace, type Edit } from "./state.js";
@@ -61,7 +63,7 @@ const MORE_ICON = "M5 12h.01M12 12h.01M19 12h.01";
 interface DesignerProps {
   host: WorkspaceHost;
   onClose(): void;
-  /** After "Save as": carry on with the new file. */
+  /** After saving an example: carry on with the saved copy. */
   onHostChange(host: WorkspaceHost): void;
 }
 
@@ -254,19 +256,25 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     else if (target?.kind === "element" && ws?.elements.has(target.id)) showDetails({ kind: "element", id: target.id });
   };
 
-  const saveAs = async () => {
-    if (state.text === null) return;
-    if (desktop) {
-      const file = await desktop.saveAs(state.text);
-      if (file) onHostChange(new DesktopHost(desktop, file.path, file.name));
-      return;
-    }
-    const handle = await pickFileToSave(host.name);
-    if (!handle) return;
-    const next = new FileHandleHost(handle);
-    await next.save(state.text);
-    onHostChange(next);
-  };
+  const attempt = (task: () => Promise<void>) => void task().catch((e: Error) => state.notify({ kind: "error", text: e.message }));
+
+  /** An example only lives in this tab until it's saved: as a file on desktop, in the browser's storage on the web. */
+  const save = () =>
+    attempt(async () => {
+      if (state.text === null) return;
+      if (desktop) {
+        const file = await desktop.saveAs(state.text);
+        if (file) onHostChange(new DesktopHost(desktop, file.path, file.name));
+        return;
+      }
+      const record = await browserLibrary.add(host.name, state.text);
+      onHostChange(new BrowserHost(browserLibrary, record.id, record.fileName));
+    });
+
+  const exportTo = (provider: FileProvider) =>
+    attempt(async () => {
+      if (state.text !== null && (await provider.save(host.name, state.text)) && host.storage === "memory") state.markSaved();
+    });
 
   if (state.loadError) {
     return (
@@ -282,9 +290,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const selected = selection?.kind === "element" ? [selection.id] : selection?.kind === "arrow" ? [selection.from, selection.to] : [];
   // While Ask AI is open, the agent's edits reload the file again and again, and the panel already says what it changed.
   const message = state.message?.kind === "info" && askOpen ? null : state.message;
-  const canSaveAs = !!desktop || canSaveFiles();
   const status =
-    host.storage === "file" ? (host.syncsDocs && ws.doc.export?.docs ? `Saved · docs in ${ws.doc.export.docs}/` : "Saved") : state.unsaved ? "Not saved" : "Only in this tab";
+    host.storage === "file"
+      ? host.syncsDocs && ws.doc.export?.docs
+        ? `Saved · docs in ${ws.doc.export.docs}/`
+        : "Saved"
+      : host.storage === "browser"
+        ? "Saved in this browser"
+        : state.unsaved
+          ? "Not saved"
+          : "Only in this tab";
   const exportDocs = () => download(`${host.name.replace(/\.openarch$/, "")}-docs.zip`, docsZip(ws, host.name) as BlobPart, "application/zip");
   const toggleAsk = () => {
     setAskOpen((o) => !o);
@@ -293,6 +308,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   };
   // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu.
   const moreItems: MenuItem[] = [
+    ...(desktop ? [] : providers.map((provider) => ({ label: provider.exportLabel, onSelect: () => exportTo(provider) }))),
     ...(host.syncsDocs ? [] : [{ label: "Export docs", onSelect: exportDocs }]),
     ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
@@ -334,20 +350,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           </>
         )}
         <span className="spacer" />
-        {host.storage === "memory" &&
-          (canSaveAs ? (
-            <button className={state.unsaved ? "primary" : ""} onClick={() => void saveAs()}>
-              Save as…
-            </button>
-          ) : (
-            <button
-              className={state.unsaved ? "primary" : ""}
-              onClick={() => {
-                download(host.name, state.text!, "application/json");
-                state.markSaved();
-              }}
-            >
-              Download
+        {host.storage === "memory" && (
+          <button className={state.unsaved ? "primary" : ""} onClick={save} title={desktop ? undefined : "Keep it in this browser, with your other workspaces"}>
+            {desktop ? "Save as…" : "Save"}
+          </button>
+        )}
+        {!narrow &&
+          !desktop &&
+          providers.map((provider) => (
+            <button key={provider.id} onClick={() => exportTo(provider)} title="Save a copy of the .openarch file">
+              {provider.exportLabel}
             </button>
           ))}
         {!narrow && !host.syncsDocs && (

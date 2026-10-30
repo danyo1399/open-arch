@@ -20,12 +20,14 @@ export interface WorkspaceState {
   redo(): void;
   canUndo: boolean;
   canRedo: boolean;
-  /** Changes since the file was last written to disk or downloaded (memory hosts only). */
+  /** Changes since the workspace was last saved or exported (memory hosts only). */
   unsaved: boolean;
   markSaved(): void;
   /** What the last save did to the docs folder (desktop). */
   docs: DocsSummary | null;
   message: { kind: "error" | "info"; text: string } | null;
+  /** Show a message, for things done outside `edit`, like exporting. */
+  notify(message: { kind: "error" | "info"; text: string }): void;
   dismissMessage(): void;
 }
 
@@ -77,7 +79,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         commit(next);
         setSavedText(next);
         setHistory({ undo: [], redo: [] });
-        setMessage({ kind: "info", text: "The file changed outside the designer, so it was reloaded." });
+        setMessage({ kind: "info", text: "The workspace changed outside this window, so it was reloaded." });
       });
     });
     return () => {
@@ -183,6 +185,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     markSaved: () => setSavedText(current.current),
     docs,
     message,
+    notify: setMessage,
     dismissMessage: () => setMessage(null),
   };
 }

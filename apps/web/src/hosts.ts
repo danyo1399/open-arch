@@ -1,31 +1,30 @@
 /**
- * Where a workspace's .openarch file comes from and goes to. The designer only
- * talks to a WorkspaceHost, so the same UI runs in the browser (File System
- * Access API, or in memory with downloads) and in Electron (Node's fs).
+ * Where a workspace's .openarch text comes from and goes to. The designer only
+ * talks to a WorkspaceHost, so the same UI runs in the browser (workspaces kept
+ * in IndexedDB, and the examples in memory) and in Electron (Node's fs).
  */
 import { exportDocs, FILE_EXTENSION, type Workspace } from "@open-arch/core";
 import { strToU8, zipSync } from "fflate";
 import exampleText from "../../../examples/shop/shop.openarch?raw";
 import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw";
 import type { DesktopBridge, DocsSummary } from "./bridge.js";
+import type { WorkspaceLibrary } from "./library.js";
 
 export interface WorkspaceHost {
   /** File name, shown in the title bar. */
   name: string;
-  /** "file": every edit is saved to the file. "memory": edits stay in this tab until saved or downloaded. */
-  storage: "file" | "memory";
+  /** "file": every edit is saved to the file. "browser": every edit is saved in the browser's storage. "memory": edits stay in this tab until saved. */
+  storage: "file" | "browser" | "memory";
   /** Desktop only: saving also refreshes the docs folder. */
   syncsDocs?: boolean;
   load(): Promise<string>;
   /** Save the file's new text. May report the docs folder it refreshed. */
   save(text: string): Promise<DocsSummary | null | void>;
-  /** Calls `onChange` when the file changes outside the app. Returns a function that stops watching. */
+  /** Calls `onChange` when the workspace changes outside this window. Returns a function that stops watching. */
   watch?(onChange: () => void): () => void;
 }
 
-const FILE_TYPES = [{ description: "open-arch workspace", accept: { "application/json": [FILE_EXTENSION] } }];
-
-// --- In memory: the example, new workspaces, and files opened without write access ---
+// --- In memory: the examples ------------------------------------------------------
 
 export class MemoryHost implements WorkspaceHost {
   readonly storage = "memory";
@@ -50,11 +49,6 @@ export function tourHost(): MemoryHost {
   return new MemoryHost(`food-delivery${FILE_EXTENSION}`, tourText);
 }
 
-/** A file picked with <input type="file">: readable, but saving means downloading. */
-export async function hostFromFile(file: File): Promise<MemoryHost> {
-  return new MemoryHost(file.name, await file.text());
-}
-
 export function download(name: string, data: BlobPart, type: string): void {
   const url = URL.createObjectURL(new Blob([data], { type }));
   const a = document.createElement("a");
@@ -72,85 +66,33 @@ export function docsZip(ws: Workspace, fileName: string): Uint8Array {
   return zipSync(entries);
 }
 
-// --- On disk, through the File System Access API (Chrome, Edge) ---------------------
+// --- In the browser's storage ------------------------------------------------------
 
-/** The parts of FileSystemFileHandle used here, so tests can fake it. */
-export interface FileHandle {
-  readonly name: string;
-  getFile(): Promise<{ text(): Promise<string>; lastModified: number; size: number }>;
-  createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
-}
+/** A workspace kept in the browser (library.ts). Every edit is saved there. */
+export class BrowserHost implements WorkspaceHost {
+  readonly storage = "browser";
 
-interface Pickers {
-  showOpenFilePicker(options: object): Promise<FileHandle[]>;
-  showSaveFilePicker(options: object): Promise<FileHandle>;
-}
-
-export function canSaveFiles(): boolean {
-  return typeof window !== "undefined" && "showOpenFilePicker" in window && "showSaveFilePicker" in window;
-}
-
-async function picked<T>(pick: () => Promise<T>): Promise<T | null> {
-  try {
-    return await pick();
-  } catch (error) {
-    if ((error as Error).name === "AbortError") return null;
-    throw error;
-  }
-}
-
-export function pickFileToOpen(): Promise<FileHandle | null> {
-  const w = window as unknown as Pickers;
-  return picked(async () => (await w.showOpenFilePicker({ id: "open-arch", types: FILE_TYPES, multiple: false }))[0]!);
-}
-
-export function pickFileToSave(suggestedName: string): Promise<FileHandle | null> {
-  const w = window as unknown as Pickers;
-  return picked(() => w.showSaveFilePicker({ id: "open-arch", suggestedName, types: FILE_TYPES }));
-}
-
-export class FileHandleHost implements WorkspaceHost {
-  readonly storage = "file";
-  readonly name: string;
-  private lastSeen = "";
-
-  constructor(private readonly handle: FileHandle) {
-    this.name = handle.name;
-  }
+  constructor(
+    private readonly library: WorkspaceLibrary,
+    readonly id: string,
+    readonly name: string,
+  ) {}
 
   async load(): Promise<string> {
-    const file = await this.handle.getFile();
-    this.lastSeen = `${file.size}:${file.lastModified}`;
-    return file.text();
+    const record = await this.library.get(this.id);
+    if (!record) throw new Error("It isn't stored in this browser any more.");
+    return record.text;
   }
 
-  async save(text: string): Promise<void> {
-    const writable = await this.handle.createWritable();
-    await writable.write(text);
-    await writable.close();
-    const file = await this.handle.getFile();
-    this.lastSeen = `${file.size}:${file.lastModified}`;
+  save(text: string): Promise<void> {
+    return this.library.save(this.id, text);
   }
 
+  /** Hears about edits made to the same workspace in another tab. */
   watch(onChange: () => void): () => void {
-    let busy = false;
-    const timer = setInterval(async () => {
-      if (busy || document.visibilityState !== "visible") return;
-      busy = true;
-      try {
-        const file = await this.handle.getFile();
-        const seen = `${file.size}:${file.lastModified}`;
-        if (seen !== this.lastSeen) {
-          this.lastSeen = seen;
-          onChange();
-        }
-      } catch {
-        // The file may be mid-write; try again next tick.
-      } finally {
-        busy = false;
-      }
-    }, 2000);
-    return () => clearInterval(timer);
+    return this.library.onChange((change) => {
+      if (change.type === "saved" && change.id === this.id) onChange();
+    });
   }
 }
 

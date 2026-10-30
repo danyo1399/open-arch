@@ -21,16 +21,18 @@ See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.opena
 
 ## The designer
 
-One UI, two ways to run it. Both reload when an agent or editor changes the file.
+One UI, two ways to run it.
 
 | | Web app | Desktop app |
 |---|---|---|
-| Open and save a .openarch file | Chrome and Edge save to the file as you work; other browsers open it and **Download** a copy | Saves to the file as you work |
+| Where workspaces live | In the browser's storage (IndexedDB), as many as you like, saved as you work. **Import file…** and **Export file…** copy .openarch files in and out; nothing stays linked to a file | In a .openarch file, saved as you work |
 | Docs | **Export docs** downloads them as a .zip | Every save rewrites the docs folder the workspace names |
-| Notices outside edits | Checks every 2 seconds while the tab is visible | Watches the file |
-| Try without a file | The bundled examples (the tour and the shop), or a new workspace in the tab | The bundled examples |
+| Notices outside edits | Edits to the same workspace in another tab | Watches the file, so an agent's or editor's changes show up |
+| Try without a file | The bundled examples (the tour and the shop); **Save** keeps a copy in the browser | The bundled examples |
 | Ask AI | | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
 | Install | Installable as an app (Chrome, Edge, Safari's **Add to Dock** or **Add to Home Screen**) that opens offline | An installer per OS |
+
+The web app's workspaces are only in that browser, on that device, and clearing the site's data deletes them, so export a copy of anything you want to keep. The URL names the open workspace, so reloading the page reopens it. Import and export go through a `FileProvider` ([`apps/web/src/providers.ts`](apps/web/src/providers.ts)): files on this device are the only one so far, and cloud storage such as Dropbox or iCloud Drive can be added as another.
 
 The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere, including GitHub Pages. Served over HTTPS (or from localhost), it has a service worker that caches the build, so it can be installed and opened offline; opening it online always loads the latest build. The app icons in `apps/web/public` are rendered from `apps/web/icons` by `sh icons/render.sh`.
 

@@ -1187,6 +1187,61 @@ button.heading {
   gap: 10px;
   margin-bottom: 14px;
 }
+.start.dropping .start-card {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
+
+/* --- Workspaces kept in the browser (web start page) ----------------------- */
+
+.library {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.library h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.library-list {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+}
+.library-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+button.library-open {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-meta {
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: 6px;
+}
+@media (max-width: 480px) {
+  .library-actions {
+    grid-column: 1;
+    grid-row: auto;
+    margin-top: 6px;
+  }
+}
 
 /* --- Workspace file status ------------------------------------------------- */
 

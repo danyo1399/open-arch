@@ -93,7 +93,7 @@ app.on("browser-window-created", (_e, win) => {
       runCli("update-element", "web-app", "--name", "Storefront");
       await sleep(2000);
       const after = await text();
-      check(after.includes("Storefront") && after.includes("changed outside the designer"), "reloads when the CLI changes the file");
+      check(after.includes("Storefront") && after.includes("changed outside this window"), "reloads when the CLI changes the file");
       check(docsPage("elements/web-app.md").includes("# Storefront"), "the CLI refreshes the docs too");
       await screenshot(win, "2-reloaded.png");
 
