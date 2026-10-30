@@ -144,6 +144,19 @@ describe("routeLinks", () => {
     expect(route[0]!.y).toBe(route[1]!.y);
   });
 
+  it("gives two arrows their own straight lines where boxes face along room for both", () => {
+    // a and b face each other along 50px: two lines 24px apart fit.
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 120 }],
+      ["b", { x: 82, y: 150, w: 220, h: 120 }],
+    ]);
+    const routes = check(boxes, [link("a", "b"), link("b", "a")]);
+    const [ab, ba] = [routes.get("a->b")!, routes.get("b->a")!];
+    expect(ab).toHaveLength(2);
+    expect(ba).toHaveLength(2);
+    expect(Math.abs(ab[0]!.x - ba[0]!.x)).toBeGreaterThanOrEqual(24);
+  });
+
   it("draws a straight line between facing boxes closer together than the space kept around them", () => {
     for (const gap of [10, 40]) {
       const boxes = new Map([
@@ -166,6 +179,8 @@ describe("routeLinks", () => {
         ["b", { x, y: 150, w: 220, h: 120 }],
       ]);
       const routes = check(boxes, [link("a", "b"), link("b", "a")]);
+      // With plenty of room where they face, both are straight.
+      if (x === 20) for (const id of ["a->b", "b->a"]) expect(routes.get(id), id).toHaveLength(2);
       for (const [p, q] of segments(routes.get("a->b")!)) {
         for (const [r, t] of segments(routes.get("b->a")!)) {
           const overlap = (a: number, b: number, c: number, d: number) => Math.min(Math.max(a, b), Math.max(c, d)) - Math.max(Math.min(a, b), Math.min(c, d));
@@ -179,7 +194,8 @@ describe("routeLinks", () => {
   });
 
   it("doesn't leave a 1px kink between boxes that face each other along less than a pixel", () => {
-    // No straight line fits, so the route has to step, but by enough to read as a step, not a glitch.
+    // No straight line fits, so the route has to step: both ends are as close to lining up as
+    // their sides allow, 11px apart, which reads as a step rather than a glitch.
     const boxes = new Map([
       ["b0", { x: 639, y: 282, w: 223, h: 106 }],
       ["b1", { x: 288, y: 207, w: 213, h: 121 }],

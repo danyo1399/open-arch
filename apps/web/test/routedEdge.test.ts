@@ -51,6 +51,13 @@ describe("labelSizes", () => {
     expect(sizes[1]!.h).toBeCloseTo(3 * 14.3 + 8);
   });
 
+  it("breaks a URL after its slashes, as the browser does", () => {
+    // At 140px: "[https://", "example.com/", then the 27-letter rest split 20 and 7.
+    const sizes = labelSizes(edge("", "https://example.com/abcdefghijklmnopqrstuvwxyz"));
+    expect(sizes[1]!.maxWidth).toBe(140);
+    expect(sizes[1]!.h).toBeCloseTo(4 * 14.3 + 8);
+  });
+
   it("has no size for an arrow with nothing to say", () => {
     expect(labelSizes(edge(""))).toEqual([]);
   });
