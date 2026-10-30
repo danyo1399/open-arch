@@ -207,7 +207,6 @@ class Grid {
   /** Everything routes go around, and the clear space around each. */
   readonly rects: Rect[];
   readonly clears: Rect[];
-  readonly clearOf: Map<Rect, Rect>;
   readonly xs: number[];
   readonly ys: number[];
   readonly nx: number;
@@ -239,7 +238,6 @@ class Grid {
   constructor(rects: Rect[], frames: Rect[], aligned: { xs: number[]; ys: number[] }) {
     this.rects = rects;
     this.clears = rects.map(inflate);
-    this.clearOf = new Map(rects.map((r, k) => [r, this.clears[k]!]));
     const near = { x: new Set<number>(), y: new Set<number>() };
     const far = { x: new Set<number>(), y: new Set<number>() };
     for (const r of this.clears) {
@@ -477,7 +475,8 @@ class Grid {
     const { cells, ports } = route;
     const moves = movesOf(cells, ...ports);
     cells.forEach((p, k) => {
-      for (const axis of [moves[k]!, moves[k + 1]!]) (axis === H ? this.armsH : this.armsV)[p]! += by;
+      (moves[k] === H ? this.armsH : this.armsV)[p]! += by;
+      (moves[k + 1] === H ? this.armsH : this.armsV)[p]! += by;
       const q = cells[k + 1];
       if (q !== undefined) (moves[k + 1] === H ? this.usedH : this.usedV)[Math.min(p, q)]! += by;
     });
@@ -546,8 +545,8 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
       if (!option || !onSide(option[0]!, from) || !onSide(option[option.length - 1]!, to)) continue;
       const points = simplify(option);
       const ports: [Port, Port] = [movedTo(best.ports[0], from, points[0]!), movedTo(best.ports[1], to, points[points.length - 1]!)];
-      // The search found the cheapest route between the same ends, so only moving an end can help.
-      if (ports[0] === best.ports[0] && ports[1] === best.ports[1]) continue;
+      // The search found the cheapest route between its ends, so keeping both of those can't help.
+      if (ports[0] === route.ports[0] && ports[1] === route.ports[1]) continue;
       const cells = grid.cellsOf(points, ports);
       if (!cells) continue;
       const cost = grid.costOf(cells, ports);
@@ -606,7 +605,7 @@ interface Routing {
 
 /** The cheapest route for a link from any of `starts` to any of `goals`, given the routes already on the grid. */
 function routeOne(grid: Grid, starts: Port[], goals: Port[], from: Rect, to: Rect): Route | undefined {
-  const found = grid.search(starts, goals, grid.clearOf.get(to)!);
+  const found = grid.search(starts, goals, inflate(to));
   if (!found) return undefined;
   const [start, end] = found.ports;
   return straighten(grid, { ...found, points: simplify([start.at, ...found.cells.map((p) => grid.at(p)), end.at]) }, from, to);
@@ -983,7 +982,7 @@ export function layoutArrows<S extends Size>(
   const optionsFor = (link: Link) => {
     const [from, to, source, target] = [ports.get(link.from)!, ports.get(link.to)!, rects.get(link.from)!, rects.get(link.to)!];
     const longest = routeLength(routes.get(link.id)!.points) * DETOUR;
-    const [sourceClear, targetClear] = [grid.clearOf.get(source)!, grid.clearOf.get(target)!];
+    const [sourceClear, targetClear] = [inflate(source), inflate(target)];
     const reach = (list: Port[], clear: Rect) => 2 * MARGIN + Math.min(...list.map((p) => distanceTo(p.stub.x, p.stub.y, clear)));
     const options: { starts: Port[]; goals: Port[] }[] = [];
     for (const side of ["top", "bottom", "left", "right"] as const) {
@@ -1020,7 +1019,7 @@ export function layoutArrows<S extends Size>(
     for (const { starts, goals } of options) {
       // A label costs nothing at best, so a route that costs more on its own can't win.
       const r = routeOne(grid, starts, goals, source, target);
-      if (!r || r.cost > Math.min(bar, best.cost) || routeLength(r.points) > longest || underNote(r)) continue;
+      if (!r || r.cost > bar || r.cost >= best.cost || routeLength(r.points) > longest || underNote(r)) continue;
       const option = total(r);
       if (option.cost <= bar && option.cost < best.cost) best = option;
     }

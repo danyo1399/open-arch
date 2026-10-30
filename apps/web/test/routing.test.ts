@@ -319,7 +319,8 @@ describe("routeLinks", () => {
         ["routeLinks", routeLinks(boxes, links)],
         ["layoutArrows", layoutArrows(boxes, links, new Map(links.map((l) => [l.id, [{ w: 190, h: 37 }]]))).routes],
       ] as const) {
-        // Every route here has a way round, so none falls back to a diagonal line.
+        // None of these routes is boxed in, so none falls back to a diagonal line, which this
+        // couldn't check. If a change of seed, sizes or MARGIN makes one, look at it here.
         for (const [id, points] of routes) for (const [p, q] of segments(points)) expect(p.x === q.x || p.y === q.y, `${how}: ${id} runs straight across or down`).toBe(true);
         const ends = [...routes].flatMap(([id, points]) =>
           (

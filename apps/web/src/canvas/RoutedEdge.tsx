@@ -119,7 +119,8 @@ export const estimateLabel: MeasureLabel = (lines, maxWidth) => {
 /**
  * Sizes measured so far (see measureLabelSizes), by lines and width, the ones used
  * least recently first. As texts come and go while the model is edited, those are
- * let go once there are more than MEASURED_LIMIT.
+ * let go once there are more than MEASURED_LIMIT, though never ones the labels in
+ * hand need.
  */
 const measured = new Map<string, { w: number; h: number }>();
 const MEASURED_LIMIT = 10_000;
@@ -163,18 +164,18 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
     return lines.length ? LABEL_WIDTHS.map((maxWidth) => [measuredKey(lines, maxWidth), lines, maxWidth] as const) : [];
   });
   const wanted = new Map(keys.flat().map(([key, lines, maxWidth]) => [key, [lines, maxWidth] as const]));
-  const missing = [...wanted].filter(([key]) => {
+  // The sizes these labels need are used now, so they're the last to be let go.
+  for (const key of wanted.keys()) {
     const size = measured.get(key);
-    if (!size) return true;
-    // Used now, so the last to be let go.
+    if (!size) continue;
     measured.delete(key);
     measured.set(key, size);
-    return false;
-  });
+  }
+  const missing = [...wanted].filter(([key]) => !measured.has(key));
   if (missing.length) {
     for (const key of measured.keys()) {
       if (measured.size + missing.length <= MEASURED_LIMIT) break;
-      measured.delete(key);
+      if (!wanted.has(key)) measured.delete(key);
     }
     const probes = missing.map(([key, [lines, maxWidth]]) => [key, probe(lines, maxWidth)] as const);
     const holder = document.body.appendChild(document.createElement("div"));
