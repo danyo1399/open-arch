@@ -260,25 +260,28 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
 
   // Turning a phone or tablet round fits the diagram to its new shape, once the canvas has it.
   // (Not a window crossing square as it's resized: that keeps the zoom.) Browsers report the
-  // turn before or after resizing the page, so wait for the resize, but not for long.
+  // turn just before or just after resizing the page. A half turn, from one side to the other,
+  // resizes nothing, so it keeps the zoom too.
   useEffect(() => {
     const canvas = wrapper.current;
     if (!canvas) return;
-    let waiting: number | undefined;
+    const SOON = 500;
+    let resizedAt = -Infinity;
+    let turnedAt = -Infinity;
     let frame = 0;
+    // After React Flow, whose own observer has measured the canvas by the next frame.
     const fit = () => {
-      window.clearTimeout(waiting);
-      waiting = undefined;
-      // After React Flow, whose own observer has measured the canvas by the next frame.
+      cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => void rf.fitView(FIT));
     };
     const resized = new ResizeObserver(() => {
-      if (waiting !== undefined) fit();
+      resizedAt = performance.now();
+      if (resizedAt - turnedAt < SOON) fit();
     });
     resized.observe(canvas);
     const turned = () => {
-      window.clearTimeout(waiting);
-      waiting = window.setTimeout(fit, 500);
+      turnedAt = performance.now();
+      if (turnedAt - resizedAt < SOON) fit();
     };
     // Safari before 16.4 has only the older event.
     const source: EventTarget = screen.orientation ?? window;
@@ -287,7 +290,6 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     return () => {
       source.removeEventListener(event, turned);
       resized.disconnect();
-      window.clearTimeout(waiting);
       cancelAnimationFrame(frame);
     };
   }, [rf]);

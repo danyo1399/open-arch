@@ -129,3 +129,48 @@ export function renamesIn(ops: Operation[]): Rename[] {
 export function renamedId(renames: Rename[], id: string): string {
   return renames.reduce((current, r) => (current === r.id ? r.to : current), id);
 }
+
+/**
+ * Operations made with the IDs as they were, moved to the IDs these later renames gave them.
+ * New IDs (an element or view being added, a rename's target) and sticky note IDs, which are
+ * their own, stay as they are.
+ */
+export function followRenames(ops: Operation[], renames: Rename[]): Operation[] {
+  if (renames.length === 0) return ops;
+  const follow = (id: string) => renamedId(renames, id);
+  const lists = (op: { include?: string[]; exclude?: string[] }) => ({
+    ...(op.include && { include: op.include.map(follow) }),
+    ...(op.exclude && { exclude: op.exclude.map(follow) }),
+  });
+  return ops.map((op): Operation => {
+    switch (op.op) {
+      case "add-element":
+        return op.parent ? { ...op, parent: follow(op.parent) } : op;
+      case "update-element":
+        return { ...op, id: follow(op.id), ...(op.parent && { parent: follow(op.parent) }) };
+      case "remove-element":
+      case "remove-view":
+      case "rename":
+        return { ...op, id: follow(op.id) };
+      case "add-relationship":
+      case "update-relationship":
+      case "remove-relationship":
+        return { ...op, from: follow(op.from), to: follow(op.to) };
+      case "add-view":
+        return { ...op, ...(op.scope && { scope: follow(op.scope) }), ...lists(op) };
+      case "update-view":
+        return { ...op, id: follow(op.id), ...lists(op) };
+      case "show-in-view":
+      case "hide-in-view":
+        return { ...op, view: follow(op.view), id: follow(op.id) };
+      case "set-layout":
+        return { ...op, view: follow(op.view), positions: Object.fromEntries(Object.entries(op.positions).map(([id, at]) => [follow(id), at])) };
+      case "add-sticky":
+      case "update-sticky":
+      case "remove-sticky":
+        return { ...op, view: follow(op.view) };
+      case "update-workspace":
+        return op;
+    }
+  });
+}

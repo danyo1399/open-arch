@@ -3,14 +3,14 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { canSaveFiles, desktopBridge, DesktopHost, docsZip, download, FileHandleHost, pickFileToSave, type WorkspaceHost } from "./hosts.js";
-import { relationshipRef, renamedId, renamesIn, shownInProperties, viewAction, type Rename } from "./model.js";
+import { followRenames, relationshipRef, renamedId, renamesIn, shownInProperties, viewAction, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
 import { Properties } from "./panels/Properties.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
-import { useWorkspace } from "./state.js";
+import { useWorkspace, type Edit } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
 
@@ -44,7 +44,6 @@ function detailsName(ws: Workspace, view: ViewDef | null, selection: Selection):
   return shown.kind === "view" ? "This view" : "Workspace";
 }
 
-
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /** A line icon on a 24 × 24 grid, in the text colour. */
@@ -74,8 +73,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [askOpen, setAskOpen] = useState(false);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [usagesOf, setUsagesOf] = useState<string | null>(null);
-  /** Every rename applied, in order, so an edit queued behind one can follow it. */
+  /** Every rename applied, in order. */
   const renames = useRef<Rename[]>([]);
+  /** How many of them this render's IDs reflect. */
+  const [renamesSeen, setRenamesSeen] = useState(0);
   // What's open follows a rename in the same render as the rename lands. A render in between
   // would show something else in its place (the view's details for a renamed element), and a
   // button being pressed there would go with it.
@@ -83,6 +84,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     const applied = renamesIn(ops);
     if (applied.length === 0) return;
     renames.current.push(...applied);
+    setRenamesSeen(renames.current.length);
     const to = (id: string) => renamedId(applied, id);
     setSelection((s) =>
       s?.kind === "element" && to(s.id) !== s.id
@@ -96,12 +98,17 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     setDialog((d) => (d && "id" in d && to(d.id) !== d.id ? { ...d, id: to(d.id) } : d));
     setMenu((m) => (m && to(m.id) !== m.id ? { ...m, id: to(m.id) } : m));
   });
-  const { ws, diagnostics, edit } = state;
-  /** Maps IDs through the renames applied from now on: for an edit that may queue behind one. */
-  const renamesFromNow = () => {
-    const start = renames.current.length;
-    return (id: string) => renamedId(renames.current.slice(start), id);
-  };
+  const { ws, diagnostics } = state;
+  /** An ID this render shows, after any rename applied since: a press can land after one. */
+  const current = (id: string) => renamedId(renames.current.slice(renamesSeen), id);
+  // An edit made with this render's IDs follows any rename applied before it runs: pressed just
+  // after typing a new name, it queues behind the edit that saves the name, or lands before the
+  // render that shows it. One worked out from the workspace as it is when it runs needs nothing.
+  const workspaceEdit = state.edit;
+  const edit = useCallback(
+    (change: Edit) => (typeof change === "function" ? workspaceEdit(change) : workspaceEdit(() => followRenames(change, renames.current.slice(renamesSeen)))),
+    [workspaceEdit, renamesSeen],
+  );
   const narrow = useMediaQuery(NARROW);
   const [pane, setPane] = useState<Pane>("diagram");
   // Becoming narrow shows the details while one is being typed in, as an on-screen keyboard can
@@ -175,7 +182,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const closeMore = useCallback(() => setMore(null), []);
   /** The usages panel is drawn over the diagram. */
   const findUsages = (id: string) => {
-    setUsagesOf(id);
+    setUsagesOf(current(id));
     setPane("diagram");
   };
 
@@ -187,12 +194,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const showInView = (id: string) => view && void edit([{ op: "show-in-view", view: view.id, id }]);
-  const hideFromView = (id: string) => {
-    if (!view) return;
-    // Pressed just after typing a new name, this can queue behind the rename that saves it.
-    const now = renamesFromNow();
-    void edit(() => [{ op: "hide-in-view", view: now(view.id), id: now(id) }]).then(() => select(null));
-  };
+  const hideFromView = (id: string) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null));
 
   /** A usage can be in another view: open that one, then select it there. */
   const goToUsage = (target: string | null, next: Selection) => {
@@ -300,7 +302,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       { label: "Find usages", onSelect: () => findUsages(id) },
       ...(action === "show" ? [{ label: "Show in this view", onSelect: () => showInView(id) }] : []),
       ...(action === "hide" ? [{ label: "Hide from this view", onSelect: () => hideFromView(id) }] : []),
-      { label: "Delete from model…", danger: true, onSelect: () => setDialog({ kind: "delete", id }) },
+      { label: "Delete from model…", danger: true, onSelect: () => setDialog({ kind: "delete", id: current(id) }) },
     ];
   };
   const errors = diagnostics.filter((d) => d.severity === "error").length;
@@ -375,14 +377,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
               moreClosedByPress.current = !!more;
               setMore(null);
             }}
-            onKeyDown={() => {
-              moreClosedByPress.current = false;
-            }}
             onClick={(e) => {
-              if (moreClosedByPress.current) {
-                moreClosedByPress.current = false;
-                return;
-              }
+              const closed = moreClosedByPress.current;
+              moreClosedByPress.current = false;
+              // A click from the keyboard or assistive tech (detail 0) had no press to close it.
+              if (closed && e.detail !== 0) return;
               const r = e.currentTarget.getBoundingClientRect();
               setMore((m) => (m ? null : { x: r.right, y: r.bottom + 4 }));
             }}
@@ -450,7 +449,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         edit={edit}
         onSelect={select}
         onHide={hideFromView}
-        onDelete={(id) => setDialog({ kind: "delete", id })}
+        onDelete={(id) => setDialog({ kind: "delete", id: current(id) })}
         onFindUsages={findUsages}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id })}
       />

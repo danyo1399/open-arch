@@ -1,6 +1,6 @@
 import { buildWorkspace, computeView } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { followsName, idFromName, renamedId, renamesIn, shownInProperties, uniqueId, viewAction } from "../src/model.js";
+import { followRenames, followsName, idFromName, renamedId, renamesIn, shownInProperties, uniqueId, viewAction } from "../src/model.js";
 
 const ws = buildWorkspace({
   openarch: 2,
@@ -153,7 +153,49 @@ describe("renames", () => {
     expect(renamedId(renames, "new-system")).toBe("billing");
     expect(renamedId(renames, "orders")).toBe("checkout");
     expect(renamedId(renames, "db")).toBe("db");
-    // A later rename doesn't reach back to an ID that only an earlier one made.
-    expect(renamedId(renames.slice(2), "new-system")).toBe("new-system");
+    // Without the first rename, new-system stays put, though a later one moves payments.
+    expect(renamedId(renames.slice(1), "new-system")).toBe("new-system");
+    expect(renamedId(renames.slice(1), "payments")).toBe("billing");
+  });
+
+  it("moves the IDs in operations made before them, but not new IDs or sticky notes'", () => {
+    const later = renamesIn([
+      { op: "rename", id: "api", to: "checkout-api" },
+      { op: "rename", id: "orders", to: "order-flow" },
+    ]);
+    expect(
+      followRenames(
+        [
+          { op: "update-element", id: "api", external: true },
+          { op: "add-element", id: "api-2", kind: "container", parent: "api" },
+          { op: "rename", id: "api", to: "payments-api" },
+          { op: "remove-relationship", from: "web", to: "api" },
+          { op: "add-view", id: "api", level: "container", scope: "api", include: ["*", "api"] },
+          { op: "update-view", id: "orders", exclude: ["api"] },
+          { op: "hide-in-view", view: "orders", id: "api" },
+          { op: "set-layout", view: "orders", positions: { api: [1, 2], web: null } },
+          { op: "update-sticky", view: "orders", id: "api", text: "Read me" },
+          { op: "update-workspace", name: "Shop" },
+        ],
+        later,
+      ),
+    ).toEqual([
+      { op: "update-element", id: "checkout-api", external: true },
+      { op: "add-element", id: "api-2", kind: "container", parent: "checkout-api" },
+      { op: "rename", id: "checkout-api", to: "payments-api" },
+      { op: "remove-relationship", from: "web", to: "checkout-api" },
+      { op: "add-view", id: "api", level: "container", scope: "checkout-api", include: ["*", "checkout-api"] },
+      { op: "update-view", id: "order-flow", exclude: ["checkout-api"] },
+      { op: "hide-in-view", view: "order-flow", id: "checkout-api" },
+      { op: "set-layout", view: "order-flow", positions: { "checkout-api": [1, 2], web: null } },
+      { op: "update-sticky", view: "order-flow", id: "api", text: "Read me" },
+      { op: "update-workspace", name: "Shop" },
+    ]);
+  });
+
+  it("adds no fields an operation didn't have", () => {
+    const later = renamesIn([{ op: "rename", id: "api", to: "checkout-api" }]);
+    expect(followRenames([{ op: "update-element", id: "api", name: "Checkout API" }], later)).toEqual([{ op: "update-element", id: "checkout-api", name: "Checkout API" }]);
+    expect(Object.keys(followRenames([{ op: "update-view", id: "v", title: "V" }], later)[0]!)).toEqual(["op", "id", "title"]);
   });
 });
