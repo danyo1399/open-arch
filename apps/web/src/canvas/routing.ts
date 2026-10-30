@@ -72,6 +72,7 @@ interface Route {
   states: number[];
   ports: [Port, Port];
   points: Point[];
+  cost: number;
 }
 
 /** A box's sides in whole pixels, so the grid lines built from them match exactly. */
@@ -271,7 +272,7 @@ class Grid {
   }
 
   /** The cheapest route from any of `starts` to any of `goals`, as search states. */
-  search(starts: Port[], goals: Port[], target: Rect): { states: number[]; ports: [Port, Port] } | undefined {
+  search(starts: Port[], goals: Port[], target: Rect): { states: number[]; ports: [Port, Port]; cost: number } | undefined {
     const { nx, ny, xs, ys, cost, prev, done } = this;
     const goal = 2 * nx * ny;
     cost.fill(Infinity);
@@ -336,7 +337,7 @@ class Grid {
     const states: number[] = [];
     for (let s = prev[goal]!; s !== -1; s = prev[s]!) states.push(s);
     states.reverse();
-    return { states, ports: [startPorts.get(states[0]!)!, goalPorts.get(states[states.length - 1]!)!] };
+    return { states, ports: [startPorts.get(states[0]!)!, goalPorts.get(states[states.length - 1]!)!], cost: cost[goal]! };
   }
 
   /** Records a route's runs and ports, so later routes avoid them; `by` is 1 to add, -1 to remove. */
@@ -399,8 +400,23 @@ function runsThrough(points: Point[], r: Rect): boolean {
   });
 }
 
+interface Routing {
+  grid: Grid;
+  /** Where arrows can attach to each box. */
+  ports: Map<string, Port[]>;
+  routes: Map<string, Route>;
+}
+
+/** The cheapest route for a link from any of `starts` to any of `goals`, given the routes already on the grid. */
+function routeOne(grid: Grid, starts: Port[], goals: Port[], target: Rect): Route | undefined {
+  const found = grid.search(starts, goals, inflate(target));
+  if (!found) return undefined;
+  const [start, end] = found.ports;
+  return { ...found, points: simplify([start.at, ...found.states.map((s) => grid.at(s >> 1)), end.at]) };
+}
+
 /** Routes for the links that have one, around the boxes and `obstacles`, shortest first. */
-function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[], frames: Rect[]): Map<string, Route> {
+function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[], frames: Rect[]): Routing {
   // A line down the middle of where two linked boxes face each other, so the arrow between them can be straight.
   const aligned = { xs: [] as number[], ys: [] as number[] };
   for (const l of links) {
@@ -418,28 +434,20 @@ function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[],
     for (const link of links) {
       const old = routes.get(link.id);
       if (old) grid.mark(old, -1);
-      const found = grid.search(ports.get(link.from)!, ports.get(link.to)!, inflate(rects.get(link.to)!));
-      if (!found) {
+      const route = routeOne(grid, ports.get(link.from)!, ports.get(link.to)!, rects.get(link.to)!);
+      if (!route) {
         routes.delete(link.id);
         continue;
       }
-      const [start, end] = found.ports;
-      const route = { ...found, points: simplify([start.at, ...found.states.map((s) => grid.at(s >> 1)), end.at]) };
       grid.mark(route, 1);
       routes.set(link.id, route);
     }
   }
-  return routes;
+  return { grid, ports, routes };
 }
 
-/**
- * Each link's route, from a point on its source box's border to one on its target's.
- * Routes cross `frames` (boundaries drawn around boxes) freely but keep off their sides.
- * They go around `notes`, boxes no arrow starts or ends at, only where one is in the
- * way: every obstacle adds grid lines right across the diagram, so a note out in empty
- * space would otherwise move arrows nowhere near it as it's dragged.
- */
-export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = []): Map<string, Point[]> {
+/** Routes every link it can, in the order they were routed, going around notes only where they're in the way (see routeLinks). */
+function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: Box[]): Routing & { rects: Map<string, Rect>; routable: Link[] } {
   const rects = new Map([...boxes].map(([id, b]) => [id, rect(b)]));
   const frameRects = frames.map(rect);
 
@@ -455,15 +463,19 @@ export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[]
   // Route ignoring the notes, then again around any a route runs under, until none is in the way.
   let ignored = notes.map(rect);
   const avoided: Rect[] = [];
-  let routes = routeAround(rects, avoided, routable, frameRects);
+  let routing = routeAround(rects, avoided, routable, frameRects);
   for (;;) {
-    const inTheWay = ignored.filter((n) => [...routes.values()].some((r) => runsThrough(r.points, inflate(n))));
+    const inTheWay = ignored.filter((n) => [...routing.routes.values()].some((r) => runsThrough(r.points, inflate(n))));
     if (!inTheWay.length) break;
     avoided.push(...inTheWay);
     ignored = ignored.filter((n) => !inTheWay.includes(n));
-    routes = routeAround(rects, avoided, routable, frameRects);
+    routing = routeAround(rects, avoided, routable, frameRects);
   }
+  return { ...routing, rects, routable };
+}
 
+/** Each link's points: its route, or a straight line between its boxes when it has none. */
+function pointsOf(boxes: Map<string, Box>, links: Link[], routes: Map<string, Route>): Map<string, Point[]> {
   const out = new Map<string, Point[]>();
   for (const link of links) {
     const from = boxes.get(link.from);
@@ -471,6 +483,17 @@ export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[]
     if (from && to) out.set(link.id, routes.get(link.id)?.points ?? straight(from, to));
   }
   return out;
+}
+
+/**
+ * Each link's route, from a point on its source box's border to one on its target's.
+ * Routes cross `frames` (boundaries drawn around boxes) freely but keep off their sides.
+ * They go around `notes`, boxes no arrow starts or ends at, only where one is in the
+ * way: every obstacle adds grid lines right across the diagram, so a note out in empty
+ * space would otherwise move arrows nowhere near it as it's dragged.
+ */
+export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = []): Map<string, Point[]> {
+  return pointsOf(boxes, links, routeAll(boxes, links, frames, notes).routes);
 }
 
 /** How much of `a` lies inside `b`. */
@@ -544,11 +567,89 @@ const COVERS_LABEL = 2;
 /** Per pixel of another arrow the label hides, and for the whole of an arrowhead. */
 const COVERS_ARROW = 3;
 const COVERS_HEAD = 400;
+/** A label whose best spot covers this much or less has room enough where it is. */
+const ROOMY = 50;
+/** How much cheaper, route and label together, another route has to be before an arrow takes it for its label's sake. */
+const WORTH_MOVING = 40;
+/** How much longer than its route another route can be. A long way round is harder to follow than a cramped label, as between two boxes close together. */
+const DETOUR = 1.5;
+
+type Size = { w: number; h: number };
 
 interface Spot {
   at: Point;
   box: Box;
+  /** How far along the route from its middle. */
+  off: number;
+  /** What the spot costs, apart from covering other labels. */
   cost: number;
+}
+
+/** What labels are placed among: boxes and the like (with the gap labels keep from them), and every arrow, by link ID. */
+interface Scene {
+  obstacles: Box[];
+  routes: Map<string, Point[]>;
+  heads: Map<string, Box>;
+}
+
+const padded = (b: Box): Box => ({ x: b.x - LABEL_GAP, y: b.y - LABEL_GAP, w: b.w + 2 * LABEL_GAP, h: b.h + 2 * LABEL_GAP });
+
+function headOf(points: Point[]): Box {
+  const at = along(points, routeLength(points) - HEAD / 2);
+  return { x: at.x - HEAD / 2, y: at.y - HEAD / 2, w: HEAD, h: HEAD };
+}
+
+function sceneOf(routes: Map<string, Point[]>, obstacles: Box[]): Scene {
+  return { obstacles: obstacles.map(padded), routes: new Map(routes), heads: new Map([...routes].map(([id, points]) => [id, headOf(points)])) };
+}
+
+/** The spots along a route its label could go, each costed by what it covers apart from other labels. */
+function spotsAlong(id: string, points: Point[], size: Size, scene: Scene): Spot[] {
+  const total = routeLength(points);
+  const spots: Spot[] = [];
+  for (let off = 0; off <= total / 2; off += LABEL_STEP) {
+    for (const s of off ? [total / 2 - off, total / 2 + off] : [total / 2]) {
+      const at = along(points, s);
+      const box = { x: at.x - size.w / 2, y: at.y - size.h / 2, w: size.w, h: size.h };
+      let cost = off;
+      for (const o of scene.obstacles) cost += COVERS_BOX * covers(box, o);
+      for (const [other, route] of scene.routes) if (other !== id) cost += COVERS_ARROW * lengthInside(route, box);
+      for (const head of scene.heads.values()) cost += (COVERS_HEAD * overlap(box, head)) / (HEAD * HEAD);
+      spots.push({ at, box, off, cost });
+    }
+  }
+  return spots;
+}
+
+/** The cheapest of `spots`, given the other labels' boxes (with their gap), and what it costs. */
+function cheapest(spots: Spot[], others: Box[]): { spot: Spot; cost: number } {
+  let best = { spot: spots[0]!, cost: Infinity };
+  for (const spot of spots) {
+    if (spot.cost >= best.cost) continue;
+    const cost = spot.cost + COVERS_LABEL * others.reduce((sum, o) => sum + covers(spot.box, o), 0);
+    if (cost < best.cost) best = { spot, cost };
+  }
+  return best;
+}
+
+/** Places every label, as placeLabels describes, with what each spot costs. */
+function placeAll(sizes: Map<string, Size>, scene: Scene): Map<string, { spot: Spot; cost: number }> {
+  const labels: { id: string; total: number; spots: Spot[] }[] = [];
+  for (const [id, points] of scene.routes) {
+    const size = sizes.get(id);
+    if (size && points.length >= 2) labels.push({ id, total: routeLength(points), spots: spotsAlong(id, points, size, scene) });
+  }
+  // Shortest routes first, as they have the fewest spots to choose from, then each
+  // again with all the others placed, so the first ones can make way for the rest.
+  labels.sort((a, b) => a.total - b.total || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const placed = new Map<string, { spot: Spot; cost: number }>();
+  for (let pass = 0; pass < 2; pass++) {
+    for (const { id, spots } of labels) {
+      placed.delete(id);
+      placed.set(id, cheapest(spots, [...placed.values()].map((p) => padded(p.spot.box))));
+    }
+  }
+  return placed;
 }
 
 /**
@@ -557,51 +658,94 @@ interface Spot {
  * arrowheads. A label that can't help covering something covers as little of
  * it as it can. `sizes` holds the labels' sizes, by link ID.
  */
-export function placeLabels(routes: Map<string, Point[]>, sizes: Map<string, { w: number; h: number }>, obstacles: Box[]): Map<string, Point> {
-  const padded = (b: Box): Box => ({ x: b.x - LABEL_GAP, y: b.y - LABEL_GAP, w: b.w + 2 * LABEL_GAP, h: b.h + 2 * LABEL_GAP });
-  const around = obstacles.map(padded);
-  const lengths = new Map([...routes].map(([id, points]) => [id, routeLength(points)]));
-  const heads = [...routes].map(([id, points]) => {
-    const at = along(points, lengths.get(id)! - HEAD / 2);
-    return { x: at.x - HEAD / 2, y: at.y - HEAD / 2, w: HEAD, h: HEAD };
-  });
-  const labels: { id: string; total: number; spots: Spot[] }[] = [];
-  for (const [id, points] of routes) {
-    const size = sizes.get(id);
-    if (!size || points.length < 2) continue;
-    const total = lengths.get(id)!;
-    const spots: Spot[] = [];
-    for (let d = 0; d <= total / 2; d += LABEL_STEP) {
-      for (const s of d ? [total / 2 - d, total / 2 + d] : [total / 2]) {
-        const at = along(points, s);
-        const box = { x: at.x - size.w / 2, y: at.y - size.h / 2, w: size.w, h: size.h };
-        let cost = d;
-        for (const o of around) cost += COVERS_BOX * covers(box, o);
-        for (const [other, route] of routes) if (other !== id) cost += COVERS_ARROW * lengthInside(route, box);
-        for (const head of heads) cost += (COVERS_HEAD * overlap(box, head)) / (HEAD * HEAD);
-        spots.push({ at, box, cost });
+export function placeLabels(routes: Map<string, Point[]>, sizes: Map<string, Size>, obstacles: Box[]): Map<string, Point> {
+  return new Map([...placeAll(sizes, sceneOf(routes, obstacles))].map(([id, p]) => [id, p.spot.at]));
+}
+
+/**
+ * Routes and labels together: links are routed as routeLinks does and their labels
+ * placed as placeLabels does, among the boxes, the notes and `keepClear`. Then an
+ * arrow whose label can't find room is offered other routes, leaving its source and
+ * entering its target by each side, and takes one where it and its label cost less
+ * together, such as a route with an extra corner whose label then sits in the clear.
+ */
+export function layoutArrows(
+  boxes: Map<string, Box>,
+  links: Link[],
+  sizes: Map<string, Size>,
+  { frames = [], notes = [], keepClear = [] }: { frames?: Box[]; notes?: Box[]; keepClear?: Box[] } = {},
+): { routes: Map<string, Point[]>; labels: Map<string, Point> } {
+  const { grid, ports, routes, rects, routable } = routeAll(boxes, links, frames, notes);
+  const scene = sceneOf(pointsOf(boxes, links, routes), [...boxes.values(), ...notes, ...keepClear]);
+  let placed = placeAll(sizes, scene);
+
+  for (const link of routable) {
+    const [size, route, label] = [sizes.get(link.id), routes.get(link.id), placed.get(link.id)];
+    if (!size || !route || !label || label.cost - label.spot.off <= ROOMY) continue;
+    const others = [...placed].filter(([id]) => id !== link.id).map(([, p]) => padded(p.spot.box));
+    // A route's cost, plus its label's, plus what other labels hide of it.
+    const total = (r: Route) => {
+      scene.routes.set(link.id, r.points);
+      scene.heads.set(link.id, headOf(r.points));
+      const best = cheapest(spotsAlong(link.id, r.points, size, scene), others);
+      const head = scene.heads.get(link.id)!;
+      const hidden = others.reduce((sum, o) => sum + COVERS_ARROW * lengthInside(r.points, o) + (COVERS_HEAD * overlap(head, o)) / (HEAD * HEAD), 0);
+      return { route: r, label: best, cost: r.cost + best.cost + hidden };
+    };
+    grid.mark(route, -1);
+    const [from, to, target] = [ports.get(link.from)!, ports.get(link.to)!, rects.get(link.to)!];
+    // The route as it stands, costed against the routes as they are now.
+    const kept = total(routeOne(grid, [route.ports[0]], [route.ports[1]], target) ?? route);
+    let best = kept;
+    const longest = routeLength(route.points) * DETOUR;
+    const onSide = (list: Port[], side: string) => list.filter((p) => p.side.endsWith(`:${side}`));
+    for (const side of ["top", "bottom", "left", "right"]) {
+      for (const r of [routeOne(grid, onSide(from, side), to, target), routeOne(grid, from, onSide(to, side), target)]) {
+        if (!r || routeLength(r.points) > longest) continue;
+        const option = total(r);
+        if (option.cost < best.cost) best = option;
       }
     }
-    labels.push({ id, total, spots });
+    if (best.cost > kept.cost - WORTH_MOVING) best = kept;
+    grid.mark(best.route, 1);
+    routes.set(link.id, best.route);
+    scene.routes.set(link.id, best.route.points);
+    scene.heads.set(link.id, headOf(best.route.points));
+    placed.set(link.id, best.label);
   }
 
-  // Shortest routes first, as they have the fewest spots to choose from, then each
-  // again with all the others placed, so the first ones can make way for the rest.
-  labels.sort((a, b) => a.total - b.total || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const placed = new Map<string, Spot>();
-  for (let pass = 0; pass < 2; pass++) {
-    for (const { id, spots } of labels) {
-      placed.delete(id);
-      const others = [...placed.values()].map((spot) => padded(spot.box));
-      let best = spots[0]!;
-      let bestCost = Infinity;
-      for (const spot of spots) {
-        if (spot.cost >= bestCost) continue;
-        const cost = spot.cost + COVERS_LABEL * others.reduce((sum, o) => sum + covers(spot.box, o), 0);
-        if (cost < bestCost) [best, bestCost] = [spot, cost];
+  const out = pointsOf(boxes, links, routes);
+  placed = placeAll(sizes, sceneOf(out, [...boxes.values(), ...notes, ...keepClear]));
+  return { routes: out, labels: new Map([...placed].map(([id, p]) => [id, p.spot.at])) };
+}
+
+/**
+ * Where each route crosses another, by link ID: the points where one of its
+ * horizontal runs crosses another route's vertical run, nearest its start first.
+ * The horizontal one is the one drawn hopping over the other.
+ */
+export function crossings(routes: Map<string, Point[]>): Map<string, Point[]> {
+  const runs = (points: Point[], horizontal: boolean) =>
+    points.slice(1).flatMap((b, k) => {
+      const a = points[k]!;
+      return (horizontal ? a.y === b.y && a.x !== b.x : a.x === b.x && a.y !== b.y) ? [[a, b] as const] : [];
+    });
+  const vertical = [...routes].map(([id, points]) => ({ id, runs: runs(points, false) }));
+  const out = new Map<string, Point[]>();
+  for (const [id, points] of routes) {
+    const found: Point[] = [];
+    for (const [a, b] of runs(points, true)) {
+      const here: Point[] = [];
+      for (const other of vertical) {
+        if (other.id === id) continue;
+        for (const [c, d] of other.runs) {
+          const [x, y] = [c.x, a.y];
+          if (x > Math.min(a.x, b.x) && x < Math.max(a.x, b.x) && y > Math.min(c.y, d.y) && y < Math.max(c.y, d.y)) here.push({ x, y });
+        }
       }
-      placed.set(id, best);
+      found.push(...here.sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x)));
     }
+    if (found.length) out.set(id, found);
   }
-  return new Map([...placed].map(([id, spot]) => [id, spot.at]));
+  return out;
 }

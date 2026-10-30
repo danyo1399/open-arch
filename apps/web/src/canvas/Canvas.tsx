@@ -19,7 +19,7 @@ import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY_W, stickyHeight, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, labelSize, type ArrowEdge } from "./RoutedEdge.js";
-import { placeLabels, routeLinks, type Box } from "./routing.js";
+import { crossings, layoutArrows, type Box } from "./routing.js";
 
 export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "sticky"; id: string } | { kind: "workspace" } | null;
 
@@ -196,7 +196,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   }, [cv, positions, problemCounts, selection, view.stickies, editing, finishEditing]);
 
   // Routed together from the boxes as drawn now, so arrows keep clear of each other and follow boxes being dragged.
-  const { routes, labels } = useMemo(() => {
+  const { routes, labels, crossed } = useMemo(() => {
     const boxes = new Map<string, Box>();
     const notes: Box[] = [];
     const frames: Box[] = [];
@@ -215,13 +215,14 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       }
     }
     const edges = cv?.edges ?? [];
-    const routes = routeLinks(boxes, edges.map((e) => ({ id: arrowId(e), from: e.from, to: e.to })), frames, notes);
     const sizes = new Map<string, { w: number; h: number }>();
     for (const e of edges) {
       const size = labelSize(e);
       if (size) sizes.set(arrowId(e), size);
     }
-    return { routes, labels: placeLabels(routes, sizes, [...boxes.values(), ...notes, ...frameNames]) };
+    const links = edges.map((e) => ({ id: arrowId(e), from: e.from, to: e.to }));
+    const { routes, labels } = layoutArrows(boxes, links, sizes, { frames, notes, keepClear: frameNames });
+    return { routes, labels, crossed: crossings(routes) };
   }, [nodes, cv]);
 
   const edges = useMemo<ArrowEdge[]>(
@@ -235,10 +236,16 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           target: e.to,
           selected: selection?.kind === "arrow" && selection.from === e.from && selection.to === e.to,
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
-          data: { edge: e, points: routes.get(id) ?? [], label: labels.get(id), onSelect: () => onSelect({ kind: "arrow", from: e.from, to: e.to }) },
+          data: {
+            edge: e,
+            points: routes.get(id) ?? [],
+            label: labels.get(id),
+            crossings: crossed.get(id) ?? [],
+            onSelect: () => onSelect({ kind: "arrow", from: e.from, to: e.to }),
+          },
         };
       }) ?? [],
-    [cv, routes, labels, selection, onSelect],
+    [cv, routes, labels, crossed, selection, onSelect],
   );
 
   // Fit the diagram to the window once per view, after its boxes have been measured.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Point } from "../src/canvas/autoLayout.js";
-import { placeLabels, routeLinks, type Box, type Link } from "../src/canvas/routing.js";
+import { crossings, layoutArrows, placeLabels, routeLinks, type Box, type Link } from "../src/canvas/routing.js";
 
 const W = 220;
 const H = 120;
@@ -23,7 +23,7 @@ function onBorder(p: Point, box: Box) {
   return (inX && (p.y === box.y || p.y === box.y + box.h)) || (inY && (p.x === box.x || p.x === box.x + box.w));
 }
 
-function crossings(routes: Point[][]) {
+function crossingCount(routes: Point[][]) {
   let count = 0;
   routes.forEach((r, i) => {
     for (const other of routes.slice(i + 1)) {
@@ -98,7 +98,7 @@ describe("routeLinks", () => {
       ["d", at(300, 300)],
     ]);
     const routes = check(boxes, [link("a", "c"), link("b", "d")]);
-    expect(crossings([...routes.values()])).toBe(0);
+    expect(crossingCount([...routes.values()])).toBe(0);
     expect(Math.max(...routes.get("a->c")!.map((p) => p.y))).toBeLessThanOrEqual(0);
   });
 
@@ -221,5 +221,65 @@ describe("placeLabels", () => {
     ]);
     const labels = placeLabels(routes, new Map([["a", size], ["b", size]]), []);
     expect(Math.abs(labels.get("a")!.y - labels.get("b")!.y)).toBeGreaterThanOrEqual(size.h);
+  });
+});
+
+describe("layoutArrows", () => {
+  const labelled = (links: Link[]) => new Map(links.map((l) => [l.id, { w: 190, h: 37 }]));
+
+  it("takes a route with room for its label over one that squeezes it in", () => {
+    // From the containers view: a leaves its right side for c's top, so its label
+    // has to share the gap above c with b's. Leaving a's bottom for c's left side
+    // costs nothing more, and its label has the space below a to itself.
+    const boxes = new Map([
+      ["a", { x: 46, y: 28, w: 220, h: 103 }],
+      ["b", { x: 441, y: 52, w: 220, h: 103 }],
+      ["c", { x: 320, y: 260, w: 220, h: 113 }],
+    ]);
+    const links = [link("a", "c"), link("b", "c")];
+    expect(routeLinks(boxes, links).get("a->c")![0]!.x).toBe(266);
+    const { routes, labels } = layoutArrows(boxes, links, labelled(links));
+    const a = routes.get("a->c")!;
+    expect(a[0]!.y, "leaves a's bottom").toBe(131);
+    expect(a[a.length - 1]!.x, "enters c's left side").toBe(320);
+    const [la, lb] = [labels.get("a->c")!, labels.get("b->c")!];
+    expect(Math.abs(la.x - lb.x) >= 190 || Math.abs(la.y - lb.y) >= 37).toBe(true);
+  });
+
+  it("keeps a straight arrow between boxes too close for its label", () => {
+    const boxes = new Map([
+      ["a", at(0, 0)],
+      ["b", at(0, H + 50)],
+    ]);
+    const links = [link("a", "b")];
+    expect(layoutArrows(boxes, links, labelled(links)).routes.get("a->b")).toHaveLength(2);
+  });
+});
+
+describe("crossings", () => {
+  it("puts the crossing on the arrow running across, not the one running down", () => {
+    const routes = new Map([
+      ["across", [{ x: 0, y: 100 }, { x: 300, y: 100 }]],
+      ["down", [{ x: 150, y: 0 }, { x: 150, y: 200 }]],
+    ]);
+    expect(crossings(routes)).toEqual(new Map([["across", [{ x: 150, y: 100 }]]]));
+  });
+
+  it("doesn't count arrows that only meet at an end or a corner", () => {
+    const routes = new Map([
+      ["across", [{ x: 0, y: 100 }, { x: 300, y: 100 }]],
+      ["ends-on-it", [{ x: 150, y: 0 }, { x: 150, y: 100 }]],
+      ["turns-off-it", [{ x: 300, y: 100 }, { x: 300, y: 300 }]],
+    ]);
+    expect(crossings(routes).size).toBe(0);
+  });
+
+  it("lists crossings in order along the route", () => {
+    const routes = new Map([
+      ["across", [{ x: 300, y: 100 }, { x: 0, y: 100 }]],
+      ["near", [{ x: 250, y: 0 }, { x: 250, y: 200 }]],
+      ["far", [{ x: 50, y: 0 }, { x: 50, y: 200 }]],
+    ]);
+    expect(crossings(routes).get("across")!.map((p) => p.x)).toEqual([250, 50]);
   });
 });

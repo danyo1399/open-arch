@@ -12,11 +12,15 @@ export type ArrowData = {
   points: Point[];
   /** Where the label's centre goes. */
   label?: Point;
+  /** Where the route crosses other arrows, along its horizontal runs (see crossings in routing.ts). */
+  crossings: Point[];
   onSelect(): void;
 };
 export type ArrowEdge = Edge<ArrowData, "arrow">;
 
 const CORNER = 8;
+/** Radius of the little arc a route draws to hop over an arrow it crosses. */
+const HOP = 5;
 
 const distance = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
 
@@ -26,17 +30,40 @@ function toward(from: Point, to: Point, by: number): Point {
   return { x: from.x + ((to.x - from.x) * by) / d, y: from.y + ((to.y - from.y) * by) / d };
 }
 
-function pathThrough(points: Point[]): string {
+/**
+ * A path through `points` with rounded corners, hopping over the arrows it
+ * crosses at `crossings`. A crossing too near a corner, or too near the last
+ * hop to fit another, is drawn as a plain crossing.
+ */
+export function pathThrough(points: Point[], crossings: Point[] = []): string {
   const first = points[0]!;
   const last = points[points.length - 1]!;
   let d = `M ${first.x} ${first.y}`;
+  // Hops along the run from `a` to `b`, up to `end`, which is where the next corner starts.
+  const hops = (a: Point, b: Point, start: number, end: Point) => {
+    if (a.y !== b.y) return;
+    const ahead = Math.sign(b.x - a.x);
+    let from = start;
+    for (const c of crossings) {
+      if (c.y !== a.y) continue;
+      const along = (c.x - a.x) * ahead;
+      if (along - HOP < from || (end.x - c.x) * ahead < HOP + 1) continue;
+      // Over the top, whichever way the run goes.
+      d += ` L ${c.x - HOP * ahead} ${c.y} A ${HOP} ${HOP} 0 0 ${ahead > 0 ? 1 : 0} ${c.x + HOP * ahead} ${c.y}`;
+      from = along + HOP + 1;
+    }
+  };
+  let start = 0;
   for (let k = 1; k < points.length - 1; k++) {
     const [a, b, c] = [points[k - 1]!, points[k]!, points[k + 1]!];
     const r = Math.min(CORNER, distance(a, b) / 2, distance(b, c) / 2);
     const p = toward(b, a, r);
     const q = toward(b, c, r);
+    hops(a, b, start, p);
     d += ` L ${p.x} ${p.y} Q ${b.x} ${b.y} ${q.x} ${q.y}`;
+    start = r + 1;
   }
+  if (points.length >= 2) hops(points[points.length - 2]!, last, start, last);
   return `${d} L ${last.x} ${last.y}`;
 }
 
@@ -56,7 +83,7 @@ export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdg
 
   return (
     <>
-      <BaseEdge id={id} path={pathThrough(points)} markerEnd={markerEnd} className={`arrow${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`} interactionWidth={18} />
+      <BaseEdge id={id} path={pathThrough(points, data.crossings)} markerEnd={markerEnd} className={`arrow${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`} interactionWidth={18} />
       {label && (
         <EdgeLabelRenderer>
           <div
