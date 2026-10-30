@@ -154,6 +154,15 @@ textarea {
 textarea {
   resize: vertical;
 }
+/* Phones and tablets zoom in on a text box with smaller text when it gets focus, and stay
+   zoomed in. That includes a sticky note's, on the diagram. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -317,10 +326,6 @@ button.square {
   margin: -6px 0;
   padding: 6px 12px;
   font-size: 18px;
-}
-/* Phones zoom in on a text box with smaller text when it gets focus, and stay zoomed in. */
-.app.narrow :is(.properties, .modal, .ask-ai) :is(input, select, textarea) {
-  font-size: 16px;
 }
 /* Under the view's toolbar, the usages would cover + Add's menu, and React Flow keeps that
    menu below everything outside the canvas. */

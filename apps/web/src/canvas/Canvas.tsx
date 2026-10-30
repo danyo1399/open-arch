@@ -30,6 +30,8 @@ const FRAME_ID = "__frame";
 const stickyNodeId = (id: string) => `sticky:${id}`;
 const arrowId = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
 const FRAME_PAD = { x: 40, top: 56, bottom: 40 };
+/** How a view's diagram is fitted to the canvas. */
+const FIT = { padding: 0.15, maxZoom: 1.2 };
 
 interface CanvasProps {
   ws: Workspace;
@@ -253,8 +255,17 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   useEffect(() => {
     if (!ready || fitted.current === view.id) return;
     fitted.current = view.id;
-    requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView({ padding: 0.15, maxZoom: 1.2 })));
+    requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView(FIT)));
   }, [ready, view.id, rf]);
+
+  // Turning a phone or tablet round fits the diagram to its new shape. The canvas is resized by
+  // then, but React Flow measures it after this frame's animation callbacks, so wait for the next.
+  useEffect(() => {
+    const portrait = window.matchMedia("(orientation: portrait)");
+    const refit = () => requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView(FIT)));
+    portrait.addEventListener("change", refit);
+    return () => portrait.removeEventListener("change", refit);
+  }, [rf]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<FlowNode>[]) => {

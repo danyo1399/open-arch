@@ -10,7 +10,7 @@ import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dial
 import { Properties, shownInProperties } from "./panels/Properties.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
-import { useWorkspace } from "./state.js";
+import { useWorkspace, type Edit } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
 
@@ -44,6 +44,13 @@ function detailsName(ws: Workspace, view: ViewDef | null, selection: Selection):
   return shown.kind === "view" ? "This view" : "Workspace";
 }
 
+/** Where a missing ID went, following renames (old to new) for as long as they lead somewhere. */
+function followRenames(ws: Workspace, renamed: Map<string, string>, id: string): string {
+  let current = id;
+  for (let steps = 0; !ws.elements.has(current) && renamed.has(current) && steps < renamed.size; steps++) current = renamed.get(current)!;
+  return current;
+}
+
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /** A line icon on a 24 × 24 grid, in the text colour. */
@@ -67,9 +74,25 @@ interface DesignerProps {
 
 export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const state = useWorkspace(host);
-  const { ws, diagnostics, edit } = state;
+  const { ws, diagnostics } = state;
+  /** Old IDs, and what edits made here renamed them to, so the selection and usages follow a rename. */
+  const renamed = useRef(new Map<string, string>());
+  const workspaceEdit = state.edit;
+  const edit = useCallback(
+    (e: Edit) => {
+      if (Array.isArray(e)) for (const op of e) if (op.op === "rename") renamed.current.set(op.id, op.to);
+      return workspaceEdit(e);
+    },
+    [workspaceEdit],
+  );
   const [viewId, setViewId] = useState<string | null>(null);
-  const [selection, setSelection] = useState<Selection>(null);
+  const [chosen, setSelection] = useState<Selection>(null);
+  // An element renamed here stays selected under its new ID from the moment the rename lands.
+  // Until then the details panel would show the view, taking away any button being pressed.
+  const selection = useMemo<Selection>(
+    () => (chosen?.kind === "element" && ws && !ws.elements.has(chosen.id) ? { kind: "element", id: followRenames(ws, renamed.current, chosen.id) } : chosen),
+    [chosen, ws],
+  );
   const [isNew, setIsNew] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [askOpen, setAskOpen] = useState(false);
@@ -100,8 +123,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
   useEffect(() => {
     if (selection?.kind === "element" && ws && !ws.elements.has(selection.id)) setSelection(null);
+    else if (selection !== chosen) setSelection(selection);
     if (selection?.kind === "sticky" && ws && !ws.views.get(viewId ?? "")?.stickies.some((s) => s.id === selection.id)) setSelection(null);
-  }, [ws, selection, viewId]);
+  }, [ws, selection, chosen, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
   useEffect(() => {
@@ -167,8 +191,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     select(next);
   };
 
+  // The usages panel follows its element to a new ID, and closes when the element is gone. A
+  // rename can land just after the panel opens: a name saves when its text box loses focus, as
+  // it does to the Find usages button.
   useEffect(() => {
-    if (usagesOf && ws && !ws.elements.has(usagesOf)) setUsagesOf(null);
+    if (!usagesOf || !ws || ws.elements.has(usagesOf)) return;
+    const id = followRenames(ws, renamed.current, usagesOf);
+    setUsagesOf(ws.elements.has(id) ? id : null);
   }, [ws, usagesOf]);
 
   const removeSelection = useCallback(() => {

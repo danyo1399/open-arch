@@ -46,19 +46,39 @@ export function ContextMenu({
   }, [x, y]);
 
   useEffect(() => {
-    const outside = (e: Event) => {
-      const target = e.target;
-      if (target instanceof Node && (ref.current?.contains(target) || anchor?.current?.contains(target))) return;
-      onClose();
+    const within = (e: Event) => e.target instanceof Node && !!ref.current?.contains(e.target);
+    // A press on the anchor is left to its click, unless it ends off the anchor or turns into
+    // a scroll, when there's no click. (A touch's events all go to where it started.)
+    let onAnchor = false;
+    const down = (e: PointerEvent) => {
+      if (within(e)) return;
+      onAnchor = e.target instanceof Node && !!anchor?.current?.contains(e.target);
+      if (!onAnchor) onClose();
+    };
+    const up = (e: PointerEvent) => {
+      const r = anchor?.current?.getBoundingClientRect();
+      if (onAnchor && (!r || e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) onClose();
+      onAnchor = false;
+    };
+    const cancel = () => {
+      if (onAnchor) onClose();
+      onAnchor = false;
+    };
+    const wheel = (e: WheelEvent) => {
+      if (!within(e)) onClose();
     };
     // Capture, so the canvas can't swallow the click before it closes the menu.
-    window.addEventListener("pointerdown", outside, true);
-    window.addEventListener("wheel", outside, true);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", cancel, true);
+    window.addEventListener("wheel", wheel, true);
     window.addEventListener("resize", onClose);
     window.addEventListener("blur", onClose);
     return () => {
-      window.removeEventListener("pointerdown", outside, true);
-      window.removeEventListener("wheel", outside, true);
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", cancel, true);
+      window.removeEventListener("wheel", wheel, true);
       window.removeEventListener("resize", onClose);
       window.removeEventListener("blur", onClose);
     };
