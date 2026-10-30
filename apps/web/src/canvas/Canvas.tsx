@@ -18,7 +18,7 @@ import { menuPoint } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY_W, stickyHeight, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
-import { edgeTypes, labelSize, type ArrowEdge } from "./RoutedEdge.js";
+import { edgeTypes, labelSizes, type ArrowEdge, type LabelSize } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 
 export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "sticky"; id: string } | { kind: "workspace" } | null;
@@ -215,10 +215,10 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       }
     }
     const edges = cv?.edges ?? [];
-    const sizes = new Map<string, { w: number; h: number }>();
+    const sizes = new Map<string, LabelSize[]>();
     for (const e of edges) {
-      const size = labelSize(e);
-      if (size) sizes.set(arrowId(e), size);
+      const options = labelSizes(e);
+      if (options.length) sizes.set(arrowId(e), options);
     }
     const links = edges.map((e) => ({ id: arrowId(e), from: e.from, to: e.to }));
     const { routes, labels } = layoutArrows(boxes, links, sizes, { frames, notes, keepClear: frameNames });

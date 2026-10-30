@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { pathThrough } from "../src/canvas/RoutedEdge.js";
+import type { ViewEdge } from "@open-arch/core";
+import { labelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
 
 describe("pathThrough", () => {
   it("hops over the top of an arrow it crosses, whichever way it runs", () => {
@@ -19,5 +20,24 @@ describe("pathThrough", () => {
       { x: 290, y: 100 },
     ]);
     expect(path.match(/ A /g)).toHaveLength(1);
+  });
+});
+
+describe("labelSizes", () => {
+  const edge = (description: string, technology?: string) => ({ description, technology }) as ViewEdge;
+
+  it("offers narrower sizes, with more lines, for a label that wraps", () => {
+    const sizes = labelSizes(edge("Publishes order-placed and order-ready to", "Kafka"));
+    expect(sizes.map((s) => s.w)).toEqual([190, 140, 100]);
+    expect(sizes[1]!.h).toBeGreaterThan(sizes[0]!.h);
+    expect(sizes[2]!.h).toBeGreaterThan(sizes[1]!.h);
+  });
+
+  it("offers one size for a label that fits on a line anyway", () => {
+    expect(labelSizes(edge("Charges cards", "HTTPS"))).toHaveLength(1);
+  });
+
+  it("has no size for an arrow with nothing to say", () => {
+    expect(labelSizes(edge(""))).toEqual([]);
   });
 });
