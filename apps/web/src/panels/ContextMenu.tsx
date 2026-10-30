@@ -2,6 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent
 
 export interface MenuItem {
   label: string;
+  /** Deletes something, so it's shown in red. */
+  danger?: boolean;
   onSelect(): void;
 }
 
@@ -102,6 +104,7 @@ export function ContextMenu({
         <button
           key={item.label}
           role="menuitem"
+          className={item.danger ? "danger" : undefined}
           onClick={() => {
             close();
             item.onSelect();

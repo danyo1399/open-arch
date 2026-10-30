@@ -1,9 +1,9 @@
-import { computeView, diagnosticTarget, scopeProblems, type ArchElement, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeView, diagnosticTarget, scopeProblems, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { canSaveFiles, desktopBridge, DesktopHost, docsZip, download, FileHandleHost, pickFileToSave, type WorkspaceHost } from "./hosts.js";
-import { relationshipRef } from "./model.js";
+import { canShowAsBox, relationshipRef, viewAction } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
@@ -13,19 +13,6 @@ import { Usages } from "./panels/Usages.js";
 import { useWorkspace } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
-
-/** Whether a view can draw this element as its own box (rather than as the system or container around it). */
-function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boolean {
-  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
-  if (element.kind === "person" || element.kind === "system") {
-    // The frame's own system has no box of its own.
-    const frameSystem = view.level === "container" ? scope?.id : view.level === "component" ? scope?.parent : undefined;
-    return element.id !== frameSystem;
-  }
-  if (view.level === "container") return element.parent === scope?.id;
-  if (view.level === "component") return element.parent === scope?.id || (element.kind === "container" && element.parent === scope?.parent && element.id !== scope?.id);
-  return false;
-}
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -171,6 +158,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
+  const showInView = (id: string) => view && void edit([{ op: "show-in-view", view: view.id, id }]);
+  const hideFromView = (id: string) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null));
+
   /** A usage can be in another view: open that one, then select it there. */
   const goToUsage = (target: string | null, next: Selection) => {
     if (target && target !== viewId) setViewId(target);
@@ -270,6 +260,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
     { label: "Close", onSelect: onClose },
   ];
+  // What the details panel and the model tree can do with an element, in one place.
+  const elementMenu = (id: string): MenuItem[] => {
+    const action = viewAction(ws, view, computed, id);
+    return [
+      { label: "Find usages", onSelect: () => findUsages(id) },
+      ...(action === "show" ? [{ label: "Show in this view", onSelect: () => showInView(id) }] : []),
+      ...(action === "hide" ? [{ label: "Hide from this view", onSelect: () => hideFromView(id) }] : []),
+      { label: "Delete from model…", danger: true, onSelect: () => setDialog({ kind: "delete", id }) },
+    ];
+  };
   const errors = diagnostics.filter((d) => d.severity === "error").length;
   const panes: { pane: Pane; label: string; detail: string; bad?: boolean }[] = [
     { pane: "diagram", label: "Diagram", detail: view?.title ?? "No views yet" },
@@ -357,7 +357,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         selection={selection}
         onSelectView={showView}
         onSelect={showDetails}
-        onShowInView={(id) => view && void edit([{ op: "show-in-view", view: view.id, id }])}
+        onShowInView={showInView}
         onElementMenu={openElementMenu}
         onNewView={() => setDialog({ kind: "newView" })}
         onOpenProblem={openProblem}
@@ -404,7 +404,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         edit={edit}
         onSelect={select}
         onSelectView={selectView}
-        onHide={(id) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null))}
+        onHide={hideFromView}
         onDelete={(id) => setDialog({ kind: "delete", id })}
         onFindUsages={findUsages}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id })}
@@ -430,24 +430,17 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         </div>
       )}
 
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          items={[{ label: "Find usages", onSelect: () => findUsages(menu.id) }]}
-          onClose={closeMenu}
-        />
-      )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={elementMenu(menu.id)} onClose={closeMenu} />}
       {more && <ContextMenu x={more.x} y={more.y} items={moreItems} note={`${host.name} · ${status}`} anchor={moreButton} onClose={closeMore} />}
       {dialog?.kind === "delete" && (
         <DeleteElementDialog
           ws={ws}
           id={dialog.id}
-          inView={!!view && inView.has(dialog.id) && computed?.boundary?.id !== dialog.id}
+          inView={viewAction(ws, view, computed, dialog.id) === "hide"}
           onClose={() => setDialog(null)}
           onHide={() => {
             setDialog(null);
-            if (view) void edit([{ op: "hide-in-view", view: view.id, id: dialog.id }]).then(() => select(null));
+            hideFromView(dialog.id);
           }}
           onDelete={() => {
             setDialog(null);

@@ -1,5 +1,5 @@
 /** Small questions about the model that the designer's UI asks. */
-import { computeAllViews, describeElement, isInside, type ArchElement, type Relationship, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeAllViews, describeElement, isInside, type ArchElement, type ComputedView, type Relationship, type ViewDef, type Workspace } from "@open-arch/core";
 
 /** IDs the designer gives new elements before they have a name. */
 export const PLACEHOLDER_ID = /^new-(person|system|container|component)(-\d+)?$/;
@@ -47,6 +47,31 @@ export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; 
     views: [...ws.views.values()].filter((v) => v.scope !== undefined && gone.has(v.scope)),
     affected: [...ws.elements.values()].filter((e) => !gone.has(e.id) && e.uses.some((r) => gone.has(r.to))),
   };
+}
+
+/** Whether a view can draw this element as its own box (rather than as the system or container around it). */
+export function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boolean {
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  if (element.kind === "person" || element.kind === "system") {
+    // The frame's own system has no box of its own.
+    const frameSystem = view.level === "container" ? scope?.id : view.level === "component" ? scope?.parent : undefined;
+    return element.id !== frameSystem;
+  }
+  if (view.level === "container") return element.parent === scope?.id;
+  if (view.level === "component") return element.parent === scope?.id || (element.kind === "container" && element.parent === scope?.parent && element.id !== scope?.id);
+  return false;
+}
+
+/**
+ * What the open view can do with an element: hide its box, show it as a box, or neither,
+ * as for the frame around the view or an element the view can't draw. `computed` is the
+ * view as drawn, or null when it can't be drawn, which leaves nothing to hide.
+ */
+export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
+  const element = ws.elements.get(id);
+  if (!view || !element || computed?.boundary?.id === id) return null;
+  if (computed?.nodes.some((n) => n.id === id)) return "hide";
+  return canShowAsBox(ws, view, element) ? "show" : null;
 }
 
 export interface Usages {

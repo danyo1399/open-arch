@@ -1,7 +1,7 @@
 import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type Operation, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { followsName, idFromName, relationshipRef, uniqueId } from "../model.js";
+import { followsName, idFromName, relationshipRef, uniqueId, viewAction } from "../model.js";
 import type { Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
 
@@ -19,9 +19,9 @@ interface PropertiesProps {
   edit(edit: Edit): Promise<boolean>;
   onSelect(selection: Selection): void;
   onSelectView(id: string): void;
+  /** These three are on an element's right-click menu too, which touch screens may have no way to open. */
   onHide(id: string): void;
   onDelete(id: string): void;
-  /** Also on an element's right-click menu, which touch screens may have no way to open. */
   onFindUsages(id: string): void;
   onDeleteView(id: string): void;
 }
@@ -72,7 +72,7 @@ export function Properties(props: PropertiesProps) {
   );
 }
 
-function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages }: PropertiesProps & { element: ArchElement }) {
+function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
@@ -87,7 +87,7 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
   };
   const parentKind = PARENT_KIND[element.kind];
   const parents = parentKind ? [...ws.elements.values()].filter((e) => e.kind === parentKind).sort((a, b) => a.name.localeCompare(b.name)) : [];
-  const inView = computed?.nodes.some((n) => n.id === element.id) ?? false;
+  const canHide = viewAction(ws, view, computed, element.id) === "hide";
 
   return (
     <>
@@ -173,7 +173,7 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
 
       <div className="actions">
         <button onClick={() => onFindUsages(element.id)}>Find usages</button>
-        {inView && computed?.boundary?.id !== element.id && <button onClick={() => onHide(element.id)}>Hide from this view</button>}
+        {canHide && <button onClick={() => onHide(element.id)}>Hide from this view</button>}
         <button className="danger" onClick={() => onDelete(element.id)}>
           Delete from model…
         </button>
