@@ -195,8 +195,9 @@ class MinHeap {
  * the route is moving along there: `p * 2 + axis`.
  */
 class Grid {
-  /** Everything routes go around. */
+  /** Everything routes go around, and the clear space around each. */
   readonly rects: Rect[];
+  readonly clears: Rect[];
   readonly xs: number[];
   readonly ys: number[];
   readonly nx: number;
@@ -227,9 +228,10 @@ class Grid {
   /** `aligned` holds extra lines, such as ones a straight arrow between two boxes could run along. */
   constructor(rects: Rect[], frames: Rect[], aligned: { xs: number[]; ys: number[] }) {
     this.rects = rects;
+    this.clears = rects.map(inflate);
     const near = { x: new Set<number>(), y: new Set<number>() };
     const far = { x: new Set<number>(), y: new Set<number>() };
-    for (const r of rects.map(inflate)) {
+    for (const r of this.clears) {
       near.x.add(r.left);
       far.x.add(r.right);
       near.y.add(r.top);
@@ -278,7 +280,7 @@ class Grid {
     }
 
     // Box sides are grid lines, so a run is either wholly inside a box's clear space or wholly outside it.
-    for (const r of rects.map(inflate)) {
+    for (const r of this.clears) {
       const [i0, i1, j0, j1] = [this.xIndex.get(r.left)!, this.xIndex.get(r.right)!, this.yIndex.get(r.top)!, this.yIndex.get(r.bottom)!];
       for (let j = j0; j <= j1; j++) {
         for (let i = i0; i <= i1; i++) {
@@ -329,10 +331,11 @@ class Grid {
   }
 
   /**
-   * What going straight through point `p` on `axis` costs, for crossing the arrows
-   * that go straight through it the other way. Two arrows cross where both go
-   * straight through the same point, one across the other; one that turns there
-   * merges instead, and pays for running along the other.
+   * What coming into point `p` along `axis` costs, for crossing the arrows that go
+   * straight through it the other way. A route that turns there pays it too: it
+   * would only merge with them, which is no clearer, and charging for each step on
+   * its own keeps the search finding the cheapest route. A route comes into its
+   * start stub from its box.
    */
   private crossingAt(p: number, axis: typeof H | typeof V): number {
     return CROSSING * (axis === H ? this.throughV : this.throughH)[p]!;
@@ -359,7 +362,7 @@ class Grid {
     for (const port of starts) {
       const p = this.point(port.stub);
       if (p < 0) continue;
-      const [s, c] = [p * 2 + port.axis, this.portCost(port)];
+      const [s, c] = [p * 2 + port.axis, this.portCost(port) + this.crossingAt(p, port.axis)];
       if (c < cost[s]!) startPorts.set(s, port);
       relax(s, c, -1, estimate(p));
     }
@@ -379,15 +382,13 @@ class Grid {
       const c = cost[s]!;
       const p = s >> 1;
       const axis = s & 1;
-      // Going on along `axis` from here goes straight through this point, unless the route
-      // turned here: it came along `axis`, or it starts here, coming out of its box that way.
-      const crossing = prev[s] === -1 || prev[s]! >> 1 !== p ? this.crossingAt(p, axis as typeof H | typeof V) : 0;
       const arriving = goalPorts.get(s);
-      if (arriving) relax(goal, c + crossing + arriving.cost, s, 0);
+      if (arriving) relax(goal, c + arriving.cost, s, 0);
       relax(p * 2 + (1 - axis), c + BEND, s, estimate(p));
       const i = p % nx;
       const j = (p - i) / nx;
-      const step = (q: number, run: number, length: number) => relax(q * 2 + axis, c + crossing + this.stepCost(run, axis as typeof H | typeof V, length), s, estimate(q));
+      const step = (q: number, run: number, length: number) =>
+        relax(q * 2 + axis, c + this.stepCost(run, axis as typeof H | typeof V, length) + this.crossingAt(q, axis as typeof H | typeof V), s, estimate(q));
       if (axis === H) {
         if (i + 1 < nx && !this.blockedH[p]) step(p + 1, p, xs[i + 1]! - xs[i]!);
         if (i > 0 && !this.blockedH[p - 1]) step(p - 1, p - 1, xs[i]! - xs[i - 1]!);
@@ -415,13 +416,22 @@ class Grid {
     if (!cells.length) return cost + Math.hypot(end.at.x - start.at.x, end.at.y - start.at.y);
     const moves = movesOf(cells, start, end);
     cells.forEach((p, k) => {
-      cost += moves[k] === moves[k + 1] ? this.crossingAt(p, moves[k]!) : BEND;
+      cost += this.crossingAt(p, moves[k]!);
+      if (moves[k] !== moves[k + 1]) cost += BEND;
       const q = cells[k + 1];
       if (q === undefined) return;
       const [a, b] = [this.at(p), this.at(q)];
       cost += this.stepCost(Math.min(p, q), moves[k + 1]!, Math.abs(b.x - a.x) + Math.abs(b.y - a.y));
     });
     return cost;
+  }
+
+  /** Whether a route through `cells` runs through some box's clear space, where the search can't go. */
+  blocked(cells: number[]): boolean {
+    return cells.slice(1).some((q, k) => {
+      const p = cells[k]!;
+      return Math.abs(q - p) === 1 ? this.blockedH[Math.min(p, q)] === 1 : this.blockedV[Math.min(p, q)] === 1;
+    });
   }
 
   /**
@@ -490,11 +500,11 @@ function simplify(points: Point[]): Point[] {
  * A route with each short step between two runs going the same way taken out, by
  * moving one of the runs onto the other's line: grid lines a few pixels apart, such
  * as one just outside a box and one through a point on another box's side, would
- * otherwise leave a little kink. A moved run stays out of every box's clear space,
- * as the search's routes do, where the stretches between arrows' stubs and their
- * boxes are, off the grid; an end moved along its box's side stays clear of the
- * corners; and a change is only kept if the search would have charged less for it,
- * so a run isn't moved beside another arrow or along a frame.
+ * otherwise leave a little kink. A moved route keeps to the runs the search could
+ * take, out of every box's clear space, where the stretches between arrows' stubs
+ * and their boxes are, off the grid; an end moved along its box's side stays clear
+ * of the corners; and a change is only kept if the search would have charged less
+ * for it, so a run isn't moved beside another arrow or along a frame.
  */
 function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
   const onSide = (p: Point, r: Rect) => {
@@ -502,11 +512,6 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
     const pos = p.x === r.left || p.x === r.right ? p.y : p.x;
     return pos >= lo && pos <= hi;
   };
-  const near = grid.rects.map((r) => ({ r, clear: inflate(r) }));
-  const clear = (pts: Point[]) =>
-    onSide(pts[0]!, from) &&
-    onSide(pts[pts.length - 1]!, to) &&
-    pts.slice(1).every((b, k) => near.every(({ r, clear }) => (k === 0 && r === from) || (k === pts.length - 2 && r === to) || !runsThrough([pts[k]!, b], clear)));
   // Moves the run from point `i` to point `i + 1` across, onto the line `to`, if the runs either side of it still go the way they did.
   const move = (pts: Point[], i: number, across: boolean, line: number) => {
     const out = pts.map((p, k) => (k === i || k === i + 1 ? (across ? { x: p.x, y: line } : { x: line, y: p.y }) : p));
@@ -531,11 +536,11 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
     const way = (p: Point, q: Point) => Math.sign(across ? q.x - p.x : q.y - p.y);
     if (step === 0 || Math.abs(step) >= JOG || way(a, b) === 0 || way(a, b) !== way(c, d)) continue;
     for (const option of [move(pts, k - 1, across, across ? c.y : c.x), move(pts, k + 1, across, across ? b.y : b.x)]) {
-      if (!option || !clear(option)) continue;
+      if (!option || !onSide(option[0]!, from) || !onSide(option[option.length - 1]!, to)) continue;
       const points = simplify(option);
       const ports: [Port, Port] = [movedTo(best.ports[0], from, points[0]!), movedTo(best.ports[1], to, points[points.length - 1]!)];
       const cells = grid.cellsOf(points, ports);
-      if (!cells) continue;
+      if (!cells || grid.blocked(cells)) continue;
       const cost = grid.costOf(cells, ports);
       if (cost >= best.cost) continue;
       best = { cells, ports, points, cost };
@@ -614,7 +619,7 @@ function acrossGap(grid: Grid, from: Rect, to: Rect, starts: Port[], goals: Port
       // A line another arrow already attaches beside would draw the two as one, so leave this one to go round.
       if (!start || !end || grid.portCost(start) > start.cost || grid.portCost(end) > end.cost) continue;
       const points = [start.at, end.at];
-      if (grid.rects.some((r) => r !== from && r !== to && runsThrough(points, inflate(r)))) continue;
+      if (grid.rects.some((r, k) => r !== from && r !== to && runsThrough(points, grid.clears[k]!))) continue;
       const cost = grid.costOf([], [start, end]);
       if (!best || cost < best.cost) best = { cells: [], ports: [start, end], points, cost };
     }
@@ -969,15 +974,13 @@ export function layoutArrows<S extends Size>(
   const optionsFor = (link: Link) => {
     const [from, to, source, target] = [ports.get(link.from)!, ports.get(link.to)!, rects.get(link.from)!, rects.get(link.to)!];
     const longest = routeLength(routes.get(link.id)!.points) * DETOUR;
-    const reach = (list: Port[], other: Rect) => {
-      const clear = inflate(other);
-      return 2 * MARGIN + Math.min(...list.map((p) => distanceTo(p.stub.x, p.stub.y, clear)));
-    };
+    const [sourceClear, targetClear] = [inflate(source), inflate(target)];
+    const reach = (list: Port[], clear: Rect) => 2 * MARGIN + Math.min(...list.map((p) => distanceTo(p.stub.x, p.stub.y, clear)));
     const options: { starts: Port[]; goals: Port[] }[] = [];
     for (const side of ["top", "bottom", "left", "right"] as const) {
       const [leaving, entering] = [from.filter((p) => p.edge === side), to.filter((p) => p.edge === side)];
-      if (reach(leaving, target) <= longest) options.push({ starts: leaving, goals: to });
-      if (reach(entering, source) <= longest) options.push({ starts: from, goals: entering });
+      if (reach(leaving, targetClear) <= longest) options.push({ starts: leaving, goals: to });
+      if (reach(entering, sourceClear) <= longest) options.push({ starts: from, goals: entering });
     }
     return { link, options, longest, source, target };
   };
@@ -1004,9 +1007,10 @@ export function layoutArrows<S extends Size>(
     const kept = total({ ...route, cost: grid.costOf(route.cells, route.ports) });
     let best = kept;
     for (const { starts, goals } of options) {
-      // A label costs nothing at best, so a route that costs more on its own can't win.
+      // A label costs nothing at best, so a route that costs more on its own than the best so far,
+      // or than the route as it stands less what it takes to move, can't win.
       const r = routeOne(grid, starts, goals, source, target);
-      if (!r || r.cost >= best.cost || routeLength(r.points) > longest || underNote(r)) continue;
+      if (!r || r.cost >= best.cost || r.cost > kept.cost - WORTH_MOVING || routeLength(r.points) > longest || underNote(r)) continue;
       const option = total(r);
       if (option.cost < best.cost) best = option;
     }

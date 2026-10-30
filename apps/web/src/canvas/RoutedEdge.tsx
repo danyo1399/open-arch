@@ -116,7 +116,11 @@ export const estimateLabel: MeasureLabel = (lines, maxWidth) => {
   return { w: Math.min(widest, room) + padX, h: rows * lineHeight + padY };
 };
 
-/** Sizes measured so far (see measureLabelSizes), by lines and width. Emptied when it gets this big, as texts come and go while the model is edited. */
+/**
+ * Sizes measured so far (see measureLabelSizes), by lines and width. As texts come
+ * and go while the model is edited, it's cut back to just the sizes the labels in
+ * hand need whenever it would grow past MEASURED_LIMIT.
+ */
 const measured = new Map<string, { w: number; h: number }>();
 const MEASURED_LIMIT = 2000;
 const measuredKey = (lines: LabelLine[], maxWidth: number) => JSON.stringify([lines, maxWidth]);
@@ -131,16 +135,20 @@ function probe(lines: LabelLine[], maxWidth: number): HTMLDivElement {
   return div;
 }
 
-/** How big an arrow's label is at each width it can be drawn, widest first, leaving out widths that make no difference; none when it has no label. */
-export function labelSizes(edge: ViewEdge, measureOne: MeasureLabel): LabelSize[] {
-  const lines = labelLines(edge);
-  if (!lines.length) return [];
+/** The sizes a label can be drawn at, widest first, leaving out widths that make no difference, given how big it is at each. */
+function sizesAt(sizeAt: (maxWidth: number) => { w: number; h: number }): LabelSize[] {
   const out: LabelSize[] = [];
   for (const maxWidth of LABEL_WIDTHS) {
-    const size = { ...measureOne(lines, maxWidth), maxWidth };
+    const size = { ...sizeAt(maxWidth), maxWidth };
     if (!out.length || size.w < out[out.length - 1]!.w) out.push(size);
   }
   return out;
+}
+
+/** How big an arrow's label is at each width it can be drawn (see sizesAt); none when it has no label. */
+export function labelSizes(edge: ViewEdge, measureOne: MeasureLabel): LabelSize[] {
+  const lines = labelLines(edge);
+  return lines.length ? sizesAt((maxWidth) => measureOne(lines, maxWidth)) : [];
 }
 
 /**
@@ -149,11 +157,12 @@ export function labelSizes(edge: ViewEdge, measureOne: MeasureLabel): LabelSize[
  * page out once rather than once a label.
  */
 export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
-  const wanted = new Map<string, [LabelLine[], number]>();
-  for (const e of edges) {
+  // Each label's key at each width, in LABEL_WIDTHS' order.
+  const keys = edges.map((e) => {
     const lines = labelLines(e);
-    if (lines.length) for (const maxWidth of LABEL_WIDTHS) wanted.set(measuredKey(lines, maxWidth), [lines, maxWidth]);
-  }
+    return lines.length ? LABEL_WIDTHS.map((maxWidth) => [measuredKey(lines, maxWidth), lines, maxWidth] as const) : [];
+  });
+  const wanted = new Map(keys.flat().map(([key, lines, maxWidth]) => [key, [lines, maxWidth] as const]));
   const missing = [...wanted].filter(([key]) => !measured.has(key));
   if (missing.length) {
     if (measured.size + missing.length > MEASURED_LIMIT) {
@@ -171,7 +180,7 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
     }
     holder.remove();
   }
-  return edges.map((e) => labelSizes(e, (lines, maxWidth) => measured.get(measuredKey(lines, maxWidth))!));
+  return keys.map((at) => (at.length ? sizesAt((maxWidth) => measured.get(at[LABEL_WIDTHS.indexOf(maxWidth)]![0])!) : []));
 }
 
 export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {

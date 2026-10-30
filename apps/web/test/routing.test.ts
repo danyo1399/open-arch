@@ -301,7 +301,7 @@ describe("routeLinks", () => {
     const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
     const same = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
     let layouts = 0;
-    while (layouts < 300) {
+    while (layouts < 500) {
       const n = 5 + Math.floor(random() * 4);
       const boxes = new Map<string, Box>();
       for (let k = 0; k < n; k++) boxes.set(`b${k}`, { x: Math.round(random() * 700), y: Math.round(random() * 520), w: 60 + Math.round(random() * 170), h: 60 + Math.round(random() * 60) });
@@ -319,19 +319,21 @@ describe("routeLinks", () => {
         ["routeLinks", routeLinks(boxes, links)],
         ["layoutArrows", layoutArrows(boxes, links, new Map(links.map((l) => [l.id, [{ w: 190, h: 37 }]]))).routes],
       ] as const) {
+        const straight = (p: Point, q: Point) => p.x === q.x || p.y === q.y;
+        // A route with nowhere to go is drawn as a diagonal line, which this doesn't check.
         const ends = [...routes].flatMap(([id, points]) =>
           (
             [
               [points[0]!, points[1]!],
               [points[points.length - 1]!, points[points.length - 2]!],
             ] as const
-          ).map(([at, next]) => {
+          ).filter(([at, next]) => straight(at, next)).map(([at, next]) => {
             const d = Math.hypot(next.x - at.x, next.y - at.y);
             return { id, at, stub: { x: at.x + ((next.x - at.x) * Math.min(MARGIN, d)) / d, y: at.y + ((next.y - at.y) * Math.min(MARGIN, d)) / d } };
           }),
         );
         for (const [id, points] of routes) {
-          for (const [p, q] of segments(points)) {
+          for (const [p, q] of segments(points).filter(([p, q]) => straight(p, q))) {
             for (const end of ends) {
               // Arrows sharing a place to attach share that stretch too.
               if (end.id === id || same(points[0]!, end.at) || same(points[points.length - 1]!, end.at)) continue;
@@ -343,7 +345,7 @@ describe("routeLinks", () => {
         }
       }
     }
-  });
+  }, 30_000);
 
   it("falls back to a straight line when there's no way out", () => {
     const boxes = new Map([
