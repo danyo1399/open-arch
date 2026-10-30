@@ -1,5 +1,5 @@
 /** Small questions about the model that the designer's UI asks. */
-import { isInside, type ArchElement, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeAllViews, describeElement, isInside, type ArchElement, type Relationship, type ViewDef, type Workspace } from "@open-arch/core";
 
 /** IDs the designer gives new elements before they have a name. */
 export const PLACEHOLDER_ID = /^new-(person|system|container|component)(-\d+)?$/;
@@ -46,5 +46,30 @@ export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; 
     inside: [...gone].filter((e) => e !== id).map((e) => ws.elements.get(e)!),
     views: [...ws.views.values()].filter((v) => v.scope !== undefined && gone.has(v.scope)),
     affected: [...ws.elements.values()].filter((e) => !gone.has(e.id) && e.uses.some((r) => gone.has(r.to))),
+  };
+}
+
+export interface Usages {
+  /** Relationships to the element or to something inside it, each with an arrow that draws it, if any view does. */
+  relationships: { from: ArchElement; rel: Relationship; arrow?: { view: string; from: string; to: string } }[];
+  /** Views that draw the element, as a box or as the frame around the view, by title. */
+  views: { view: ViewDef; as: "box" | "frame" }[];
+}
+
+/** What refers to an element, for "Find usages". Arrows are looked for in `preferView` first. */
+export function findUsages(ws: Workspace, id: string, preferView?: string): Usages | undefined {
+  const d = describeElement(ws, id);
+  if (!d) return undefined;
+  const computed = computeAllViews(ws).sort((a, b) => Number(b.view.id === preferView) - Number(a.view.id === preferView));
+  const arrowFor = (from: string, index: number) => {
+    for (const cv of computed) {
+      const edge = cv.edges.find((e) => e.sources.some((s) => s.element === from && s.index === index));
+      if (edge) return { view: cv.view.id, from: edge.from, to: edge.to };
+    }
+    return undefined;
+  };
+  return {
+    relationships: [...d.usedBy, ...d.contentsUsedBy].map(({ from, rel }) => ({ from, rel, arrow: arrowFor(from.id, rel.index) })),
+    views: d.views.sort((a, b) => a.view.title.localeCompare(b.view.title)),
   };
 }

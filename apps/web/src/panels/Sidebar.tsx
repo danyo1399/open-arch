@@ -1,6 +1,7 @@
 import { modelTree, type Diagnostic, type TreeNode, type ViewDef, type Workspace } from "@open-arch/core";
 import { useEffect, useState } from "react";
 import type { Selection } from "../canvas/Canvas.js";
+import { menuPoint } from "./ContextMenu.js";
 
 interface SidebarProps {
   ws: Workspace;
@@ -13,6 +14,8 @@ interface SidebarProps {
   onSelectView(id: string): void;
   onSelect(selection: Selection): void;
   onShowInView(id: string): void;
+  /** A right-click on an element in the model tree, at that point on the screen. */
+  onElementMenu(id: string, at: { x: number; y: number }): void;
   onNewView(): void;
   onOpenProblem(d: Diagnostic): void;
 }
@@ -100,7 +103,14 @@ function TreeRow({ node, depth, ...props }: { node: TreeNode; depth: number } & 
   return (
     <>
       <li>
-        <div className={selected ? "row active" : "row"} style={{ paddingLeft: 8 + depth * 14 }}>
+        <div
+          className={selected ? "row active" : "row"}
+          style={{ paddingLeft: 8 + depth * 14 }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            props.onElementMenu(e.id, menuPoint(event));
+          }}
+        >
           <button className="row-main" onClick={() => props.onSelect({ kind: "element", id: e.id })} title={e.id}>
             <span className={`dot dot-${e.external ? "external" : e.kind}`} />
             <span className={props.inView.has(e.id) ? "grow" : "grow muted"}>{e.name}</span>

@@ -5,9 +5,11 @@ import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { canSaveFiles, desktopBridge, DesktopHost, docsZip, download, FileHandleHost, pickFileToSave, type WorkspaceHost } from "./hosts.js";
 import { relationshipRef } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
+import { ContextMenu } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
 import { Properties } from "./panels/Properties.js";
 import { Sidebar } from "./panels/Sidebar.js";
+import { Usages } from "./panels/Usages.js";
 import { useWorkspace } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
@@ -42,6 +44,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [isNew, setIsNew] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [askOpen, setAskOpen] = useState(false);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [usagesOf, setUsagesOf] = useState<string | null>(null);
   const desktop = desktopBridge();
   const agent = host instanceof DesktopHost ? desktop?.agent : undefined;
 
@@ -78,6 +82,23 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     setViewId(id);
     select(null);
   };
+
+  // Right-clicking an element selects it too, so it's clear which one the menu is for.
+  const openElementMenu = (id: string, at: { x: number; y: number }) => {
+    if (selection?.kind !== "element" || selection.id !== id) select({ kind: "element", id });
+    setMenu({ id, ...at });
+  };
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  /** A usage can be in another view: open that one, then select it there. */
+  const goToUsage = (target: string | null, next: Selection) => {
+    if (target && target !== viewId) setViewId(target);
+    select(next);
+  };
+
+  useEffect(() => {
+    if (usagesOf && ws && !ws.elements.has(usagesOf)) setUsagesOf(null);
+  }, [ws, usagesOf]);
 
   const removeSelection = useCallback(() => {
     if (selection?.kind === "element") setDialog({ kind: "delete", id: selection.id });
@@ -209,6 +230,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onSelectView={selectView}
         onSelect={select}
         onShowInView={(id) => view && void edit([{ op: "show-in-view", view: view.id, id }])}
+        onElementMenu={openElementMenu}
         onNewView={() => setDialog({ kind: "newView" })}
         onOpenProblem={openProblem}
       />
@@ -216,7 +238,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       <main className="main">
         {view ? (
           <ReactFlowProvider key={view.id}>
-            <Canvas ws={ws} view={view} diagnostics={diagnostics} selection={selection} onSelect={select} edit={edit} />
+            <Canvas ws={ws} view={view} diagnostics={diagnostics} selection={selection} onSelect={select} edit={edit} onElementMenu={openElementMenu} />
           </ReactFlowProvider>
         ) : (
           <div className="canvas-message">
@@ -226,6 +248,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             </button>
           </div>
         )}
+        {usagesOf && <Usages ws={ws} id={usagesOf} viewId={viewId} onGo={goToUsage} onClose={() => setUsagesOf(null)} />}
         {agent && host instanceof DesktopHost && (
           <AskAI
             agent={agent}
@@ -266,6 +289,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         </div>
       )}
 
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={[{ label: "Find usages", onSelect: () => setUsagesOf(menu.id) }]} onClose={closeMenu} />}
       {dialog?.kind === "delete" && (
         <DeleteElementDialog
           ws={ws}

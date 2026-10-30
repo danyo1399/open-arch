@@ -14,6 +14,7 @@ import {
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { uniqueId } from "../model.js";
+import { menuPoint } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode } from "./nodes.js";
@@ -35,6 +36,8 @@ interface CanvasProps {
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   edit(edit: Edit): Promise<boolean>;
+  /** A right-click on an element's box or on the frame, at that point on the screen. */
+  onElementMenu(id: string, at: { x: number; y: number }): void;
 }
 
 /** Element kinds that can be added to a view at its level, and the parent each gets. */
@@ -94,7 +97,7 @@ function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined): FlowNo
   return [frame, ...elements];
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -271,6 +274,11 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit }: Can
         onConnect={onConnect}
         isValidConnection={(c) => c.source !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
         onNodeClick={(_, node) => selectNode(node)}
+        onNodeContextMenu={(event, node) => {
+          if (node.type !== "element" && node.type !== "frame") return;
+          event.preventDefault();
+          onElementMenu(node.type === "frame" ? node.data.element.id : node.id, menuPoint(event));
+        }}
         // Dragging a box swallows its click, so select it when the drag starts; otherwise the
         // layout saved on drop redraws the boxes with the old selection.
         onNodeDragStart={(_, node) => selectNode(node)}

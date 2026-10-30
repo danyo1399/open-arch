@@ -573,6 +573,57 @@ button.heading {
   text-align: left;
   padding: 7px 10px;
 }
+/* A right-click menu: .menu-items, placed at the pointer. */
+.context-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 160px;
+}
+/* Below the view's toolbar, which it would cover on a narrow canvas. */
+.usages {
+  position: absolute;
+  top: 68px;
+  right: 12px;
+  z-index: 10;
+  width: min(320px, calc(100% - 24px));
+  max-height: calc(100% - 80px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 10px 8px;
+}
+.usages-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 6px 4px;
+}
+.usages-header h2 {
+  margin: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usages h3 {
+  margin: 10px 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.usages p {
+  margin: 4px 6px;
+}
+.usage {
+  align-items: flex-start;
+}
+.usage .dot {
+  margin-top: 5px;
+}
 .empty-hint {
   position: absolute;
   top: 90px;
