@@ -100,7 +100,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   });
   const { ws, diagnostics } = state;
   /** An ID this render shows, after any rename applied since: a press can land after one. */
-  const current = (id: string) => renamedId(renames.current.slice(renamesSeen), id);
+  const current = useCallback((id: string) => renamedId(renames.current.slice(renamesSeen), id), [renamesSeen]);
   // An edit made with this render's IDs follows any rename applied before it runs: pressed just
   // after typing a new name, it queues behind the edit that saves the name, or lands before the
   // render that shows it. One worked out from the workspace as it is when it runs needs nothing.
@@ -151,10 +151,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const inView = useMemo(() => new Set([...(computed?.nodes.map((n) => n.id) ?? []), ...(computed?.boundary ? [computed.boundary.id] : [])]), [computed]);
   const showable = useMemo(() => new Set(ws ? [...ws.elements.keys()].filter((id) => viewAction(ws, view, computed, id) === "show") : []), [ws, view, computed]);
 
-  const select = useCallback((next: Selection, options?: { isNew?: boolean }) => {
-    setSelection(next);
-    setIsNew(!!options?.isNew);
-  }, []);
+  const select = useCallback(
+    (next: Selection, options?: { isNew?: boolean }) => {
+      setSelection(next?.kind === "element" ? { ...next, id: current(next.id) } : next?.kind === "arrow" ? { ...next, from: current(next.from), to: current(next.to) } : next);
+      setIsNew(!!options?.isNew);
+    },
+    [current],
+  );
 
   const selectView = (id: string) => {
     setViewId(id);
@@ -189,7 +192,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   // Right-clicking an element selects it too, so it's clear which one the menu is for.
   const openElementMenu = (id: string, at: { x: number; y: number }) => {
     if (selection?.kind !== "element" || selection.id !== id) select({ kind: "element", id });
-    setMenu({ id, ...at });
+    setMenu({ id: current(id), ...at });
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -207,7 +210,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   }, [ws, usagesOf]);
 
   const removeSelection = useCallback(() => {
-    if (selection?.kind === "element") setDialog({ kind: "delete", id: selection.id });
+    if (selection?.kind === "element") setDialog({ kind: "delete", id: current(selection.id) });
     // A note is only text on one view, and Undo brings it back, so it goes without asking.
     if (selection?.kind === "sticky" && view) void edit([{ op: "remove-sticky", view: view.id, id: selection.id }]).then(() => select(null));
     if (selection?.kind === "arrow" && computed && ws) {
@@ -220,7 +223,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         .map((s) => ({ op: "remove-relationship", ...relationshipRef(ws.elements.get(s.element)!, s.index) }));
       void edit(ops).then(() => select(null));
     }
-  }, [selection, computed, edit, select, ws, view]);
+  }, [selection, computed, edit, select, current, ws, view]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -451,7 +454,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onHide={hideFromView}
         onDelete={(id) => setDialog({ kind: "delete", id: current(id) })}
         onFindUsages={findUsages}
-        onDeleteView={(id) => setDialog({ kind: "deleteView", id })}
+        onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
       />
 
       {narrow && (

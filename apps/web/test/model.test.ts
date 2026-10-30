@@ -193,6 +193,15 @@ describe("renames", () => {
     ]);
   });
 
+  it("drops a rename they have already made", () => {
+    // The name was saved twice, with Enter and then on leaving the box, before the first save landed.
+    const saved = [
+      { op: "update-element", id: "new-system", name: "Payments" },
+      { op: "rename", id: "new-system", to: "payments" },
+    ] as const;
+    expect(followRenames([...saved], renamesIn([...saved]))).toEqual([{ op: "update-element", id: "payments", name: "Payments" }]);
+  });
+
   it("adds no fields an operation didn't have", () => {
     const later = renamesIn([{ op: "rename", id: "api", to: "checkout-api" }]);
     expect(followRenames([{ op: "update-element", id: "api", name: "Checkout API" }], later)).toEqual([{ op: "update-element", id: "checkout-api", name: "Checkout API" }]);

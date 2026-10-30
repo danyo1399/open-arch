@@ -133,7 +133,7 @@ export function renamedId(renames: Rename[], id: string): string {
 /**
  * Operations made with the IDs as they were, moved to the IDs these later renames gave them.
  * New IDs (an element or view being added, a rename's target) and sticky note IDs, which are
- * their own, stay as they are.
+ * their own, stay as they are. A rename that they have already made is dropped.
  */
 export function followRenames(ops: Operation[], renames: Rename[]): Operation[] {
   if (renames.length === 0) return ops;
@@ -142,7 +142,7 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
     ...(op.include && { include: op.include.map(follow) }),
     ...(op.exclude && { exclude: op.exclude.map(follow) }),
   });
-  return ops.map((op): Operation => {
+  const followed = ops.map((op): Operation => {
     switch (op.op) {
       case "add-element":
         return op.parent ? { ...op, parent: follow(op.parent) } : op;
@@ -173,4 +173,6 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
         return op;
     }
   });
+  // A name saved twice before the first save landed asks for the same rename twice.
+  return followed.filter((op) => op.op !== "rename" || op.id !== op.to);
 }
