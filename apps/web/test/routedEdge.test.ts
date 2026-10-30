@@ -37,6 +37,13 @@ describe("labelSizes", () => {
     expect(labelSizes(edge("Charges cards", "HTTPS"))).toHaveLength(1);
   });
 
+  it("counts a word too long for a narrow label as more than one line", () => {
+    // "[JDBC/PostgreSQL]" is 17 characters, and a 100px label has room for 14.
+    const narrowest = labelSizes(edge("Reads orders using", "JDBC/PostgreSQL")).at(-1)!;
+    expect(narrowest.maxWidth).toBe(100);
+    expect(narrowest.h).toBeCloseTo(4 * 14.3 + 8);
+  });
+
   it("has no size for an arrow with nothing to say", () => {
     expect(labelSizes(edge(""))).toEqual([]);
   });

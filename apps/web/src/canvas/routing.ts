@@ -73,7 +73,8 @@ interface Port {
 }
 
 interface Route {
-  states: number[];
+  /** Grid points from the start's stub to the end's, each next to the last. None for a route straight across a gap too narrow for the grid. */
+  cells: number[];
   ports: [Port, Port];
   points: Point[];
   cost: number;
@@ -88,6 +89,15 @@ function inflate(r: Rect): Rect {
   return { left: r.left - MARGIN, top: r.top - MARGIN, right: r.right + MARGIN, bottom: r.bottom + MARGIN };
 }
 
+/** Where along a side, from `from` to `to`, there's always a grid line for arrows to attach at. */
+function anchorsOf(from: number, to: number): number[] {
+  return ANCHORS.map((f) => Math.round(from + (to - from) * f));
+}
+
+/** The stretch of a side, from `from` to `to`, where arrows can attach: away from its corners. */
+function inset(from: number, to: number): [number, number] {
+  return [from + (to - from) * CORNER_INSET, to - (to - from) * CORNER_INSET];
+}
 
 /** Sorted grid lines: the given ones, plus one down the middle of each gap between a box's far side and the next box's near side. */
 function lines(near: Set<number>, far: Set<number>, others: number[]): number[] {
@@ -173,6 +183,9 @@ class Grid {
   readonly alongFrameV: Uint8Array;
   readonly throughH: Uint16Array;
   readonly throughV: Uint16Array;
+  /** For each row, and each column, the steps to the runs on the others closer than NEAR, which would look like the same line. */
+  private readonly besideRows: number[][];
+  private readonly besideCols: number[][];
   /** Where routed arrows attach on each side, by `Port.side`. */
   private readonly attached = new Map<string, number[]>();
   // Search state, reused between searches.
@@ -192,11 +205,19 @@ class Grid {
       far.y.add(r.bottom);
     }
     const lanes = frames.map((f) => ({ left: f.left - FRAME_GAP, top: f.top - FRAME_GAP, right: f.right + FRAME_GAP, bottom: f.bottom + FRAME_GAP }));
-    const anchors = (from: number, to: number) => ANCHORS.map((f) => Math.round(from + (to - from) * f));
-    this.xs = lines(near.x, far.x, [...rects.flatMap((r) => anchors(r.left, r.right)), ...lanes.flatMap((l) => [l.left, l.right]), ...aligned.xs]);
-    this.ys = lines(near.y, far.y, [...rects.flatMap((r) => anchors(r.top, r.bottom)), ...lanes.flatMap((l) => [l.top, l.bottom]), ...aligned.ys]);
+    this.xs = lines(near.x, far.x, [...rects.flatMap((r) => anchorsOf(r.left, r.right)), ...lanes.flatMap((l) => [l.left, l.right]), ...aligned.xs]);
+    this.ys = lines(near.y, far.y, [...rects.flatMap((r) => anchorsOf(r.top, r.bottom)), ...lanes.flatMap((l) => [l.top, l.bottom]), ...aligned.ys]);
     this.nx = this.xs.length;
     this.ny = this.ys.length;
+    const beside = (values: number[], unit: number) =>
+      values.map((v, k) => {
+        const out: number[] = [];
+        for (let m = k - 1; m >= 0 && v - values[m]! < NEAR; m--) out.push((m - k) * unit);
+        for (let m = k + 1; m < values.length && values[m]! - v < NEAR; m++) out.push((m - k) * unit);
+        return out;
+      });
+    this.besideRows = beside(this.ys, this.nx);
+    this.besideCols = beside(this.xs, 1);
     this.xIndex = new Map(this.xs.map((x, i) => [x, i]));
     this.yIndex = new Map(this.ys.map((y, j) => [y, j]));
 
@@ -252,9 +273,10 @@ class Grid {
   portsOf(id: string, r: Rect, at: { xs: Set<number>; ys: Set<number> }): Port[] {
     const out: Port[] = [];
     const o = inflate(r);
-    const [w, h] = [r.right - r.left, r.bottom - r.top];
+    const [left, right] = inset(r.left, r.right);
+    const [top, bottom] = inset(r.top, r.bottom);
     for (const x of this.xs) {
-      if (!at.xs.has(x) || x < r.left + w * CORNER_INSET || x > r.right - w * CORNER_INSET) continue;
+      if (!at.xs.has(x) || x < left || x > right) continue;
       const cost = OFF_CENTRE * Math.abs(x - (r.left + r.right) / 2);
       out.push(
         { side: `${id}:top`, pos: x, at: { x, y: r.top }, stub: { x, y: o.top }, axis: V, cost },
@@ -262,7 +284,7 @@ class Grid {
       );
     }
     for (const y of this.ys) {
-      if (!at.ys.has(y) || y < r.top + h * CORNER_INSET || y > r.bottom - h * CORNER_INSET) continue;
+      if (!at.ys.has(y) || y < top || y > bottom) continue;
       const cost = OFF_CENTRE * Math.abs(y - (r.top + r.bottom) / 2);
       out.push(
         { side: `${id}:left`, pos: y, at: { x: r.left, y }, stub: { x: o.left, y }, axis: H, cost },
@@ -272,14 +294,15 @@ class Grid {
     return out;
   }
 
-  private portCost(port: Port) {
+  /** What attaching at `port` costs, given the arrows already attached beside it. */
+  portCost(port: Port) {
     let cost = port.cost;
     for (const pos of this.attached.get(port.side) ?? []) cost += SHARED_PORT * Math.max(0, 1 - Math.abs(pos - port.pos) / PORT_SPACING);
     return cost;
   }
 
-  /** The cheapest route from any of `starts` to any of `goals`, as search states. */
-  search(starts: Port[], goals: Port[], target: Rect): { states: number[]; ports: [Port, Port]; cost: number } | undefined {
+  /** The cheapest route from any of `starts` to any of `goals`, as grid points. */
+  search(starts: Port[], goals: Port[], target: Rect): { cells: number[]; ports: [Port, Port]; cost: number } | undefined {
     const { nx, ny, xs, ys, cost, prev, done } = this;
     const goal = 2 * nx * ny;
     cost.fill(Infinity);
@@ -329,11 +352,10 @@ class Grid {
       relax(p * 2 + (1 - axis), c + BEND, s, estimate(p));
       const i = p % nx;
       const j = (p - i) / nx;
-      // Lines either side close enough that a run on them would look like the same line, as steps to the run beside this one.
-      const [before, after] =
-        axis === H ? [j > 0 && ys[j]! - ys[j - 1]! < NEAR ? -nx : 0, j + 1 < ny && ys[j + 1]! - ys[j]! < NEAR ? nx : 0] : [i > 0 && xs[i]! - xs[i - 1]! < NEAR ? -1 : 0, i + 1 < nx && xs[i + 1]! - xs[i]! < NEAR ? 1 : 0];
+      const near = axis === H ? this.besideRows[j]! : this.besideCols[i]!;
       const step = (q: number, run: number, length: number, used: Uint16Array, along: Uint8Array, crossed: Uint16Array) => {
-        const beside = (before ? used[run + before]! : 0) + (after ? used[run + after]! : 0);
+        let beside = 0;
+        for (const off of near) beside += used[run + off]!;
         relax(q * 2 + axis, c + length + OVERLAP * length * (used[run]! + along[run]! + beside) + CROSSING * crossed[q]!, s, estimate(q));
       };
       if (axis === H) {
@@ -349,17 +371,59 @@ class Grid {
     const states: number[] = [];
     for (let s = prev[goal]!; s !== -1; s = prev[s]!) states.push(s);
     states.reverse();
-    return { states, ports: [startPorts.get(states[0]!)!, goalPorts.get(states[states.length - 1]!)!], cost: cost[goal]! };
+    const cells = states.map((s) => s >> 1).filter((p, k, all) => k === 0 || p !== all[k - 1]);
+    return { cells, ports: [startPorts.get(states[0]!)!, goalPorts.get(states[states.length - 1]!)!], cost: cost[goal]! };
+  }
+
+  /** What the search would charge for a route through `cells` between `ports`, given the routes on the grid now. */
+  costOf(cells: number[], [start, end]: [Port, Port]): number {
+    const { nx, xs, ys } = this;
+    let cost = this.portCost(start) + this.portCost(end);
+    let axis = start.axis;
+    for (let k = 1; k < cells.length; k++) {
+      const [p, q] = [cells[k - 1]!, cells[k]!];
+      const along = Math.abs(q - p) === 1 ? H : V;
+      if (along !== axis) cost += BEND;
+      axis = along;
+      const run = Math.min(p, q);
+      const length = along === H ? Math.abs(xs[q % nx]! - xs[p % nx]!) : Math.abs(ys[Math.floor(q / nx)]! - ys[Math.floor(p / nx)]!);
+      const [used, frame, crossed, near] =
+        along === H ? [this.usedH, this.alongFrameH, this.throughV, this.besideRows[Math.floor(run / nx)]!] : [this.usedV, this.alongFrameV, this.throughH, this.besideCols[run % nx]!];
+      let beside = 0;
+      for (const off of near) beside += used[run + off]!;
+      cost += length + OVERLAP * length * (used[run]! + frame[run]! + beside) + CROSSING * crossed[q]!;
+    }
+    return axis === end.axis ? cost : cost + BEND;
+  }
+
+  /** The grid points of a route through `points` between `ports`, from stub to stub, or undefined where it runs off the grid's lines. */
+  cellsOf(points: Point[], [start, end]: [Port, Port]): number[] | undefined {
+    const { nx } = this;
+    const cells: number[] = [];
+    for (const at of [start.stub, ...points.slice(1, -1), end.stub]) {
+      const p = this.point(at);
+      if (p < 0) return undefined;
+      const last = cells[cells.length - 1];
+      if (last === undefined) {
+        cells.push(p);
+        continue;
+      }
+      const [i0, j0, i1, j1] = [last % nx, Math.floor(last / nx), p % nx, Math.floor(p / nx)];
+      if (i0 !== i1 && j0 !== j1) return undefined;
+      const by = i0 !== i1 ? Math.sign(i1 - i0) : Math.sign(j1 - j0) * nx;
+      for (let c = last; c !== p; ) cells.push((c += by));
+    }
+    return cells;
   }
 
   /** Records a route's runs and ports, so later routes avoid them; `by` is 1 to add, -1 to remove. */
   mark(route: Route, by: 1 | -1) {
-    const points = route.states.map((s) => s >> 1).filter((p, k, all) => k === 0 || p !== all[k - 1]);
-    const axes = points.slice(1).map((p, k) => (Math.abs(p - points[k]!) === 1 ? H : V));
+    const cells = route.cells;
+    const axes = cells.slice(1).map((p, k) => (Math.abs(p - cells[k]!) === 1 ? H : V));
     axes.forEach((axis, k) => {
-      const run = Math.min(points[k]!, points[k + 1]!);
+      const run = Math.min(cells[k]!, cells[k + 1]!);
       (axis === H ? this.usedH : this.usedV)[run]! += by;
-      if (k > 0 && axes[k - 1] === axis) (axis === H ? this.throughH : this.throughV)[points[k]!]! += by;
+      if (k > 0 && axes[k - 1] === axis) (axis === H ? this.throughH : this.throughV)[cells[k]!]! += by;
     });
     for (const port of route.ports) {
       const list = this.attached.get(port.side) ?? [];
@@ -388,15 +452,17 @@ function simplify(points: Point[]): Point[] {
  * moving one of the runs onto the other's line: grid lines a few pixels apart, such
  * as one just outside a box and one through a point on another box's side, would
  * otherwise leave a little kink. The moved run keeps at least half the usual space
- * from boxes, and an end moved along its box's side stays clear of the corners.
+ * from boxes, an end moved along its box's side stays clear of the corners, and a
+ * change is only kept if the search would have charged less for it, so a run isn't
+ * moved beside another arrow or along a frame.
  */
-function straighten(points: Point[], rects: Rect[], from: Rect, to: Rect): Point[] {
+function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
   const onSide = (p: Point, r: Rect) => {
-    const [w, h] = [r.right - r.left, r.bottom - r.top];
-    if (p.x === r.left || p.x === r.right) return p.y >= r.top + h * CORNER_INSET && p.y <= r.bottom - h * CORNER_INSET;
-    return p.x >= r.left + w * CORNER_INSET && p.x <= r.right - w * CORNER_INSET;
+    const [lo, hi] = p.x === r.left || p.x === r.right ? inset(r.top, r.bottom) : inset(r.left, r.right);
+    const pos = p.x === r.left || p.x === r.right ? p.y : p.x;
+    return pos >= lo && pos <= hi;
   };
-  const near = rects.map((r) => ({ r, clear: { left: r.left - MARGIN / 2, top: r.top - MARGIN / 2, right: r.right + MARGIN / 2, bottom: r.bottom + MARGIN / 2 } }));
+  const near = grid.rects.map((r) => ({ r, clear: { left: r.left - MARGIN / 2, top: r.top - MARGIN / 2, right: r.right + MARGIN / 2, bottom: r.bottom + MARGIN / 2 } }));
   const clear = (pts: Point[]) =>
     onSide(pts[0]!, from) &&
     onSide(pts[pts.length - 1]!, to) &&
@@ -411,21 +477,36 @@ function straighten(points: Point[], rects: Rect[], from: Rect, to: Rect): Point
     }
     return out;
   };
-  let pts = points;
-  for (let k = 1; k + 2 < pts.length; k++) {
+  // The port an end attaches at once it's moved to `at` along its side.
+  const movedTo = (port: Port, r: Rect, at: Point): Port => {
+    if (at.x === port.at.x && at.y === port.at.y) return port;
+    const pos = port.axis === V ? at.x : at.y;
+    const centre = port.axis === V ? (r.left + r.right) / 2 : (r.top + r.bottom) / 2;
+    const stub = port.axis === V ? { x: pos, y: port.stub.y } : { x: port.stub.x, y: pos };
+    return { ...port, pos, at, stub, cost: OFF_CENTRE * Math.abs(pos - centre) };
+  };
+  let best = route;
+  for (let k = 1; k + 2 < best.points.length; k++) {
+    const pts = best.points;
     const [a, b, c, d] = [pts[k - 1]!, pts[k]!, pts[k + 1]!, pts[k + 2]!];
     const across = a.y === b.y;
     const step = across ? c.y - b.y : c.x - b.x;
     const way = (p: Point, q: Point) => Math.sign(across ? q.x - p.x : q.y - p.y);
     if (step === 0 || Math.abs(step) >= JOG || way(a, b) === 0 || way(a, b) !== way(c, d)) continue;
-    const options = [move(pts, k - 1, across, across ? c.y : c.x), move(pts, k + 1, across, across ? b.y : b.x)];
-    const better = options.find((o) => o && clear(o));
-    if (better) {
-      pts = simplify(better);
+    for (const option of [move(pts, k - 1, across, across ? c.y : c.x), move(pts, k + 1, across, across ? b.y : b.x)]) {
+      if (!option || !clear(option)) continue;
+      const points = simplify(option);
+      const ports: [Port, Port] = [movedTo(best.ports[0], from, points[0]!), movedTo(best.ports[1], to, points[points.length - 1]!)];
+      const cells = grid.cellsOf(points, ports);
+      if (!cells) continue;
+      const cost = grid.costOf(cells, ports);
+      if (cost >= best.cost) continue;
+      best = { cells, ports, points, cost };
       k = 0;
+      break;
     }
   }
-  return pts;
+  return best;
 }
 
 /** A straight line between the borders of two boxes, for when there's no way around. */
@@ -442,11 +523,16 @@ function straight(from: Box, to: Box): Point[] {
   return [border(from, centre(to)), border(to, centre(from))];
 }
 
-/** The middle of the stretch where two sides, from `a0` to `a1` and from `b0` to `b1`, both have places for arrows to attach, if there is one. */
-function facing(a0: number, a1: number, b0: number, b1: number): number | undefined {
-  const lo = Math.max(a0 + (a1 - a0) * CORNER_INSET, b0 + (b1 - b0) * CORNER_INSET);
-  const hi = Math.min(a1 - (a1 - a0) * CORNER_INSET, b1 - (b1 - b0) * CORNER_INSET);
-  return lo <= hi ? Math.round((lo + hi) / 2) : undefined;
+/**
+ * Lines spread evenly across the stretch where two sides, from `a0` to `a1` and
+ * from `b0` to `b1`, both have places for arrows to attach: one for each of the
+ * `count` arrows between them, or none when there's no such stretch.
+ */
+function facing(a0: number, a1: number, b0: number, b1: number, count: number): number[] {
+  const [[alo, ahi], [blo, bhi]] = [inset(a0, a1), inset(b0, b1)];
+  const [lo, hi] = [Math.max(alo, blo), Math.min(ahi, bhi)];
+  if (lo > hi) return [];
+  return [...new Set(Array.from({ length: count }, (_, k) => Math.round(lo + ((hi - lo) * (k + 1)) / (count + 1))))];
 }
 
 /** Whether any run of a route goes through the inside of `r`. */
@@ -469,56 +555,63 @@ function routeOne(grid: Grid, starts: Port[], goals: Port[], from: Rect, to: Rec
   const found = grid.search(starts, goals, inflate(to));
   if (!found) return undefined;
   const [start, end] = found.ports;
-  return { ...found, points: straighten(simplify([start.at, ...found.states.map((s) => grid.at(s >> 1)), end.at]), grid.rects, from, to) };
+  return straighten(grid, { ...found, points: simplify([start.at, ...found.cells.map((p) => grid.at(p)), end.at]) }, from, to);
 }
 
 /**
  * A straight route between two boxes that face each other across a gap too narrow
- * for the grid, where their clear spaces overlap. Undefined when they don't, or
- * when something else is in the gap.
+ * for the grid, where their clear spaces overlap, along whichever of `lines` (the
+ * ones across where they face) costs least, given the arrows already attached.
+ * Undefined when they don't face each other that closely, or something else is in the gap.
  */
-function acrossGap(from: Rect, to: Rect, starts: Port[], goals: Port[], others: Rect[]): Route | undefined {
-  const x = facing(from.left, from.right, to.left, to.right);
-  const y = facing(from.top, from.bottom, to.top, to.bottom);
-  const gap = (sides: [string, string], line: number | undefined, a: number, b: number) => {
-    if (line === undefined || b <= a || b - a >= 2 * MARGIN) return undefined;
-    const start = starts.find((p) => p.side.endsWith(`:${sides[0]}`) && p.pos === line);
-    const end = goals.find((p) => p.side.endsWith(`:${sides[1]}`) && p.pos === line);
-    if (!start || !end) return undefined;
-    const points = [start.at, end.at];
-    if (others.some((r) => r !== from && r !== to && runsThrough(points, r))) return undefined;
-    return { states: [], ports: [start, end] as [Port, Port], points, cost: b - a + start.cost + end.cost };
+function acrossGap(grid: Grid, from: Rect, to: Rect, starts: Port[], goals: Port[], lines: { xs: number[]; ys: number[] }): Route | undefined {
+  let best: Route | undefined;
+  const gap = (sides: [string, string], candidates: number[], a: number, b: number) => {
+    if (b <= a || b - a >= 2 * MARGIN) return;
+    for (const line of candidates) {
+      const start = starts.find((p) => p.side.endsWith(`:${sides[0]}`) && p.pos === line);
+      const end = goals.find((p) => p.side.endsWith(`:${sides[1]}`) && p.pos === line);
+      if (!start || !end) continue;
+      const points = [start.at, end.at];
+      if (grid.rects.some((r) => r !== from && r !== to && runsThrough(points, r))) continue;
+      const cost = b - a + grid.portCost(start) + grid.portCost(end);
+      if (!best || cost < best.cost) best = { cells: [], ports: [start, end], points, cost };
+    }
   };
-  return (
-    gap(["bottom", "top"], x, from.bottom, to.top) ??
-    gap(["top", "bottom"], x, to.bottom, from.top) ??
-    gap(["right", "left"], y, from.right, to.left) ??
-    gap(["left", "right"], y, to.right, from.left)
-  );
+  gap(["bottom", "top"], lines.xs, from.bottom, to.top);
+  gap(["top", "bottom"], lines.xs, to.bottom, from.top);
+  gap(["right", "left"], lines.ys, from.right, to.left);
+  gap(["left", "right"], lines.ys, to.right, from.left);
+  return best;
 }
 
 /** Routes for the links that have one, around the boxes and `obstacles`, shortest first. */
 function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[], frames: Rect[]): Routing {
-  // Arrows attach to a box only at its own anchors, and at a line down the middle of
-  // where it faces a box it's linked to, so the arrow between them can be straight.
-  // Lines from boxes it has nothing to do with would give it places to attach that
-  // come and go as those boxes move.
-  const anchors = (from: number, to: number) => ANCHORS.map((f) => Math.round(from + (to - from) * f));
-  const at = new Map([...rects].map(([id, r]) => [id, { xs: new Set(anchors(r.left, r.right)), ys: new Set(anchors(r.top, r.bottom)) }]));
-  const aligned = { xs: [] as number[], ys: [] as number[] };
+  // Arrows attach to a box only at its own anchors, and at lines across where it
+  // faces a box it's linked to, one for each arrow between the two, so those arrows
+  // can be straight. Lines from boxes it has nothing to do with would give it places
+  // to attach that come and go as those boxes move.
+  const at = new Map([...rects].map(([id, r]) => [id, { xs: new Set(anchorsOf(r.left, r.right)), ys: new Set(anchorsOf(r.top, r.bottom)) }]));
+  const pairs = new Map<string, Link[]>();
   for (const l of links) {
-    const [a, b] = [rects.get(l.from)!, rects.get(l.to)!];
-    const x = facing(a.left, a.right, b.left, b.right);
-    const y = facing(a.top, a.bottom, b.top, b.bottom);
-    for (const id of [l.from, l.to]) {
-      if (x !== undefined) at.get(id)!.xs.add(x);
-      if (y !== undefined) at.get(id)!.ys.add(y);
-    }
-    if (x !== undefined) aligned.xs.push(x);
-    if (y !== undefined) aligned.ys.push(y);
+    const key = [l.from, l.to].sort().join("\n");
+    pairs.set(key, [...(pairs.get(key) ?? []), l]);
   }
-  const all = [...rects.values(), ...obstacles];
-  const grid = new Grid(all, frames, aligned);
+  const across = new Map<string, { xs: number[]; ys: number[] }>();
+  const aligned = { xs: [] as number[], ys: [] as number[] };
+  for (const pair of pairs.values()) {
+    const { from, to } = pair[0]!;
+    const [a, b] = [rects.get(from)!, rects.get(to)!];
+    const lines = { xs: facing(a.left, a.right, b.left, b.right, pair.length), ys: facing(a.top, a.bottom, b.top, b.bottom, pair.length) };
+    for (const l of pair) across.set(l.id, lines);
+    for (const id of [from, to]) {
+      for (const x of lines.xs) at.get(id)!.xs.add(x);
+      for (const y of lines.ys) at.get(id)!.ys.add(y);
+    }
+    aligned.xs.push(...lines.xs);
+    aligned.ys.push(...lines.ys);
+  }
+  const grid = new Grid([...rects.values(), ...obstacles], frames, aligned);
   const ports = new Map([...rects].map(([id, r]) => [id, grid.portsOf(id, r, at.get(id)!)]));
 
   const routes = new Map<string, Route>();
@@ -527,7 +620,7 @@ function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[],
       const old = routes.get(link.id);
       if (old) grid.mark(old, -1);
       const [from, to, starts, goals] = [rects.get(link.from)!, rects.get(link.to)!, ports.get(link.from)!, ports.get(link.to)!];
-      const route = acrossGap(from, to, starts, goals, all) ?? routeOne(grid, starts, goals, from, to);
+      const route = acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to);
       if (!route) {
         routes.delete(link.id);
         continue;
@@ -814,7 +907,9 @@ export function layoutArrows<S extends Size>(
 ): { routes: Map<string, Point[]>; labels: Map<string, Point & S> } {
   const { grid, ports, routes, rects, routable } = routeAll(boxes, links, frames, notes);
   const scene = sceneOf(pointsOf(boxes, links, routes), [...boxes.values(), ...notes, ...keepClear]);
-  let placed = placeAll(sizes, scene);
+  const placed = placeAll(sizes, scene);
+  // The grid only goes around notes some route was in the way of, so other routes have to be checked against the rest.
+  const underNote = (r: Route) => notes.some((n) => runsThrough(r.points, inflate(rect(n))));
 
   for (const link of routable) {
     const [size, route, label] = [sizes.get(link.id), routes.get(link.id), placed.get(link.id)];
@@ -831,14 +926,14 @@ export function layoutArrows<S extends Size>(
     grid.mark(route, -1);
     const [from, to, source, target] = [ports.get(link.from)!, ports.get(link.to)!, rects.get(link.from)!, rects.get(link.to)!];
     // The route as it stands, costed against the routes as they are now.
-    const kept = total(routeOne(grid, [route.ports[0]], [route.ports[1]], source, target) ?? route);
+    const kept = total({ ...route, cost: route.cells.length ? grid.costOf(route.cells, route.ports) : route.cost });
     let best = kept;
     const longest = routeLength(route.points) * DETOUR;
     const onSide = (list: Port[], side: string) => list.filter((p) => p.side.endsWith(`:${side}`));
     for (const side of ["top", "bottom", "left", "right"]) {
       for (const r of [routeOne(grid, onSide(from, side), to, source, target), routeOne(grid, from, onSide(to, side), source, target)]) {
         // A label costs nothing at best, so a route that costs more on its own can't win.
-        if (!r || r.cost >= best.cost || routeLength(r.points) > longest) continue;
+        if (!r || r.cost >= best.cost || routeLength(r.points) > longest || underNote(r)) continue;
         const option = total(r);
         if (option.cost < best.cost) best = option;
       }
@@ -850,9 +945,9 @@ export function layoutArrows<S extends Size>(
     placed.set(link.id, best.label);
   }
 
-  const out = pointsOf(boxes, links, routes);
-  placed = placeAll(sizes, sceneOf(out, [...boxes.values(), ...notes, ...keepClear]));
-  return { routes: out, labels: new Map([...placed].map(([id, p]) => [id, { ...(p.spot.size as S), ...p.spot.at }])) };
+  // Every label again, now each route is settled. The scene already has the routes as they ended up.
+  const labels = placeAll(sizes, scene);
+  return { routes: pointsOf(boxes, links, routes), labels: new Map([...labels].map(([id, p]) => [id, { ...(p.spot.size as S), ...p.spot.at }])) };
 }
 
 /**

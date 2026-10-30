@@ -82,14 +82,16 @@ export function labelSizes(edge: ViewEdge): LabelSize[] {
   for (const maxWidth of LABEL_WIDTHS) {
     const room = maxWidth - padX;
     let rows = 0;
-    // Word by word, as the browser wraps them.
+    // Word by word, as the browser wraps them. A word too long for a line is broken (see .arrow-label).
     for (const line of lines) {
       let width = 0;
       for (const word of line.split(" ")) {
         const next = width ? width + charWidth * (1 + word.length) : charWidth * word.length;
-        if (width && next > room) {
-          rows++;
-          width = charWidth * word.length;
+        if (!width || next > room) {
+          if (width) rows++;
+          const long = charWidth * word.length;
+          rows += Math.max(0, Math.ceil(long / room) - 1);
+          width = long - Math.max(0, Math.ceil(long / room) - 1) * room;
         } else width = next;
       }
       rows++;

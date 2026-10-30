@@ -955,6 +955,8 @@ button.heading {
   max-width: 190px;
   text-align: center;
   color: var(--text);
+  /* Narrow labels can be given a word longer than a line, such as a URL. */
+  overflow-wrap: anywhere;
 }
 .arrow-label.selected {
   border-color: var(--accent);

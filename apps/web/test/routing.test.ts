@@ -158,6 +158,18 @@ describe("routeLinks", () => {
     }
   });
 
+  it("keeps two arrows between close boxes apart", () => {
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 120 }],
+      ["b", { x: 20, y: 150, w: 220, h: 120 }],
+    ]);
+    const routes = check(boxes, [link("a", "b"), link("b", "a")]);
+    const [ab, ba] = [routes.get("a->b")!, routes.get("b->a")!];
+    expect(ab).toHaveLength(2);
+    expect(ba).toHaveLength(2);
+    expect(ab[0]!.x).not.toBe(ba[0]!.x);
+  });
+
   it("leaves arrows alone when a note moves around out of their way", () => {
     const boxes = new Map([
       ["a", at(0, 0)],
@@ -320,6 +332,31 @@ describe("layoutArrows", () => {
     expect(a[a.length - 1]!.x, "enters c's left side").toBe(320);
     const [la, lb] = [labels.get("a->c")!, labels.get("b->c")!];
     expect(Math.abs(la.x - lb.x) >= 190 || Math.abs(la.y - lb.y) >= 37).toBe(true);
+  });
+
+  it("doesn't reroute an arrow for its label's sake under a note", () => {
+    // Without the check, b1->b2's label pulls it onto a route under the note.
+    const boxes = new Map([
+      ["b0", { x: 386, y: 1, w: 220, h: 110 }],
+      ["b1", { x: 557, y: 170, w: 220, h: 110 }],
+      ["b2", { x: 372, y: 565, w: 220, h: 110 }],
+      ["b3", { x: 458, y: 400, w: 220, h: 110 }],
+    ]);
+    const note = { x: 273, y: 184, w: 120, h: 80 };
+    const links = [link("b0", "b2"), link("b1", "b2"), link("b3", "b0"), link("b1", "b3")];
+    const { routes } = layoutArrows(boxes, links, labelled(links), { notes: [note] });
+    for (const [id, route] of routes) for (const s of segments(route)) expect(cuts(s, note), `${id} goes under the note`).toBe(false);
+  });
+
+  it("leaves arrows and labels alone when a note moves around out of their way", () => {
+    const boxes = new Map([
+      ["a", at(0, 0)],
+      ["b", at(300, 300)],
+      ["c", at(600, 0)],
+    ]);
+    const links = [link("a", "b"), link("c", "b"), link("a", "c")];
+    const without = layoutArrows(boxes, links, labelled(links));
+    for (let x = 200; x <= 500; x += 30) expect(layoutArrows(boxes, links, labelled(links), { notes: [{ x, y: 600, w: 200, h: 150 }] })).toEqual(without);
   });
 
   it("keeps a straight arrow between boxes too close for its label", () => {
