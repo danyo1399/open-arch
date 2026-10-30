@@ -415,7 +415,38 @@ describe("routeLinks", () => {
       { x: 240, y: 100, w: 50, h: 500 },
       { x: 530, y: 100, w: 50, h: 500 },
     ];
-    for (const [p, q] of segments(routeLinks(boxes, [link("a", "b")], [], notes).get("a->b")!)) expect(p.x === q.x || p.y === q.y, "a->b runs straight across or down").toBe(true);
+    for (const s of segments(routeLinks(boxes, [link("a", "b")], [], notes).get("a->b")!)) {
+      expect(s[0].x === s[1].x || s[0].y === s[1].y, "a->b runs straight across or down").toBe(true);
+      for (const [id, box] of boxes) expect(cuts(s, box), `a->b goes through ${id}`).toBe(false);
+    }
+    // Going under those notes, it still goes round one well out of its way.
+    boxes.set("a", { x: -1200, y: 300, w: 220, h: 120 });
+    const far = { x: -600, y: 320, w: 100, h: 80 };
+    for (const s of segments(routeLinks(boxes, [link("a", "b")], [], [...notes, far]).get("a->b")!)) expect(cuts(s, far), "a->b goes under the note out of its way").toBe(false);
+  });
+
+  it("goes under a note in a narrow gap rather than have no route, when boxes close in every other way", () => {
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 120 }],
+      ["b", { x: 40, y: 166, w: 220, h: 120 }],
+      ["aLeft", { x: -130, y: 0, w: 100, h: 120 }],
+      ["aRight", { x: 250, y: 0, w: 100, h: 120 }],
+      ["aTop", { x: 0, y: -150, w: 220, h: 120 }],
+      ["bLeft", { x: -90, y: 166, w: 100, h: 120 }],
+      ["bRight", { x: 290, y: 166, w: 100, h: 120 }],
+      ["bBottom", { x: 40, y: 316, w: 220, h: 120 }],
+    ]);
+    const note = { x: 30, y: 121, w: 200, h: 44 };
+    for (const s of segments(routeLinks(boxes, [link("a", "b")], [], [note]).get("a->b")!)) expect(s[0].x === s[1].x || s[0].y === s[1].y, "a->b runs straight across or down").toBe(true);
+  });
+
+  it("doesn't go through a box in the gap between two boxes exactly two clear spaces apart", () => {
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 120 }],
+      ["b", { x: 0, y: 168, w: 220, h: 120 }],
+      ["c", { x: 100, y: 139, w: 20, h: 10 }],
+    ]);
+    check(boxes, [link("a", "b")]);
   });
 
   it("goes round a note between two boxes close together", () => {
