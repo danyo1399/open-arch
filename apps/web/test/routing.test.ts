@@ -133,6 +133,39 @@ describe("routeLinks", () => {
     check(boxes, links);
   });
 
+  it("draws a straight line between boxes whose facing sides only just line up", () => {
+    // b is 58px higher than a: the only stretch where both sides can take an arrow is 2px tall.
+    const boxes = new Map([
+      ["a", { x: 0, y: 480, w: 220, h: 100 }],
+      ["b", { x: 640, y: 422, w: 220, h: 100 }],
+    ]);
+    const route = check(boxes, [link("a", "b")]).get("a->b")!;
+    expect(route).toHaveLength(2);
+    expect(route[0]!.y).toBe(route[1]!.y);
+  });
+
+  it("leaves arrows alone when a note moves around out of their way", () => {
+    const boxes = new Map([
+      ["a", at(0, 0)],
+      ["b", at(300, 300)],
+      ["c", at(600, 0)],
+    ]);
+    const links = [link("a", "b"), link("c", "b"), link("a", "c")];
+    const without = check(boxes, links);
+    // Notes below the boxes, lined up with b's sides in different places.
+    for (let x = 200; x <= 500; x += 30) expect(routeLinks(boxes, links, [], [{ x, y: 600, w: 200, h: 150 }])).toEqual(without);
+  });
+
+  it("goes around a note in the way", () => {
+    const boxes = new Map([
+      ["a", at(0, 0)],
+      ["b", at(0, 400)],
+    ]);
+    const note = { x: 50, y: 200, w: 120, h: 80 };
+    const route = routeLinks(boxes, [link("a", "b")], [], [note]).get("a->b")!;
+    for (const s of segments(route)) expect(cuts(s, note), "goes under the note").toBe(false);
+  });
+
   it("falls back to a straight line when there's no way out", () => {
     const boxes = new Map([
       ["a", { x: 0, y: 0, w: 500, h: 400 }],
@@ -157,6 +190,28 @@ describe("placeLabels", () => {
     const box = { x: 20, y: 150, w: 200, h: 100 };
     const at = placeLabels(new Map([["r", route]]), new Map([["r", size]]), [box]).get("r")!;
     expect(at.y + size.h / 2 <= box.y || at.y - size.h / 2 >= box.y + box.h).toBe(true);
+  });
+
+  it("slides a label along its route to keep clear of a label beside it", () => {
+    // Two routes 40px apart, side by side: labels at both middles would overlap.
+    const routes = new Map([
+      ["a", [{ x: 0, y: 0 }, { x: 600, y: 0 }]],
+      ["b", [{ x: 0, y: 40 }, { x: 600, y: 40 }]],
+    ]);
+    const sizes = new Map([["a", size], ["b", size]]);
+    const labels = placeLabels(routes, sizes, []);
+    const [la, lb] = [labels.get("a")!, labels.get("b")!];
+    expect(Math.abs(la.x - lb.x)).toBeGreaterThanOrEqual(size.w);
+  });
+
+  it("keeps a label off another arrow where it can", () => {
+    // b runs down past the middle of a.
+    const routes = new Map([
+      ["a", [{ x: 0, y: 0 }, { x: 600, y: 0 }]],
+      ["b", [{ x: 300, y: -200 }, { x: 300, y: 200 }]],
+    ]);
+    const at = placeLabels(routes, new Map([["a", size]]), []).get("a")!;
+    expect(Math.abs(at.x - 300)).toBeGreaterThanOrEqual(size.w / 2);
   });
 
   it("keeps labels on parallel routes from covering each other", () => {
