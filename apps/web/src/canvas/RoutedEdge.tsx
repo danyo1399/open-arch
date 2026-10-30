@@ -8,8 +8,8 @@ import type { Point } from "./autoLayout.js";
 
 export type ArrowData = {
   edge: ViewEdge;
-  /** The route, from a point on the source box's border to one on the target's. */
-  points: Point[];
+  /** The route, from a point on the source box's border to one on the target's. Shared with the routing, so read-only. */
+  points: readonly Point[];
   /** Where the label's centre goes, and how wide it can be. */
   label?: Point & { maxWidth: number };
   /** Where the route crosses other arrows, along its horizontal runs (see crossings in routing.ts). */
@@ -35,7 +35,7 @@ function toward(from: Point, to: Point, by: number): Point {
  * crosses at `crossings`. A crossing too near a corner, or too near the last
  * hop to fit another, is drawn as a plain crossing.
  */
-export function pathThrough(points: Point[], crossings: Point[] = []): string {
+export function pathThrough(points: readonly Point[], crossings: readonly Point[] = []): string {
   const first = points[0]!;
   const last = points[points.length - 1]!;
   let d = `M ${first.x} ${first.y}`;
@@ -192,11 +192,14 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
     const holder = document.createElement("div");
     for (const [, div] of probes) holder.appendChild(div);
     document.body.appendChild(holder);
-    for (const [key, div] of probes) {
-      const { width, height } = div.getBoundingClientRect();
-      measured.set(key, { w: width, h: height });
+    try {
+      for (const [key, div] of probes) {
+        const { width, height } = div.getBoundingClientRect();
+        measured.set(key, { w: width, h: height });
+      }
+    } finally {
+      holder.remove();
     }
-    holder.remove();
   }
   return each.map((at) => (at.length ? sizesAt((_, k) => measured.get(at[k]!.key)!) : []));
 }

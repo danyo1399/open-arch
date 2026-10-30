@@ -7,7 +7,7 @@ const H = 120;
 const at = (x: number, y: number): Box => ({ x, y, w: W, h: H });
 const link = (from: string, to: string): Link => ({ id: `${from}->${to}`, from, to });
 
-const segments = (points: Point[]) => points.slice(1).map((b, k) => [points[k]!, b] as const);
+const segments = (points: readonly Point[]) => points.slice(1).map((b, k) => [points[k]!, b] as const);
 
 /** Whether a horizontal or vertical run passes through the inside of a box. */
 function cuts([a, b]: readonly [Point, Point], box: Box) {
@@ -23,7 +23,7 @@ function onBorder(p: Point, box: Box) {
   return (inX && (p.y === box.y || p.y === box.y + box.h)) || (inY && (p.x === box.x || p.x === box.x + box.w));
 }
 
-function crossingCount(routes: Point[][]) {
+function crossingCount(routes: (readonly Point[])[]) {
   let count = 0;
   routes.forEach((r, i) => {
     for (const other of routes.slice(i + 1)) {
@@ -347,6 +347,19 @@ describe("routeLinks", () => {
       }
     }
   }, 30_000);
+
+  it("goes under a note dropped over a box, rather than leave its arrows no way out", () => {
+    // Going round the note would put every place to attach to a inside its clear space.
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 120 }],
+      ["b", { x: 600, y: 300, w: 220, h: 120 }],
+      ["c", { x: 300, y: 150, w: 100, h: 60 }],
+    ]);
+    const note = { x: -20, y: -20, w: 260, h: 160 };
+    const links = [link("a", "b")];
+    expect(routeLinks(boxes, links, [], [note])).toEqual(check(boxes, links));
+    expect(layoutArrows(boxes, links, new Map([["a->b", [{ w: 190, h: 37 }]]]), { notes: [note] }).routes.get("a->b")!.length).toBeGreaterThan(2);
+  });
 
   it("falls back to a straight line when there's no way out", () => {
     const boxes = new Map([

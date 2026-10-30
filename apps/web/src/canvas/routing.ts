@@ -699,11 +699,9 @@ function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[],
 
   for (let pass = 0; pass < 2; pass++) {
     for (const link of links) {
-      // Routed again with its first route off the grid, keeping that if there's no way now.
-      const previous = grid.routes.get(link.id);
       grid.remove(link.id);
       const [from, to, starts, goals] = [rects.get(link.from)!, rects.get(link.to)!, ports.get(link.from)!, ports.get(link.to)!];
-      const route = acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to) ?? previous;
+      const route = acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to);
       if (route) grid.place(link.id, route);
     }
   }
@@ -725,41 +723,44 @@ function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: 
     .sort((a, b) => distance(a) - distance(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   // Route ignoring the notes, then again around any a route runs under, until none is in the way.
+  // Notes that would leave a link with no way at all, as one dropped over a box can, aren't gone
+  // round: an arrow under a note is better than one drawn straight through boxes.
   let ignored = notes.map(rect);
   const avoided: Rect[] = [];
   let routing = routeAround(rects, avoided, routable, frameRects);
   for (;;) {
     const inTheWay = ignored.filter((n) => [...routing.routes.values()].some((r) => runsThrough(r.points, inflate(n))));
     if (!inTheWay.length) break;
+    const around = routeAround(rects, [...avoided, ...inTheWay], routable, frameRects);
+    if (routable.some((l) => routing.routes.has(l.id) && !around.routes.has(l.id))) break;
     avoided.push(...inTheWay);
     ignored = ignored.filter((n) => !inTheWay.includes(n));
-    routing = routeAround(rects, avoided, routable, frameRects);
+    routing = around;
   }
   return { ...routing, rects, routable, ignored };
 }
 
-/** Each link's points: its route, or a straight line between its boxes when it has none. The points are shared with the routes, so they mustn't be changed. */
-function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<string, Route>): Map<string, Point[]> {
-  const out = new Map<string, Point[]>();
+/** Each link's points: its route, or a straight line between its boxes when it has none. Shared with the routes, so read-only. */
+function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<string, Route>): Map<string, readonly Point[]> {
+  const out = new Map<string, readonly Point[]>();
   for (const link of links) {
     const from = boxes.get(link.from);
     const to = boxes.get(link.to);
     if (!from || !to) continue;
     const route = routes.get(link.id);
-    out.set(link.id, route ? [...route.points] : straight(from, to));
+    out.set(link.id, route ? route.points : straight(from, to));
   }
   return out;
 }
 
 /**
- * Each link's route, from a point on its source box's border to one on its target's,
- * whose points mustn't be changed, as they're shared between routes.
+ * Each link's route, from a point on its source box's border to one on its target's.
  * Routes cross `frames` (boundaries drawn around boxes) freely but keep off their sides.
  * They go around `notes`, boxes no arrow starts or ends at, only where one is in the
  * way: every obstacle adds grid lines right across the diagram, so a note out in empty
  * space would otherwise move arrows nowhere near it as it's dragged.
  */
-export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = []): Map<string, Point[]> {
+export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = []): Map<string, readonly Point[]> {
   return pointsOf(boxes, links, routeAll(boxes, links, frames, notes).routes);
 }
 
@@ -892,7 +893,7 @@ function headOf(points: readonly Point[]): Box {
   return { x: at.x - HEAD / 2, y: at.y - HEAD / 2, w: HEAD, h: HEAD };
 }
 
-function sceneOf(routes: Map<string, Point[]>, obstacles: Box[]): Scene {
+function sceneOf(routes: ReadonlyMap<string, readonly Point[]>, obstacles: Box[]): Scene {
   const scene: Scene = { obstacles: obstacles.map(padded), routes: new Map(), heads: new Map() };
   for (const [id, points] of routes) setRoute(scene, id, points);
   return scene;
@@ -973,7 +974,7 @@ function placeAll(sizes: Map<string, Size[]>, scene: Scene): Map<string, { spot:
  * it as it can. `sizes` holds each label's size, or the sizes it can be drawn
  * at, widest first, by link ID.
  */
-export function placeLabels(routes: Map<string, Point[]>, sizes: Map<string, Size | Size[]>, obstacles: Box[]): Map<string, Point> {
+export function placeLabels(routes: ReadonlyMap<string, readonly Point[]>, sizes: Map<string, Size | Size[]>, obstacles: Box[]): Map<string, Point> {
   const options = new Map([...sizes].map(([id, s]) => [id, Array.isArray(s) ? s : [s]]));
   return new Map([...placeAll(options, sceneOf(routes, obstacles))].map(([id, p]) => [id, p.spot.at]));
 }
@@ -993,7 +994,7 @@ export function layoutArrows<S extends Size>(
   links: Link[],
   sizes: Map<string, S[]>,
   { frames = [], notes = [], keepClear = [] }: { frames?: Box[]; notes?: Box[]; keepClear?: Box[] } = {},
-): { routes: Map<string, Point[]>; labels: Map<string, Point & S> } {
+): { routes: Map<string, readonly Point[]>; labels: Map<string, Point & S> } {
   const { grid, ports, routes, rects, routable, ignored } = routeAll(boxes, links, frames, notes);
   const scene = sceneOf(pointsOf(boxes, links, routes), [...boxes.values(), ...notes, ...keepClear]);
   const placed = placeAll(sizes, scene);
@@ -1066,8 +1067,8 @@ export function layoutArrows<S extends Size>(
  * horizontal runs crosses another route's vertical run, nearest its start first.
  * The horizontal one is the one drawn hopping over the other.
  */
-export function crossings(routes: Map<string, Point[]>): Map<string, Point[]> {
-  const runs = (points: Point[], horizontal: boolean) =>
+export function crossings(routes: ReadonlyMap<string, readonly Point[]>): Map<string, Point[]> {
+  const runs = (points: readonly Point[], horizontal: boolean) =>
     points.slice(1).flatMap((b, k) => {
       const a = points[k]!;
       return (horizontal ? a.y === b.y && a.x !== b.x : a.x === b.x && a.y !== b.y) ? [[a, b] as const] : [];
