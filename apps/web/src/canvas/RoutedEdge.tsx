@@ -116,7 +116,7 @@ export const estimateLabel: MeasureLabel = (lines, maxWidth) => {
   return { w: Math.min(widest, room) + padX, h: rows * lineHeight + padY };
 };
 
-/** Sizes measured so far, by lines and width. Emptied when it gets this big, as texts come and go while the model is edited. */
+/** Sizes measured so far (see measureLabelSizes), by lines and width. Emptied when it gets this big, as texts come and go while the model is edited. */
 const measured = new Map<string, { w: number; h: number }>();
 const MEASURED_LIMIT = 2000;
 const measuredKey = (lines: LabelLine[], maxWidth: number) => JSON.stringify([lines, maxWidth]);
@@ -131,45 +131,47 @@ function probe(lines: LabelLine[], maxWidth: number): HTMLDivElement {
   return div;
 }
 
-/** Measures `wanted` (lines and a width each) that haven't been yet, all together, so the page is laid out once for them all. */
-function measure(wanted: [LabelLine[], number][]): void {
-  const probes = new Map<string, HTMLDivElement>();
-  for (const [lines, maxWidth] of wanted) {
-    const key = measuredKey(lines, maxWidth);
-    if (!measured.has(key) && !probes.has(key)) probes.set(key, probe(lines, maxWidth));
-  }
-  if (!probes.size) return;
-  if (measured.size + probes.size > MEASURED_LIMIT) measured.clear();
-  const holder = document.body.appendChild(document.createElement("div"));
-  holder.append(...probes.values());
-  for (const [key, div] of probes) {
-    const { width, height } = div.getBoundingClientRect();
-    measured.set(key, { w: width, h: height });
-  }
-  holder.remove();
-}
-
-/** Measures the labels of `edges` at each width they can be drawn, all at once, ready for measureLabel. */
-export function measureLabels(edges: ViewEdge[]): void {
-  measure(edges.flatMap((e) => LABEL_WIDTHS.map((w): [LabelLine[], number] => [labelLines(e), w])).filter(([lines]) => lines.length));
-}
-
-/** How big a label is drawn, measured in a hidden label with the same styles: measureLabels measures many at once. */
-export const measureLabel: MeasureLabel = (lines, maxWidth) => {
-  measure([[lines, maxWidth]]);
-  return measured.get(measuredKey(lines, maxWidth))!;
-};
-
 /** How big an arrow's label is at each width it can be drawn, widest first, leaving out widths that make no difference; none when it has no label. */
-export function labelSizes(edge: ViewEdge, measure: MeasureLabel): LabelSize[] {
+export function labelSizes(edge: ViewEdge, measureOne: MeasureLabel): LabelSize[] {
   const lines = labelLines(edge);
   if (!lines.length) return [];
   const out: LabelSize[] = [];
   for (const maxWidth of LABEL_WIDTHS) {
-    const size = { ...measure(lines, maxWidth), maxWidth };
+    const size = { ...measureOne(lines, maxWidth), maxWidth };
     if (!out.length || size.w < out[out.length - 1]!.w) out.push(size);
   }
   return out;
+}
+
+/**
+ * labelSizes for each of `edges`, measured in hidden labels with the same styles as
+ * drawn ones. The sizes not measured before are measured all together, laying the
+ * page out once rather than once a label.
+ */
+export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
+  const wanted = new Map<string, [LabelLine[], number]>();
+  for (const e of edges) {
+    const lines = labelLines(e);
+    if (lines.length) for (const maxWidth of LABEL_WIDTHS) wanted.set(measuredKey(lines, maxWidth), [lines, maxWidth]);
+  }
+  const missing = [...wanted].filter(([key]) => !measured.has(key));
+  if (missing.length) {
+    if (measured.size + missing.length > MEASURED_LIMIT) {
+      // Empty it before it gets too big, keeping what these labels need.
+      const keep = [...wanted.keys()].flatMap((key) => (measured.has(key) ? [[key, measured.get(key)!] as const] : []));
+      measured.clear();
+      for (const [key, size] of keep) measured.set(key, size);
+    }
+    const probes = missing.map(([key, [lines, maxWidth]]) => [key, probe(lines, maxWidth)] as const);
+    const holder = document.body.appendChild(document.createElement("div"));
+    holder.append(...probes.map(([, div]) => div));
+    for (const [key, div] of probes) {
+      const { width, height } = div.getBoundingClientRect();
+      measured.set(key, { w: width, h: height });
+    }
+    holder.remove();
+  }
+  return edges.map((e) => labelSizes(e, (lines, maxWidth) => measured.get(measuredKey(lines, maxWidth))!));
 }
 
 export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {
