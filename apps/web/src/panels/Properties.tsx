@@ -40,15 +40,31 @@ function idHint(follows: boolean): string {
   return follows ? "Changes with the name." : "Doesn't match the name, so it stays put when you rename. Edit it to match and it follows the name again.";
 }
 
+export type Shown =
+  | { kind: "element"; element: ArchElement }
+  | { kind: "arrow"; from: string; to: string }
+  | { kind: "sticky"; view: ViewDef; sticky: Sticky }
+  | { kind: "view"; view: ViewDef }
+  | { kind: "workspace" };
+
+/** What the panel shows: the selection while it's still there, else the open view, or the workspace when none is open. */
+export function shownInProperties(ws: Workspace, view: ViewDef | null, selection: Selection): Shown {
+  const element = selection?.kind === "element" ? ws.elements.get(selection.id) : undefined;
+  if (element) return { kind: "element", element };
+  if (selection?.kind === "arrow") return selection;
+  const sticky = selection?.kind === "sticky" ? view?.stickies.find((s) => s.id === selection.id) : undefined;
+  if (view && sticky) return { kind: "sticky", view, sticky };
+  return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
+}
+
 export function Properties(props: PropertiesProps) {
-  const { ws, selection } = props;
+  const shown = shownInProperties(props.ws, props.view, props.selection);
   let body;
-  if (selection?.kind === "element" && ws.elements.has(selection.id)) body = <ElementProperties {...props} element={ws.elements.get(selection.id)!} />;
-  else if (selection?.kind === "arrow") body = <ArrowProperties {...props} from={selection.from} to={selection.to} />;
-  else if (selection?.kind === "sticky" && props.view?.stickies.some((s) => s.id === selection.id))
-    body = <StickyProperties {...props} view={props.view} sticky={props.view.stickies.find((s) => s.id === selection.id)!} />;
-  else if (selection?.kind === "workspace" || !props.view) body = <WorkspaceProperties {...props} />;
-  else body = <ViewProperties {...props} view={props.view} />;
+  if (shown.kind === "element") body = <ElementProperties {...props} element={shown.element} />;
+  else if (shown.kind === "arrow") body = <ArrowProperties {...props} from={shown.from} to={shown.to} />;
+  else if (shown.kind === "sticky") body = <StickyProperties {...props} view={shown.view} sticky={shown.sticky} />;
+  else if (shown.kind === "view") body = <ViewProperties {...props} view={shown.view} />;
+  else body = <WorkspaceProperties {...props} />;
   return (
     <aside className="properties" aria-label="Properties">
       {body}

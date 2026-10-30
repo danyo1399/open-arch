@@ -62,6 +62,12 @@ export function ContextMenu({
     };
   }, [onClose, anchor]);
 
+  /** Closing with the keyboard or an item puts focus back on the anchor, not the page, where Backspace deletes the selection. */
+  const close = () => {
+    anchor?.current?.focus();
+    onClose();
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     // Keys are for the menu, not the designer's shortcuts (Delete, Escape...).
     e.stopPropagation();
@@ -69,7 +75,7 @@ export function ContextMenu({
     const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === "Escape" || e.key === "Tab") {
       e.preventDefault();
-      onClose();
+      close();
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const step = e.key === "ArrowDown" ? 1 : -1;
@@ -97,7 +103,7 @@ export function ContextMenu({
           key={item.label}
           role="menuitem"
           onClick={() => {
-            onClose();
+            close();
             item.onSelect();
           }}
         >

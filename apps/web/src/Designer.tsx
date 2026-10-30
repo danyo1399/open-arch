@@ -7,7 +7,7 @@ import { relationshipRef } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
-import { Properties } from "./panels/Properties.js";
+import { Properties, shownInProperties } from "./panels/Properties.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
 import { useWorkspace } from "./state.js";
@@ -47,14 +47,17 @@ function useMediaQuery(query: string): boolean {
 /** On a narrow screen, the one panel that fills it. */
 type Pane = "diagram" | "browse" | "details";
 
-/** What the details panel shows, in a few words: the same choice Properties makes. */
+/** What the details panel shows, in a few words. */
 function detailsName(ws: Workspace, view: ViewDef | null, selection: Selection): string {
+  const shown = shownInProperties(ws, view, selection);
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
-  if (selection?.kind === "element" && ws.elements.has(selection.id)) return name(selection.id);
-  if (selection?.kind === "arrow") return `${name(selection.from)} → ${name(selection.to)}`;
-  if (selection?.kind === "sticky" && view?.stickies.some((s) => s.id === selection.id)) return "Sticky note";
-  return selection?.kind === "workspace" || !view ? "Workspace" : "This view";
+  if (shown.kind === "element") return shown.element.name;
+  if (shown.kind === "arrow") return `${name(shown.from)} → ${name(shown.to)}`;
+  if (shown.kind === "sticky") return "Sticky note";
+  return shown.kind === "view" ? "This view" : "Workspace";
 }
+
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /** A line icon on a 24 × 24 grid, in the text colour. */
 function Icon({ d, stroke = 2 }: { d: string; stroke?: number }) {
@@ -87,6 +90,15 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [usagesOf, setUsagesOf] = useState<string | null>(null);
   const narrow = useMediaQuery(NARROW);
   const [pane, setPane] = useState<Pane>("diagram");
+  // Becoming narrow shows the details while one is being typed in, as an on-screen keyboard can
+  // be what made the window short, else the diagram: not whichever pane was last picked while
+  // it was wide. Set while rendering, so the old pane is never painted.
+  const [wasNarrow, setWasNarrow] = useState(narrow);
+  if (narrow !== wasNarrow) {
+    setWasNarrow(narrow);
+    const focused = document.activeElement;
+    setPane(focused?.matches("input, textarea, select") && focused.closest(".properties") ? "details" : "diagram");
+  }
   const [more, setMore] = useState<{ x: number; y: number } | null>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
   const desktop = desktopBridge();
@@ -146,8 +158,6 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     [select],
   );
   const closeMore = useCallback(() => setMore(null), []);
-  // Narrowing the window starts on the diagram, not on whichever pane was picked while it was wide.
-  useEffect(() => setPane("diagram"), [narrow]);
   /** The usages panel is drawn over the diagram. */
   const findUsages = (id: string) => {
     setUsagesOf(id);
@@ -250,7 +260,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const exportDocs = () => download(`${host.name.replace(/\.openarch$/, "")}-docs.zip`, docsZip(ws, host.name) as BlobPart, "application/zip");
   const toggleAsk = () => {
     setAskOpen((o) => !o);
-    setPane("diagram");
+    // The panel is drawn over the diagram; hiding it leaves the pane as it is.
+    if (!askOpen) setPane("diagram");
   };
   // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu.
   const moreItems: MenuItem[] = [
@@ -259,14 +270,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
     { label: "Close", onSelect: onClose },
   ];
-  const problems = diagnostics.length;
+  const errors = diagnostics.filter((d) => d.severity === "error").length;
   const panes: { pane: Pane; label: string; detail: string; bad?: boolean }[] = [
     { pane: "diagram", label: "Diagram", detail: view?.title ?? "No views yet" },
     {
       pane: "browse",
       label: "Views & model",
-      detail: problems ? `${problems} problem${problems === 1 ? "" : "s"}` : `${ws.elements.size} element${ws.elements.size === 1 ? "" : "s"}`,
-      bad: diagnostics.some((d) => d.severity === "error"),
+      detail: errors ? plural(errors, "error") : diagnostics.length ? plural(diagnostics.length, "warning") : plural(ws.elements.size, "element"),
+      bad: errors > 0,
     },
     { pane: "details", label: "Details", detail: detailsName(ws, view, selection) },
   ];

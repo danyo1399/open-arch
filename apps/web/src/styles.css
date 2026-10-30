@@ -201,12 +201,15 @@ code {
   border-bottom: 1px solid var(--border);
   min-width: 0;
 }
-/* Only the workspace name gives way when it's tight; buttons would wrap their text and squeeze. */
+/* Only the text gives way when it's tight, with an ellipsis; buttons would wrap theirs and squeeze. */
 .topbar > * {
   flex-shrink: 0;
 }
-.topbar > .ws-name {
+.topbar > :is(.ws-name, .file-name, .storage) {
   flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .brand {
   font-weight: 700;
@@ -319,10 +322,12 @@ button.square {
 .app.narrow :is(.properties, .modal, .ask-ai) :is(input, select, textarea) {
   font-size: 16px;
 }
-/* + Add's menu opens under the toolbar's left end, not its own: from the button it ran off
-   the right of the screen, and right-aligned to it, off the left of a short toolbar. */
-.app.narrow .toolbar .menu {
-  position: static;
+/* Under the view's toolbar, the usages would cover + Add's menu, and React Flow keeps that
+   menu below everything outside the canvas. */
+.app.narrow .usages {
+  top: auto;
+  bottom: 12px;
+  max-height: 45%;
 }
 .app.narrow .toast {
   bottom: 72px;
@@ -377,9 +382,9 @@ button.pane-tab.active {
     font-size: 13px;
   }
 }
-/* A phone on its side has little height to spare. */
+/* A phone on its side has little height to spare, except to say there are errors. */
 @media (max-height: 500px) {
-  .pane-tab-detail {
+  .pane-tab-detail:not(.error) {
     display: none;
   }
 }
@@ -663,9 +668,11 @@ button.heading {
   /* Inside the canvas, less React Flow's 15px panel margins, so a long title shrinks, not + Add. */
   max-width: calc(100% - 30px);
 }
-/* A long title shortens; + Add keeps its size. */
+/* A long title shortens; + Add keeps its size. Its menu opens under the toolbar's left end, not
+   its own: from the button it ran past the canvas's right edge, which cuts it off. */
 .toolbar > .menu {
   flex-shrink: 0;
+  position: static;
 }
 .toolbar-title {
   display: flex;
