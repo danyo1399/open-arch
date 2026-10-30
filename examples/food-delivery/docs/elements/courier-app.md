@@ -2,7 +2,7 @@
 
 # Courier App
 
-**Container** · React Native · inside [Delivery Platform](delivery-platform.md)
+**Container** · React Native · drawn as a mobile app · inside [Delivery Platform](delivery-platform.md)
 
 Shows couriers their jobs and the way there.
 

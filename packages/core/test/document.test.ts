@@ -62,6 +62,9 @@ describe("parseDocument", () => {
     expect(Object.keys(result.doc.elements)).toEqual(["ok"]);
     expect(result.doc.elements.ok!.uses).toEqual([{ to: "x" }]);
     expect(result.diagnostics.find((d) => d.path === "elements.ok.tags")!.fix).toMatch(/"shape": "database"/);
+    // Relationships have no shape, so their hint doesn't suggest one.
+    const rel = parseDocument(JSON.stringify({ openarch: 2, name: "X", elements: { a: { kind: "system", name: "A", uses: [{ to: "a", tags: ["sync"] }] } }, views: {} }));
+    expect(rel.diagnostics.map((d) => [d.path, d.fix])).toEqual([["elements.a.uses[0].tags", 'Give a tag without a value "" as its value.']]);
   });
 
   it("upgrades version 1: the database tag becomes a shape, and properties become tags", () => {
@@ -87,9 +90,34 @@ describe("parseDocument", () => {
     expect(serializeDocument(result.doc)).toContain('"openarch": 2,');
   });
 
-  it("reports what it can't upgrade", () => {
-    const result = parseDocument(JSON.stringify({ openarch: 1, name: "Old", elements: { a: { kind: "system", name: "A", tags: "x", properties: ["y"] } }, views: {} }));
-    expect(result.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual(["field-type elements.a.properties", "field-type elements.a.tags"]);
+  it("reports what it can't upgrade in version 1's terms, and keeps the rest", () => {
+    const result = parseDocument(
+      JSON.stringify({
+        openarch: 1,
+        name: "Old",
+        elements: {
+          a: { kind: "system", name: "A", tags: "x", properties: ["y"] },
+          b: { kind: "system", name: "B", tags: { x: "" }, properties: { owner: "me" }, uses: [{ to: "a", description: "Uses", tags: "z" }] },
+          c: { kind: "system", name: "C", tags: ["core"], properties: { owner: 5 } },
+        },
+        views: {},
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics.map((d) => `${d.path}: ${d.message}`)).toEqual([
+      "elements.a.tags: Must be a list of strings.",
+      "elements.a.properties: Must be an object of string values.",
+      "elements.b.tags: Must be a list of strings.",
+      "elements.b.uses[0].tags: Must be a list of strings.",
+      "elements.c.properties: Must be an object of string values.",
+    ]);
+    expect(result.doc.elements.b).toEqual({ kind: "system", name: "B", tags: { owner: "me" }, uses: [{ to: "a", description: "Uses" }] });
+    expect(result.doc.elements.c!.tags).toEqual({ core: "" });
+  });
+
+  it("trims names as it upgrades, so every tag can be removed later", () => {
+    const result = parseDocument(JSON.stringify({ openarch: 1, name: "Old", elements: { a: { kind: "system", name: "A", tags: [" core ", " "], properties: { "owner ": "x" } } }, views: {} }));
+    expect(result.doc.elements.a!.tags).toEqual({ core: "", owner: "x" });
   });
 });
 

@@ -77,18 +77,21 @@ function need(positionals: string[], names: string[], usage: string): string[] {
   return positionals;
 }
 
-/** `--tag owner=payments` sets a tag, `--tag pii` one without a value, and `--remove-tag owner` removes one. */
+/**
+ * `--tag owner=payments` sets a tag, `--tag pii` (or `--tag pii=`) one without a value, and
+ * `--remove-tag owner` removes one. Tags can have empty values, so only --remove-tag removes.
+ */
 function tags(v: Values): TagChanges | undefined {
   const many = (value: Values[string]) => (Array.isArray(value) ? value : []);
-  const out: TagChanges = {};
+  const out = new Map<string, string | null>();
   for (const item of many(v.tag)) {
     const at = item.indexOf("=");
     const name = (at < 0 ? item : item.slice(0, at)).trim();
     if (!name) throw new CliError(`--tag needs a name, like --tag owner=payments, not "${item}".`, 2);
-    out[name] = at < 0 ? "" : item.slice(at + 1);
+    out.set(name, at < 0 ? "" : item.slice(at + 1));
   }
-  for (const name of many(v["remove-tag"])) out[name] = null;
-  return Object.keys(out).length ? out : undefined;
+  for (const name of many(v["remove-tag"])) out.set(name, null);
+  return out.size ? Object.fromEntries(out) : undefined;
 }
 
 function notes(io: Io, v: Values): string | null | undefined {

@@ -127,7 +127,8 @@ Changes only the fields given. An empty value removes a field, e.g. --technology
   --parent <id>          Move it into another system (or container, for a component)
   --external, --internal Mark a person or system as outside your organisation, or not
   --shape <shape>        box, database, queue, web-browser, mobile-app or folder
-  --tag <name[=value]>   Add a tag or change its value; repeat for more
+  --tag <name[=value]>   Add a tag or change its value; repeat for more. Without a value
+                         (--tag pii or --tag pii=) it's a plain label, not a removal
   --remove-tag <name>    Remove a tag; repeat for more
 `,
     { name: s, parent: s, description: s, technology: s, external: b, internal: b, shape: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },

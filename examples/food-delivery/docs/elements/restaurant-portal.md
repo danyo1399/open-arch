@@ -2,7 +2,7 @@
 
 # Restaurant Portal
 
-**Container** · React · inside [Delivery Platform](delivery-platform.md)
+**Container** · React · drawn as a web browser · inside [Delivery Platform](delivery-platform.md)
 
 Lets restaurants manage menus and incoming orders.
 

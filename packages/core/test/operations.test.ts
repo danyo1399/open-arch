@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyOperations, OpError, parseOperations, type OpenArchDocument } from "../src/index.js";
+import { applyOperations, OpError, parseOperations, serializeDocument, type OpenArchDocument } from "../src/index.js";
 import { apply, rules, shop } from "./helpers.js";
 
 const fails = (doc: OpenArchDocument, ...ops: Parameters<typeof applyOperations>[1]) => {
@@ -47,6 +47,15 @@ describe("elements", () => {
     );
     expect(doc.elements.api).toEqual({ kind: "container", name: "Orders API", parent: "shop", notes: "Runs on **Fargate**.", tags: { owner: "payments", pii: "" } });
     expect(apply(doc, { op: "update-element", id: "api", tags: { owner: null, pii: null } }).elements.api).not.toHaveProperty("tags");
+  });
+
+  it("removes tags by their exact name, and treats any name as a tag", () => {
+    const doc = shop();
+    doc.elements.api!.tags = { " owner": "x", "": "y", keep: "z" };
+    expect(apply(doc, { op: "update-element", id: "api", tags: { " owner": null, "": null } }).elements.api!.tags).toEqual({ keep: "z" });
+    const proto = apply(shop(), { op: "update-element", id: "api", tags: { ["__proto__"]: "v" } }).elements.api!.tags!;
+    expect(Object.keys(proto)).toEqual(["__proto__"]);
+    expect(serializeDocument({ ...shop(), elements: { ...shop().elements, api: { ...shop().elements.api!, tags: proto } } })).toContain('"__proto__": "v"');
     expect(fails(shop(), { op: "update-element", id: "api" })).toMatch(/Say what to change/);
   });
 

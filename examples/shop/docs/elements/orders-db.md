@@ -2,7 +2,7 @@
 
 # Orders DB
 
-**Container** · PostgreSQL · inside [Shop](shop.md)
+**Container** · PostgreSQL · drawn as a database · inside [Shop](shop.md)
 
 Stores orders and their status.
 

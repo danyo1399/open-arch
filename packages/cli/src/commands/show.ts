@@ -1,4 +1,4 @@
-import { computeView, describeElement, modelTree, scopeProblems, suggest, type ArchElement, type TreeNode, type Workspace } from "@open-arch/core";
+import { computeView, describeElement, modelTree, scopeProblems, suggest, tagEntries, tagText, type ArchElement, type Tags, type TreeNode, type Workspace } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile } from "../workspace.js";
 
@@ -23,12 +23,12 @@ export function show(io: Io, opts: ShowOptions): number {
     const json = {
       ...summary(element),
       description: element.description,
-      shape: element.kind === "person" ? undefined : element.shape,
+      shape: element.shape === "box" ? undefined : element.shape,
       tags: element.tags,
       notes: element.notes,
       children: d.children.map((c) => c.id),
       uses: d.uses.map(({ rel, target }) => ({ to: rel.to, description: rel.description, technology: rel.technology, tags: rel.tags, known: !!target })),
-      usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, description: rel.description, technology: rel.technology })),
+      usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, description: rel.description, technology: rel.technology, tags: rel.tags })),
       contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, description: rel.description, technology: rel.technology })),
       contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, description: rel.description, technology: rel.technology })),
       views: d.views.map(({ view, as }) => ({ id: view.id, as })),
@@ -40,7 +40,7 @@ export function show(io: Io, opts: ShowOptions): number {
     field("technology", element.technology);
     field("description", element.description);
     field("shape", element.shape === "box" ? undefined : element.shape);
-    const tags = Object.entries(element.tags).sort(([a], [b]) => a.localeCompare(b));
+    const tags = tagEntries(element.tags);
     if (tags.length) lines.push("", "Tags:", ...table(tags.map(([name, value]) => [`  ${name}`, value])));
     if (element.notes) lines.push("", "Notes:", ...element.notes.split("\n").map((l) => `  ${l}`.trimEnd()));
     if (d.children.length) lines.push("", "Contains:", ...table(d.children.map(row)));
@@ -143,8 +143,9 @@ function row(e: ArchElement): string[] {
   return [`  ${e.id}`, e.external ? `${e.kind} (external)` : e.kind, e.technology ? `${e.name} [${e.technology}]` : e.name];
 }
 
-function relLabel(r: { description?: string; technology?: string }): string {
-  return [r.description ?? "(no description)", r.technology ? `[${r.technology}]` : ""].filter(Boolean).join(" ");
+function relLabel(r: { description?: string; technology?: string; tags?: Tags }): string {
+  const tags = r.tags && tagText(r.tags);
+  return [r.description ?? "(no description)", r.technology ? `[${r.technology}]` : "", tags ? `(tags: ${tags})` : ""].filter(Boolean).join(" ");
 }
 
 /** Left-aligned columns. */

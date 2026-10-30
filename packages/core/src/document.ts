@@ -3,7 +3,7 @@
  * reports every problem it finds; writing always produces the same canonical
  * text for the same model, so diffs stay small and merges stay local.
  */
-import { KIND_RANK } from "./model.js";
+import { KIND_RANK, tagEntries } from "./model.js";
 import {
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
@@ -80,15 +80,14 @@ function strList(value: unknown, path: string, report: Report): string[] | undef
   return undefined;
 }
 
-function tagMap(value: unknown, path: string, report: Report): Tags | undefined {
+const isFacts = (value: unknown): value is Record<string, string> => isObject(value) && Object.values(value).every((v) => typeof v === "string");
+
+/** `onElement`: an element's tags, where a list of labels most likely meant a shape. */
+function tagMap(value: unknown, path: string, report: Report, onElement: boolean): Tags | undefined {
   if (value === undefined) return undefined;
-  if (isObject(value) && Object.values(value).every((v) => typeof v === "string")) return value as Tags;
-  report(
-    path,
-    "field-type",
-    'Must be an object of tag names and values, like { "owner": "payments" }.',
-    Array.isArray(value) ? 'Give a tag without a value "" as its value. To draw a cylinder, set "shape": "database" instead of a tag.' : undefined,
-  );
+  if (isFacts(value)) return value;
+  const fix = Array.isArray(value) ? `Give a tag without a value "" as its value.${onElement ? ' To draw a cylinder, set "shape": "database" instead of a tag.' : ""}` : undefined;
+  report(path, "field-type", 'Must be an object of tag names and values, like { "owner": "payments" }.', fix);
   return undefined;
 }
 
@@ -149,20 +148,37 @@ function upgradeFromV1(raw: Record<string, unknown>, report: Report): Record<str
 }
 
 const isLabels = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === "string");
-const labelTags = (labels: string[]): Tags => Object.fromEntries(labels.filter((t) => t.trim()).map((t) => [t, ""]));
 
+/** Version 2 tags from version 1 labels and facts, with names trimmed. A fact wins over a label of the same name. */
+function tagsFromV1(labels: string[], facts: Record<string, string>): Tags | undefined {
+  const out = new Map<string, string>();
+  for (const label of labels) if (label.trim()) out.set(label.trim(), "");
+  for (const [name, value] of Object.entries(facts)) if (name.trim()) out.set(name.trim(), value);
+  return out.size ? Object.fromEntries(out) : undefined;
+}
+
+/** Fields too malformed to upgrade are reported in version 1's terms and left out, never passed on. */
 function upgradeElementFromV1(e: Record<string, unknown>, path: string, report: Report): Record<string, unknown> {
   const { tags, properties, uses, ...out } = e;
-  const cylinder = e.kind !== "person" && isLabels(tags) && tags.includes("database");
+  const labels = isLabels(tags) ? tags : [];
+  if (tags !== undefined && !isLabels(tags)) report(`${path}.tags`, "field-type", "Must be a list of strings.");
+  const facts = isFacts(properties) ? properties : {};
+  if (properties !== undefined && !isFacts(properties)) report(`${path}.properties`, "field-type", "Must be an object of string values.");
+  const cylinder = e.kind !== "person" && labels.includes("database");
   if (cylinder) out.shape = "database";
-  if (properties !== undefined && !isObject(properties)) report(`${path}.properties`, "field-type", "Must be an object of string values.");
-  // Labels that aren't a list are left for the reader to report.
-  if (tags !== undefined && !isLabels(tags)) out.tags = tags;
-  else {
-    const merged = { ...labelTags((tags ?? []).filter((t) => !(cylinder && t === "database"))), ...(isObject(properties) ? properties : {}) };
-    if (Object.keys(merged).length) out.tags = merged;
+  const merged = tagsFromV1(cylinder ? labels.filter((t) => t !== "database") : labels, facts);
+  if (merged) out.tags = merged;
+  if (!Array.isArray(uses)) {
+    if (uses !== undefined) out.uses = uses;
+    return out;
   }
-  if (uses !== undefined) out.uses = Array.isArray(uses) ? uses.map((r) => (isObject(r) && isLabels(r.tags) ? { ...r, tags: labelTags(r.tags) } : r)) : uses;
+  out.uses = uses.map((r, i) => {
+    if (!isObject(r) || r.tags === undefined) return r;
+    const { tags: relTags, ...rel } = r;
+    if (!isLabels(relTags)) report(`${path}.uses[${i}].tags`, "field-type", "Must be a list of strings.");
+    const upgraded = isLabels(relTags) ? tagsFromV1(relTags, {}) : undefined;
+    return upgraded ? { ...rel, tags: upgraded } : rel;
+  });
   return out;
 }
 
@@ -200,7 +216,7 @@ function readElement(id: string, value: unknown, path: string, report: Report): 
     if ((ELEMENT_SHAPES as readonly unknown[]).includes(value.shape)) element.shape = value.shape as ElementShape;
     else report(`${path}.shape`, "shape-invalid", `\`shape\` must be one of: ${ELEMENT_SHAPES.join(", ")}.`);
   }
-  const tags = tagMap(value.tags, `${path}.tags`, report);
+  const tags = tagMap(value.tags, `${path}.tags`, report, true);
   if (tags) element.tags = tags;
   if (value.uses !== undefined) {
     if (!Array.isArray(value.uses)) report(`${path}.uses`, "field-type", "Must be a list of relationships.");
@@ -231,7 +247,7 @@ function readRelationship(value: unknown, path: string, report: Report): Relatio
     const v = str(value[key], `${path}.${key}`, report);
     if (v !== undefined) rel[key] = v;
   }
-  const tags = tagMap(value.tags, `${path}.tags`, report);
+  const tags = tagMap(value.tags, `${path}.tags`, report, false);
   if (tags) rel.tags = tags;
   return rel;
 }
@@ -348,10 +364,6 @@ function block(entries: [string, string][], indent: string): string {
   return `{\n${entries.map(([k, v]) => `${indent}  ${JSON.stringify(k)}: ${v}`).join(",\n")}\n${indent}}`;
 }
 
-function sortedTags(tags: Tags): Tags {
-  return Object.fromEntries(Object.keys(tags).sort().map((k) => [k, tags[k]!]));
-}
-
 function present<T>(value: T | undefined | null, keep: (v: T) => boolean = () => true): value is T {
   return value !== undefined && value !== null && keep(value);
 }
@@ -367,13 +379,12 @@ function elementText(e: ElementData, indent: string): string {
   if (e.external) entries.push(["external", "true"]);
   if (present(e.shape, (v) => v !== "box")) entries.push(["shape", JSON.stringify(e.shape)]);
   if (present(e.tags, (v) => Object.keys(v).length > 0)) {
-    const keys = Object.keys(e.tags).sort();
-    entries.push(["tags", block(keys.map((k) => [k, JSON.stringify(e.tags![k])]), `${indent}  `)]);
+    entries.push(["tags", block(tagEntries(e.tags).map(([k, v]) => [k, JSON.stringify(v)]), `${indent}  `)]);
   }
   if (present(e.notes, (v) => v !== "")) entries.push(["notes", JSON.stringify(e.notes)]);
   if (present(e.uses, (v) => v.length > 0)) {
     const rels = e.uses.map((r) =>
-      inline({ to: r.to, description: r.description || undefined, technology: r.technology || undefined, tags: r.tags && Object.keys(r.tags).length ? sortedTags(r.tags) : undefined }),
+      inline({ to: r.to, description: r.description || undefined, technology: r.technology || undefined, tags: r.tags && Object.keys(r.tags).length ? Object.fromEntries(tagEntries(r.tags)) : undefined }),
     );
     entries.push(["uses", `[\n${rels.map((r) => `${indent}    ${r}`).join(",\n")}\n${indent}  ]`]);
   }

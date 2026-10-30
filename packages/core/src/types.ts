@@ -104,6 +104,7 @@ export interface ArchElement {
   description?: string;
   technology?: string;
   external: boolean;
+  /** Always "box" for people: they're drawn as a person, whatever the file says. */
   shape: ElementShape;
   tags: Tags;
   notes?: string;

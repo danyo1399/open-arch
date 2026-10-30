@@ -6,6 +6,6 @@ export { applyOperations, parseOperations, pruneLayouts, OpError, OPERATION_NAME
 export { exportDocs, GENERATED_MARKER, type ExportedFile } from "./export.js";
 export { computeView, scopeProblems, SCOPE_KIND, type ComputedView, type ViewEdge } from "./views.js";
 export { renderMermaid, mermaidId } from "./mermaid.js";
-export { lineage, topLevel, isInside, childrenOf, kindLabel, PARENT_KIND, KIND_RANK } from "./model.js";
+export { lineage, topLevel, isInside, childrenOf, kindLabel, tagEntries, tagText, PARENT_KIND, KIND_RANK } from "./model.js";
 export { describeElement, computeAllViews, modelTree, type ElementDescription, type TreeNode } from "./query.js";
 export { suggest } from "./suggest.js";

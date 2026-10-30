@@ -28,7 +28,7 @@ All of these accept `--json`.
 
 In `update-*` commands, only the options given change, and an empty value (`--technology ""`) removes a field. Lists like `--include a,b` are comma-separated and replace the old list.
 
-Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` sets one without a value; repeat `--tag` for more. In updates, `--tag` adds a tag or changes its value, leaving the others alone, and `--remove-tag <name>` (repeatable) removes one.
+Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` sets one without a value; repeat `--tag` for more. In updates, `--tag` adds a tag or changes its value, leaving the others alone, and `--remove-tag <name>` (repeatable) removes one. Unlike other fields, an empty value doesn't remove a tag: `--tag owner=` leaves `owner` as a tag without a value.
 
 | Command | Options |
 |---|---|

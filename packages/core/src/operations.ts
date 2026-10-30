@@ -597,15 +597,22 @@ function checkShape(kind: ElementKind, shape: string | null | undefined): void {
   if (kind === "person" && shape !== "box") throw new OpError("People are always drawn as a person, so they don't take a shape.");
 }
 
-/** The tags with the changes made, or undefined when none are left. */
+/**
+ * The tags with the changes made, or undefined when none are left. New names are trimmed;
+ * a removal names the tag exactly, so one written by hand with stray spaces can still go.
+ * A Map, so a tag called "__proto__" is a tag like any other.
+ */
 function changeTags(tags: Tags | undefined, changes: TagChanges): Tags | undefined {
-  const out = { ...tags };
+  const out = new Map(Object.entries(tags ?? {}));
   for (const [name, value] of Object.entries(changes)) {
+    if (value === null) {
+      out.delete(name);
+      continue;
+    }
     if (!name.trim()) throw new OpError("A tag needs a name.");
-    if (value === null) delete out[name.trim()];
-    else out[name.trim()] = value.trim();
+    out.set(name.trim(), value.trim());
   }
-  return Object.keys(out).length ? out : undefined;
+  return out.size ? Object.fromEntries(out) : undefined;
 }
 
 function checkColor(color: string | undefined): void {

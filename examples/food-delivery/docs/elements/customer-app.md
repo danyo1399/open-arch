@@ -2,7 +2,7 @@
 
 # Customer App
 
-**Container** · React Native · inside [Delivery Platform](delivery-platform.md)
+**Container** · React Native · drawn as a mobile app · inside [Delivery Platform](delivery-platform.md)
 
 Lets customers browse menus, order and track their food.
 

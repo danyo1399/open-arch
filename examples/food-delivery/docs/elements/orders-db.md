@@ -2,7 +2,7 @@
 
 # Orders Database
 
-**Container** · PostgreSQL · inside [Delivery Platform](delivery-platform.md)
+**Container** · PostgreSQL · drawn as a database · inside [Delivery Platform](delivery-platform.md)
 
 Stores orders, menus and deliveries.
 

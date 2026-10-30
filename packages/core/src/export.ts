@@ -4,7 +4,7 @@
  * every page says so, and tools rewrite them freely.
  */
 import { renderMermaid } from "./mermaid.js";
-import { kindLabel } from "./model.js";
+import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
 import type { ArchElement, Relationship } from "./types.js";
 import type { Workspace } from "./workspace.js";
@@ -32,9 +32,17 @@ function link(e: ArchElement, from: "root" | "elements" | "views"): string {
   return `[${e.name}](${href})`;
 }
 
-function relRow(ws: Workspace, other: string, rel: Relationship): string {
-  const target = ws.elements.get(other);
-  return `| ${target ? link(target, "elements") : cell(other)} | ${cell(rel.description)} | ${cell(rel.technology)} |`;
+/** Relationships to or from an element, with a Tags column when any of them has tags. */
+function relTable(ws: Workspace, rows: { other: string; rel: Relationship }[]): string[] {
+  const tagged = rows.some(({ rel }) => Object.keys(rel.tags).length > 0);
+  const head = tagged ? ["| Element | Description | Technology | Tags |", "|---|---|---|---|"] : ["| Element | Description | Technology |", "|---|---|---|"];
+  return [
+    ...head,
+    ...rows.map(({ other, rel }) => {
+      const target = ws.elements.get(other);
+      return `| ${target ? link(target, "elements") : cell(other)} | ${cell(rel.description)} | ${cell(rel.technology)} |${tagged ? ` ${cell(tagText(rel.tags))} |` : ""}`;
+    }),
+  ];
 }
 
 /**
@@ -104,16 +112,17 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
   // Elements
   for (const e of ws.elements.values()) {
     const d = describeElement(ws, e.id)!;
-    const facts = [`**${kindLabel(e)}**`, e.technology, d.parent ? `inside ${link(d.parent, "elements")}` : undefined].filter(Boolean);
+    const shape = e.shape === "box" ? undefined : `drawn as a ${e.shape.replace("-", " ")}`;
+    const facts = [`**${kindLabel(e)}**`, e.technology, shape, d.parent ? `inside ${link(d.parent, "elements")}` : undefined].filter(Boolean);
     const lines = [top, "", `# ${e.name}`, "", facts.join(" · ")];
     if (e.description) lines.push("", e.description);
     if (e.notes) lines.push("", e.notes);
     if (d.children.length) {
       lines.push("", "## Contains", "", ...d.children.map((c) => `- ${link(c, "elements")} (${kindLabel(c).toLowerCase()})${c.description ? ` – ${c.description}` : ""}`));
     }
-    if (d.uses.length) lines.push("", "## Uses", "", "| Element | Description | Technology |", "|---|---|---|", ...d.uses.map(({ rel }) => relRow(ws, rel.to, rel)));
-    if (d.usedBy.length) lines.push("", "## Used by", "", "| Element | Description | Technology |", "|---|---|---|", ...d.usedBy.map(({ from, rel }) => relRow(ws, from.id, rel)));
-    const tags = Object.entries(e.tags).sort(([a], [b]) => a.localeCompare(b));
+    if (d.uses.length) lines.push("", "## Uses", "", ...relTable(ws, d.uses.map(({ rel }) => ({ other: rel.to, rel }))));
+    if (d.usedBy.length) lines.push("", "## Used by", "", ...relTable(ws, d.usedBy.map(({ from, rel }) => ({ other: from.id, rel }))));
+    const tags = tagEntries(e.tags);
     if (tags.length) lines.push("", "## Tags", "", "| Tag | Value |", "|---|---|", ...tags.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
     if (d.views.length) {
       lines.push("", "## Shown in", "", ...d.views.map(({ view, as }) => `- [${view.title}](../views/${view.id}.md)${as === "frame" ? " (as the frame)" : ""}`));

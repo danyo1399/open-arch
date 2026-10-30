@@ -30,6 +30,7 @@ describe("checkWorkspace", () => {
     const doc = shop();
     doc.elements.customer!.shape = "database";
     expect(rules(doc)).toEqual(["shape-ignored"]);
+    expect(buildWorkspace(doc).elements.get("customer")!.shape).toBe("box");
   });
 });
 
@@ -78,11 +79,20 @@ describe("exportDocs", () => {
     expect(page("README.md")).toContain("- [Shop](elements/shop.md) (system)\n  - [API](elements/api.md) (container, Node.js)");
   });
 
-  it("lists an element's tags, by name", () => {
+  it("lists an element's tags, by name, and says how it's drawn", () => {
     const doc = shop();
     doc.elements.api!.tags = { team: "checkout", pii: "" };
     const text = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "elements/api.md")!.content;
     expect(text).toContain("## Tags\n\n| Tag | Value |\n|---|---|\n| pii |  |\n| team | checkout |\n");
     expect(page("elements/db.md")).not.toContain("## Tags");
+    expect(page("elements/db.md")).toContain("**Container** · drawn as a database · inside [Shop](shop.md)");
+  });
+
+  it("adds a Tags column to relationship tables when a relationship has tags", () => {
+    const doc = shop();
+    doc.elements.controller!.uses![0]!.tags = { protocol: "postgres", sync: "" };
+    const text = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "elements/db.md")!.content;
+    expect(text).toContain("| Element | Description | Technology | Tags |\n|---|---|---|---|\n| [Controller](controller.md) | Stores orders | SQL | protocol=postgres, sync |");
+    expect(page("elements/db.md")).toContain("| Element | Description | Technology |\n|---|---|---|\n");
   });
 });

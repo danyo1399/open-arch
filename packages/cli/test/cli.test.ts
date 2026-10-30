@@ -177,6 +177,9 @@ describe("changing", () => {
 
     expect(cli(dir, "update-relationship", "web-app", "checkout-controller", "--tag", "protocol=https").code).toBe(0);
     expect(JSON.parse(cli(dir, "show", "web-app", "--json").out).uses[0]).toMatchObject({ to: "checkout-controller", tags: { protocol: "https" } });
+    expect(cli(dir, "show", "web-app").out).toContain("-> checkout-controller  Places orders [HTTPS/JSON] (tags: protocol=https)");
+    expect(cli(dir, "update-element", "web-app", "--tag", "owner=").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements["web-app"].tags).toEqual({ owner: "" });
 
     expect(cli(dir, "update-element", "web-app", "--tag", "=x")).toMatchObject({ code: 2, err: expect.stringContaining("--tag needs a name") });
     expect(cli(dir, "update-element", "customer", "--shape", "database").err).toContain("People are always drawn as a person");

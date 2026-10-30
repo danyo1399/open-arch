@@ -2,7 +2,7 @@
 
 # Order Events
 
-**Container** · Kafka · inside [Delivery Platform](delivery-platform.md)
+**Container** · Kafka · drawn as a queue · inside [Delivery Platform](delivery-platform.md)
 
 Carries events like order-placed and order-ready.
 

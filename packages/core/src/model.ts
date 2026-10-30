@@ -1,5 +1,5 @@
 import type { Workspace } from "./workspace.js";
-import type { ArchElement, ElementKind } from "./types.js";
+import type { ArchElement, ElementKind, Tags } from "./types.js";
 
 export const KIND_RANK: Record<ElementKind, number> = { person: 0, system: 1, container: 2, component: 3 };
 
@@ -40,6 +40,20 @@ export function childrenOf(ws: Workspace, id: string): ArchElement[] {
 
 export function compareElements(a: ArchElement, b: ArchElement): number {
   return KIND_RANK[a.kind] - KIND_RANK[b.kind] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/** Tags by name, in the order the file keeps them: by UTF-16 code unit, the same on every machine. */
+export function tagEntries(tags: Tags): [string, string][] {
+  return Object.keys(tags)
+    .sort()
+    .map((name) => [name, tags[name]!]);
+}
+
+/** Tags on one line, like `owner=payments, pii`. */
+export function tagText(tags: Tags): string {
+  return tagEntries(tags)
+    .map(([name, value]) => (value ? `${name}=${value}` : name))
+    .join(", ");
 }
 
 export function kindLabel(element: ArchElement): string {
