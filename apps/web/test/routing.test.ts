@@ -159,15 +159,36 @@ describe("routeLinks", () => {
   });
 
   it("keeps two arrows between close boxes apart", () => {
+    // From wide apart to only just facing each other: b at x=130 faces a along 2px.
+    for (const x of [20, 120, 128, 130]) {
+      const boxes = new Map([
+        ["a", { x: 0, y: 0, w: 220, h: 120 }],
+        ["b", { x, y: 150, w: 220, h: 120 }],
+      ]);
+      const routes = check(boxes, [link("a", "b"), link("b", "a")]);
+      for (const [p, q] of segments(routes.get("a->b")!)) {
+        for (const [r, t] of segments(routes.get("b->a")!)) {
+          const overlap = (a: number, b: number, c: number, d: number) => Math.min(Math.max(a, b), Math.max(c, d)) - Math.max(Math.min(a, b), Math.min(c, d));
+          const together =
+            (p.x === q.x && r.x === t.x && Math.abs(p.x - r.x) < 10 && overlap(p.y, q.y, r.y, t.y) > 0) ||
+            (p.y === q.y && r.y === t.y && Math.abs(p.y - r.y) < 10 && overlap(p.x, q.x, r.x, t.x) > 0);
+          expect(together, `b at x=${x}: ${JSON.stringify([p, q])} on or beside ${JSON.stringify([r, t])}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("doesn't leave a 1px kink between boxes that face each other along less than a pixel", () => {
+    // No straight line fits, so the route has to step, but by enough to read as a step, not a glitch.
     const boxes = new Map([
-      ["a", { x: 0, y: 0, w: 220, h: 120 }],
-      ["b", { x: 20, y: 150, w: 220, h: 120 }],
+      ["b0", { x: 639, y: 282, w: 223, h: 106 }],
+      ["b1", { x: 288, y: 207, w: 213, h: 121 }],
     ]);
-    const routes = check(boxes, [link("a", "b"), link("b", "a")]);
-    const [ab, ba] = [routes.get("a->b")!, routes.get("b->a")!];
-    expect(ab).toHaveLength(2);
-    expect(ba).toHaveLength(2);
-    expect(ab[0]!.x).not.toBe(ba[0]!.x);
+    for (const route of check(boxes, [link("b0", "b1"), link("b1", "b0")]).values()) {
+      segments(route).forEach(([p, q], k, all) => {
+        if (k > 0 && k < all.length - 1) expect(Math.hypot(q.x - p.x, q.y - p.y), JSON.stringify(route)).toBeGreaterThanOrEqual(10);
+      });
+    }
   });
 
   it("leaves arrows alone when a note moves around out of their way", () => {

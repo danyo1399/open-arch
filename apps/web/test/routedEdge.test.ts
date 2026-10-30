@@ -44,6 +44,13 @@ describe("labelSizes", () => {
     expect(narrowest.h).toBeCloseTo(4 * 14.3 + 8);
   });
 
+  it("breaks a long word between letters, as many as fit on a line", () => {
+    // 41 characters with the brackets: a 140px label has room for 20 a line, so 3 lines.
+    const sizes = labelSizes(edge("", "https://example.com/a-very-long/path/xy"));
+    expect(sizes[1]!.maxWidth).toBe(140);
+    expect(sizes[1]!.h).toBeCloseTo(3 * 14.3 + 8);
+  });
+
   it("has no size for an arrow with nothing to say", () => {
     expect(labelSizes(edge(""))).toEqual([]);
   });
