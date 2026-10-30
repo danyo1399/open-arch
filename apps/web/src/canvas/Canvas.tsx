@@ -18,7 +18,7 @@ import { menuPoint } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY_W, stickyHeight, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
-import { edgeTypes, labelSizes, measureLabel, type ArrowEdge, type LabelSize } from "./RoutedEdge.js";
+import { edgeTypes, labelSizes, measureLabel, measureLabels, type ArrowEdge, type LabelSize } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 
 export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "sticky"; id: string } | { kind: "workspace" } | null;
@@ -200,6 +200,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   // The sizes each arrow's label can be drawn at, which don't change as boxes move.
   const sizes = useMemo(() => {
     const out = new Map<string, LabelSize[]>();
+    measureLabels(cv?.edges ?? []);
     for (const e of cv?.edges ?? []) {
       const options = labelSizes(e, measureLabel);
       if (options.length) out.set(arrowId(e), options);

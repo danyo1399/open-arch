@@ -73,23 +73,32 @@ const LABEL_WIDTHS = [190, 140, 100];
 /** How big a label is drawn (see .arrow-label) when it's at most `maxWidth` wide. */
 export type LabelSize = { w: number; h: number; maxWidth: number };
 
-/** How big a label saying `description` and `technology` is drawn at most `maxWidth` wide. */
-export type MeasureLabel = (description: string | undefined, technology: string | undefined, maxWidth: number) => { w: number; h: number };
+/** One line of a label, and the class it's drawn with. */
+export type LabelLine = { text: string; className?: string };
+
+/** The lines an arrow's label shows: its description, then its technology in brackets. Drawn, measured and estimated alike from these. */
+export function labelLines(edge: Pick<ViewEdge, "description" | "technology">): LabelLine[] {
+  return [...(edge.description ? [{ text: edge.description }] : []), ...(edge.technology ? [{ text: `[${edge.technology}]`, className: "arrow-tech" }] : [])];
+}
+
+/** How big a label showing `lines` is drawn at most `maxWidth` wide. */
+export type MeasureLabel = (lines: LabelLine[], maxWidth: number) => { w: number; h: number };
 
 /**
  * Roughly how big a label is drawn, from how many characters it has: for where
  * there's no page to measure it in, as in tests. It wraps at spaces, and breaks a
  * word too long for a line between letters.
  */
-export const estimateLabel: MeasureLabel = (description, technology, maxWidth) => {
-  const lines = [description, technology && `[${technology}]`].filter((t): t is string => !!t);
+export const estimateLabel: MeasureLabel = (lines, maxWidth) => {
+  // As the browser lays text out, a run of spaces counts as one, and none at either end.
+  const texts = lines.map((l) => l.text.replace(/\s+/g, " ").trim()).filter(Boolean);
   const [charWidth, lineHeight, padX, padY] = [6, 14.3, 16, 8];
   const room = maxWidth - padX;
   const perLine = Math.max(1, Math.floor(room / charWidth));
   let rows = 0;
-  for (const line of lines) {
+  for (const text of texts) {
     let width = 0;
-    for (const word of line.split(" ").filter(Boolean)) {
+    for (const word of text.split(" ")) {
       const next = width + (width ? charWidth : 0) + charWidth * word.length;
       if (width && next <= room) {
         width = next;
@@ -103,37 +112,61 @@ export const estimateLabel: MeasureLabel = (description, technology, maxWidth) =
     rows++;
   }
   // A label that wraps is as wide as it's allowed to be, not as wide as its longest line.
-  const widest = Math.max(0, ...lines.map((t) => t.length * charWidth));
+  const widest = Math.max(0, ...texts.map((t) => t.length * charWidth));
   return { w: Math.min(widest, room) + padX, h: rows * lineHeight + padY };
 };
 
-let probe: HTMLDivElement | undefined;
+/** Sizes measured so far, by lines and width. Emptied when it gets this big, as texts come and go while the model is edited. */
 const measured = new Map<string, { w: number; h: number }>();
+const MEASURED_LIMIT = 2000;
+const measuredKey = (lines: LabelLine[], maxWidth: number) => JSON.stringify([lines, maxWidth]);
 
-/** How big a label is drawn, measured in a hidden label off the page with the same styles, once for each text and width. */
-export const measureLabel: MeasureLabel = (description, technology, maxWidth) => {
-  const key = JSON.stringify([description, technology, maxWidth]);
-  const known = measured.get(key);
-  if (known) return known;
-  probe ??= document.body.appendChild(document.createElement("div"));
-  probe.className = "arrow-label";
-  probe.setAttribute("aria-hidden", "true");
-  probe.style.cssText = `visibility: hidden; left: -10000px; top: 0; max-width: ${maxWidth}px`;
-  const lines = [description && Object.assign(document.createElement("div"), { textContent: description })];
-  if (technology) lines.push(Object.assign(document.createElement("div"), { className: "arrow-tech", textContent: `[${technology}]` }));
-  probe.replaceChildren(...lines.filter((l): l is HTMLDivElement => !!l));
-  const { width, height } = probe.getBoundingClientRect();
-  const size = { w: width, h: height };
-  measured.set(key, size);
-  return size;
+/** A label off the page, hidden, with the same styles as a drawn one, showing `lines` at most `maxWidth` wide. */
+function probe(lines: LabelLine[], maxWidth: number): HTMLDivElement {
+  const div = document.createElement("div");
+  div.className = "arrow-label";
+  div.setAttribute("aria-hidden", "true");
+  div.style.cssText = `visibility: hidden; left: -10000px; top: 0; max-width: ${maxWidth}px`;
+  div.append(...lines.map(({ text, className }) => Object.assign(document.createElement("div"), { textContent: text, className: className ?? "" })));
+  return div;
+}
+
+/** Measures `wanted` (lines and a width each) that haven't been yet, all together, so the page is laid out once for them all. */
+function measure(wanted: [LabelLine[], number][]): void {
+  const probes = new Map<string, HTMLDivElement>();
+  for (const [lines, maxWidth] of wanted) {
+    const key = measuredKey(lines, maxWidth);
+    if (!measured.has(key) && !probes.has(key)) probes.set(key, probe(lines, maxWidth));
+  }
+  if (!probes.size) return;
+  if (measured.size + probes.size > MEASURED_LIMIT) measured.clear();
+  const holder = document.body.appendChild(document.createElement("div"));
+  holder.append(...probes.values());
+  for (const [key, div] of probes) {
+    const { width, height } = div.getBoundingClientRect();
+    measured.set(key, { w: width, h: height });
+  }
+  holder.remove();
+}
+
+/** Measures the labels of `edges` at each width they can be drawn, all at once, ready for measureLabel. */
+export function measureLabels(edges: ViewEdge[]): void {
+  measure(edges.flatMap((e) => LABEL_WIDTHS.map((w): [LabelLine[], number] => [labelLines(e), w])).filter(([lines]) => lines.length));
+}
+
+/** How big a label is drawn, measured in a hidden label with the same styles: measureLabels measures many at once. */
+export const measureLabel: MeasureLabel = (lines, maxWidth) => {
+  measure([[lines, maxWidth]]);
+  return measured.get(measuredKey(lines, maxWidth))!;
 };
 
 /** How big an arrow's label is at each width it can be drawn, widest first, leaving out widths that make no difference; none when it has no label. */
-export function labelSizes(edge: ViewEdge, measure: MeasureLabel = estimateLabel): LabelSize[] {
-  if (!edge.description && !edge.technology) return [];
+export function labelSizes(edge: ViewEdge, measure: MeasureLabel): LabelSize[] {
+  const lines = labelLines(edge);
+  if (!lines.length) return [];
   const out: LabelSize[] = [];
   for (const maxWidth of LABEL_WIDTHS) {
-    const size = { ...measure(edge.description, edge.technology, maxWidth), maxWidth };
+    const size = { ...measure(lines, maxWidth), maxWidth };
     if (!out.length || size.w < out[out.length - 1]!.w) out.push(size);
   }
   return out;
@@ -154,8 +187,11 @@ export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdg
             onClick={data.onSelect}
             title={edge.implied ? `Implied by: ${edge.sources.map((s) => s.element).join(", ")}` : undefined}
           >
-            {edge.description && <div>{edge.description}</div>}
-            {edge.technology && <div className="arrow-tech">[{edge.technology}]</div>}
+            {labelLines(edge).map(({ text, className }, k) => (
+              <div key={k} className={className}>
+                {text}
+              </div>
+            ))}
           </div>
         </EdgeLabelRenderer>
       )}

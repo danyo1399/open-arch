@@ -293,6 +293,52 @@ describe("routeLinks", () => {
     expect(crossings(check(boxes, links)).size).toBe(0);
   });
 
+  it("never runs an arrow across the stretch where another arrow goes into its box", () => {
+    // The last 24px of an arrow, between its stub and its box, isn't on the grid, so only an explicit check keeps others off it.
+    let seed = 11;
+    const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    let layouts = 0;
+    while (layouts < 500) {
+      const n = 5 + Math.floor(random() * 4);
+      const boxes = new Map<string, Box>();
+      for (let k = 0; k < n; k++) boxes.set(`b${k}`, { x: Math.round(random() * 700), y: Math.round(random() * 520), w: 150 + Math.round(random() * 80), h: 80 + Math.round(random() * 40) });
+      const all = [...boxes.values()];
+      if (all.some((a, i) => all.slice(i + 1).some((b) => a.x < b.x + b.w + 10 && b.x < a.x + a.w + 10 && a.y < b.y + b.h + 10 && b.y < a.y + a.h + 10))) continue;
+      layouts++;
+      const ids = [...boxes.keys()];
+      const links = Array.from({ length: n + Math.floor(random() * n) }, (_, k) => {
+        const from = ids[Math.floor(random() * n)]!;
+        let to = ids[Math.floor(random() * n)]!;
+        if (to === from) to = ids[(ids.indexOf(from) + 1) % n]!;
+        return { id: `${from}->${to}#${k}`, from, to };
+      });
+      const routes = routeLinks(boxes, links);
+      const ends = [...routes].flatMap(([id, points]) =>
+        (
+          [
+            [points[0]!, points[1]!],
+            [points[points.length - 1]!, points[points.length - 2]!],
+          ] as const
+        ).map(([end, next]) => {
+          const d = Math.hypot(next.x - end.x, next.y - end.y);
+          return { id, a: end, b: { x: end.x + ((next.x - end.x) * Math.min(24, d)) / d, y: end.y + ((next.y - end.y) * Math.min(24, d)) / d } };
+        }),
+      );
+      for (const [id, points] of routes) {
+        for (const [p, q] of segments(points)) {
+          for (const { id: other, a, b } of ends) {
+            if (other === id) continue;
+            const cuts =
+              a.y === b.y
+                ? p.x === q.x && p.x > Math.min(a.x, b.x) && p.x < Math.max(a.x, b.x) && a.y > Math.min(p.y, q.y) && a.y < Math.max(p.y, q.y)
+                : p.y === q.y && p.y > Math.min(a.y, b.y) && p.y < Math.max(a.y, b.y) && a.x > Math.min(p.x, q.x) && a.x < Math.max(p.x, q.x);
+            expect(cuts, `${id} ${JSON.stringify(points)} cuts across the end of ${other}`).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
   it("falls back to a straight line when there's no way out", () => {
     const boxes = new Map([
       ["a", { x: 0, y: 0, w: 500, h: 400 }],
