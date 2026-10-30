@@ -79,7 +79,10 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     const scope = v.scope ? ws.elements.get(v.scope) : undefined;
     const lines = [top, "", `# ${v.title}`, "", `${v.level[0]!.toUpperCase()}${v.level.slice(1)} view${scope ? ` of ${link(scope, "views")}` : ""}.`];
     if (v.description) lines.push("", v.description);
-    lines.push("", "```mermaid", renderMermaid(cv), "```", "", "## Elements", "");
+    lines.push("", "```mermaid", renderMermaid(cv), "```");
+    // The diagram's sticky notes, as quotes in reading order.
+    if (v.stickies.length) lines.push("", "## Notes", ...v.stickies.flatMap((s) => ["", ...s.text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd())]));
+    lines.push("", "## Elements", "");
     if (cv.nodes.length) {
       lines.push("| Element | Kind | Technology | Description |", "|---|---|---|---|");
       for (const n of cv.nodes) lines.push(`| ${link(n, "views")} | ${kindLabel(n)} | ${cell(n.technology)} | ${cell(n.description)} |`);

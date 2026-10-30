@@ -56,6 +56,14 @@ describe("exportDocs", () => {
     expect(text).toContain("| [API](../elements/api.md) | [DB](../elements/db.md) | Stores orders | SQL |");
   });
 
+  it("quotes a view's sticky notes under its diagram, in reading order", () => {
+    const doc = shop();
+    doc.views.landscape!.stickies = { later: { text: "Unplaced." }, second: { text: "Lower\n\nright.", at: [300, 100] }, first: { text: "Top.", at: [900, 0] } };
+    const text = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "views/landscape.md")!.content;
+    expect(text).toContain("```\n\n## Notes\n\n> Top.\n\n> Lower\n>\n> right.\n\n> Unplaced.\n\n## Elements");
+    expect(page("views/landscape.md")).not.toContain("## Notes");
+  });
+
   it("puts relationships, contents and views in element pages", () => {
     const text = page("elements/api.md");
     expect(text).toContain("**Container** · Node.js · inside [Shop](shop.md)");

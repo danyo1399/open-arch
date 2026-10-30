@@ -42,6 +42,9 @@ In `update-*` commands, only the options given change, and an empty value (`--te
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
 | `hide-in-view <view> <id>...` | Removes them from include, or adds them to exclude; the model is unchanged |
+| `add-sticky <view> <id>` | `--text` (required), `--color <yellow\|pink\|blue\|green>`, `--at <x,y>` |
+| `update-sticky <view> <id>` | `--text`, `--color`, `--at <x,y>` (`--at ""` lets the designer place it) |
+| `remove-sticky <view> <id>` | |
 | `update-workspace` | `--name`, `--description`, `--docs <folder>` (`--docs ""` stops generating docs) |
 | `apply [file\|-]` | A JSON list of operations, all or nothing (see below) |
 | `init [file]` | `--name`, `--docs <folder>`, `--no-skills`, `--no-agents-md` |
@@ -70,6 +73,9 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `show-in-view` | **view**, **id** |
 | `hide-in-view` | **view**, **id** |
 | `set-layout` | **view**, **positions**: `{ "<element-id>": [x, y] }`, `null` removes one. Used by the designer; agents don't need it |
+| `add-sticky` | **view**, **id**, **text**, color, at (`[x, y]`) |
+| `update-sticky` | **view**, **id**, text, color, at (`null` lets the designer place it) |
+| `remove-sticky` | **view**, **id** |
 | `update-workspace` | name, description, docs |
 
 Example:

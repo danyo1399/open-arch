@@ -3,11 +3,11 @@
 An architecture model (C4) that people and AI agents can both read and change safely.
 
 - **One file:** the whole model lives in a `.openarch` file, JSON with a canonical layout: people, systems, containers and components, keyed by ID, each with its relationships, notes and properties, plus views (diagrams) with their saved box positions.
-- **Views are computed:** a view picks elements from the shared model, and the boxes and arrows are worked out from it, including relationships implied by nested elements.
+- **Views are computed:** a view picks elements from the shared model, and the boxes and arrows are worked out from it, including relationships implied by nested elements. A view can also carry sticky notes: text for the people reading that diagram, which isn't part of the model.
 - **Docs are generated:** markdown pages with Mermaid diagrams (an index, a page per element and per view) are generated from the model for people to read, on GitHub or anywhere else.
 - **Changes are checked:** people change the model in the designer and agents change it with `open-arch` commands. Both go through the same validated operations, so a change that would break the model is refused and nothing is saved.
 
-See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.openarch) and the [docs generated from it](examples/shop/docs/README.md). The [skill](packages/skill/open-arch/SKILL.md) explains the commands and the [format reference](packages/skill/open-arch/references/format.md) the file.
+See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.openarch) and the [docs generated from it](examples/shop/docs/README.md). New to architecture diagrams? [`examples/food-delivery`](examples/food-delivery) is a guided tour of the C4 model: five views of a made-up food delivery business that zoom in one step at a time, with sticky notes explaining what each one shows ([docs](examples/food-delivery/docs/README.md)). The designer opens it with **Take the tour**. The [skill](packages/skill/open-arch/SKILL.md) explains the commands and the [format reference](packages/skill/open-arch/references/format.md) the file.
 
 ## Packages
 
@@ -28,7 +28,7 @@ One UI, two ways to run it. Both reload when an agent or editor changes the file
 | Open and save a .openarch file | Chrome and Edge save to the file as you work; other browsers open it and **Download** a copy | Saves to the file as you work |
 | Docs | **Export docs** downloads them as a .zip | Every save rewrites the docs folder the workspace names |
 | Notices outside edits | Checks every 2 seconds while the tab is visible | Watches the file |
-| Try without a file | The bundled example, or a new workspace in the tab | The bundled example |
+| Try without a file | The bundled examples (the tour and the shop), or a new workspace in the tab | The bundled examples |
 | Ask AI | | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
 | Install | Installable as an app (Chrome, Edge, Safari's **Add to Dock** or **Add to Home Screen**) that opens offline | An installer per OS |
 

@@ -1,4 +1,4 @@
-import { computeView, diagnosticTarget, kindLabel, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Position, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeView, diagnosticTarget, kindLabel, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Position, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -16,16 +16,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { uniqueId } from "../model.js";
 import { menuPoint } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, type Point } from "./autoLayout.js";
-import { nodeTypes, type ElementFlowNode, type FrameFlowNode } from "./nodes.js";
+import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY_W, stickyHeight, type Point } from "./autoLayout.js";
+import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, labelSize, type ArrowEdge } from "./RoutedEdge.js";
 import { placeLabels, routeLinks, type Box } from "./routing.js";
 
-export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "workspace" } | null;
+export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "sticky"; id: string } | { kind: "workspace" } | null;
 
-type FlowNode = ElementFlowNode | FrameFlowNode;
+type FlowNode = ElementFlowNode | FrameFlowNode | StickyFlowNode;
 
 const FRAME_ID = "__frame";
+/** Sticky note IDs are only unique within their view, so their nodes get a prefix no element ID has. */
+const stickyNodeId = (id: string) => `sticky:${id}`;
 const arrowId = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
 const FRAME_PAD = { x: 40, top: 56, bottom: 40 };
 
@@ -59,10 +61,18 @@ export function addableKinds(ws: Workspace, view: ViewDef): { kind: ElementKind;
   return top;
 }
 
+/** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
+function newStickyId(view: ViewDef): string {
+  const taken = new Set(view.stickies.map((s) => s.id));
+  if (!taken.has("note")) return "note";
+  for (let i = 2; ; i++) if (!taken.has(`note-${i}`)) return `note-${i}`;
+}
+
 function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined): FlowNode[] {
   const elements = nodes.filter((n): n is ElementFlowNode => n.type === "element");
+  const rest = nodes.filter((n) => n.type !== "frame");
   const inside = boundary ? elements.filter((n) => n.data.element.parent === boundary.id) : [];
-  if (!boundary || inside.length === 0) return elements;
+  if (!boundary || inside.length === 0) return rest;
   // Whole pixels: fractional sizes from high-DPI screens would make the frame resize itself forever.
   const left = Math.round(Math.min(...inside.map((n) => n.position.x)) - FRAME_PAD.x);
   const top = Math.round(Math.min(...inside.map((n) => n.position.y)) - FRAME_PAD.top);
@@ -79,7 +89,7 @@ function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined): FlowNo
     previous.width === right - left &&
     previous.height === bottom - top
   ) {
-    return [previous, ...elements];
+    return [previous, ...rest];
   }
   const frame: FrameFlowNode = {
     measured: previous?.measured,
@@ -94,7 +104,7 @@ function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined): FlowNo
     zIndex: -1,
     selected: previous?.selected ?? false,
   };
-  return [frame, ...elements];
+  return [frame, ...rest];
 }
 
 export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu }: CanvasProps) {
@@ -142,10 +152,23 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
 
+  /** The sticky note whose text is being edited in place. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const finishEditing = useCallback(
+    (sticky: Sticky, text: string | null) => {
+      setEditing(null);
+      // Emptying a note keeps its old text: deleting it is a separate, deliberate step.
+      if (text === null || !text.trim() || text.trim() === sticky.text) return;
+      void edit([{ op: "update-sticky", view: view.id, id: sticky.id, text }]);
+    },
+    [edit, view.id],
+  );
+
   useEffect(() => {
     if (!cv || !positions) return setNodes([]);
-    setNodes((previous) =>
-      withFrame(
+    const stickyAt = placeStickies(view.stickies, Object.values(positions));
+    setNodes((previous) => [
+      ...withFrame(
         cv.nodes.map((element) => ({
           id: element.id,
           type: "element",
@@ -156,8 +179,21 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         })),
         cv.boundary,
       ).map((n) => (n.type === "frame" ? { ...n, selected: selection?.kind === "element" && selection.id === cv.boundary?.id } : n)),
-    );
-  }, [cv, positions, problemCounts, selection]);
+      ...view.stickies.map(
+        (sticky): StickyFlowNode => ({
+          id: stickyNodeId(sticky.id),
+          type: "sticky",
+          position: stickyAt[sticky.id]!,
+          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text) },
+          selected: selection?.kind === "sticky" && selection.id === sticky.id,
+          measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
+          connectable: false,
+          // Above the arrows and boxes, like a note stuck on a printed diagram.
+          zIndex: 1,
+        }),
+      ),
+    ]);
+  }, [cv, positions, problemCounts, selection, view.stickies, editing, finishEditing]);
 
   // Routed together from the boxes as drawn now, so arrows keep clear of each other and follow boxes being dragged.
   const { routes, labels } = useMemo(() => {
@@ -168,6 +204,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     for (const n of nodes) {
       if (n.type === "element") {
         boxes.set(n.id, { x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H });
+      } else if (n.type === "sticky") {
+        // No arrow starts or ends at a note, but they all go around it.
+        boxes.set(n.id, { x: n.position.x, y: n.position.y, w: n.measured?.width ?? STICKY_W, h: n.measured?.height ?? stickyHeight(n.data.sticky.text) });
       } else {
         frames.push({ x: n.position.x, y: n.position.y, w: n.data.width, h: n.data.height });
         const width = n.data.element.name.length * 8 + kindLabel(n.data.element).length * 6.5 + 12;
@@ -228,13 +267,22 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   }, []);
 
   const selectNode = (node: FlowNode) => {
+    if (node.type === "sticky") {
+      if (selection?.kind !== "sticky" || selection.id !== node.data.sticky.id) onSelect({ kind: "sticky", id: node.data.sticky.id });
+      return;
+    }
     const id = node.type === "frame" ? node.data.element.id : node.id;
     if (selection?.kind !== "element" || selection.id !== id) onSelect({ kind: "element", id });
   };
 
-  const onNodeDragStop = useCallback(() => {
-    void edit([{ op: "set-layout", view: view.id, positions: currentLayout() }]);
-  }, [currentLayout, edit, view.id]);
+  const onNodeDragStop = useCallback(
+    (_: unknown, node: FlowNode) => {
+      // A note keeps its own position; moving it doesn't fix the boxes in place.
+      if (node.type === "sticky") void edit([{ op: "update-sticky", view: view.id, id: node.data.sticky.id, at: [Math.round(node.position.x), Math.round(node.position.y)] }]);
+      else void edit([{ op: "set-layout", view: view.id, positions: currentLayout() }]);
+    },
+    [currentLayout, edit, view.id],
+  );
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -254,6 +302,19 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       { op: "show-in-view", view: view.id, id },
       { op: "set-layout", view: view.id, positions: { ...existing, [id]: [spot.x, spot.y] } },
     ]).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
+  };
+
+  const addSticky = () => {
+    const rect = wrapper.current!.getBoundingClientRect();
+    const center = rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    const id = newStickyId(view);
+    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
+    const spot = freeSpotAmong({ x: center.x - STICKY_W / 2, y: center.y - 50 }, occupied);
+    void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
+      if (!ok) return;
+      onSelect({ kind: "sticky", id });
+      setEditing(id);
+    });
   };
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -324,6 +385,16 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
                     {k.label}
                   </button>
                 ))}
+                <hr />
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    addSticky();
+                  }}
+                >
+                  Sticky note
+                </button>
               </div>
             )}
           </div>

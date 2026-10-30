@@ -43,6 +43,13 @@ describe("reading", () => {
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
 
+  it("checks the tour example cleanly too", () => {
+    const dir = fileURLToPath(new URL("../../../examples/food-delivery", import.meta.url));
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: food-delivery.openarch, 21 elements, 5 views, no problems.\n" });
+    expect(cli(dir, "fmt", "--check").code).toBe(0);
+    expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
+  });
+
   it("finds the file from a parent or child folder", () => {
     const dir = example();
     expect(cli(join(dir, ".."), "check").code).toBe(0);
@@ -139,6 +146,20 @@ describe("changing", () => {
     expect(JSON.parse(read(dir)).elements["web-app"]).not.toHaveProperty("technology");
     expect(cli(dir, "hide-in-view", "shop-containers", "customer", "warehouse").code).toBe(0);
     expect(JSON.parse(read(dir)).views["shop-containers"].exclude).toEqual(["customer", "warehouse"]);
+  });
+
+  it("adds, moves and removes sticky notes, and shows them with the view and in its docs", () => {
+    const dir = example();
+    expect(cli(dir, "add-sticky", "landscape", "start-here", "--text", "Start here.", "--color", "green", "--at", "400,-80").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.landscape.stickies).toEqual({ "start-here": { text: "Start here.", color: "green", at: [400, -80] } });
+    expect(cli(dir, "show", "landscape").out).toContain("Sticky notes:\n  start-here (green at 400, -80):\n    Start here.\n");
+    expect(read(dir, "docs/views/landscape.md")).toContain("## Notes\n\n> Start here.\n");
+    expect(cli(dir, "update-sticky", "landscape", "start-here", "--at", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.landscape.stickies["start-here"]).not.toHaveProperty("at");
+    expect(cli(dir, "update-sticky", "landscape", "start-here", "--at", "4").err).toContain("--at needs x,y");
+    expect(cli(dir, "add-sticky", "landscape", "x").err).toContain("Pass --text");
+    expect(cli(dir, "remove-sticky", "landscape", "start-here").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.landscape).not.toHaveProperty("stickies");
   });
 
   it("refuses to change a file that doesn't parse", () => {

@@ -6,6 +6,7 @@
 import { exportDocs, FILE_EXTENSION, type Workspace } from "@open-arch/core";
 import { strToU8, zipSync } from "fflate";
 import exampleText from "../../../examples/shop/shop.openarch?raw";
+import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw";
 import type { DesktopBridge, DocsSummary } from "./bridge.js";
 
 export interface WorkspaceHost {
@@ -42,6 +43,11 @@ export class MemoryHost implements WorkspaceHost {
 
 export function exampleHost(): MemoryHost {
   return new MemoryHost(`shop${FILE_EXTENSION}`, exampleText);
+}
+
+/** A bigger example whose sticky notes explain C4 diagrams to people new to them. */
+export function tourHost(): MemoryHost {
+  return new MemoryHost(`food-delivery${FILE_EXTENSION}`, tourText);
 }
 
 /** A file picked with <input type="file">: readable, but saving means downloading. */

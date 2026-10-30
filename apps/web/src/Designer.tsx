@@ -58,7 +58,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
   useEffect(() => {
     if (selection?.kind === "element" && ws && !ws.elements.has(selection.id)) setSelection(null);
-  }, [ws, selection]);
+    if (selection?.kind === "sticky" && ws && !ws.views.get(viewId ?? "")?.stickies.some((s) => s.id === selection.id)) setSelection(null);
+  }, [ws, selection, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
   useEffect(() => {
@@ -102,6 +103,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
   const removeSelection = useCallback(() => {
     if (selection?.kind === "element") setDialog({ kind: "delete", id: selection.id });
+    // A note is only text on one view, and Undo brings it back, so it goes without asking.
+    if (selection?.kind === "sticky" && view) void edit([{ op: "remove-sticky", view: view.id, id: selection.id }]).then(() => select(null));
     if (selection?.kind === "arrow" && computed && ws) {
       const edge = computed.edges.find((e) => e.from === selection.from && e.to === selection.to);
       if (!edge || edge.implied) return;
@@ -112,7 +115,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         .map((s) => ({ op: "remove-relationship", ...relationshipRef(ws.elements.get(s.element)!, s.index) }));
       void edit(ops).then(() => select(null));
     }
-  }, [selection, computed, edit, select, ws]);
+  }, [selection, computed, edit, select, ws, view]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -32,6 +32,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 - **Remove:** `open-arch remove-element <id>` also removes what's inside it, views scoped to them, and every reference. `remove-relationship <from> <to>` and `remove-view <id>` remove one thing.
 - **Add a diagram:** `open-arch add-view <id> --level <landscape|context|container|component> --scope <id>`. Context and container views take a system as scope; component views take a container; landscape views take none.
 - **Show or hide something in one diagram:** `open-arch show-in-view <view> <id>...` / `hide-in-view <view> <id>...`.
+- **Explain a diagram with a sticky note:** `open-arch add-sticky <view> <id> --text "Orders are paid before they're saved."` (`--color yellow|pink|blue|green`). Notes are for people reading that diagram, not part of the model; leave out `--at` and the designer places them beside it. Change or remove one with `update-sticky` / `remove-sticky <view> <id>`.
 - **Several changes at once:** write a JSON list of operations and run `open-arch apply changes.json` (or pipe it to `open-arch apply -`):
   ```json
   [
@@ -47,6 +48,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 - Nesting: container → system, component → container. People and systems are top-level.
 - Keep `description` to one sentence; it's shown inside the box. Longer documentation goes in notes.
 - Don't set box positions; people arrange diagrams in the designer.
+- What an element *is* goes in its description and notes, which every view shows. A sticky note is for what one diagram is trying to say.
 
 ## Reference
 

@@ -1,7 +1,7 @@
 import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
 import { useEffect, useRef, useState } from "react";
 import { Designer } from "./Designer.js";
-import { canSaveFiles, desktopBridge, DesktopHost, exampleHost, FileHandleHost, hostFromFile, MemoryHost, pickFileToOpen, type WorkspaceHost } from "./hosts.js";
+import { canSaveFiles, desktopBridge, DesktopHost, exampleHost, FileHandleHost, hostFromFile, MemoryHost, pickFileToOpen, tourHost, type WorkspaceHost } from "./hosts.js";
 
 export function App() {
   const [host, setHost] = useState<WorkspaceHost | null>(null);
@@ -61,6 +61,9 @@ export function App() {
           <button className="big" onClick={create}>
             New workspace
           </button>
+          <button className="big" onClick={() => setHost(tourHost())}>
+            Take the tour
+          </button>
           <button className="big" onClick={() => setHost(exampleHost())}>
             Try the example
           </button>
@@ -76,6 +79,7 @@ export function App() {
             }}
           />
         </div>
+        <p className="muted small">New to architecture diagrams? The tour walks through a made-up food delivery business one zoom level at a time, with sticky notes explaining what you see.</p>
         {desktop && <p className="muted small">Changes save to the file as you work, and the docs folder it names is kept up to date.</p>}
         {!desktop && savesFiles && <p className="muted small">Changes save to the file as you work. Use Export docs for markdown pages with diagrams.</p>}
         {!savesFiles && (

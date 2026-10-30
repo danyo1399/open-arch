@@ -10,6 +10,7 @@ import { suggest } from "./suggest.js";
 import {
   ELEMENT_KINDS,
   ID_PATTERN,
+  STICKY_COLORS,
   VIEW_LEVELS,
   type Diagnostic,
   type ElementData,
@@ -17,6 +18,8 @@ import {
   type OpenArchDocument,
   type Position,
   type RelationshipData,
+  type StickyColor,
+  type StickyData,
   type ViewData,
   type ViewLevel,
 } from "./types.js";
@@ -37,6 +40,9 @@ export type Operation =
   | { op: "show-in-view"; view: string; id: string }
   | { op: "hide-in-view"; view: string; id: string }
   | { op: "set-layout"; view: string; positions: Record<string, Position | null> }
+  | { op: "add-sticky"; view: string; id: string; text: string; color?: StickyColor; at?: [number, number] }
+  | { op: "update-sticky"; view: string; id: string; text?: string; color?: StickyColor; at?: [number, number] | null }
+  | { op: "remove-sticky"; view: string; id: string }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -53,7 +59,7 @@ export class OpError extends Error {
 
 // --- Checking the shape of operations sent as JSON ----------------------------------
 
-type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "properties" | "nullable-properties" | "index" | "positions";
+type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "properties" | "nullable-properties" | "index" | "positions" | "point" | "nullable-point";
 
 const SHAPES: Record<OperationName, { required: string[]; fields: Record<string, FieldType> }> = {
   "add-element": {
@@ -78,12 +84,16 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "show-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "hide-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "set-layout": { required: ["view", "positions"], fields: { view: "string", positions: "positions" } },
+  "add-sticky": { required: ["view", "id", "text"], fields: { view: "string", id: "string", text: "string", color: "string", at: "point" } },
+  "update-sticky": { required: ["view", "id"], fields: { view: "string", id: "string", text: "string", color: "string", at: "nullable-point" } },
+  "remove-sticky": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
 export const OPERATION_NAMES = Object.keys(SHAPES) as OperationName[];
 
 function fits(type: FieldType, value: unknown): boolean {
+  const isPoint = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === "number" && Number.isFinite(n));
   const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
   switch (type) {
     case "string":
@@ -105,6 +115,10 @@ function fits(type: FieldType, value: unknown): boolean {
         isRecord(value) &&
         Object.values(value).every((p) => p === null || (Array.isArray(p) && (p.length === 2 || p.length === 4) && p.every((n) => typeof n === "number" && Number.isFinite(n))))
       );
+    case "point":
+      return isPoint(value);
+    case "nullable-point":
+      return value === null || isPoint(value);
   }
 }
 
@@ -117,6 +131,8 @@ const TYPE_TEXT: Record<FieldType, string> = {
   "nullable-properties": "an object of string values (null removes a key)",
   index: "a whole number, 0 or more",
   positions: "an object of [x, y] positions (null removes one)",
+  point: "a position, [x, y]",
+  "nullable-point": "a position, [x, y], or null to let the designer place it",
 };
 
 /** Check operations received as JSON: an operation object or a list of them. */
@@ -225,6 +241,17 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       return hideInView(doc, op.view, op.id);
     case "set-layout":
       return setLayout(doc, op.view, op.positions);
+    case "add-sticky":
+      return addSticky(doc, op);
+    case "update-sticky":
+      return updateSticky(doc, op);
+    case "remove-sticky": {
+      const view = requireView(doc, op.view);
+      requireSticky(view, op.view, op.id);
+      delete view.stickies![op.id];
+      if (Object.keys(view.stickies!).length === 0) delete view.stickies;
+      return `removed sticky note ${op.id} from view ${op.view}`;
+    }
     case "update-workspace":
       return updateWorkspace(doc, op);
   }
@@ -375,7 +402,7 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   assertNewId(doc, op.id);
   if (!(VIEW_LEVELS as readonly string[]).includes(op.level)) throw new OpError(`Unknown level "${op.level}". Use one of: ${VIEW_LEVELS.join(", ")}.`);
   const ws = buildWorkspace(doc);
-  const draft = { id: op.id, path: `views.${op.id}`, title: "", level: op.level, scope: op.scope, include: ["*"], exclude: [], layout: {} };
+  const draft = { id: op.id, path: `views.${op.id}`, title: "", level: op.level, scope: op.scope, include: ["*"], exclude: [], stickies: [], layout: {} };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
   checkIds(doc, op.include, "include");
@@ -465,6 +492,37 @@ function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<stri
   return `saved positions in view ${viewId}`;
 }
 
+function addSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "add-sticky" }>): string {
+  const view = requireView(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. IDs are lowercase kebab-case, like "start-here".`);
+  if (view.stickies?.[op.id]) throw new OpError(`View "${op.view}" already has a sticky note "${op.id}".`);
+  if (!op.text.trim()) throw new OpError("A sticky note needs some text.");
+  checkColor(op.color);
+  view.stickies = {
+    ...view.stickies,
+    [op.id]: clean<StickyData>({ text: op.text.trim(), color: op.color === "yellow" ? undefined : op.color, at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])] }),
+  };
+  return `added sticky note ${op.id} to view ${op.view}`;
+}
+
+function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "update-sticky" }>): string {
+  const view = requireView(doc, op.view);
+  const sticky = requireSticky(view, op.view, op.id);
+  if (op.text === undefined && op.color === undefined && op.at === undefined) throw new OpError("Say what to change: text, color or at.");
+  if (op.text !== undefined) {
+    if (!op.text.trim()) throw new OpError("A sticky note needs some text. Remove it with remove-sticky instead.");
+    sticky.text = op.text.trim();
+  }
+  if (op.color !== undefined) {
+    checkColor(op.color);
+    if (op.color === "yellow") delete sticky.color;
+    else sticky.color = op.color;
+  }
+  if (op.at === null) delete sticky.at;
+  else if (op.at !== undefined) sticky.at = [Math.round(op.at[0]), Math.round(op.at[1])];
+  return `updated sticky note ${op.id} in view ${op.view}`;
+}
+
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {
   if (op.name === undefined && op.description === undefined && op.docs === undefined) throw new OpError("Say what to change: name, description or docs.");
   if (op.name !== undefined) {
@@ -513,6 +571,20 @@ function requireView(doc: OpenArchDocument, id: string): ViewData {
     throw new OpError(`No view has the ID "${id}".${near ? ` Did you mean "${near}"?` : ""}`);
   }
   return v;
+}
+
+function requireSticky(view: ViewData, viewId: string, id: string): StickyData {
+  const sticky = view.stickies?.[id];
+  if (!sticky) {
+    const ids = Object.keys(view.stickies ?? {});
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no sticky note "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its notes: ${ids.join(", ")}.` : ""}`);
+  }
+  return sticky;
+}
+
+function checkColor(color: string | undefined): void {
+  if (color !== undefined && !(STICKY_COLORS as readonly string[]).includes(color)) throw new OpError(`Unknown color "${color}". Use one of: ${STICKY_COLORS.join(", ")}.`);
 }
 
 function assertNewId(doc: OpenArchDocument, id: string): void {

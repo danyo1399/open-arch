@@ -73,6 +73,7 @@ export function show(io: Io, opts: ShowOptions): number {
       frame: cv.boundary?.id,
       boxes: cv.nodes.map(summary),
       arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
+      stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
     };
     const scope = cv.boundary ?? (view.scope ? ws.elements.get(view.scope) : undefined);
     const lines = [
@@ -92,6 +93,9 @@ export function show(io: Io, opts: ShowOptions): number {
             ]),
           )
         : ["  (none)"]),
+      ...(view.stickies.length
+        ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+        : []),
     ];
     print(json, lines.join("\n") + "\n");
     return 0;

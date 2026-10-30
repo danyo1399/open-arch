@@ -115,6 +115,37 @@ describe("views", () => {
   });
 });
 
+describe("sticky notes", () => {
+  it("adds, updates and removes sticky notes, keeping yellow as the default", () => {
+    let doc = apply(
+      shop(),
+      { op: "add-sticky", view: "landscape", id: "start-here", text: " Read me first. ", at: [10.4, -20.6] },
+      { op: "add-sticky", view: "landscape", id: "tip", text: "Try it.", color: "green" },
+    );
+    expect(doc.views.landscape!.stickies).toEqual({ "start-here": { text: "Read me first.", at: [10, -21] }, tip: { text: "Try it.", color: "green" } });
+    doc = apply(doc, { op: "update-sticky", view: "landscape", id: "start-here", text: "Read me.", color: "pink", at: null }, { op: "update-sticky", view: "landscape", id: "tip", color: "yellow", at: [5, 5] });
+    expect(doc.views.landscape!.stickies).toEqual({ "start-here": { text: "Read me.", color: "pink" }, tip: { text: "Try it.", at: [5, 5] } });
+    doc = apply(doc, { op: "remove-sticky", view: "landscape", id: "start-here" }, { op: "remove-sticky", view: "landscape", id: "tip" });
+    expect(doc.views.landscape!.stickies).toBeUndefined();
+  });
+
+  it("refuses notes without text, unknown colors and missing notes", () => {
+    const doc = apply(shop(), { op: "add-sticky", view: "landscape", id: "note", text: "Hi" });
+    expect(fails(doc, { op: "add-sticky", view: "landscape", id: "note", text: "Again" })).toMatch(/already has a sticky note "note"/);
+    expect(fails(doc, { op: "add-sticky", view: "landscape", id: "Note", text: "x" })).toMatch(/kebab-case/);
+    expect(fails(doc, { op: "add-sticky", view: "landscape", id: "other", text: "  " })).toMatch(/needs some text/);
+    expect(fails(doc, { op: "add-sticky", view: "landscape", id: "other", text: "x", color: "red" as never })).toMatch(/Unknown color "red"/);
+    expect(fails(doc, { op: "update-sticky", view: "landscape", id: "note", text: "" })).toMatch(/remove-sticky/);
+    expect(fails(doc, { op: "update-sticky", view: "landscape", id: "nots", text: "x" })).toBe('View "landscape" has no sticky note "nots". Did you mean "note"?');
+    expect(fails(doc, { op: "remove-sticky", view: "shop-context", id: "note" })).toBe('View "shop-context" has no sticky note "note".');
+  });
+
+  it("keeps a view's notes when the view is renamed", () => {
+    const doc = apply(shop(), { op: "add-sticky", view: "landscape", id: "note", text: "Hi" }, { op: "rename", id: "landscape", to: "everything" });
+    expect(doc.views.everything!.stickies).toEqual({ note: { text: "Hi" } });
+  });
+});
+
 describe("batches", () => {
   it("applies all or nothing, naming the operation that failed", () => {
     const doc = shop();
@@ -156,5 +187,7 @@ describe("parseOperations", () => {
     expect(bad({ op: "add-element", id: "x", kind: "system", desc: "y" })).toMatch(/^add-element has no field "desc"\./);
     expect(bad({ op: "add-element", id: "x" })).toBe('add-element needs "kind".');
     expect(bad([{ op: "remove-view", id: "a" }, { op: "update-element", id: "x", tags: "a" }])).toBe('Operation 2: update-element: "tags" must be a list of strings.');
+    expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", at: [1, 2, 3] })).toBe('add-sticky: "at" must be a position, [x, y].');
+    expect(bad({ op: "update-sticky", view: "v", id: "n", at: null })).toBe("ok");
   });
 });

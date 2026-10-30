@@ -1,6 +1,6 @@
 /** The model, indexed for queries, built from a parsed document. */
 import { parseDocument } from "./document.js";
-import type { ArchElement, Diagnostic, OpenArchDocument, ViewDef } from "./types.js";
+import type { ArchElement, Diagnostic, OpenArchDocument, Sticky, ViewDef } from "./types.js";
 
 export interface Workspace {
   doc: OpenArchDocument;
@@ -42,6 +42,9 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
       scope: v.scope,
       include: v.include ?? ["*"],
       exclude: v.exclude ?? [],
+      stickies: Object.entries(v.stickies ?? {})
+        .map(([sid, s]) => ({ id: sid, path: `views.${id}.stickies.${sid}`, text: s.text, color: s.color ?? "yellow", at: s.at }))
+        .sort(readingOrder),
       layout: v.layout ?? {},
     });
   }
@@ -50,6 +53,13 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
     ws.children.set(element.parent, [...(ws.children.get(element.parent) ?? []), element.id]);
   }
   return ws;
+}
+
+/** Placed notes top to bottom, then left to right; unplaced ones after them, by ID. */
+function readingOrder(a: Sticky, b: Sticky): number {
+  if (a.at && b.at) return a.at[1] - b.at[1] || a.at[0] - b.at[0] || (a.id < b.id ? -1 : 1);
+  if (a.at || b.at) return a.at ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /** Parse the text of a .openarch file and build its workspace. */

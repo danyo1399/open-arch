@@ -98,7 +98,8 @@ all or nothing. Each operation is an object with "op" and the same fields as the
 command, e.g. [{ "op": "add-element", "id": "cache", "kind": "container", "parent": "shop" }].
 Operations: add-element, update-element, remove-element, rename, add-relationship,
 update-relationship, remove-relationship, add-view, update-view, remove-view, show-in-view,
-hide-in-view, set-layout, update-workspace. In updates, null removes a field.
+hide-in-view, set-layout, add-sticky, update-sticky, remove-sticky, update-workspace.
+In updates, null removes a field.
 `,
     {},
   ),
@@ -181,6 +182,23 @@ An empty value removes a field.
   "remove-view": writer(`Usage: open-arch remove-view <id>\n`, {}),
   "show-in-view": writer(`Usage: open-arch show-in-view <view> <id>...\n\nShows elements in a view, removing them from its exclude list or adding them to include.\n`, {}),
   "hide-in-view": writer(`Usage: open-arch hide-in-view <view> <id>...\n\nHides elements from a view, without removing them from the model.\n`, {}),
+  "add-sticky": writer(
+    `Usage: open-arch add-sticky <view> <id> --text <text> [--color <yellow|pink|blue|green>] [--at <x,y>]
+
+Adds a sticky note to a view: text for people reading the diagram, such as what to notice or
+why it's drawn this way. It isn't part of the model. The id must be unique within the view.
+  --at <x,y>             Top-left corner (default: the designer puts it beside the diagram)
+`,
+    { text: s, color: s, at: s },
+  ),
+  "update-sticky": writer(
+    `Usage: open-arch update-sticky <view> <id> [--text <text>] [--color <yellow|pink|blue|green>] [--at <x,y>]
+
+--at "" lets the designer place it again.
+`,
+    { text: s, color: s, at: s },
+  ),
+  "remove-sticky": writer(`Usage: open-arch remove-sticky <view> <id>\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -205,6 +223,7 @@ Change (each change is checked first; nothing is saved if it would break the mod
   add-relationship <from> <to>    update-relationship <from> <to>    remove-relationship <from> <to>
   add-view <id>          update-view <id>          remove-view <id>
   show-in-view <view> <id>...     hide-in-view <view> <id>...     update-workspace
+  add-sticky <view> <id>          update-sticky <view> <id>       remove-sticky <view> <id>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

@@ -84,6 +84,36 @@ export function freeSpotAmong(start: Point, occupied: Point[]): Point {
   return candidates.find((p) => !overlaps(p)) ?? { x: Math.round(start.x), y: Math.round(start.y) };
 }
 
+export const STICKY_W = 200;
+const STICKY_GAP = 24;
+
+/** A sticky note's height before it has been drawn, estimated from its text. */
+export function stickyHeight(text: string): number {
+  const lines = text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 26)), 0);
+  return 26 + lines * 18;
+}
+
+/**
+ * Positions for every sticky note: saved ones as they are, and the rest, in
+ * order, in a column to the right of everything else.
+ */
+export function placeStickies(stickies: { id: string; text: string; at?: [number, number] }[], boxes: Point[]): Record<string, Point> {
+  const placed = stickies.filter((s) => s.at).map((s) => ({ x: s.at![0], y: s.at![1] }));
+  const rights = [...boxes.map((b) => b.x + NODE_W), ...placed.map((p) => p.x + STICKY_W)];
+  const x = rights.length ? Math.max(...rights) + 80 : 0;
+  let y = boxes.length ? Math.min(...boxes.map((b) => b.y)) : 0;
+  const out: Record<string, Point> = {};
+  for (const s of stickies) {
+    if (s.at) {
+      out[s.id] = { x: s.at[0], y: s.at[1] };
+      continue;
+    }
+    out[s.id] = { x, y };
+    y += stickyHeight(s.text) + STICKY_GAP;
+  }
+  return out;
+}
+
 /** The first spot on a grid to the right of and below `start` that nothing overlaps. */
 function freeSpot(start: Point, overlaps: (p: Point) => boolean): Point {
   for (let row = 0; row < 20; row++) {

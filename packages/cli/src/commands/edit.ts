@@ -108,6 +108,15 @@ function index(v: Values[string]): number | undefined {
   return n;
 }
 
+/** `--at 400,120`; an empty value means "remove it". */
+function point(v: Values[string]): [number, number] | null | undefined {
+  if (typeof v !== "string") return undefined;
+  if (v.trim() === "") return null;
+  const parts = v.split(",").map((n) => Number(n.trim()));
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) throw new CliError(`--at needs x,y, e.g. --at 400,120, not "${v}".`, 2);
+  return parts as [number, number];
+}
+
 export type Builder = (io: Io, v: Values, positionals: string[], usage: string) => Operation[];
 
 export const BUILDERS: Record<string, Builder> = {
@@ -184,6 +193,20 @@ export const BUILDERS: Record<string, Builder> = {
   "hide-in-view": (_io, _v, p, usage) => {
     if (p.length < 2) throw new CliError(`Name a view and at least one element.\n\n${usage}`, 2);
     return p.slice(1).map((id) => ({ op: "hide-in-view", view: p[0]!, id }) as const);
+  },
+  "add-sticky": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    const body = text(v.text);
+    if (body === undefined) throw new CliError(`Pass --text.\n\n${usage}`, 2);
+    return [{ op: "add-sticky", view: view!, id: id!, text: body, color: text(v.color) as never, at: point(v.at) ?? undefined }];
+  },
+  "update-sticky": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "update-sticky", view: view!, id: id!, text: text(v.text), color: text(v.color) as never, at: point(v.at) }];
+  },
+  "remove-sticky": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-sticky", view: view!, id: id! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

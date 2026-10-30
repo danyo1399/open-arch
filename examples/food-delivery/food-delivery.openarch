@@ -1,0 +1,341 @@
+{
+  "openarch": 1,
+  "name": "Food Delivery",
+  "description": "A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 5 in order: each zooms in one step, and its sticky notes explain what you're looking at.",
+  "export": { "docs": "docs" },
+  "elements": {
+    "courier": {
+      "kind": "person",
+      "name": "Courier",
+      "description": "Collects orders from restaurants and delivers them.",
+      "notes": "Another role. Couriers aren't employees of the business, but they're people using its software, so they're people in the model.",
+      "uses": [
+        { "to": "courier-app", "description": "Accepts jobs and updates deliveries using" }
+      ]
+    },
+    "customer": {
+      "kind": "person",
+      "name": "Customer",
+      "description": "Orders food from local restaurants.",
+      "notes": "**A person** is a role, not a named individual: everyone who orders food is a Customer.\n\nPeople sit at the edge of every diagram. They use systems, but you never model what's inside them.",
+      "uses": [
+        { "to": "customer-app", "description": "Orders food and tracks deliveries using" }
+      ]
+    },
+    "restaurant-staff": {
+      "kind": "person",
+      "name": "Restaurant Staff",
+      "description": "Accepts orders and gets them ready for pickup.",
+      "uses": [
+        { "to": "restaurant-portal", "description": "Accepts orders and marks them ready using" }
+      ]
+    },
+    "support-agent": {
+      "kind": "person",
+      "name": "Support Agent",
+      "description": "Sorts out problems with orders.",
+      "notes": "Support agents work for the business but never use the Delivery Platform directly, which is why they appear in the landscape (view 1) and not in the platform's context (view 2).",
+      "uses": [
+        { "to": "support-desk", "description": "Handles customer problems using" }
+      ]
+    },
+    "delivery-platform": {
+      "kind": "system",
+      "name": "Delivery Platform",
+      "description": "Lets customers order food, restaurants prepare it and couriers deliver it.",
+      "properties": {
+        "owner": "Ordering team"
+      },
+      "notes": "**A software system** is the biggest thing you draw inside your organisation: something that does a job for people and that one team can own.\n\nThis is the system the example looks inside: its containers are in view 3, and the components of one container in view 4."
+    },
+    "courier-app": {
+      "kind": "container",
+      "name": "Courier App",
+      "parent": "delivery-platform",
+      "description": "Shows couriers their jobs and the way there.",
+      "technology": "React Native",
+      "uses": [
+        { "to": "order-routes", "description": "Accepts jobs and updates deliveries using", "technology": "HTTPS/JSON" },
+        { "to": "maps-service", "description": "Gets directions from", "technology": "HTTPS" }
+      ]
+    },
+    "customer-app": {
+      "kind": "container",
+      "name": "Customer App",
+      "parent": "delivery-platform",
+      "description": "Lets customers browse menus, order and track their food.",
+      "technology": "React Native",
+      "notes": "**A container** is something that runs or stores data on its own: an app, a website, an API, a background worker, a database or a queue. The word has nothing to do with Docker.\n\nThis one is a mobile app, installed on customers' phones.",
+      "uses": [
+        { "to": "order-routes", "description": "Places and tracks orders using", "technology": "HTTPS/JSON" }
+      ]
+    },
+    "dispatch-worker": {
+      "kind": "container",
+      "name": "Dispatch Worker",
+      "parent": "delivery-platform",
+      "description": "Finds a nearby courier for every order that's ready.",
+      "technology": "Go",
+      "notes": "A background worker: nobody calls it. It reacts to events on the queue.",
+      "uses": [
+        { "to": "order-events", "description": "Reads order-ready events from", "technology": "Kafka" },
+        { "to": "orders-db", "description": "Records which courier has each order", "technology": "SQL" },
+        { "to": "maps-service", "description": "Estimates travel times using", "technology": "HTTPS" },
+        { "to": "messaging-provider", "description": "Offers jobs to couriers using", "technology": "HTTPS" }
+      ]
+    },
+    "order-api": {
+      "kind": "container",
+      "name": "Order API",
+      "parent": "delivery-platform",
+      "description": "Takes orders, charges for them and tracks their progress.",
+      "technology": "Node.js",
+      "properties": {
+        "owner": "Ordering team",
+        "repository": "github.com/example/order-api"
+      },
+      "notes": "The heart of the platform. Its components are in view 4.\n\nIts relationships are listed on its components, not on the Order API itself, which is why the arrows to and from it in view 3 are dashed."
+    },
+    "event-publisher": {
+      "kind": "component",
+      "name": "Event Publisher",
+      "parent": "order-api",
+      "description": "Publishes order events.",
+      "technology": "KafkaJS",
+      "uses": [
+        { "to": "order-events", "description": "Publishes order-placed and order-ready to", "technology": "Kafka" }
+      ]
+    },
+    "order-repository": {
+      "kind": "component",
+      "name": "Order Repository",
+      "parent": "order-api",
+      "description": "Reads and writes orders.",
+      "technology": "TypeScript",
+      "uses": [
+        { "to": "orders-db", "description": "Reads and writes orders in", "technology": "SQL" }
+      ]
+    },
+    "order-routes": {
+      "kind": "component",
+      "name": "Order Routes",
+      "parent": "order-api",
+      "description": "Receives requests from the apps, the portal and the support desk.",
+      "technology": "Express",
+      "uses": [
+        { "to": "order-service", "description": "Hands each request to" }
+      ]
+    },
+    "order-service": {
+      "kind": "component",
+      "name": "Order Service",
+      "parent": "order-api",
+      "description": "Applies the ordering rules: prices, payment and each order's status.",
+      "technology": "TypeScript",
+      "notes": "**A component** is a big building block inside one container, such as a module, a service or a set of classes.",
+      "uses": [
+        { "to": "payment-gateway", "description": "Charges orders using" },
+        { "to": "order-repository", "description": "Saves and loads orders using" },
+        { "to": "event-publisher", "description": "Announces changes using" }
+      ]
+    },
+    "payment-gateway": {
+      "kind": "component",
+      "name": "Payment Gateway",
+      "parent": "order-api",
+      "description": "Wraps the payment provider's API.",
+      "technology": "TypeScript",
+      "uses": [
+        { "to": "payment-provider", "description": "Charges cards using", "technology": "HTTPS" }
+      ]
+    },
+    "order-events": {
+      "kind": "container",
+      "name": "Order Events",
+      "parent": "delivery-platform",
+      "description": "Carries events like order-placed and order-ready.",
+      "technology": "Kafka",
+      "tags": ["queue"],
+      "notes": "A message queue is a container too: it runs and stores data on its own.\n\nIts `queue` tag is only a label. Of the tags, only `database` changes a box's shape."
+    },
+    "orders-db": {
+      "kind": "container",
+      "name": "Orders Database",
+      "parent": "delivery-platform",
+      "description": "Stores orders, menus and deliveries.",
+      "technology": "PostgreSQL",
+      "tags": ["database"],
+      "notes": "The `database` tag draws it as a cylinder."
+    },
+    "restaurant-portal": {
+      "kind": "container",
+      "name": "Restaurant Portal",
+      "parent": "delivery-platform",
+      "description": "Lets restaurants manage menus and incoming orders.",
+      "technology": "React",
+      "uses": [
+        { "to": "order-routes", "description": "Accepts orders and marks them ready using", "technology": "HTTPS/JSON" }
+      ]
+    },
+    "maps-service": {
+      "kind": "system",
+      "name": "Maps Service",
+      "description": "Provides maps, directions and travel times.",
+      "external": true
+    },
+    "messaging-provider": {
+      "kind": "system",
+      "name": "Messaging Provider",
+      "description": "Sends push notifications and text messages.",
+      "external": true,
+      "notes": "Arrows can point at people too: this external system sends notifications to couriers' phones.",
+      "uses": [
+        { "to": "courier", "description": "Sends job offers to", "technology": "Push" }
+      ]
+    },
+    "payment-provider": {
+      "kind": "system",
+      "name": "Payment Provider",
+      "description": "Takes card payments.",
+      "external": true,
+      "notes": "**External** systems belong to another company, here a card payments business. They're drawn grey.\n\nYou model how you use them, never what's inside them."
+    },
+    "support-desk": {
+      "kind": "system",
+      "name": "Support Desk",
+      "description": "Tracks customer problems and refunds.",
+      "properties": {
+        "owner": "Customer Care team"
+      },
+      "notes": "Another system inside the organisation. It's a separate system, not a container of the Delivery Platform, because a different team (Customer Care) builds and runs it.\n\nThis example doesn't look inside it, so it has no containers.",
+      "uses": [
+        { "to": "order-routes", "description": "Looks up orders and issues refunds using", "technology": "HTTPS/JSON" }
+      ]
+    }
+  },
+  "views": {
+    "landscape": {
+      "title": "1. System landscape",
+      "description": "Every person and system in the business, and how they connect.",
+      "level": "landscape",
+      "include": ["*"],
+      "stickies": {
+        "about": { "text": "This is a landscape view: every person and system in the model, and how they connect. It's the map of the whole business.\n\nClick any box to read about it in the panel on the right.", "color": "blue", "at": [-200, -280] },
+        "arrows": { "text": "Read an arrow as a sentence: Support Agent → handles customer problems using → Support Desk.\n\nDashed arrows stand for arrows between the parts inside the boxes. View 3 explains.", "at": [-440, 520] },
+        "external": { "text": "Grey boxes are external: run by another company. You show how you use them, never what's inside them.", "at": [960, 520] },
+        "people": { "text": "The boxes with rounded tops are people: roles like Customer or Courier, not named individuals.", "at": [960, 0] },
+        "systems": { "text": "The square blue boxes are software systems. A system is something one team owns that does a job for people, like the Delivery Platform.", "at": [960, 260] },
+        "welcome": { "text": "Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.\n\nOpen views 1 to 5 in the sidebar in order. Each one zooms in a step.", "color": "green", "at": [-440, -280] }
+      },
+      "layout": {
+        "courier": [640, 0],
+        "customer": [320, 0],
+        "delivery-platform": [320, 260],
+        "maps-service": [0, 520],
+        "messaging-provider": [640, 520],
+        "payment-provider": [320, 520],
+        "restaurant-staff": [0, 0],
+        "support-agent": [-440, 0],
+        "support-desk": [-440, 260]
+      }
+    },
+    "order-api-components": {
+      "title": "4. Order API components",
+      "description": "How the Order API handles an order.",
+      "level": "component",
+      "scope": "order-api",
+      "include": ["*"],
+      "stickies": {
+        "about": { "text": "A component view looks inside one container. Components are the big building blocks of its code, such as modules or services.\n\nOnly draw them when they help explain something.", "color": "blue", "at": [-320, 0] },
+        "once": { "text": "Each relationship is modelled once, on the most detailed element. Views 1 to 3 draw the same relationships at their own zoom level, so the views never disagree.", "color": "pink", "at": [1180, 630] },
+        "outside": { "text": "Outside the frame are the other containers and systems these components talk to. The people aren't here: they use the apps, not these components.", "at": [1180, 230] }
+      },
+      "layout": {
+        "courier-app": [640, 0],
+        "customer-app": [0, 0],
+        "event-publisher": [800, 630],
+        "order-events": [800, 880],
+        "order-repository": [480, 630],
+        "order-routes": [480, 230],
+        "order-service": [480, 430],
+        "orders-db": [480, 880],
+        "payment-gateway": [160, 630],
+        "payment-provider": [160, 880],
+        "restaurant-portal": [320, 0],
+        "support-desk": [960, 0]
+      }
+    },
+    "ordering-flow": {
+      "title": "5. Placing an order",
+      "description": "Only what's involved when a customer places an order.",
+      "level": "container",
+      "scope": "delivery-platform",
+      "include": ["customer", "customer-app", "order-api", "orders-db", "order-events", "payment-provider"],
+      "stickies": {
+        "about": { "text": "Views don't copy the model, they pick from it. This one lists exactly which elements to show (its include list), so it tells one story: placing an order.", "color": "blue", "at": [0, 0] },
+        "shared": { "text": "Rename a box here and it changes in every view, because there's only one model underneath.", "at": [840, 230] },
+        "try": { "text": "Your turn! Use + Add to add a container or a sticky note, drag from the dot under a box to another box to draw an arrow, and double-click a note to edit it. Undo takes anything back.", "color": "green", "at": [840, 650] }
+      },
+      "layout": {
+        "customer": [320, 0],
+        "customer-app": [320, 230],
+        "order-api": [320, 450],
+        "order-events": [480, 670],
+        "orders-db": [160, 670],
+        "payment-provider": [840, 450]
+      }
+    },
+    "platform-containers": {
+      "title": "3. Delivery Platform containers",
+      "description": "The apps, services and data stores that make up the Delivery Platform.",
+      "level": "container",
+      "scope": "delivery-platform",
+      "include": ["*"],
+      "stickies": {
+        "about": { "text": "A container view looks inside one system. The dashed frame is the Delivery Platform: its containers are inside, and the people and systems they talk to are outside.", "color": "blue", "at": [-460, -20] },
+        "containers": { "text": "A container is something that runs or stores data on its own: an app, a website, an API, a worker, a database or a queue. Nothing to do with Docker!", "at": [1460, 660] },
+        "database": { "text": "The cylinder is a database. Anything tagged \"database\" is drawn that way.", "at": [630, 930] },
+        "implied": { "text": "Dashed arrows are implied: the real relationship belongs to something inside the box. The apps actually call the Order Routes component inside the Order API (view 4).", "color": "pink", "at": [210, 930] },
+        "technology": { "text": "Boxes and arrows can say what they're built with: [Container: Node.js] on a box, or the protocol under an arrow's description.", "at": [1050, 930] }
+      },
+      "layout": {
+        "courier": [840, 0],
+        "courier-app": [840, 240],
+        "customer": [0, 0],
+        "customer-app": [0, 240],
+        "dispatch-worker": [1050, 480],
+        "maps-service": [1460, 480],
+        "messaging-provider": [1460, 240],
+        "order-api": [210, 480],
+        "order-events": [630, 480],
+        "orders-db": [630, 720],
+        "payment-provider": [-460, 480],
+        "restaurant-portal": [420, 240],
+        "restaurant-staff": [420, 0],
+        "support-desk": [-460, 240]
+      }
+    },
+    "platform-context": {
+      "title": "2. Delivery Platform context",
+      "description": "Who uses the Delivery Platform, and which systems it depends on.",
+      "level": "context",
+      "scope": "delivery-platform",
+      "include": ["*"],
+      "stickies": {
+        "about": { "text": "A context view puts one system in the middle and shows only what touches it: who uses it, and which systems it uses.", "color": "blue", "at": [-440, -180] },
+        "missing": { "text": "Where's the Support Agent? They don't use the Delivery Platform themselves. They use the Support Desk, which does, so they're not part of this picture.", "color": "pink", "at": [-440, 0] },
+        "next": { "text": "Next: view 3 opens up the Delivery Platform to show what it's made of.", "color": "green", "at": [960, 520] }
+      },
+      "layout": {
+        "courier": [640, 0],
+        "customer": [320, 0],
+        "delivery-platform": [320, 260],
+        "maps-service": [0, 520],
+        "messaging-provider": [640, 520],
+        "payment-provider": [320, 520],
+        "restaurant-staff": [0, 0],
+        "support-desk": [-440, 260]
+      }
+    }
+  }
+}

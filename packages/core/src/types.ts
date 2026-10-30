@@ -4,7 +4,10 @@ export type ElementKind = (typeof ELEMENT_KINDS)[number];
 export const VIEW_LEVELS = ["landscape", "context", "container", "component"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
-/** Element and view IDs: lowercase kebab-case, like "checkout-api". */
+export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
+export type StickyColor = (typeof STICKY_COLORS)[number];
+
+/** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export const FORMAT_VERSION = 1;
@@ -57,8 +60,19 @@ export interface ViewData {
   scope?: string;
   include?: string[];
   exclude?: string[];
+  /** Notes for people reading the diagram, keyed by an ID unique within the view. */
+  stickies?: Record<string, StickyData>;
   /** Box positions saved by the designer, keyed by element ID. */
   layout?: Record<string, Position>;
+}
+
+/** A sticky note on a view. It explains the diagram; it isn't part of the model. */
+export interface StickyData {
+  text: string;
+  /** Default: yellow. */
+  color?: StickyColor;
+  /** Top-left corner. Without it, the designer puts the note beside the diagram. */
+  at?: [number, number];
 }
 
 // --- The model built from a document -------------------------------------------
@@ -98,7 +112,18 @@ export interface ViewDef {
   scope?: string;
   include: string[];
   exclude: string[];
+  /** In reading order: placed notes top to bottom and left to right, then unplaced ones by ID. */
+  stickies: Sticky[];
   layout: Record<string, Position>;
+}
+
+export interface Sticky {
+  id: string;
+  /** Where it lives in the document, e.g. `views.landscape.stickies.start-here`. */
+  path: string;
+  text: string;
+  color: StickyColor;
+  at?: [number, number];
 }
 
 export type Severity = "error" | "warning";

@@ -8,12 +8,14 @@ import {
   ELEMENT_KINDS,
   FORMAT_VERSION,
   ID_PATTERN,
+  STICKY_COLORS,
   VIEW_LEVELS,
   type Diagnostic,
   type ElementData,
   type OpenArchDocument,
   type Position,
   type RelationshipData,
+  type StickyData,
   type ViewData,
 } from "./types.js";
 
@@ -48,7 +50,8 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "tags", "properties", "notes", "uses"];
 const RELATIONSHIP_KEYS = ["to", "description", "technology", "tags"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "layout"];
+const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "stickies", "layout"];
+const STICKY_KEYS = ["text", "color", "at"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -207,6 +210,16 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   if (include) view.include = include;
   const exclude = strList(value.exclude, `${path}.exclude`, report);
   if (exclude) view.exclude = exclude;
+  if (value.stickies !== undefined) {
+    if (!isObject(value.stickies)) report(`${path}.stickies`, "field-type", "Must be an object keyed by sticky note ID.");
+    else {
+      view.stickies = {};
+      for (const [stickyId, sticky] of Object.entries(value.stickies)) {
+        const s = readSticky(stickyId, sticky, `${path}.stickies.${stickyId}`, report);
+        if (s) view.stickies[stickyId] = s;
+      }
+    }
+  }
   if (value.layout !== undefined) {
     if (!isObject(value.layout)) report(`${path}.layout`, "field-type", "Must be an object keyed by element ID.");
     else {
@@ -221,6 +234,30 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
     }
   }
   return view;
+}
+
+function readSticky(id: string, value: unknown, path: string, report: Report): StickyData | undefined {
+  if (!readId(id, path, report)) return undefined;
+  if (!isObject(value)) {
+    report(path, "field-type", 'A sticky note must be an object like { "text": "..." }.');
+    return undefined;
+  }
+  unknownKeys(value, STICKY_KEYS, path, report);
+  const text = str(value.text, `${path}.text`, report);
+  if (!text?.trim()) {
+    report(`${path}.text`, "field-required", "`text` is required.");
+    return undefined;
+  }
+  const sticky: StickyData = { text };
+  if (value.color !== undefined) {
+    if ((STICKY_COLORS as readonly unknown[]).includes(value.color)) sticky.color = value.color as StickyData["color"];
+    else report(`${path}.color`, "color-invalid", `\`color\` must be one of: ${STICKY_COLORS.join(", ")}.`);
+  }
+  if (value.at !== undefined) {
+    if (Array.isArray(value.at) && value.at.length === 2 && value.at.every((n) => typeof n === "number" && Number.isFinite(n))) sticky.at = value.at as [number, number];
+    else report(`${path}.at`, "field-type", "Must be a position, [x, y].");
+  }
+  return sticky;
 }
 
 // --- Writing ----------------------------------------------------------------------
@@ -298,6 +335,11 @@ function viewText(v: ViewData, indent: string): string {
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
   entries.push(["include", inline(v.include ?? ["*"])]);
   if (present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
+  if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
+    const keys = Object.keys(v.stickies).sort();
+    const sticky = (s: StickyData) => inline({ text: s.text, color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)) });
+    entries.push(["stickies", block(keys.map((k) => [k, sticky(v.stickies![k]!)]), `${indent}  `)]);
+  }
   if (present(v.layout, (l) => Object.keys(l).length > 0)) {
     const keys = Object.keys(v.layout).sort();
     entries.push(["layout", block(keys.map((k) => [k, inline(v.layout![k]!.map((n) => Math.round(n)))]), `${indent}  `)]);

@@ -1,4 +1,4 @@
-import { describeElement, kindLabel, PARENT_KIND, type ArchElement, type ComputedView, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { describeElement, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type Operation, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import { followsName, idFromName, relationshipRef, uniqueId } from "../model.js";
@@ -43,6 +43,8 @@ export function Properties(props: PropertiesProps) {
   let body;
   if (selection?.kind === "element" && ws.elements.has(selection.id)) body = <ElementProperties {...props} element={ws.elements.get(selection.id)!} />;
   else if (selection?.kind === "arrow") body = <ArrowProperties {...props} from={selection.from} to={selection.to} />;
+  else if (selection?.kind === "sticky" && props.view?.stickies.some((s) => s.id === selection.id))
+    body = <StickyProperties {...props} view={props.view} sticky={props.view.stickies.find((s) => s.id === selection.id)!} />;
   else if (selection?.kind === "workspace" || !props.view) body = <WorkspaceProperties {...props} />;
   else body = <ViewProperties {...props} view={props.view} />;
   return (
@@ -227,6 +229,33 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
   );
 }
 
+function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { view: ViewDef; sticky: Sticky }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-sticky" }>, "op" | "view" | "id">) => void edit([{ op: "update-sticky", view: view.id, id: sticky.id, ...fields }]);
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge badge-sticky">Sticky note</span>
+      </header>
+      <Field label="Text" value={sticky.text} multiline rows={6} onCommit={(text) => text.trim() && set({ text })} hint="Double-click the note to edit it in place." />
+      <fieldset className="field swatches">
+        <legend className="field-label">Colour</legend>
+        {STICKY_COLORS.map((color) => (
+          <label key={color} className={`swatch sticky-${color}`} title={color[0]!.toUpperCase() + color.slice(1)}>
+            <input type="radio" name="sticky-color" value={color} checked={sticky.color === color} onChange={() => set({ color })} aria-label={color} />
+          </label>
+        ))}
+      </fieldset>
+      <p className="muted small">Notes explain this diagram to the people reading it: what to look at, or why it's drawn this way. They belong to this view and aren't part of the model, so other views don't show them. The docs show them under the diagram.</p>
+      <div className="actions">
+        {sticky.at && <button onClick={() => set({ at: null })}>Move beside the diagram</button>}
+        <button className="danger" onClick={() => void edit([{ op: "remove-sticky", view: view.id, id: sticky.id }]).then(() => onSelect(null))}>
+          Delete note
+        </button>
+      </div>
+    </>
+  );
+}
+
 function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onSelectView }: PropertiesProps & { view: ViewDef }) {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const retitle = (title: string) => {
@@ -266,7 +295,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onSe
         <dt>Boxes</dt>
         <dd>{computed?.nodes.length ?? 0}</dd>
       </dl>
-      <p className="muted small">Select a box or arrow to edit it. Drag boxes to arrange them; their positions are saved with the view.</p>
+      <p className="muted small">Select a box, arrow or sticky note to edit it. Drag boxes and notes to arrange them; their positions are saved with the view.</p>
       <div className="actions">
         <button onClick={() => onSelect({ kind: "workspace" })}>Workspace settings</button>
         <button className="danger" onClick={() => onDeleteView(view.id)}>

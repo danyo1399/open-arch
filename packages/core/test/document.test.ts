@@ -31,7 +31,14 @@ describe("parseDocument", () => {
           ok: { kind: "system", name: "OK", tags: "database", owner: "me", uses: [{ to: "x", desc: "typo" }, "y"] },
           what: { kind: "box", name: "What" },
         },
-        views: { v: { title: "V", level: "landscape", layout: { ok: [1, "2"] } } },
+        views: {
+          v: {
+            title: "V",
+            level: "landscape",
+            stickies: { fine: { text: "Fine", color: "blue" }, empty: { text: " " }, odd: { text: "Odd", color: "red", at: [1], size: 2 } },
+            layout: { ok: [1, "2"] },
+          },
+        },
       }),
     );
     expect(result.valid).toBe(false);
@@ -44,8 +51,13 @@ describe("parseDocument", () => {
       "field-unknown elements.ok.uses[0].desc",
       "field-type elements.ok.uses[1]",
       "kind-invalid elements.what.kind",
+      "field-required views.v.stickies.empty.text",
+      "field-unknown views.v.stickies.odd.size",
+      "color-invalid views.v.stickies.odd.color",
+      "field-type views.v.stickies.odd.at",
       "field-type views.v.layout.ok",
     ]);
+    expect(result.doc.views.v!.stickies).toEqual({ fine: { text: "Fine", color: "blue" }, odd: { text: "Odd" } });
     expect(Object.keys(result.doc.elements)).toEqual(["ok"]);
     expect(result.doc.elements.ok!.uses).toEqual([{ to: "x" }]);
   });
@@ -70,6 +82,15 @@ describe("serializeDocument", () => {
     expect(text).toContain('    "shop": {\n      "kind": "system",\n      "name": "Shop"\n    },');
     expect(text).toContain('"include": ["*"]');
     expect(text.endsWith("}\n")).toBe(true);
+  });
+
+  it("keeps one sticky note per line, by ID, before the layout", () => {
+    const doc = shop();
+    doc.views.landscape!.layout = { shop: [0, 0] };
+    doc.views.landscape!.stickies = { tip: { text: "Two\nlines", color: "yellow", at: [1.6, 2] }, about: { text: "About", color: "green" } };
+    expect(serializeDocument(doc)).toContain(
+      '      "stickies": {\n        "about": { "text": "About", "color": "green" },\n        "tip": { "text": "Two\\nlines", "at": [2, 2] }\n      },\n      "layout": {',
+    );
   });
 
   it("keeps notes as one JSON string", () => {
