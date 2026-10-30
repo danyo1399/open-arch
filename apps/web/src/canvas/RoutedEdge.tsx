@@ -126,6 +126,11 @@ const measured = new Map<string, { w: number; h: number }>();
 const MEASURED_LIMIT = 10_000;
 const measuredKey = (lines: LabelLine[], maxWidth: number) => JSON.stringify([lines, maxWidth]);
 
+/** Lets go of every label size measured so far, so each is measured afresh, as when the styles they depend on change. */
+export function forgetLabelSizes(): void {
+  measured.clear();
+}
+
 /** A label off the page, hidden, with the same styles as a drawn one, showing `lines` at most `maxWidth` wide. */
 function probe(lines: LabelLine[], maxWidth: number): HTMLDivElement {
   const div = document.createElement("div");
@@ -163,15 +168,15 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
     const lines = labelLines(e);
     return lines.length ? LABEL_WIDTHS.map((maxWidth) => [measuredKey(lines, maxWidth), lines, maxWidth] as const) : [];
   });
-  const wanted = new Map(keys.flat().map(([key, lines, maxWidth]) => [key, [lines, maxWidth] as const]));
+  const wanted = new Map(keys.flat().map(([key, lines, maxWidth]) => [key, { lines, maxWidth }]));
   // The sizes these labels need are used now, so they're the last to be let go.
-  const missing: [string, readonly [LabelLine[], number]][] = [];
-  for (const entry of wanted) {
-    const size = measured.get(entry[0]);
-    if (!size) missing.push(entry);
+  const missing: { key: string; lines: LabelLine[]; maxWidth: number }[] = [];
+  for (const [key, { lines, maxWidth }] of wanted) {
+    const size = measured.get(key);
+    if (!size) missing.push({ key, lines, maxWidth });
     else {
-      measured.delete(entry[0]);
-      measured.set(entry[0], size);
+      measured.delete(key);
+      measured.set(key, size);
     }
   }
   // The least recently used first, up to the first these labels need, which come last.
@@ -180,7 +185,7 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
     measured.delete(key);
   }
   if (missing.length) {
-    const probes = missing.map(([key, [lines, maxWidth]]) => [key, probe(lines, maxWidth)] as const);
+    const probes = missing.map(({ key, lines, maxWidth }) => [key, probe(lines, maxWidth)] as const);
     const holder = document.body.appendChild(document.createElement("div"));
     holder.append(...probes.map(([, div]) => div));
     for (const [key, div] of probes) {

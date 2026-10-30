@@ -128,6 +128,11 @@ function inset(from: number, to: number): [number, number] {
   return [from + (to - from) * CORNER_INSET, to - (to - from) * CORNER_INSET];
 }
 
+/** Whether two ports are the same place on the same side. */
+function samePort(a: Port, b: Port): boolean {
+  return a.side === b.side && a.pos === b.pos;
+}
+
 /** Where an arrow attaches at `pos` along one side of box `id`. */
 function portAt(id: string, r: Rect, edge: Side, pos: number): Port {
   const o = inflate(r);
@@ -227,8 +232,9 @@ class Grid {
   /** For each row, and each column, the steps to the runs on the others closer than NEAR, which would look like the same line. */
   private readonly besideRows: number[][];
   private readonly besideCols: number[][];
-  /** Where routed arrows attach on each side, by `Port.side`. */
+  /** Where routed arrows attach on each side, by `Port.side`, and the routes marked. */
   private readonly attached = new Map<string, Port[]>();
+  private readonly marked = new Set<Route>();
   // Search state, reused between searches.
   private readonly cost: Float64Array;
   private readonly prev: Int32Array;
@@ -472,6 +478,10 @@ class Grid {
 
   /** Records a route's runs, its arms at each point, and its ports, so later routes avoid them; `by` is 1 to add, -1 to remove. */
   mark(route: Route, by: 1 | -1) {
+    // A route is only taken away if it's there, and only added once, so the counts never go wrong.
+    if (this.marked.has(route) === (by === 1)) return;
+    if (by === 1) this.marked.add(route);
+    else this.marked.delete(route);
     const { cells, ports } = route;
     const moves = movesOf(cells, ...ports);
     cells.forEach((p, k) => {
@@ -483,11 +493,7 @@ class Grid {
     for (const port of ports) {
       const list = this.attached.get(port.side) ?? [];
       if (by === 1) list.push(port);
-      else {
-        // Only this arrow's own: indexOf gives -1 for one that isn't there, and splice(-1) would take away another's.
-        const at = list.indexOf(port);
-        if (at >= 0) list.splice(at, 1);
-      }
+      else list.splice(list.indexOf(port), 1);
       this.attached.set(port.side, list);
     }
   }
@@ -550,8 +556,7 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
       const points = simplify(option);
       const ports: [Port, Port] = [movedTo(best.ports[0], from, points[0]!), movedTo(best.ports[1], to, points[points.length - 1]!)];
       // The search found the cheapest route between its ends, so keeping both of those can't help.
-      const same = (a: Port, b: Port) => a.side === b.side && a.pos === b.pos;
-      if (same(ports[0], route.ports[0]) && same(ports[1], route.ports[1])) continue;
+      if (samePort(ports[0], route.ports[0]) && samePort(ports[1], route.ports[1])) continue;
       const cells = grid.cellsOf(points, ports);
       if (!cells) continue;
       const cost = grid.costOf(cells, ports);
