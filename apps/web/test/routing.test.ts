@@ -389,6 +389,28 @@ describe("routeLinks", () => {
     }
   });
 
+  it("keeps an arrow straight between two boxes under the same note", () => {
+    const boxes = new Map([
+      ["a", { x: 100, y: 50, w: 200, h: 100 }],
+      ["b", { x: 100, y: 700, w: 200, h: 100 }],
+    ]);
+    expect(routeLinks(boxes, [link("a", "b")], [], [{ x: 0, y: 0, w: 400, h: 500 }]).get("a->b")).toHaveLength(2);
+  });
+
+  it("goes round a note on a box for links that don't start or end there", () => {
+    // The note covers a and reaches across c->d's way: a's arrows go under it, c->d goes round.
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 120 }],
+      ["b", { x: 0, y: 400, w: 220, h: 120 }],
+      ["c", { x: 500, y: -300, w: 200, h: 100 }],
+      ["d", { x: 500, y: 300, w: 200, h: 100 }],
+    ]);
+    const note = { x: 0, y: -20, w: 800, h: 160 };
+    const routes = routeLinks(boxes, [link("a", "b"), link("c", "d")], [], [note]);
+    for (const s of segments(routes.get("c->d")!)) expect(cuts(s, note), "c->d goes under the note").toBe(false);
+    for (const [p, q] of segments(routes.get("a->b")!)) expect(p.x === q.x || p.y === q.y, "a->b runs straight across or down").toBe(true);
+  });
+
   it("falls back to a straight line when there's no way out", () => {
     const boxes = new Map([
       ["a", { x: 0, y: 0, w: 500, h: 400 }],

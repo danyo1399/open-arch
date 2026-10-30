@@ -53,12 +53,6 @@ const OFF_CENTRE = 0.2;
 const SHARED_PORT = 200;
 /** Runs closer than this to a boundary frame's side cost as much as running along another arrow. There's a lane this far outside each side. */
 const FRAME_GAP = 16;
-/**
- * Per pixel run under a note that's gone round, through the clear space kept around it: enough
- * that arrows go round a note wherever there's any reasonable way, while ones from a box under a
- * note can still get out.
- */
-const UNDER_NOTE = 10;
 /** A step shorter than this, between two runs going the same way, is straightened out where that keeps clear of boxes. */
 const JOG = 12;
 
@@ -109,6 +103,14 @@ function rect(b: Box): Rect {
 function inflate(r: Rect): Rect {
   return { left: r.left - MARGIN, top: r.top - MARGIN, right: r.right + MARGIN, bottom: r.bottom + MARGIN };
 }
+
+/** Whether two rects overlap, more than just touching. */
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+/** How many notes the grid can go round at once: one bit each, for each run, of which it's under. */
+const MAX_NOTES = 32;
 
 /** How far the point (`x`, `y`) is from `r`, across and down: none inside it. */
 function distanceTo(x: number, y: number, r: Rect): number {
@@ -216,9 +218,12 @@ class MinHeap {
  * the route is moving along there: `p * 2 + axis`.
  */
 class Grid {
-  /** Everything routes go around, and the clear space around each. */
+  /** The boxes routes go around, and the clear space around each. */
   readonly rects: Rect[];
   readonly clears: Rect[];
+  /** The notes routes go around, but for those on a route's own boxes, and the clear space around each. */
+  readonly notes: Rect[];
+  readonly noteClears: Rect[];
   readonly xs: number[];
   readonly ys: number[];
   readonly nx: number;
@@ -233,11 +238,12 @@ class Grid {
   readonly usedV: Uint16Array;
   readonly armsH: Uint16Array;
   readonly armsV: Uint16Array;
-  /** Runs alongside a boundary frame's side, and runs under a note that's gone round. */
+  /** Runs alongside a boundary frame's side. */
   readonly alongFrameH: Uint8Array;
   readonly alongFrameV: Uint8Array;
-  readonly underNoteH: Uint8Array;
-  readonly underNoteV: Uint8Array;
+  /** Which notes' clear spaces each run is in, a bit for each note. */
+  readonly notesH: Uint32Array;
+  readonly notesV: Uint32Array;
   /** For each row, and each column, the steps to the runs on the others closer than NEAR, which would look like the same line. */
   private readonly besideRows: number[][];
   private readonly besideCols: number[][];
@@ -251,17 +257,18 @@ class Grid {
   private readonly done: Uint8Array;
 
   /**
-   * `aligned` holds extra lines, such as ones a straight arrow between two boxes could run along.
-   * `notes` are gone round, as boxes are, but going under one, through the clear space around it,
-   * costs a lot rather than being ruled out.
+   * `rects` are the boxes routes go around, and `notes` the notes, up to MAX_NOTES of them, which a
+   * route goes round too unless it's on one of the route's own boxes. `aligned` holds extra lines,
+   * such as ones a straight arrow between two boxes could run along.
    */
   constructor(rects: Rect[], frames: Rect[], aligned: { xs: number[]; ys: number[] }, notes: Rect[] = []) {
     this.rects = rects;
     this.clears = rects.map(inflate);
-    const noteClears = notes.map(inflate);
+    this.notes = notes.slice(0, MAX_NOTES);
+    this.noteClears = this.notes.map(inflate);
     const near = { x: new Set<number>(), y: new Set<number>() };
     const far = { x: new Set<number>(), y: new Set<number>() };
-    for (const r of [...this.clears, ...noteClears]) {
+    for (const r of [...this.clears, ...this.noteClears]) {
       near.x.add(r.left);
       far.x.add(r.right);
       near.y.add(r.top);
@@ -291,8 +298,8 @@ class Grid {
     this.usedV = new Uint16Array(n);
     this.alongFrameH = new Uint8Array(n);
     this.alongFrameV = new Uint8Array(n);
-    this.underNoteH = new Uint8Array(n);
-    this.underNoteV = new Uint8Array(n);
+    this.notesH = new Uint32Array(n);
+    this.notesV = new Uint32Array(n);
     this.armsH = new Uint16Array(n);
     this.armsV = new Uint16Array(n);
     this.cost = new Float64Array(2 * n + 1);
@@ -312,18 +319,28 @@ class Grid {
     }
 
     // The sides of clear spaces are grid lines, so a run is either wholly inside one or wholly outside it.
-    const inside = (r: Rect, h: Uint8Array, v: Uint8Array) => {
+    const inside = (r: Rect, mark: (h: boolean, p: number) => void) => {
       const [i0, i1, j0, j1] = [this.xIndex.get(r.left)!, this.xIndex.get(r.right)!, this.yIndex.get(r.top)!, this.yIndex.get(r.bottom)!];
       for (let j = j0; j <= j1; j++) {
         for (let i = i0; i <= i1; i++) {
           const p = j * nx + i;
-          if (j > j0 && j < j1 && i < i1) h[p] = 1;
-          if (i > i0 && i < i1 && j < j1) v[p] = 1;
+          if (j > j0 && j < j1 && i < i1) mark(true, p);
+          if (i > i0 && i < i1 && j < j1) mark(false, p);
         }
       }
     };
-    for (const r of this.clears) inside(r, this.blockedH, this.blockedV);
-    for (const r of noteClears) inside(r, this.underNoteH, this.underNoteV);
+    for (const r of this.clears) inside(r, (h, p) => ((h ? this.blockedH : this.blockedV)[p] = 1));
+    this.noteClears.forEach((r, k) => inside(r, (h, p) => ((h ? this.notesH : this.notesV)[p]! |= 1 << k)));
+  }
+
+  /** The notes a route between boxes `a` and `b` can go under, a bit each: those on either box. */
+  notesOn(a: Rect, b: Rect): number {
+    return this.notes.reduce((bits, n, k) => (overlaps(n, a) || overlaps(n, b) ? bits | (1 << k) : bits), 0);
+  }
+
+  /** Whether a route that can go under the notes `under` can't take run `run` along `axis`: it's in a box's clear space, or another note's. */
+  private shut(run: number, axis: typeof H | typeof V, under: number): boolean {
+    return axis === H ? this.blockedH[run] === 1 || (this.notesH[run]! & ~under) !== 0 : this.blockedV[run] === 1 || (this.notesV[run]! & ~under) !== 0;
   }
 
   point(at: Point): number {
@@ -346,7 +363,7 @@ class Grid {
     return out;
   }
 
-  /** What a step costs along the run `run`, `length` long and on `axis`: its length, and more for running along another arrow, beside one or along a frame, or under a note. */
+  /** What a step costs along the run `run`, `length` long and on `axis`: its length, and more for running along another arrow, beside one or along a frame. */
   private stepCost(run: number, axis: typeof H | typeof V, length: number): number {
     const across = axis === H;
     const used = across ? this.usedH : this.usedV;
@@ -354,8 +371,7 @@ class Grid {
     let beside = 0;
     for (const off of near) beside += used[run + off]!;
     const frame = (across ? this.alongFrameH : this.alongFrameV)[run]!;
-    const note = (across ? this.underNoteH : this.underNoteV)[run]!;
-    return length + OVERLAP * length * (used[run]! + frame + beside) + UNDER_NOTE * length * note;
+    return length + OVERLAP * length * (used[run]! + frame + beside);
   }
 
   /** What attaching at `port` costs, given the arrows already attached beside it. */
@@ -374,8 +390,8 @@ class Grid {
     return (CROSSING / 4) * (axis === H ? this.armsV : this.armsH)[p]!;
   }
 
-  /** The cheapest route from any of `starts` to any of `goals`, as grid points. */
-  search(starts: Port[], goals: Port[], target: Rect): { cells: number[]; ports: [Port, Port]; cost: number } | undefined {
+  /** The cheapest route from any of `starts` to any of `goals`, as grid points, for a route that can go under the notes `under`. */
+  search(starts: Port[], goals: Port[], target: Rect, under = 0): { cells: number[]; ports: [Port, Port]; cost: number } | undefined {
     const { nx, ny, xs, ys, cost, prev, done } = this;
     const goal = 2 * nx * ny;
     cost.fill(Infinity);
@@ -424,11 +440,11 @@ class Grid {
       const out = this.armCost(p, along);
       const step = (q: number, run: number, length: number) => relax(q * 2 + axis, c + out + this.stepCost(run, along, length) + this.armCost(q, along), s, estimate(q));
       if (axis === H) {
-        if (i + 1 < nx && !this.blockedH[p]) step(p + 1, p, xs[i + 1]! - xs[i]!);
-        if (i > 0 && !this.blockedH[p - 1]) step(p - 1, p - 1, xs[i]! - xs[i - 1]!);
+        if (i + 1 < nx && !this.shut(p, H, under)) step(p + 1, p, xs[i + 1]! - xs[i]!);
+        if (i > 0 && !this.shut(p - 1, H, under)) step(p - 1, p - 1, xs[i]! - xs[i - 1]!);
       } else {
-        if (j + 1 < ny && !this.blockedV[p]) step(p + nx, p, ys[j + 1]! - ys[j]!);
-        if (j > 0 && !this.blockedV[p - nx]) step(p - nx, p - nx, ys[j]! - ys[j - 1]!);
+        if (j + 1 < ny && !this.shut(p, V, under)) step(p + nx, p, ys[j + 1]! - ys[j]!);
+        if (j > 0 && !this.shut(p - nx, V, under)) step(p - nx, p - nx, ys[j]! - ys[j - 1]!);
       }
     }
     if (prev[goal] === -1) return undefined;
@@ -467,7 +483,7 @@ class Grid {
    * between a box and its stubs isn't on the grid, so crossing another arrow there,
    * by its arrowhead, would cost nothing.
    */
-  cellsOf(points: readonly Readonly<Point>[], [start, end]: readonly [Port, Port]): number[] | undefined {
+  cellsOf(points: readonly Readonly<Point>[], [start, end]: readonly [Port, Port], under = 0): number[] | undefined {
     const { nx } = this;
     const between = (p: Point, a: Point, b: Point) => (a.x === b.x && p.x === a.x && (p.y - a.y) * (p.y - b.y) <= 0) || (a.y === b.y && p.y === a.y && (p.x - a.x) * (p.x - b.x) <= 0);
     const [first, second, last, before] = [points[0]!, points[1]!, points[points.length - 1]!, points[points.length - 2]!];
@@ -487,9 +503,9 @@ class Grid {
       const [i0, j0, i1, j1] = [last % nx, Math.floor(last / nx), p % nx, Math.floor(p / nx)];
       if (i0 !== i1 && j0 !== j1) return undefined;
       const by = i0 !== i1 ? Math.sign(i1 - i0) : Math.sign(j1 - j0) * nx;
-      const blocked = i0 !== i1 ? this.blockedH : this.blockedV;
+      const axis = i0 !== i1 ? H : V;
       for (let c = last; c !== p; ) {
-        if (blocked[Math.min(c, c + by)]) return undefined;
+        if (this.shut(Math.min(c, c + by), axis, under)) return undefined;
         cells.push((c += by));
       }
     }
@@ -558,7 +574,7 @@ function simplify(points: readonly Readonly<Point>[]): Readonly<Point>[] {
  * of the corners; and a change is only kept if the search would have charged less
  * for it, so a run isn't moved beside another arrow or along a frame.
  */
-function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
+function straighten(grid: Grid, route: Route, from: Rect, to: Rect, under: number): Route {
   const onSide = (p: Point, r: Rect) => {
     const [lo, hi] = p.x === r.left || p.x === r.right ? inset(r.top, r.bottom) : inset(r.left, r.right);
     const pos = p.x === r.left || p.x === r.right ? p.y : p.x;
@@ -593,7 +609,7 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
       const ports: [Port, Port] = [movedTo(best.ports[0], from, points[0]!), movedTo(best.ports[1], to, points[points.length - 1]!)];
       // The search found the cheapest route between its ends, so keeping both of those can't help.
       if (samePort(ports[0], route.ports[0]) && samePort(ports[1], route.ports[1])) continue;
-      const cells = grid.cellsOf(points, ports);
+      const cells = grid.cellsOf(points, ports, under);
       if (!cells) continue;
       const cost = grid.costOf(cells, ports);
       if (cost >= best.cost) continue;
@@ -652,10 +668,11 @@ interface Routing {
 
 /** The cheapest route for a link from any of `starts` to any of `goals`, given the routes already on the grid. */
 function routeOne(grid: Grid, starts: Port[], goals: Port[], from: Rect, to: Rect): Route | undefined {
-  const found = grid.search(starts, goals, inflate(to));
+  const under = grid.notesOn(from, to);
+  const found = grid.search(starts, goals, inflate(to), under);
   if (!found) return undefined;
   const [start, end] = found.ports;
-  return straighten(grid, { ...found, points: simplify([start.at, ...found.cells.map((p) => grid.at(p)), end.at]) }, from, to);
+  return straighten(grid, { ...found, points: simplify([start.at, ...found.cells.map((p) => grid.at(p)), end.at]) }, from, to, under);
 }
 
 /**
@@ -675,6 +692,8 @@ function acrossGap(grid: Grid, from: Rect, to: Rect, starts: Port[], goals: Port
       if (!start || !end || grid.portCost(start) > start.cost || grid.portCost(end) > end.cost) continue;
       const points = [start.at, end.at];
       if (grid.rects.some((r, k) => r !== from && r !== to && runsThrough(points, grid.clears[k]!))) continue;
+      const under = grid.notesOn(from, to);
+      if (grid.noteClears.some((c, k) => !(under & (1 << k)) && runsThrough(points, c))) continue;
       const cost = grid.costOf([], [start, end]);
       if (!best || cost < best.cost) best = { cells: [], ports: [start, end], points, cost };
     }
@@ -726,10 +745,15 @@ function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], fra
   return { grid, ports, routes: grid.routes };
 }
 
+/** Whether note `n` is on box `a` or box `b`, the ends of a link, so that link can go under it. */
+function onEnds(n: Rect, a: Rect, b: Rect): boolean {
+  return overlaps(n, a) || overlaps(n, b);
+}
+
 /**
  * Routes every link it can, in the order they were routed, going around notes only where they're
- * in the way (see routeLinks). `clear` holds the notes no route runs under, which other routes have
- * to keep clear of too, as the grid doesn't go round them.
+ * in the way (see routeLinks). `clear` holds the notes no route was in the way of, which other
+ * routes have to keep clear of too, but for those on their own boxes, as the grid doesn't go round them.
  */
 function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: Box[]): Routing & { rects: Map<string, Rect>; routable: Link[]; clear: Rect[] } {
   const rects = new Map([...boxes].map(([id, b]) => [id, rect(b)]));
@@ -744,19 +768,21 @@ function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: 
     .filter((l) => l.from !== l.to && rects.has(l.from) && rects.has(l.to))
     .sort((a, b) => distance(a) - distance(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
-  // Route ignoring the notes, then again going round any a route runs under, until none is newly
-  // in the way. Going under one that's gone round costs a lot rather than being ruled out, so
-  // arrows from a box under a note can still get out.
-  let clear = notes.map(rect);
+  // Route ignoring the notes, then again going round any a route runs under, until none is newly in
+  // the way. A link goes under a note on one of its own boxes, though: it's about that box, and going
+  // round it could leave the box's arrows no way out. Other links go round it.
+  const noteRects = notes.map(rect);
   const avoided: Rect[] = [];
   let routing = routeAround(rects, avoided, routable, frameRects);
   for (;;) {
-    const inTheWay = clear.filter((n) => [...routing.routes.values()].some((r) => runsThrough(r.points, inflate(n))));
-    if (!inTheWay.length) break;
-    avoided.push(...inTheWay);
-    clear = clear.filter((n) => !inTheWay.includes(n));
+    const inTheWay = noteRects.filter(
+      (n) => !avoided.includes(n) && routable.some((l) => !onEnds(n, rects.get(l.from)!, rects.get(l.to)!) && runsThrough(routing.routes.get(l.id)?.points ?? [], inflate(n))),
+    );
+    if (!inTheWay.length || avoided.length >= MAX_NOTES) break;
+    avoided.push(...inTheWay.slice(0, MAX_NOTES - avoided.length));
     routing = routeAround(rects, avoided, routable, frameRects);
   }
+  const clear = noteRects.filter((n) => !avoided.includes(n));
   return { ...routing, rects, routable, clear };
 }
 
@@ -778,9 +804,9 @@ function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<st
  * Routes cross `frames` (boundaries drawn around boxes) freely but keep off their sides.
  * They go around `notes`, boxes no arrow starts or ends at, only where one is in the
  * way: every obstacle adds grid lines right across the diagram, so a note out in empty
- * space would otherwise move arrows nowhere near it as it's dragged. Going under a note
- * that's gone round costs a lot rather than being ruled out, so arrows from a box under
- * a note can still get out.
+ * space would otherwise move arrows nowhere near it as it's dragged. A link goes under
+ * a note on one of its own boxes, which is about that box, and going round which could
+ * leave its arrows no way out; other links go round it.
  */
 export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = []): Map<string, readonly Readonly<Point>[]> {
   return pointsOf(boxes, links, routeAll(boxes, links, frames, notes).routes);
@@ -1021,7 +1047,7 @@ export function layoutArrows<S extends Size>(
   const scene = sceneOf(pointsOf(boxes, links, routes), [...boxes.values(), ...notes, ...keepClear]);
   const placed = placeAll(sizes, scene);
   // The grid only goes around notes some route was in the way of, so other routes have to be checked against the rest, as routeAll does.
-  const underNote = (r: Route) => clear.some((n) => runsThrough(r.points, inflate(n)));
+  const underNote = (r: Route, a: Rect, b: Rect) => clear.some((n) => !onEnds(n, a, b) && runsThrough(r.points, inflate(n)));
 
   const crowding = (id: string) => {
     const label = placed.get(id);
@@ -1069,7 +1095,7 @@ export function layoutArrows<S extends Size>(
     for (const { starts, goals } of options) {
       // A label costs nothing at best, so a route that costs more on its own can't win.
       const r = routeOne(grid, starts, goals, source, target);
-      if (!r || r.cost > bar || r.cost >= best.cost || routeLength(r.points) > longest || underNote(r)) continue;
+      if (!r || r.cost > bar || r.cost >= best.cost || routeLength(r.points) > longest || underNote(r, source, target)) continue;
       const option = total(r);
       if (option.cost <= bar && option.cost < best.cost) best = option;
     }
