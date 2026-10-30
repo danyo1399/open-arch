@@ -144,6 +144,20 @@ describe("routeLinks", () => {
     expect(route[0]!.y).toBe(route[1]!.y);
   });
 
+  it("draws a straight line between facing boxes closer together than the space kept around them", () => {
+    for (const gap of [10, 40]) {
+      const boxes = new Map([
+        ["a", at(0, 0)],
+        ["b", at(30, H + gap)],
+        ["c", at(400, 0)],
+        ["d", at(400 + W + gap, 30)],
+      ]);
+      const routes = check(boxes, [link("a", "b"), link("d", "c")]);
+      expect(routes.get("a->b"), `${gap}px apart, one above the other`).toHaveLength(2);
+      expect(routes.get("d->c"), `${gap}px apart, side by side`).toHaveLength(2);
+    }
+  });
+
   it("leaves arrows alone when a note moves around out of their way", () => {
     const boxes = new Map([
       ["a", at(0, 0)],
@@ -214,6 +228,26 @@ describe("placeLabels", () => {
     expect(Math.abs(at.x - 300)).toBeGreaterThanOrEqual(size.w / 2);
   });
 
+  it("draws a label narrower to fit between boxes too close for it", () => {
+    const boxes = [
+      { x: -250, y: -50, w: 220, h: 100 },
+      { x: 30, y: -50, w: 220, h: 100 },
+    ];
+    const route = [
+      { x: -30, y: 0 },
+      { x: 30, y: 0 },
+    ];
+    const wide = { w: 190, h: 51 };
+    const narrow = { w: 50, h: 80 };
+    expect(placeLabels(new Map([["r", route]]), new Map([["r", [wide, narrow]]]), boxes).get("r")).toEqual({ x: 0, y: 0 });
+    const at = layoutArrows(
+      new Map([["a", boxes[0]!], ["b", boxes[1]!]]),
+      [link("a", "b")],
+      new Map([["a->b", [wide, narrow]]]),
+    ).labels.get("a->b")!;
+    expect(at.w).toBe(50);
+  });
+
   it("keeps labels on parallel routes from covering each other", () => {
     const routes = new Map([
       ["a", route],
@@ -225,7 +259,7 @@ describe("placeLabels", () => {
 });
 
 describe("layoutArrows", () => {
-  const labelled = (links: Link[]) => new Map(links.map((l) => [l.id, { w: 190, h: 37 }]));
+  const labelled = (links: Link[]) => new Map(links.map((l) => [l.id, [{ w: 190, h: 37 }]]));
 
   it("takes a route with room for its label over one that squeezes it in", () => {
     // From the containers view: a leaves its right side for c's top, so its label

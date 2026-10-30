@@ -10,8 +10,8 @@ export type ArrowData = {
   edge: ViewEdge;
   /** The route, from a point on the source box's border to one on the target's. */
   points: Point[];
-  /** Where the label's centre goes. */
-  label?: Point;
+  /** Where the label's centre goes, and how wide it can be. */
+  label?: Point & { maxWidth: number };
   /** Where the route crosses other arrows, along its horizontal runs (see crossings in routing.ts). */
   crossings: Point[];
   onSelect(): void;
@@ -67,14 +67,39 @@ export function pathThrough(points: Point[], crossings: Point[] = []): string {
   return `${d} L ${last.x} ${last.y}`;
 }
 
-/** Roughly how big an arrow's label is drawn (see .arrow-label), or undefined when it has none. */
-export function labelSize(edge: ViewEdge): { w: number; h: number } | undefined {
+/** The widths a label can be drawn at, widest first. Narrower ones wrap onto more lines, to fit between boxes close together. */
+const LABEL_WIDTHS = [190, 140, 100];
+
+/** Roughly how big a label is drawn (see .arrow-label) when it's at most `maxWidth` wide. */
+export type LabelSize = { w: number; h: number; maxWidth: number };
+
+/** How big an arrow's label is at each width it can be drawn, widest first, leaving out widths that make no difference; none when it has no label. */
+export function labelSizes(edge: ViewEdge): LabelSize[] {
   const lines = [edge.description, edge.technology && `[${edge.technology}]`].filter((t): t is string => !!t);
-  if (!lines.length) return undefined;
-  const [charWidth, lineHeight, padX, padY, maxWidth] = [6, 14.3, 16, 8, 190];
-  const widths = lines.map((t) => t.length * charWidth);
-  const rows = widths.reduce((sum, w) => sum + Math.ceil(w / (maxWidth - padX)), 0);
-  return { w: Math.min(Math.max(...widths), maxWidth - padX) + padX, h: rows * lineHeight + padY };
+  if (!lines.length) return [];
+  const [charWidth, lineHeight, padX, padY] = [6, 14.3, 16, 8];
+  const out: LabelSize[] = [];
+  for (const maxWidth of LABEL_WIDTHS) {
+    const room = maxWidth - padX;
+    let rows = 0;
+    // Word by word, as the browser wraps them.
+    for (const line of lines) {
+      let width = 0;
+      for (const word of line.split(" ")) {
+        const next = width ? width + charWidth * (1 + word.length) : charWidth * word.length;
+        if (width && next > room) {
+          rows++;
+          width = charWidth * word.length;
+        } else width = next;
+      }
+      rows++;
+    }
+    // A label that wraps is as wide as it's allowed to be, not as wide as its longest line.
+    const widest = Math.max(...lines.map((t) => t.length * charWidth));
+    const size = { w: Math.min(widest, room) + padX, h: rows * lineHeight + padY, maxWidth };
+    if (!out.length || size.w < out[out.length - 1]!.w) out.push(size);
+  }
+  return out;
 }
 
 export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {
@@ -88,7 +113,7 @@ export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdg
         <EdgeLabelRenderer>
           <div
             className={`arrow-label nodrag nopan${selected ? " selected" : ""}`}
-            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
+            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, maxWidth: label.maxWidth }}
             onClick={data.onSelect}
             title={edge.implied ? `Implied by: ${edge.sources.map((s) => s.element).join(", ")}` : undefined}
           >
