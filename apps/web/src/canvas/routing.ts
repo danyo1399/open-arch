@@ -86,6 +86,7 @@ interface Port {
   cost: number;
 }
 
+/** A route, which isn't changed once made: its ports and points are shared with other routes and with the grid. */
 interface Route {
   /** Grid points from the start's stub to the end's, each next to the last. None for a route straight across a gap too narrow for the grid. */
   readonly cells: readonly number[];
@@ -234,7 +235,7 @@ class Grid {
   private readonly besideCols: number[][];
   /** Where routed arrows attach on each side, by `Port.side`. */
   private readonly attached = new Map<string, Port[]>();
-  /** The route each link has on the grid, by link ID: the grid's own, so what's taken away is always what was put there. */
+  /** The route each link has on the grid, by link ID: the grid's own record, so what's removed is always what was placed. */
   private readonly placed = new Map<string, Route>();
   // Search state, reused between searches.
   private readonly cost: Float64Array;
@@ -477,18 +478,25 @@ class Grid {
     return cells;
   }
 
-  /** Each link's route on the grid, by link ID. */
+  /** Each link's route on the grid, by link ID, as it is now: it changes as routes are placed and removed. */
   get routes(): ReadonlyMap<string, Route> {
     return this.placed;
   }
 
-  /** Puts `route` on the grid as link `id`'s, in place of any it had, or with none, just takes that away. Later routes avoid what's there. */
+  /** Puts `route` on the grid as link `id`'s, in place of any it had, or with none, just removes that. Later routes avoid what's there. */
   place(id: string, route: Route | undefined): void {
+    this.remove(id);
+    if (!route) return;
+    this.mark(route, 1);
+    this.placed.set(id, route);
+  }
+
+  /** Takes link `id`'s route off the grid, if it has one. */
+  remove(id: string): void {
     const old = this.placed.get(id);
-    if (old) this.mark(old, -1);
-    if (route) this.mark(route, 1);
-    if (route) this.placed.set(id, route);
-    else this.placed.delete(id);
+    if (!old) return;
+    this.mark(old, -1);
+    this.placed.delete(id);
   }
 
   /** Records a route's runs, its arms at each point, and its ports; `by` is 1 to add, -1 to remove. */
@@ -692,7 +700,7 @@ function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[],
 
   for (let pass = 0; pass < 2; pass++) {
     for (const link of links) {
-      grid.place(link.id, undefined);
+      grid.remove(link.id);
       const [from, to, starts, goals] = [rects.get(link.from)!, rects.get(link.to)!, ports.get(link.from)!, ports.get(link.to)!];
       grid.place(link.id, acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to));
     }
@@ -734,7 +742,9 @@ function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<st
   for (const link of links) {
     const from = boxes.get(link.from);
     const to = boxes.get(link.to);
-    if (from && to) out.set(link.id, [...(routes.get(link.id)?.points ?? straight(from, to))]);
+    if (!from || !to) continue;
+    const route = routes.get(link.id);
+    out.set(link.id, route ? [...route.points] : straight(from, to));
   }
   return out;
 }
@@ -1024,7 +1034,7 @@ export function layoutArrows<S extends Size>(
       const hidden = others.reduce((sum, o) => sum + COVERS_ARROW * lengthInside(r.points, o) + (COVERS_HEAD * overlap(head, o)) / (HEAD * HEAD), 0);
       return { route: r, label: best, cost: r.cost + best.cost + hidden };
     };
-    grid.place(link.id, undefined);
+    grid.remove(link.id);
     // The route as it stands, costed against the routes as they are now.
     const kept = total({ ...route, cost: grid.costOf(route.cells, route.ports) });
     // Another route, with its label, has to cost no more than this to be worth moving to.

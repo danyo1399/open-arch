@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ViewEdge } from "@open-arch/core";
-import { estimateLabel, forgetLabelSizes, labelSizes, MEASURED_LIMIT, measureLabelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
+import { estimateLabel, forgetLabelSizes, LABEL_WIDTHS, labelSizes, MEASURED_LIMIT, measureLabelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
 
 describe("pathThrough", () => {
   it("hops over the top of an arrow it crosses, whichever way it runs", () => {
@@ -67,24 +67,31 @@ describe("labelSizes", () => {
 });
 
 describe("measureLabelSizes", () => {
-  // Just enough of a page to measure in: a label is 6px a letter on its longest line, up to its max-width, and 20px a line.
+  // Just enough of a page to measure in: a label on the page is 6px a letter on its longest line, up to
+  // its max-width, and 20px a line; one that isn't on the page measures nothing, as in a browser.
   let measures = 0;
+  type Fake = { parent?: Fake; onPage?: boolean; children: Fake[]; textContent: string };
+  const onPage = (el: Fake): boolean => !!el.onPage || (!!el.parent && onPage(el.parent));
   const element = () => {
     const el = {
       className: "",
       textContent: "",
       style: { cssText: "" },
-      children: [] as { textContent: string }[],
+      children: [] as Fake[],
+      parent: undefined as Fake | undefined,
       setAttribute() {},
-      append(...kids: { textContent: string }[]) {
+      append(...kids: Fake[]) {
         el.children.push(...kids);
       },
-      appendChild<T>(kid: T) {
+      appendChild(kid: Fake) {
+        kid.parent = el;
+        el.children.push(kid);
         return kid;
       },
       remove() {},
       getBoundingClientRect() {
         measures++;
+        if (!onPage(el)) return { width: 0, height: 0 };
         const maxWidth = Number(/max-width: (\d+)px/.exec(el.style.cssText)![1]);
         return { width: Math.min(maxWidth, 6 * Math.max(...el.children.map((c) => c.textContent.length))), height: 20 * el.children.length };
       },
@@ -92,7 +99,7 @@ describe("measureLabelSizes", () => {
     return el;
   };
   beforeEach(() => {
-    vi.stubGlobal("document", { createElement: element, body: { appendChild: <T,>(kid: T) => kid } });
+    vi.stubGlobal("document", { createElement: element, body: { onPage: true, children: [], textContent: "", appendChild: (kid: Fake) => ((kid.onPage = true), kid) } });
     forgetLabelSizes();
     measures = 0;
   });
@@ -112,21 +119,22 @@ describe("measureLabelSizes", () => {
       [100, 100],
     ]);
     expect(sizes[1]!.map((s) => s.maxWidth)).toEqual([190, 140, 100]);
-    expect(measures).toBe(6);
+    expect(measures).toBe(2 * LABEL_WIDTHS.length);
     measureLabelSizes(edges);
-    expect(measures).toBe(6);
+    expect(measures).toBe(2 * LABEL_WIDTHS.length);
   });
 
   it("has a size for every label when the view needs more than it keeps, measuring only the new ones", () => {
     // Most of a view measured, then all of it, which needs more sizes than are kept: making room
-    // mustn't let go of the ones the view already had. Each label takes 3 sizes, one a width.
-    const total = Math.ceil(MEASURED_LIMIT / 3) + 200;
+    // mustn't let go of the ones the view already had. Each label takes a size at each width.
+    const widths = LABEL_WIDTHS.length;
+    const total = Math.ceil(MEASURED_LIMIT / widths) + 200;
     const first = total - 500;
     const edges = labels(total);
     measureLabelSizes(edges.slice(0, first));
-    expect(measures).toBe(3 * first);
+    expect(measures).toBe(widths * first);
     for (const sizes of measureLabelSizes(edges)) for (const size of sizes) expect(size.w).toBeGreaterThan(0);
-    expect(measures).toBe(3 * total);
+    expect(measures).toBe(widths * total);
   });
 
   it("lets go of the sizes used least recently once it has more than it keeps", () => {
@@ -137,7 +145,7 @@ describe("measureLabelSizes", () => {
     measureLabelSizes(a);
     measureLabelSizes(b);
     measureLabelSizes(a);
-    measureLabelSizes(labels(Math.floor(MEASURED_LIMIT / 3) - 1));
+    measureLabelSizes(labels(Math.floor(MEASURED_LIMIT / LABEL_WIDTHS.length) - 1));
     const before = measures;
     measureLabelSizes(a);
     expect(measures, "a measured again").toBe(before);

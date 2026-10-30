@@ -68,7 +68,7 @@ export function pathThrough(points: Point[], crossings: Point[] = []): string {
 }
 
 /** The widths a label can be drawn at, widest first. Narrower ones wrap onto more lines, to fit between boxes close together. */
-const LABEL_WIDTHS = [190, 140, 100];
+export const LABEL_WIDTHS = [190, 140, 100];
 
 /** How big a label is drawn (see .arrow-label) when it's at most `maxWidth` wide. */
 export type LabelSize = { w: number; h: number; maxWidth: number };
@@ -187,9 +187,11 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
   }
   if (missing.length) {
     const probes = missing.map(({ key, lines, maxWidth }) => [key, probe(lines, maxWidth)] as const);
-    const holder = document.body.appendChild(document.createElement("div"));
-    // One at a time: spread into append, a big enough view would be more arguments than a call can take.
+    // Into the holder one at a time, as spread into append a big enough view would be more arguments than a
+    // call can take, and then onto the page all at once.
+    const holder = document.createElement("div");
     for (const [, div] of probes) holder.appendChild(div);
+    document.body.appendChild(holder);
     for (const [key, div] of probes) {
       const { width, height } = div.getBoundingClientRect();
       measured.set(key, { w: width, h: height });
