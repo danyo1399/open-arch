@@ -9,7 +9,7 @@ import type { Point } from "./autoLayout.js";
 export type ArrowData = {
   edge: ViewEdge;
   /** The route, from a point on the source box's border to one on the target's. Shared with the routing, so read-only. */
-  points: readonly Point[];
+  points: readonly Readonly<Point>[];
   /** Where the label's centre goes, and how wide it can be. */
   label?: Point & { maxWidth: number };
   /** Where the route crosses other arrows, along its horizontal runs (see crossings in routing.ts). */

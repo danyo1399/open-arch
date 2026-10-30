@@ -91,7 +91,7 @@ interface Route {
   /** Grid points from the start's stub to the end's, each next to the last. None for a route straight across a gap too narrow for the grid. */
   readonly cells: readonly number[];
   readonly ports: readonly [Port, Port];
-  readonly points: readonly Point[];
+  readonly points: readonly Readonly<Point>[];
   readonly cost: number;
 }
 
@@ -708,8 +708,12 @@ function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[],
   return { grid, ports, routes: grid.routes };
 }
 
-/** Routes every link it can, in the order they were routed, going around notes only where they're in the way (see routeLinks). */
-function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: Box[]): Routing & { rects: Map<string, Rect>; routable: Link[]; ignored: Rect[] } {
+/**
+ * Routes every link it can, in the order they were routed, going around notes only where they're
+ * in the way (see routeLinks). `clear` holds the notes no route runs under, which other routes have
+ * to keep clear of too, as the grid doesn't go round them.
+ */
+function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: Box[]): Routing & { rects: Map<string, Rect>; routable: Link[]; clear: Rect[] } {
   const rects = new Map([...boxes].map(([id, b]) => [id, rect(b)]));
   const frameRects = frames.map(rect);
 
@@ -723,26 +727,44 @@ function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: 
     .sort((a, b) => distance(a) - distance(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   // Route ignoring the notes, then again around any a route runs under, until none is in the way.
-  // Notes that would leave a link with no way at all, as one dropped over a box can, aren't gone
-  // round: an arrow under a note is better than one drawn straight through boxes.
-  let ignored = notes.map(rect);
+  // A note that would leave a link with no way at all isn't gone round: an arrow under a note is
+  // better than one drawn straight through boxes. A note over a linked box, filling its clear
+  // space, would leave it no way out, so arrows go under it from the start.
+  const linked = new Set(routable.flatMap((l) => [rects.get(l.from)!, rects.get(l.to)!]));
+  const over = (n: Rect) => {
+    const c = inflate(n);
+    return [...linked].some((b) => c.left <= b.left - MARGIN && c.top <= b.top - MARGIN && c.right >= b.right + MARGIN && c.bottom >= b.bottom + MARGIN);
+  };
+  const noteRects = notes.map(rect);
+  let clear = noteRects.filter((n) => !over(n));
   const avoided: Rect[] = [];
   let routing = routeAround(rects, avoided, routable, frameRects);
+  // Whether routing around some notes leaves a link with no way that had one.
+  const strands = (around: Routing) => routable.some((l) => routing.routes.has(l.id) && !around.routes.has(l.id));
   for (;;) {
-    const inTheWay = ignored.filter((n) => [...routing.routes.values()].some((r) => runsThrough(r.points, inflate(n))));
+    const inTheWay = clear.filter((n) => [...routing.routes.values()].some((r) => runsThrough(r.points, inflate(n))));
     if (!inTheWay.length) break;
+    clear = clear.filter((n) => !inTheWay.includes(n));
     const around = routeAround(rects, [...avoided, ...inTheWay], routable, frameRects);
-    if (routable.some((l) => routing.routes.has(l.id) && !around.routes.has(l.id))) break;
-    avoided.push(...inTheWay);
-    ignored = ignored.filter((n) => !inTheWay.includes(n));
-    routing = around;
+    if (!strands(around)) {
+      avoided.push(...inTheWay);
+      routing = around;
+      continue;
+    }
+    // Going round them all would strand a link: go round each one that doesn't, and under the rest.
+    for (const n of inTheWay) {
+      const one = routeAround(rects, [...avoided, n], routable, frameRects);
+      if (strands(one)) continue;
+      avoided.push(n);
+      routing = one;
+    }
   }
-  return { ...routing, rects, routable, ignored };
+  return { ...routing, rects, routable, clear };
 }
 
 /** Each link's points: its route, or a straight line between its boxes when it has none. Shared with the routes, so read-only. */
-function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<string, Route>): Map<string, readonly Point[]> {
-  const out = new Map<string, readonly Point[]>();
+function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<string, Route>): Map<string, readonly Readonly<Point>[]> {
+  const out = new Map<string, readonly Readonly<Point>[]>();
   for (const link of links) {
     const from = boxes.get(link.from);
     const to = boxes.get(link.to);
@@ -758,9 +780,10 @@ function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<st
  * Routes cross `frames` (boundaries drawn around boxes) freely but keep off their sides.
  * They go around `notes`, boxes no arrow starts or ends at, only where one is in the
  * way: every obstacle adds grid lines right across the diagram, so a note out in empty
- * space would otherwise move arrows nowhere near it as it's dragged.
+ * space would otherwise move arrows nowhere near it as it's dragged. They go under a
+ * note that going round would leave with no way, such as one dropped over a box.
  */
-export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = []): Map<string, readonly Point[]> {
+export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = []): Map<string, readonly Readonly<Point>[]> {
   return pointsOf(boxes, links, routeAll(boxes, links, frames, notes).routes);
 }
 
@@ -994,12 +1017,12 @@ export function layoutArrows<S extends Size>(
   links: Link[],
   sizes: Map<string, S[]>,
   { frames = [], notes = [], keepClear = [] }: { frames?: Box[]; notes?: Box[]; keepClear?: Box[] } = {},
-): { routes: Map<string, readonly Point[]>; labels: Map<string, Point & S> } {
-  const { grid, ports, routes, rects, routable, ignored } = routeAll(boxes, links, frames, notes);
+): { routes: Map<string, readonly Readonly<Point>[]>; labels: Map<string, Point & S> } {
+  const { grid, ports, routes, rects, routable, clear } = routeAll(boxes, links, frames, notes);
   const scene = sceneOf(pointsOf(boxes, links, routes), [...boxes.values(), ...notes, ...keepClear]);
   const placed = placeAll(sizes, scene);
   // The grid only goes around notes some route was in the way of, so other routes have to be checked against the rest, as routeAll does.
-  const underNote = (r: Route) => ignored.some((n) => runsThrough(r.points, inflate(n)));
+  const underNote = (r: Route) => clear.some((n) => runsThrough(r.points, inflate(n)));
 
   const crowding = (id: string) => {
     const label = placed.get(id);

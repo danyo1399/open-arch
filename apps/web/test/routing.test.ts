@@ -361,6 +361,28 @@ describe("routeLinks", () => {
     expect(layoutArrows(boxes, links, new Map([["a->b", [{ w: 190, h: 37 }]]]), { notes: [note] }).routes.get("a->b")!.length).toBeGreaterThan(2);
   });
 
+  it("still goes round a note in the way while going under another dropped over a box", () => {
+    // d->e runs down through the second note unless it goes round it.
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 120 }],
+      ["b", { x: 600, y: 300, w: 220, h: 120 }],
+      ["c", { x: 300, y: 150, w: 100, h: 60 }],
+      ["d", { x: 0, y: 800, w: 220, h: 120 }],
+      ["e", { x: 0, y: 1200, w: 220, h: 120 }],
+    ]);
+    const [overA, betweenDE] = [
+      { x: -20, y: -20, w: 260, h: 160 },
+      { x: 60, y: 980, w: 100, h: 80 },
+    ];
+    const links = [link("a", "b"), link("d", "e")];
+    for (const [how, routes] of [
+      ["routeLinks", routeLinks(boxes, links, [], [overA, betweenDE])],
+      ["layoutArrows", layoutArrows(boxes, links, new Map(links.map((l) => [l.id, [{ w: 190, h: 37 }]])), { notes: [overA, betweenDE] }).routes],
+    ] as const) {
+      for (const s of segments(routes.get("d->e")!)) expect(cuts(s, betweenDE), `${how}: d->e goes under the note between d and e`).toBe(false);
+    }
+  });
+
   it("falls back to a straight line when there's no way out", () => {
     const boxes = new Map([
       ["a", { x: 0, y: 0, w: 500, h: 400 }],

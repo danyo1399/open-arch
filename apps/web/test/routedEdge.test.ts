@@ -70,6 +70,7 @@ describe("measureLabelSizes", () => {
   // Just enough of a page to measure in: a label on the page is 6px a letter on its longest line, up to
   // its max-width, and 20px a line; one that isn't on the page measures nothing, as in a browser.
   let measures = 0;
+  let failing = false;
   interface Fake {
     className: string;
     textContent: string;
@@ -105,6 +106,7 @@ describe("measureLabelSizes", () => {
         el.parent = undefined;
       },
       getBoundingClientRect() {
+        if (failing) throw new Error("can't measure");
         measures++;
         let top = el;
         while (top.parent) top = top.parent;
@@ -118,6 +120,7 @@ describe("measureLabelSizes", () => {
   let body: Fake;
   beforeEach(() => {
     body = element();
+    failing = false;
     vi.stubGlobal("document", { createElement: element, body });
     forgetLabelSizes();
     measures = 0;
@@ -143,6 +146,12 @@ describe("measureLabelSizes", () => {
     expect(measures).toBe(2 * LABEL_WIDTHS.length);
     measureLabelSizes(edges);
     expect(measures).toBe(2 * LABEL_WIDTHS.length);
+  });
+
+  it("takes its hidden labels off the page even if measuring them fails", () => {
+    failing = true;
+    expect(() => measureLabelSizes([edge("a label that can't be measured")])).toThrow();
+    expect(body.children).toHaveLength(0);
   });
 
   it("has a size for every label when the view needs more than it keeps, measuring only the new ones", () => {
