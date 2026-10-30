@@ -3,14 +3,14 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { canSaveFiles, desktopBridge, DesktopHost, docsZip, download, FileHandleHost, pickFileToSave, type WorkspaceHost } from "./hosts.js";
-import { relationshipRef, viewAction } from "./model.js";
+import { relationshipRef, renamedId, renamesIn, shownInProperties, viewAction, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
-import { Properties, shownInProperties } from "./panels/Properties.js";
+import { Properties } from "./panels/Properties.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
-import { useWorkspace, type Edit } from "./state.js";
+import { useWorkspace } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
 
@@ -44,12 +44,6 @@ function detailsName(ws: Workspace, view: ViewDef | null, selection: Selection):
   return shown.kind === "view" ? "This view" : "Workspace";
 }
 
-/** Where a missing ID went, following renames (old to new) for as long as they lead somewhere. */
-function followRenames(ws: Workspace, renamed: Map<string, string>, id: string): string {
-  let current = id;
-  for (let steps = 0; !ws.elements.has(current) && renamed.has(current) && steps < renamed.size; steps++) current = renamed.get(current)!;
-  return current;
-}
 
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
@@ -73,31 +67,41 @@ interface DesignerProps {
 }
 
 export function Designer({ host, onClose, onHostChange }: DesignerProps) {
-  const state = useWorkspace(host);
-  const { ws, diagnostics } = state;
-  /** Old IDs, and what edits made here renamed them to, so the selection and usages follow a rename. */
-  const renamed = useRef(new Map<string, string>());
-  const workspaceEdit = state.edit;
-  const edit = useCallback(
-    (e: Edit) => {
-      if (Array.isArray(e)) for (const op of e) if (op.op === "rename") renamed.current.set(op.id, op.to);
-      return workspaceEdit(e);
-    },
-    [workspaceEdit],
-  );
   const [viewId, setViewId] = useState<string | null>(null);
-  const [chosen, setSelection] = useState<Selection>(null);
-  // An element renamed here stays selected under its new ID from the moment the rename lands.
-  // Until then the details panel would show the view, taking away any button being pressed.
-  const selection = useMemo<Selection>(
-    () => (chosen?.kind === "element" && ws && !ws.elements.has(chosen.id) ? { kind: "element", id: followRenames(ws, renamed.current, chosen.id) } : chosen),
-    [chosen, ws],
-  );
+  const [selection, setSelection] = useState<Selection>(null);
   const [isNew, setIsNew] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [usagesOf, setUsagesOf] = useState<string | null>(null);
+  /** Every rename applied, in order, so an edit queued behind one can follow it. */
+  const renames = useRef<Rename[]>([]);
+  // What's open follows a rename in the same render as the rename lands. A render in between
+  // would show something else in its place (the view's details for a renamed element), and a
+  // button being pressed there would go with it.
+  const state = useWorkspace(host, (ops) => {
+    const applied = renamesIn(ops);
+    if (applied.length === 0) return;
+    renames.current.push(...applied);
+    const to = (id: string) => renamedId(applied, id);
+    setSelection((s) =>
+      s?.kind === "element" && to(s.id) !== s.id
+        ? { ...s, id: to(s.id) }
+        : s?.kind === "arrow" && (to(s.from) !== s.from || to(s.to) !== s.to)
+          ? { ...s, from: to(s.from), to: to(s.to) }
+          : s,
+    );
+    setViewId((v) => v && to(v));
+    setUsagesOf((u) => u && to(u));
+    setDialog((d) => (d && "id" in d && to(d.id) !== d.id ? { ...d, id: to(d.id) } : d));
+    setMenu((m) => (m && to(m.id) !== m.id ? { ...m, id: to(m.id) } : m));
+  });
+  const { ws, diagnostics, edit } = state;
+  /** Maps IDs through the renames applied from now on: for an edit that may queue behind one. */
+  const renamesFromNow = () => {
+    const start = renames.current.length;
+    return (id: string) => renamedId(renames.current.slice(start), id);
+  };
   const narrow = useMediaQuery(NARROW);
   const [pane, setPane] = useState<Pane>("diagram");
   // Becoming narrow shows the details while one is being typed in, as an on-screen keyboard can
@@ -111,6 +115,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   }
   const [more, setMore] = useState<{ x: number; y: number } | null>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
+  const moreClosedByPress = useRef(false);
   const desktop = desktopBridge();
   const agent = host instanceof DesktopHost ? desktop?.agent : undefined;
 
@@ -123,9 +128,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
   useEffect(() => {
     if (selection?.kind === "element" && ws && !ws.elements.has(selection.id)) setSelection(null);
-    else if (selection !== chosen) setSelection(selection);
     if (selection?.kind === "sticky" && ws && !ws.views.get(viewId ?? "")?.stickies.some((s) => s.id === selection.id)) setSelection(null);
-  }, [ws, selection, chosen, viewId]);
+  }, [ws, selection, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
   useEffect(() => {
@@ -183,7 +187,12 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const showInView = (id: string) => view && void edit([{ op: "show-in-view", view: view.id, id }]);
-  const hideFromView = (id: string) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null));
+  const hideFromView = (id: string) => {
+    if (!view) return;
+    // Pressed just after typing a new name, this can queue behind the rename that saves it.
+    const now = renamesFromNow();
+    void edit(() => [{ op: "hide-in-view", view: now(view.id), id: now(id) }]).then(() => select(null));
+  };
 
   /** A usage can be in another view: open that one, then select it there. */
   const goToUsage = (target: string | null, next: Selection) => {
@@ -191,13 +200,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     select(next);
   };
 
-  // The usages panel follows its element to a new ID, and closes when the element is gone. A
-  // rename can land just after the panel opens: a name saves when its text box loses focus, as
-  // it does to the Find usages button.
   useEffect(() => {
-    if (!usagesOf || !ws || ws.elements.has(usagesOf)) return;
-    const id = followRenames(ws, renamed.current, usagesOf);
-    setUsagesOf(ws.elements.has(id) ? id : null);
+    if (usagesOf && ws && !ws.elements.has(usagesOf)) setUsagesOf(null);
   }, [ws, usagesOf]);
 
   const removeSelection = useCallback(() => {
@@ -365,7 +369,20 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             aria-label="More"
             aria-haspopup="menu"
             aria-expanded={!!more}
+            // A press closes the menu straight away: a long press, or one that slides off or
+            // just past the button, has no click to follow, or one that would open it again.
+            onPointerDown={() => {
+              moreClosedByPress.current = !!more;
+              setMore(null);
+            }}
+            onKeyDown={() => {
+              moreClosedByPress.current = false;
+            }}
             onClick={(e) => {
+              if (moreClosedByPress.current) {
+                moreClosedByPress.current = false;
+                return;
+              }
               const r = e.currentTarget.getBoundingClientRect();
               setMore((m) => (m ? null : { x: r.right, y: r.bottom + 4 }));
             }}
@@ -432,7 +449,6 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         fileName={host.name}
         edit={edit}
         onSelect={select}
-        onSelectView={selectView}
         onHide={hideFromView}
         onDelete={(id) => setDialog({ kind: "delete", id })}
         onFindUsages={findUsages}

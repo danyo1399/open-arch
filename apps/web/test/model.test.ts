@@ -1,6 +1,6 @@
 import { buildWorkspace, computeView } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { followsName, idFromName, uniqueId, viewAction } from "../src/model.js";
+import { followsName, idFromName, renamedId, renamesIn, shownInProperties, uniqueId, viewAction } from "../src/model.js";
 
 const ws = buildWorkspace({
   openarch: 2,
@@ -106,5 +106,54 @@ describe("viewAction", () => {
     const view = shop.views.get("containers")!;
     expect(viewAction(shop, view, null, "web")).toBeNull();
     expect(viewAction(shop, view, null, "customer")).toBeNull();
+  });
+});
+
+describe("shownInProperties", () => {
+  const noted = buildWorkspace({
+    openarch: 2,
+    name: "Shop",
+    elements: { api: { kind: "system", name: "API" } },
+    views: { landscape: { title: "Landscape", level: "landscape", stickies: { note: { text: "Read me" } } } },
+  });
+  const view = noted.views.get("landscape")!;
+
+  it("shows the selection while it's still there", () => {
+    expect(shownInProperties(noted, view, { kind: "element", id: "api" })).toEqual({ kind: "element", element: noted.elements.get("api") });
+    expect(shownInProperties(noted, view, { kind: "sticky", id: "note" })).toEqual({ kind: "sticky", view, sticky: view.stickies[0] });
+    expect(shownInProperties(noted, view, { kind: "arrow", from: "api", to: "db" })).toEqual({ kind: "arrow", from: "api", to: "db" });
+  });
+
+  it("shows the view when the selection is gone, or nothing is selected", () => {
+    expect(shownInProperties(noted, view, { kind: "element", id: "gone" })).toEqual({ kind: "view", view });
+    expect(shownInProperties(noted, view, { kind: "sticky", id: "gone" })).toEqual({ kind: "view", view });
+    expect(shownInProperties(noted, view, null)).toEqual({ kind: "view", view });
+  });
+
+  it("shows the workspace when it's selected, or no view is open", () => {
+    expect(shownInProperties(noted, view, { kind: "workspace" })).toEqual({ kind: "workspace" });
+    expect(shownInProperties(noted, null, { kind: "element", id: "gone" })).toEqual({ kind: "workspace" });
+    expect(shownInProperties(noted, null, null)).toEqual({ kind: "workspace" });
+  });
+});
+
+describe("renames", () => {
+  const renames = renamesIn([
+    { op: "update-element", id: "new-system", name: "Payments" },
+    { op: "rename", id: "new-system", to: "payments" },
+    { op: "rename", id: "payments", to: "billing" },
+    { op: "rename", id: "orders", to: "checkout" },
+  ]);
+
+  it("picks the renames out of a batch, in order", () => {
+    expect(renames.map((r) => `${r.id}>${r.to}`)).toEqual(["new-system>payments", "payments>billing", "orders>checkout"]);
+  });
+
+  it("follows an ID through them in order", () => {
+    expect(renamedId(renames, "new-system")).toBe("billing");
+    expect(renamedId(renames, "orders")).toBe("checkout");
+    expect(renamedId(renames, "db")).toBe("db");
+    // A later rename doesn't reach back to an ID that only an earlier one made.
+    expect(renamedId(renames.slice(2), "new-system")).toBe("new-system");
   });
 });

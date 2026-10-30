@@ -1,5 +1,6 @@
 /** Small questions about the model that the designer's UI asks. */
-import { computeAllViews, describeElement, isInside, type ArchElement, type ComputedView, type Relationship, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeAllViews, describeElement, isInside, type ArchElement, type ComputedView, type Operation, type Relationship, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import type { Selection } from "./canvas/Canvas.js";
 
 /** IDs the designer gives new elements before they have a name. */
 export const PLACEHOLDER_ID = /^new-(person|system|container|component)(-\d+)?$/;
@@ -97,4 +98,34 @@ export function findUsages(ws: Workspace, id: string, preferView?: string): Usag
     relationships: [...d.usedBy, ...d.contentsUsedBy].map(({ from, rel }) => ({ from, rel, arrow: arrowFor(from.id, rel.index) })),
     views: d.views.sort((a, b) => a.view.title.localeCompare(b.view.title)),
   };
+}
+
+/** What the details panel shows. */
+export type Shown =
+  | { kind: "element"; element: ArchElement }
+  | { kind: "arrow"; from: string; to: string }
+  | { kind: "sticky"; view: ViewDef; sticky: Sticky }
+  | { kind: "view"; view: ViewDef }
+  | { kind: "workspace" };
+
+/** What the panel shows: the selection while it's still there, else the open view, or the workspace when none is open. */
+export function shownInProperties(ws: Workspace, view: ViewDef | null, selection: Selection): Shown {
+  const element = selection?.kind === "element" ? ws.elements.get(selection.id) : undefined;
+  if (element) return { kind: "element", element };
+  if (selection?.kind === "arrow") return selection;
+  const sticky = selection?.kind === "sticky" ? view?.stickies.find((s) => s.id === selection.id) : undefined;
+  if (view && sticky) return { kind: "sticky", view, sticky };
+  return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
+}
+
+export type Rename = Extract<Operation, { op: "rename" }>;
+
+/** The renames in a batch of operations, in order. */
+export function renamesIn(ops: Operation[]): Rename[] {
+  return ops.flatMap((op) => (op.op === "rename" ? [op] : []));
+}
+
+/** An ID after these renames, applied in order. */
+export function renamedId(renames: Rename[], id: string): string {
+  return renames.reduce((current, r) => (current === r.id ? r.to : current), id);
 }

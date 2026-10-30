@@ -258,13 +258,38 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView(FIT)));
   }, [ready, view.id, rf]);
 
-  // Turning a phone or tablet round fits the diagram to its new shape. The canvas is resized by
-  // then, but React Flow measures it after this frame's animation callbacks, so wait for the next.
+  // Turning a phone or tablet round fits the diagram to its new shape, once the canvas has it.
+  // (Not a window crossing square as it's resized: that keeps the zoom.) Browsers report the
+  // turn before or after resizing the page, so wait for the resize, but not for long.
   useEffect(() => {
-    const portrait = window.matchMedia("(orientation: portrait)");
-    const refit = () => requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView(FIT)));
-    portrait.addEventListener("change", refit);
-    return () => portrait.removeEventListener("change", refit);
+    const canvas = wrapper.current;
+    if (!canvas) return;
+    let waiting: number | undefined;
+    let frame = 0;
+    const fit = () => {
+      window.clearTimeout(waiting);
+      waiting = undefined;
+      // After React Flow, whose own observer has measured the canvas by the next frame.
+      frame = requestAnimationFrame(() => void rf.fitView(FIT));
+    };
+    const resized = new ResizeObserver(() => {
+      if (waiting !== undefined) fit();
+    });
+    resized.observe(canvas);
+    const turned = () => {
+      window.clearTimeout(waiting);
+      waiting = window.setTimeout(fit, 500);
+    };
+    // Safari before 16.4 has only the older event.
+    const source: EventTarget = screen.orientation ?? window;
+    const event = screen.orientation ? "change" : "orientationchange";
+    source.addEventListener(event, turned);
+    return () => {
+      source.removeEventListener(event, turned);
+      resized.disconnect();
+      window.clearTimeout(waiting);
+      cancelAnimationFrame(frame);
+    };
   }, [rf]);
 
   const onNodesChange = useCallback(
