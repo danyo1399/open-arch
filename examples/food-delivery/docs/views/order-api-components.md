@@ -17,9 +17,9 @@ flowchart TB
   end
   payment_provider["Payment Provider<br/>[External System]"]
   support_desk["Support Desk<br/>[System]"]
-  courier_app["Courier App<br/>[Container: React Native]"]
-  customer_app["Customer App<br/>[Container: React Native]"]
-  order_events["Order Events<br/>[Container: Kafka]"]
+  courier_app("Courier App<br/>[Container: React Native]")
+  customer_app("Customer App<br/>[Container: React Native]")
+  order_events[["Order Events<br/>[Container: Kafka]"]]
   orders_db[("Orders Database<br/>[Container: PostgreSQL]")]
   restaurant_portal["Restaurant Portal<br/>[Container: React]"]
   courier_app -->|"Accepts jobs and updates deliveries using<br/>[HTTPS/JSON]"| order_routes

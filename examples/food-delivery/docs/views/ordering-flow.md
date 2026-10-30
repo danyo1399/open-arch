@@ -10,9 +10,9 @@ Only what's involved when a customer places an order.
 flowchart TB
   customer(["Customer<br/>[Person]"])
   subgraph delivery_platform_boundary["Delivery Platform [System]"]
-    customer_app["Customer App<br/>[Container: React Native]"]
+    customer_app("Customer App<br/>[Container: React Native]")
     order_api["Order API<br/>[Container: Node.js]"]
-    order_events["Order Events<br/>[Container: Kafka]"]
+    order_events[["Order Events<br/>[Container: Kafka]"]]
     orders_db[("Orders Database<br/>[Container: PostgreSQL]")]
   end
   payment_provider["Payment Provider<br/>[External System]"]

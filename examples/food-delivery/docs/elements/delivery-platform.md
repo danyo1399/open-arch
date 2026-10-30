@@ -20,9 +20,9 @@ This is the system the example looks inside: its containers are in view 3, and t
 - [Orders Database](orders-db.md) (container) – Stores orders, menus and deliveries.
 - [Restaurant Portal](restaurant-portal.md) (container) – Lets restaurants manage menus and incoming orders.
 
-## Details
+## Tags
 
-| | |
+| Tag | Value |
 |---|---|
 | owner | Ordering team |
 

@@ -81,10 +81,10 @@ describe("reading", () => {
 describe("changing", () => {
   it("adds an element and a relationship, saving the file and refreshing the docs", () => {
     const dir = example();
-    const added = cli(dir, "add-element", "cache", "--kind", "container", "--parent", "shop", "--technology", "Redis", "--property", "owner=checkout", "--notes", "Holds carts.");
+    const added = cli(dir, "add-element", "cache", "--kind", "container", "--parent", "shop", "--technology", "Redis", "--shape", "database", "--tag", "owner=checkout", "--tag", "pii", "--notes", "Holds carts.");
     expect(added).toMatchObject({ code: 0 });
     expect(added.out).toContain("added container cache\nSaved shop.openarch.\nDocs in docs: wrote");
-    expect(JSON.parse(read(dir)).elements.cache).toEqual({ kind: "container", name: "Cache", parent: "shop", technology: "Redis", properties: { owner: "checkout" }, notes: "Holds carts." });
+    expect(JSON.parse(read(dir)).elements.cache).toEqual({ kind: "container", name: "Cache", parent: "shop", technology: "Redis", shape: "database", tags: { owner: "checkout", pii: "" }, notes: "Holds carts." });
     expect(read(dir, "docs/elements/cache.md")).toContain("Holds carts.");
 
     expect(cli(dir, "add-relationship", "checkout-controller", "cache", "--description", "Reads carts").code).toBe(0);
@@ -142,7 +142,7 @@ describe("changing", () => {
 
   it("removes fields with empty values and hides elements from views", () => {
     const dir = example();
-    expect(cli(dir, "update-element", "web-app", "--technology", "", "--tags", "frontend").code).toBe(0);
+    expect(cli(dir, "update-element", "web-app", "--technology", "", "--tag", "frontend").code).toBe(0);
     expect(JSON.parse(read(dir)).elements["web-app"]).not.toHaveProperty("technology");
     expect(cli(dir, "hide-in-view", "shop-containers", "customer", "warehouse").code).toBe(0);
     expect(JSON.parse(read(dir)).views["shop-containers"].exclude).toEqual(["customer", "warehouse"]);
@@ -160,6 +160,39 @@ describe("changing", () => {
     expect(cli(dir, "add-sticky", "landscape", "x").err).toContain("Pass --text");
     expect(cli(dir, "remove-sticky", "landscape", "start-here").code).toBe(0);
     expect(JSON.parse(read(dir)).views.landscape).not.toHaveProperty("stickies");
+  });
+
+  it("sets shapes and tags, removes them, and shows them", () => {
+    const dir = example();
+    expect(cli(dir, "update-element", "web-app", "--shape", "web-browser", "--tag", "owner=storefront", "--tag", "team=web=ui", "--tag", "pii").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements["web-app"]).toMatchObject({ shape: "web-browser", tags: { owner: "storefront", pii: "", team: "web=ui" } });
+    const shown = cli(dir, "show", "web-app");
+    expect(shown.out).toContain("  shape:       web-browser\n\nTags:\n  owner  storefront\n  pii\n  team   web=ui\n");
+    expect(JSON.parse(cli(dir, "show", "web-app", "--json").out)).toMatchObject({ shape: "web-browser", tags: { owner: "storefront", pii: "" } });
+    expect(read(dir, "docs/elements/web-app.md")).toContain("| owner | storefront |");
+
+    expect(cli(dir, "update-element", "web-app", "--shape", "", "--remove-tag", "pii", "--remove-tag", "team").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements["web-app"]).not.toHaveProperty("shape");
+    expect(JSON.parse(read(dir)).elements["web-app"].tags).toEqual({ owner: "storefront" });
+
+    expect(cli(dir, "update-relationship", "web-app", "checkout-controller", "--tag", "protocol=https").code).toBe(0);
+    expect(JSON.parse(cli(dir, "show", "web-app", "--json").out).uses[0]).toMatchObject({ to: "checkout-controller", tags: { protocol: "https" } });
+
+    expect(cli(dir, "update-element", "web-app", "--tag", "=x")).toMatchObject({ code: 2, err: expect.stringContaining("--tag needs a name") });
+    expect(cli(dir, "update-element", "customer", "--shape", "database").err).toContain("People are always drawn as a person");
+    expect(cli(dir, "update-element", "web-app", "--shape", "mobile").err).toContain('Unknown shape "mobile". Did you mean "mobile-app"?');
+  });
+
+  it("upgrades a version 1 file the next time it's saved", () => {
+    const dir = example();
+    const v1 = read(dir)
+      .replace('"openarch": 2', '"openarch": 1')
+      .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
+    writeFileSync(join(dir, "shop.openarch"), v1);
+    expect(cli(dir, "check").code).toBe(0);
+    expect(cli(dir, "fmt", "--check").code).toBe(1);
+    expect(cli(dir, "fmt").code).toBe(0);
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 2, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -189,7 +222,7 @@ describe("init", () => {
     writeFileSync(join(project, "AGENTS.md"), "# Project rules\n\nUse tabs.\n");
 
     expect(cli(project, "init", "--name", "Payments").code).toBe(0);
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 1, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 2, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

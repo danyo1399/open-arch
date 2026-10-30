@@ -12,11 +12,11 @@ flowchart TB
   customer(["Customer<br/>[Person]"])
   restaurant_staff(["Restaurant Staff<br/>[Person]"])
   subgraph delivery_platform_boundary["Delivery Platform [System]"]
-    courier_app["Courier App<br/>[Container: React Native]"]
-    customer_app["Customer App<br/>[Container: React Native]"]
+    courier_app("Courier App<br/>[Container: React Native]")
+    customer_app("Customer App<br/>[Container: React Native]")
     dispatch_worker["Dispatch Worker<br/>[Container: Go]"]
     order_api["Order API<br/>[Container: Node.js]"]
-    order_events["Order Events<br/>[Container: Kafka]"]
+    order_events[["Order Events<br/>[Container: Kafka]"]]
     orders_db[("Orders Database<br/>[Container: PostgreSQL]")]
     restaurant_portal["Restaurant Portal<br/>[Container: React]"]
   end
@@ -60,7 +60,7 @@ flowchart TB
 
 > Dashed arrows are implied: the real relationship belongs to something inside the box. The apps actually call the Order Routes component inside the Order API (view 4).
 
-> The cylinder is a database. Anything tagged "database" is drawn that way.
+> Shapes say what a box is: the cylinder is a database, the pipe is a queue, and the phones are mobile apps. Pick one under Shape in the panel on the right.
 
 > Boxes and arrows can say what they're built with: [Container: Node.js] on a box, or the protocol under an arrow's description.
 

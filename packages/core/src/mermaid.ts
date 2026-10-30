@@ -36,8 +36,17 @@ function nodeLine(e: ArchElement): string {
   const id = mermaidId(e.id);
   const label = nodeLabel(e);
   if (e.kind === "person") return `${id}([${label}])`;
-  if (e.tags.includes("database")) return `${id}[(${label})]`;
-  return `${id}[${label}]`;
+  // The nearest of Mermaid's shapes; it has none for a browser or a folder.
+  switch (e.shape) {
+    case "database":
+      return `${id}[(${label})]`;
+    case "queue":
+      return `${id}[[${label}]]`;
+    case "mobile-app":
+      return `${id}(${label})`;
+    default:
+      return `${id}[${label}]`;
+  }
 }
 
 export function renderMermaid(cv: ComputedView): string {

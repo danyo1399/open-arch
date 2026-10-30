@@ -1,5 +1,5 @@
 {
-  "openarch": 1,
+  "openarch": 2,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -72,7 +72,7 @@
       "parent": "shop",
       "description": "Stores orders and their status.",
       "technology": "PostgreSQL",
-      "tags": ["database"]
+      "shape": "database"
     },
     "web-app": {
       "kind": "container",

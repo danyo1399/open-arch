@@ -61,6 +61,17 @@ describe("renderMermaid", () => {
     expect(text).toContain('api -->|"Stores orders<br/>[SQL]"| db');
     expect(text).toContain("class payments external");
   });
+
+  it("draws each shape as the nearest Mermaid shape, and people as people", () => {
+    const doc = shop();
+    doc.elements.api!.shape = "queue";
+    doc.elements["web-app"]!.shape = "mobile-app";
+    doc.elements.customer!.shape = "database";
+    const text = renderMermaid(view(ws(doc), "shop-containers"));
+    expect(text).toContain('api[["API<br/>[Container: Node.js]"]]');
+    expect(text).toContain('web_app("Web App<br/>[Container: React]")');
+    expect(text).toContain('customer(["Customer<br/>[Person]"])');
+  });
 });
 
 describe("describeElement", () => {

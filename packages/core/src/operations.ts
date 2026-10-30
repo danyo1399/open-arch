@@ -9,30 +9,36 @@ import { isInside, PARENT_KIND } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
   ELEMENT_KINDS,
+  ELEMENT_SHAPES,
   ID_PATTERN,
   STICKY_COLORS,
   VIEW_LEVELS,
   type Diagnostic,
   type ElementData,
   type ElementKind,
+  type ElementShape,
   type OpenArchDocument,
   type Position,
   type RelationshipData,
   type StickyColor,
   type StickyData,
+  type Tags,
   type ViewData,
   type ViewLevel,
 } from "./types.js";
 import { computeView, scopeProblems } from "./views.js";
 import { buildWorkspace } from "./workspace.js";
 
+/** Changes to tags: a value sets a tag (an empty one makes it a plain label) and null removes it. */
+export type TagChanges = Record<string, string | null>;
+
 export type Operation =
-  | { op: "add-element"; id: string; kind: ElementKind; parent?: string; name?: string; description?: string; technology?: string; external?: boolean; tags?: string[]; properties?: Record<string, string>; notes?: string }
-  | { op: "update-element"; id: string; name?: string; parent?: string; description?: string | null; technology?: string | null; external?: boolean; tags?: string[]; properties?: Record<string, string | null>; notes?: string | null }
+  | { op: "add-element"; id: string; kind: ElementKind; parent?: string; name?: string; description?: string; technology?: string; external?: boolean; shape?: ElementShape; tags?: Tags; notes?: string }
+  | { op: "update-element"; id: string; name?: string; parent?: string; description?: string | null; technology?: string | null; external?: boolean; shape?: ElementShape | null; tags?: TagChanges; notes?: string | null }
   | { op: "remove-element"; id: string }
   | { op: "rename"; id: string; to: string }
-  | { op: "add-relationship"; from: string; to: string; description?: string; technology?: string; tags?: string[] }
-  | { op: "update-relationship"; from: string; to: string; index?: number; description?: string | null; technology?: string | null; tags?: string[] }
+  | { op: "add-relationship"; from: string; to: string; description?: string; technology?: string; tags?: Tags }
+  | { op: "update-relationship"; from: string; to: string; index?: number; description?: string | null; technology?: string | null; tags?: TagChanges }
   | { op: "remove-relationship"; from: string; to: string; index?: number }
   | { op: "add-view"; id: string; level: ViewLevel; scope?: string; title?: string; description?: string; include?: string[]; exclude?: string[] }
   | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[] }
@@ -59,23 +65,23 @@ export class OpError extends Error {
 
 // --- Checking the shape of operations sent as JSON ----------------------------------
 
-type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "properties" | "nullable-properties" | "index" | "positions" | "point" | "nullable-point";
+type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "tags" | "nullable-tags" | "index" | "positions" | "point" | "nullable-point";
 
 const SHAPES: Record<OperationName, { required: string[]; fields: Record<string, FieldType> }> = {
   "add-element": {
     required: ["id", "kind"],
-    fields: { id: "string", kind: "string", parent: "string", name: "string", description: "string", technology: "string", external: "boolean", tags: "strings", properties: "properties", notes: "string" },
+    fields: { id: "string", kind: "string", parent: "string", name: "string", description: "string", technology: "string", external: "boolean", shape: "string", tags: "tags", notes: "string" },
   },
   "update-element": {
     required: ["id"],
-    fields: { id: "string", name: "string", parent: "string", description: "nullable-string", technology: "nullable-string", external: "boolean", tags: "strings", properties: "nullable-properties", notes: "nullable-string" },
+    fields: { id: "string", name: "string", parent: "string", description: "nullable-string", technology: "nullable-string", external: "boolean", shape: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
   },
   "remove-element": { required: ["id"], fields: { id: "string" } },
   rename: { required: ["id", "to"], fields: { id: "string", to: "string" } },
-  "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", description: "string", technology: "string", tags: "strings" } },
+  "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", description: "string", technology: "string", tags: "tags" } },
   "update-relationship": {
     required: ["from", "to"],
-    fields: { from: "string", to: "string", index: "index", description: "nullable-string", technology: "nullable-string", tags: "strings" },
+    fields: { from: "string", to: "string", index: "index", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags" },
   },
   "remove-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", index: "index" } },
   "add-view": { required: ["id", "level"], fields: { id: "string", level: "string", scope: "string", title: "string", description: "string", include: "strings", exclude: "strings" } },
@@ -104,9 +110,9 @@ function fits(type: FieldType, value: unknown): boolean {
       return typeof value === "boolean";
     case "strings":
       return Array.isArray(value) && value.every((v) => typeof v === "string");
-    case "properties":
+    case "tags":
       return isRecord(value) && Object.values(value).every((v) => typeof v === "string");
-    case "nullable-properties":
+    case "nullable-tags":
       return isRecord(value) && Object.values(value).every((v) => typeof v === "string" || v === null);
     case "index":
       return Number.isInteger(value) && (value as number) >= 0;
@@ -127,8 +133,8 @@ const TYPE_TEXT: Record<FieldType, string> = {
   "nullable-string": "a string, or null to remove it",
   boolean: "true or false",
   strings: "a list of strings",
-  properties: "an object of string values",
-  "nullable-properties": "an object of string values (null removes a key)",
+  tags: 'an object of tag names and string values, like { "owner": "payments" }',
+  "nullable-tags": 'an object of tag names and string values, like { "owner": "payments" } (null removes a tag)',
   index: "a whole number, 0 or more",
   positions: "an object of [x, y] positions (null removes one)",
   point: "a position, [x, y]",
@@ -262,6 +268,7 @@ function addElement(doc: OpenArchDocument, op: Extract<Operation, { op: "add-ele
   if (!(ELEMENT_KINDS as readonly string[]).includes(op.kind)) throw new OpError(`Unknown kind "${op.kind}". Use one of: ${ELEMENT_KINDS.join(", ")}.`);
   checkParent(doc, op.kind, op.parent);
   if (op.external && PARENT_KIND[op.kind]) throw new OpError("Only people and systems can be external.");
+  checkShape(op.kind, op.shape);
   doc.elements[op.id] = clean<ElementData>({
     kind: op.kind,
     name: op.name?.trim() || titleFromId(op.id),
@@ -269,8 +276,8 @@ function addElement(doc: OpenArchDocument, op: Extract<Operation, { op: "add-ele
     description: op.description?.trim(),
     technology: op.technology?.trim(),
     external: op.external || undefined,
-    tags: op.tags?.length ? [...op.tags] : undefined,
-    properties: op.properties && Object.keys(op.properties).length ? { ...op.properties } : undefined,
+    shape: op.shape === "box" ? undefined : op.shape,
+    tags: changeTags(undefined, op.tags ?? {}),
     notes: op.notes?.trim(),
   });
   return `added ${op.kind} ${op.id}`;
@@ -278,7 +285,7 @@ function addElement(doc: OpenArchDocument, op: Extract<Operation, { op: "add-ele
 
 function updateElement(doc: OpenArchDocument, op: Extract<Operation, { op: "update-element" }>): string {
   const e = requireElement(doc, op.id);
-  const fields = ["name", "parent", "description", "technology", "external", "tags", "properties", "notes"] as const;
+  const fields = ["name", "parent", "description", "technology", "external", "shape", "tags", "notes"] as const;
   if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on "${op.id}": ${fields.join(", ")}.`);
   if (op.name !== undefined) {
     if (!op.name.trim()) throw new OpError("The name can't be empty.");
@@ -299,18 +306,15 @@ function updateElement(doc: OpenArchDocument, op: Extract<Operation, { op: "upda
     if (op.external) e.external = true;
     else delete e.external;
   }
-  if (op.tags !== undefined) {
-    if (op.tags.length) e.tags = [...op.tags];
-    else delete e.tags;
+  if (op.shape !== undefined) {
+    checkShape(e.kind, op.shape);
+    if (op.shape === null || op.shape === "box") delete e.shape;
+    else e.shape = op.shape;
   }
-  if (op.properties !== undefined) {
-    const props = { ...e.properties };
-    for (const [k, v] of Object.entries(op.properties)) {
-      if (v === null) delete props[k];
-      else props[k] = v;
-    }
-    if (Object.keys(props).length) e.properties = props;
-    else delete e.properties;
+  if (op.tags !== undefined) {
+    const tags = changeTags(e.tags, op.tags);
+    if (tags) e.tags = tags;
+    else delete e.tags;
   }
   return `updated ${op.id}`;
 }
@@ -375,7 +379,7 @@ function addRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "ad
   if (from.uses?.some((r) => r.to === op.to && (r.description || undefined) === description)) {
     throw new OpError(`"${op.from}" already has this relationship to "${op.to}". Use update-relationship to change it.`);
   }
-  from.uses = [...(from.uses ?? []), clean<RelationshipData>({ to: op.to, description, technology: op.technology?.trim(), tags: op.tags?.length ? [...op.tags] : undefined })];
+  from.uses = [...(from.uses ?? []), clean<RelationshipData>({ to: op.to, description, technology: op.technology?.trim(), tags: changeTags(undefined, op.tags ?? {}) })];
   return `added relationship ${op.from} -> ${op.to}`;
 }
 
@@ -392,7 +396,8 @@ function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: 
     else rel[key] = value.trim();
   }
   if (op.tags !== undefined) {
-    if (op.tags.length) rel.tags = [...op.tags];
+    const tags = changeTags(rel.tags, op.tags);
+    if (tags) rel.tags = tags;
     else delete rel.tags;
   }
   return `updated relationship ${op.from} -> ${op.to}`;
@@ -581,6 +586,26 @@ function requireSticky(view: ViewData, viewId: string, id: string): StickyData {
     throw new OpError(`View "${viewId}" has no sticky note "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its notes: ${ids.join(", ")}.` : ""}`);
   }
   return sticky;
+}
+
+function checkShape(kind: ElementKind, shape: string | null | undefined): void {
+  if (shape === undefined || shape === null) return;
+  if (!(ELEMENT_SHAPES as readonly string[]).includes(shape)) {
+    const near = suggest(shape, ELEMENT_SHAPES);
+    throw new OpError(`Unknown shape "${shape}".${near ? ` Did you mean "${near}"?` : ""} Use one of: ${ELEMENT_SHAPES.join(", ")}.`);
+  }
+  if (kind === "person" && shape !== "box") throw new OpError("People are always drawn as a person, so they don't take a shape.");
+}
+
+/** The tags with the changes made, or undefined when none are left. */
+function changeTags(tags: Tags | undefined, changes: TagChanges): Tags | undefined {
+  const out = { ...tags };
+  for (const [name, value] of Object.entries(changes)) {
+    if (!name.trim()) throw new OpError("A tag needs a name.");
+    if (value === null) delete out[name.trim()];
+    else out[name.trim()] = value.trim();
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function checkColor(color: string | undefined): void {

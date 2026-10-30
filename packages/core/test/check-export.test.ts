@@ -25,6 +25,12 @@ describe("checkWorkspace", () => {
       "view-scope-kind views.bad.scope",
     ]);
   });
+
+  it("warns about a shape on a person, which is always drawn as a person", () => {
+    const doc = shop();
+    doc.elements.customer!.shape = "database";
+    expect(rules(doc)).toEqual(["shape-ignored"]);
+  });
 });
 
 describe("exportDocs", () => {
@@ -70,5 +76,13 @@ describe("exportDocs", () => {
     expect(text).toContain("## Contains\n\n- [Controller](controller.md) (component)");
     expect(text).toContain("- [API components](../views/api-components.md) (as the frame)");
     expect(page("README.md")).toContain("- [Shop](elements/shop.md) (system)\n  - [API](elements/api.md) (container, Node.js)");
+  });
+
+  it("lists an element's tags, by name", () => {
+    const doc = shop();
+    doc.elements.api!.tags = { team: "checkout", pii: "" };
+    const text = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "elements/api.md")!.content;
+    expect(text).toContain("## Tags\n\n| Tag | Value |\n|---|---|\n| pii |  |\n| team | checkout |\n");
+    expect(page("elements/db.md")).not.toContain("## Tags");
   });
 });

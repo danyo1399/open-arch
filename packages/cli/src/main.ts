@@ -20,6 +20,7 @@ interface Command {
 
 const s = { type: "string" } as const;
 const b = { type: "boolean" } as const;
+const many = { type: "string", multiple: true } as const;
 const FILE = { file: s };
 const WRITE = { ...FILE, "dry-run": b, json: b, "no-export": b };
 const WRITE_HELP = `
@@ -111,22 +112,25 @@ In updates, null removes a field.
   --description <text>   One sentence, shown in the box
   --technology <text>    e.g. Node.js, PostgreSQL
   --external             A person or system outside your organisation
-  --tags <a,b>           Comma-separated; "database" draws a cylinder
-  --property <key=value> Repeat for more, e.g. --property owner=payments
+  --shape <shape>        How the box is drawn: box (the default), database, queue, web-browser,
+                         mobile-app or folder. People are always drawn as a person
+  --tag <name[=value]>   Repeat for more, e.g. --tag owner=payments --tag pii
   --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
 `,
-    { kind: s, parent: s, name: s, description: s, technology: s, external: b, tags: s, property: { type: "string", multiple: true }, notes: s, "notes-file": s },
+    { kind: s, parent: s, name: s, description: s, technology: s, external: b, shape: s, tag: many, notes: s, "notes-file": s },
   ),
   "update-element": writer(
     `Usage: open-arch update-element <id> [options]
 
 Changes only the fields given. An empty value removes a field, e.g. --technology "".
-  --name, --description, --technology, --notes, --notes-file, --tags <a,b>
+  --name, --description, --technology, --notes, --notes-file
   --parent <id>          Move it into another system (or container, for a component)
   --external, --internal Mark a person or system as outside your organisation, or not
-  --property <key=value> Set a property; <key>= with no value removes it
+  --shape <shape>        box, database, queue, web-browser, mobile-app or folder
+  --tag <name[=value]>   Add a tag or change its value; repeat for more
+  --remove-tag <name>    Remove a tag; repeat for more
 `,
-    { name: s, parent: s, description: s, technology: s, external: b, internal: b, tags: s, property: { type: "string", multiple: true }, notes: s, "notes-file": s },
+    { name: s, parent: s, description: s, technology: s, external: b, internal: b, shape: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
   ),
   "remove-element": writer(
     `Usage: open-arch remove-element <id>
@@ -144,19 +148,20 @@ Changes an element's or view's ID everywhere it's referenced.
     {},
   ),
   "add-relationship": writer(
-    `Usage: open-arch add-relationship <from> <to> [--description <text>] [--technology <text>] [--tags <a,b>]
+    `Usage: open-arch add-relationship <from> <to> [--description <text>] [--technology <text>] [--tag <name[=value]>]...
 
 Adds "<from> uses <to>". Describe it from <from>'s side, e.g. "Reads and writes orders".
 `,
-    { description: s, technology: s, tags: s },
+    { description: s, technology: s, tag: many },
   ),
   "update-relationship": writer(
-    `Usage: open-arch update-relationship <from> <to> [--index <n>] [--description <text>] [--technology <text>] [--tags <a,b>]
+    `Usage: open-arch update-relationship <from> <to> [--index <n>] [--description <text>] [--technology <text>]
+                                    [--tag <name[=value]>]... [--remove-tag <name>]...
 
 --index picks one when <from> has several relationships to <to> (0 is the first).
 An empty value removes a field.
 `,
-    { index: s, description: s, technology: s, tags: s },
+    { index: s, description: s, technology: s, tag: many, "remove-tag": many },
   ),
   "remove-relationship": writer(
     `Usage: open-arch remove-relationship <from> <to> [--index <n>]

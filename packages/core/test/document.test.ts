@@ -23,12 +23,12 @@ describe("parseDocument", () => {
   it("reports every shape problem and leaves the bad parts out", () => {
     const result = parseDocument(
       JSON.stringify({
-        openarch: 2,
+        openarch: 3,
         name: "X",
         colour: "red",
         elements: {
           Good_ID: { kind: "system", name: "Bad id" },
-          ok: { kind: "system", name: "OK", tags: "database", owner: "me", uses: [{ to: "x", desc: "typo" }, "y"] },
+          ok: { kind: "system", name: "OK", shape: "cylinder", tags: ["database"], owner: "me", uses: [{ to: "x", desc: "typo" }, "y"] },
           what: { kind: "box", name: "What" },
         },
         views: {
@@ -47,6 +47,7 @@ describe("parseDocument", () => {
       "version-unsupported openarch",
       "id-format elements.Good_ID",
       "field-unknown elements.ok.owner",
+      "shape-invalid elements.ok.shape",
       "field-type elements.ok.tags",
       "field-unknown elements.ok.uses[0].desc",
       "field-type elements.ok.uses[1]",
@@ -60,6 +61,35 @@ describe("parseDocument", () => {
     expect(result.doc.views.v!.stickies).toEqual({ fine: { text: "Fine", color: "blue" }, odd: { text: "Odd" } });
     expect(Object.keys(result.doc.elements)).toEqual(["ok"]);
     expect(result.doc.elements.ok!.uses).toEqual([{ to: "x" }]);
+    expect(result.diagnostics.find((d) => d.path === "elements.ok.tags")!.fix).toMatch(/"shape": "database"/);
+  });
+
+  it("upgrades version 1: the database tag becomes a shape, and properties become tags", () => {
+    const result = parseDocument(
+      JSON.stringify({
+        openarch: 1,
+        name: "Old",
+        elements: {
+          customer: { kind: "person", name: "Customer", tags: ["database"], uses: [{ to: "db", description: "Reads", tags: ["async"] }] },
+          shop: { kind: "system", name: "Shop", tags: ["core"], properties: { owner: "payments", core: "yes" } },
+          db: { kind: "container", name: "DB", parent: "shop", tags: ["database"] },
+        },
+        views: {},
+      }),
+    );
+    expect(result.diagnostics).toEqual([]);
+    expect(result.doc.openarch).toBe(2);
+    expect(result.doc.elements).toEqual({
+      customer: { kind: "person", name: "Customer", tags: { database: "" }, uses: [{ to: "db", description: "Reads", tags: { async: "" } }] },
+      shop: { kind: "system", name: "Shop", tags: { core: "yes", owner: "payments" } },
+      db: { kind: "container", name: "DB", parent: "shop", shape: "database" },
+    });
+    expect(serializeDocument(result.doc)).toContain('"openarch": 2,');
+  });
+
+  it("reports what it can't upgrade", () => {
+    const result = parseDocument(JSON.stringify({ openarch: 1, name: "Old", elements: { a: { kind: "system", name: "A", tags: "x", properties: ["y"] } }, views: {} }));
+    expect(result.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual(["field-type elements.a.properties", "field-type elements.a.tags"]);
   });
 });
 
@@ -75,11 +105,13 @@ describe("serializeDocument", () => {
     const doc = shop();
     doc.views.landscape!.layout = { shop: [10.4, 20.6], customer: [0, 0] };
     doc.elements.shop!.description = "";
-    doc.elements.shop!.tags = [];
+    doc.elements.shop!.tags = {};
+    doc.elements.api!.shape = "box";
     const text = serializeDocument(doc);
     expect(text).toContain('        { "to": "db", "description": "Stores orders", "technology": "SQL" },\n');
     expect(text).toContain('      "layout": {\n        "customer": [0, 0],\n        "shop": [10, 21]\n      }');
     expect(text).toContain('    "shop": {\n      "kind": "system",\n      "name": "Shop"\n    },');
+    expect(text).toContain('    "api": {\n      "kind": "container",\n      "name": "API",\n      "parent": "shop",\n      "technology": "Node.js"\n    },');
     expect(text).toContain('"include": ["*"]');
     expect(text.endsWith("}\n")).toBe(true);
   });
@@ -91,6 +123,16 @@ describe("serializeDocument", () => {
     expect(serializeDocument(doc)).toContain(
       '      "stickies": {\n        "about": { "text": "About", "color": "green" },\n        "tip": { "text": "Two\\nlines", "at": [2, 2] }\n      },\n      "layout": {',
     );
+  });
+
+  it("writes the shape, element tags one per line and relationship tags inline, by name", () => {
+    const doc = shop();
+    doc.elements.api!.tags = { team: "checkout", pii: "" };
+    doc.elements.customer!.uses![0]!.tags = { sync: "", protocol: "https" };
+    const text = serializeDocument(doc);
+    expect(text).toContain('      "parent": "shop",\n      "shape": "database"\n    },');
+    expect(text).toContain('      "technology": "Node.js",\n      "tags": {\n        "pii": "",\n        "team": "checkout"\n      }\n    },');
+    expect(text).toContain('{ "to": "web-app", "description": "Buys things", "technology": "HTTPS", "tags": { "protocol": "https", "sync": "" } }');
   });
 
   it("keeps notes as one JSON string", () => {

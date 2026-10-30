@@ -1,9 +1,9 @@
-import { describeElement, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type Operation, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type Operation, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import { followsName, idFromName, relationshipRef, uniqueId } from "../model.js";
 import type { Edit } from "../state.js";
-import { Field } from "./fields.js";
+import { Field, TagsEditor } from "./fields.js";
 
 interface PropertiesProps {
   ws: Workspace;
@@ -70,7 +70,6 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
   const parentKind = PARENT_KIND[element.kind];
   const parents = parentKind ? [...ws.elements.values()].filter((e) => e.kind === parentKind).sort((a, b) => a.name.localeCompare(b.name)) : [];
   const inView = computed?.nodes.some((n) => n.id === element.id) ?? false;
-  const props = Object.entries(element.properties).sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <>
@@ -81,6 +80,18 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
       <Field label="ID" value={element.id} onCommit={changeId} hint={idHint(followsName(element.id, element.name))} />
       <Field label="Description" value={element.description ?? ""} onCommit={(description) => set({ description: description || null })} multiline placeholder="One sentence, shown in the box" />
       {element.kind !== "person" && <Field label="Technology" value={element.technology ?? ""} onCommit={(technology) => set({ technology: technology || null })} placeholder="e.g. Node.js, PostgreSQL" />}
+      {element.kind !== "person" && (
+        <label className="field">
+          <span className="field-label">Shape</span>
+          <select value={element.shape} onChange={(e) => set({ shape: e.target.value === "box" ? null : e.target.value })}>
+            {ELEMENT_SHAPES.map((shape) => (
+              <option key={shape} value={shape}>
+                {shape[0]!.toUpperCase() + shape.slice(1).replace("-", " ")}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {parentKind && (
         <label className="field">
           <span className="field-label">Inside</span>
@@ -100,37 +111,11 @@ function ElementProperties({ ws, element, computed, isNew, edit, onSelect, onHid
           Outside our organisation (external)
         </label>
       )}
-      <Field
-        label="Tags"
-        value={element.tags.join(", ")}
-        onCommit={(text) => set({ tags: text.split(",").map((t) => t.trim()).filter(Boolean) })}
-        placeholder="comma-separated"
-        hint={
-          <>
-            The tag <code>database</code> draws a cylinder.
-          </>
-        }
-      />
       <Field label="Notes" value={element.notes ?? ""} onCommit={(notes) => set({ notes: notes || null })} multiline rows={6} placeholder="Longer documentation, in markdown" />
 
-      <h3>Properties</h3>
-      {props.map(([key, value]) => (
-        <div className="prop-row" key={key}>
-          <Field label={key} value={value} onCommit={(v) => set({ properties: { [key]: v || null } })} />
-          <button className="icon" aria-label={`Remove ${key}`} title="Remove" onClick={() => set({ properties: { [key]: null } })}>
-            ×
-          </button>
-        </div>
-      ))}
-      <Field
-        label="Add a property"
-        value=""
-        placeholder="key=value, e.g. owner=payments"
-        onCommit={(text) => {
-          const at = text.indexOf("=");
-          if (at > 0 && text.slice(at + 1).trim()) set({ properties: { [text.slice(0, at).trim()]: text.slice(at + 1).trim() } });
-        }}
-      />
+      <h3>Tags</h3>
+      <TagsEditor tags={element.tags} onChange={(tags) => set({ tags })} />
+      <p className="muted small">Facts like owner or repository, as names with values. Leave the value empty for a plain label.</p>
 
       <h3>Uses</h3>
       {d.uses.length === 0 && <p className="muted small">Nothing. Drag from the dot under a box to another box to add a relationship.</p>}
@@ -218,6 +203,10 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
                 onCommit={(description) => void edit([{ op: "update-relationship", ...ref, description: description || null }])}
               />
               <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit([{ op: "update-relationship", ...ref, technology: technology || null }])} />
+              <div className="field">
+                <span className="field-label">Tags</span>
+                <TagsEditor tags={rel.tags} onChange={(tags) => void edit([{ op: "update-relationship", ...ref, tags }])} />
+              </div>
               <button className="link danger" onClick={() => void edit([{ op: "remove-relationship", ...ref }]).then(() => onSelect(null))}>
                 Remove relationship
               </button>

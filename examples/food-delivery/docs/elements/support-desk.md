@@ -22,9 +22,9 @@ This example doesn't look inside it, so it has no containers.
 |---|---|---|
 | [Support Agent](support-agent.md) | Handles customer problems using |  |
 
-## Details
+## Tags
 
-| | |
+| Tag | Value |
 |---|---|
 | owner | Customer Care team |
 

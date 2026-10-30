@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { applyOperations, buildWorkspace, OpError, parseOperations, type Operation } from "@open-arch/core";
+import { applyOperations, buildWorkspace, OpError, parseOperations, type Operation, type TagChanges, type Tags } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { formatDiagnostic } from "./check.js";
@@ -77,18 +77,18 @@ function need(positionals: string[], names: string[], usage: string): string[] {
   return positionals;
 }
 
-function properties(v: Values, allowRemove: boolean): Record<string, string | null> | undefined {
-  const items = Array.isArray(v.property) ? v.property : [];
-  if (!items.length) return undefined;
-  const out: Record<string, string | null> = {};
-  for (const item of items) {
+/** `--tag owner=payments` sets a tag, `--tag pii` one without a value, and `--remove-tag owner` removes one. */
+function tags(v: Values): TagChanges | undefined {
+  const many = (value: Values[string]) => (Array.isArray(value) ? value : []);
+  const out: TagChanges = {};
+  for (const item of many(v.tag)) {
     const at = item.indexOf("=");
-    if (at <= 0) throw new CliError(`--property needs key=value, not "${item}".`, 2);
-    const value = item.slice(at + 1);
-    if (value === "" && !allowRemove) throw new CliError(`--property ${item} has no value.`, 2);
-    out[item.slice(0, at).trim()] = value === "" ? null : value;
+    const name = (at < 0 ? item : item.slice(0, at)).trim();
+    if (!name) throw new CliError(`--tag needs a name, like --tag owner=payments, not "${item}".`, 2);
+    out[name] = at < 0 ? "" : item.slice(at + 1);
   }
-  return out;
+  for (const name of many(v["remove-tag"])) out[name] = null;
+  return Object.keys(out).length ? out : undefined;
 }
 
 function notes(io: Io, v: Values): string | null | undefined {
@@ -134,8 +134,8 @@ export const BUILDERS: Record<string, Builder> = {
         description: text(v.description),
         technology: text(v.technology),
         external: v.external === true || undefined,
-        tags: list(v.tags),
-        properties: properties(v, false) as Record<string, string> | undefined,
+        shape: text(v.shape) as never,
+        tags: tags(v) as Tags | undefined,
         notes: notes(io, v) ?? undefined,
       },
     ];
@@ -152,8 +152,8 @@ export const BUILDERS: Record<string, Builder> = {
         description: clearable(v.description),
         technology: clearable(v.technology),
         external: v.external === true ? true : v.internal === true ? false : undefined,
-        tags: list(v.tags),
-        properties: properties(v, true),
+        shape: clearable(v.shape) as never,
+        tags: tags(v),
         notes: notes(io, v),
       },
     ];
@@ -165,11 +165,11 @@ export const BUILDERS: Record<string, Builder> = {
   },
   "add-relationship": (_io, v, p, usage) => {
     const [from, to] = need(p, ["<from>", "<to>"], usage);
-    return [{ op: "add-relationship", from: from!, to: to!, description: text(v.description), technology: text(v.technology), tags: list(v.tags) }];
+    return [{ op: "add-relationship", from: from!, to: to!, description: text(v.description), technology: text(v.technology), tags: tags(v) as Tags | undefined }];
   },
   "update-relationship": (_io, v, p, usage) => {
     const [from, to] = need(p, ["<from>", "<to>"], usage);
-    return [{ op: "update-relationship", from: from!, to: to!, index: index(v.index), description: clearable(v.description), technology: clearable(v.technology), tags: list(v.tags) }];
+    return [{ op: "update-relationship", from: from!, to: to!, index: index(v.index), description: clearable(v.description), technology: clearable(v.technology), tags: tags(v) }];
   },
   "remove-relationship": (_io, v, p, usage) => {
     const [from, to] = need(p, ["<from>", "<to>"], usage);

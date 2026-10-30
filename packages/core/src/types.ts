@@ -7,10 +7,17 @@ export type ViewLevel = (typeof VIEW_LEVELS)[number];
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
 export type StickyColor = (typeof STICKY_COLORS)[number];
 
+/** How a box is drawn. People are always drawn as a person. */
+export const ELEMENT_SHAPES = ["box", "database", "queue", "web-browser", "mobile-app", "folder"] as const;
+export type ElementShape = (typeof ELEMENT_SHAPES)[number];
+
+/** Name/value pairs. A tag can have an empty value, which makes it a plain label. */
+export type Tags = Record<string, string>;
+
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -35,9 +42,10 @@ export interface ElementData {
   description?: string;
   technology?: string;
   external?: boolean;
-  tags?: string[];
-  /** Free-form key/value facts, e.g. owner or repository. */
-  properties?: Record<string, string>;
+  /** Default: box. Not used on people. */
+  shape?: ElementShape;
+  /** Free-form facts, e.g. owner or repository. */
+  tags?: Tags;
   /** Longer documentation, as markdown. */
   notes?: string;
   uses?: RelationshipData[];
@@ -47,7 +55,7 @@ export interface RelationshipData {
   to: string;
   description?: string;
   technology?: string;
-  tags?: string[];
+  tags?: Tags;
 }
 
 /** A box's top-left corner, optionally with its width and height. */
@@ -81,7 +89,7 @@ export interface Relationship {
   to: string;
   description?: string;
   technology?: string;
-  tags: string[];
+  tags: Tags;
   /** Position in the element's `uses` list. */
   index: number;
 }
@@ -96,8 +104,8 @@ export interface ArchElement {
   description?: string;
   technology?: string;
   external: boolean;
-  tags: string[];
-  properties: Record<string, string>;
+  shape: ElementShape;
+  tags: Tags;
   notes?: string;
   uses: Relationship[];
 }

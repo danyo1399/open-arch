@@ -12,12 +12,6 @@ Stores orders and their status.
 |---|---|---|
 | [Order Repository](order-repository.md) | Reads and writes orders | SQL |
 
-## Details
-
-| | |
-|---|---|
-| Tags | database |
-
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)

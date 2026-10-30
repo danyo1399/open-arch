@@ -17,7 +17,7 @@ Exit codes: 0 = done, 1 = refused or failed (nothing saved), 2 = the command was
 | Command | Prints |
 |---|---|
 | `open-arch show` | The model as a tree, and the views |
-| `open-arch show <element-id>` | The element's fields, properties, notes, what it uses, what uses it (directly and through what's inside it), and the views showing it |
+| `open-arch show <element-id>` | The element's fields, tags, notes, what it uses, what uses it (directly and through what's inside it), and the views showing it |
 | `open-arch show <view-id>` | The view's boxes, and its arrows with the relationships each stands for |
 | `open-arch check [--json] [--strict]` | Problems in the model; exits 1 on errors (or warnings, with `--strict`) |
 | `open-arch export [folder] [--check]` | Writes the docs to the folder, or to the workspace's docs folder; `--check` exits 1 if they're out of date |
@@ -26,16 +26,18 @@ All of these accept `--json`.
 
 ## Changing
 
-In `update-*` commands, only the options given change, and an empty value (`--technology ""`) removes a field. Lists like `--tags a,b` are comma-separated and replace the old list; `--tags ""` clears it.
+In `update-*` commands, only the options given change, and an empty value (`--technology ""`) removes a field. Lists like `--include a,b` are comma-separated and replace the old list.
+
+Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` sets one without a value; repeat `--tag` for more. In updates, `--tag` adds a tag or changes its value, leaving the others alone, and `--remove-tag <name>` (repeatable) removes one.
 
 | Command | Options |
 |---|---|
-| `add-element <id>` | `--kind <person\|system\|container\|component>` (required), `--parent <id>`, `--name`, `--description`, `--technology`, `--external`, `--tags <a,b>`, `--property <key=value>` (repeatable), `--notes <markdown>` or `--notes-file <path\|->` |
-| `update-element <id>` | `--name`, `--parent`, `--description`, `--technology`, `--external` / `--internal`, `--tags`, `--property <key=value>` (`key=` removes it), `--notes`, `--notes-file` |
+| `add-element <id>` | `--kind <person\|system\|container\|component>` (required), `--parent <id>`, `--name`, `--description`, `--technology`, `--external`, `--shape <box\|database\|queue\|web-browser\|mobile-app\|folder>`, `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
+| `update-element <id>` | `--name`, `--parent`, `--description`, `--technology`, `--external` / `--internal`, `--shape` (`--shape ""` makes it a box again), `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-element <id>` | Also removes what's inside it, views scoped to them, and every reference |
 | `rename <old-id> <new-id>` | Works for elements and views; updates every reference |
-| `add-relationship <from> <to>` | `--description`, `--technology`, `--tags` |
-| `update-relationship <from> <to>` | `--index <n>`, `--description`, `--technology`, `--tags` |
+| `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>` |
+| `update-relationship <from> <to>` | `--index <n>`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>` |
 | `remove-relationship <from> <to>` | `--index <n>` |
 | `add-view <id>` | `--level <landscape\|context\|container\|component>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>` |
 | `update-view <id>` | `--title`, `--description`, `--include`, `--exclude` |
@@ -60,12 +62,12 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 
 | `op` | Fields (required in bold) |
 |---|---|
-| `add-element` | **id**, **kind**, parent, name, description, technology, external, tags, properties, notes |
-| `update-element` | **id**, name, parent, description, technology, external, tags, properties (a `null` value removes that key), notes |
+| `add-element` | **id**, **kind**, parent, name, description, technology, external, shape, tags (`{ "owner": "payments", "pii": "" }`), notes |
+| `update-element` | **id**, name, parent, description, technology, external, shape, tags (merged into the old ones; a `null` value removes that tag), notes |
 | `remove-element` | **id** |
 | `rename` | **id**, **to** |
 | `add-relationship` | **from**, **to**, description, technology, tags |
-| `update-relationship` | **from**, **to**, index, description, technology, tags |
+| `update-relationship` | **from**, **to**, index, description, technology, tags (merged, like an element's) |
 | `remove-relationship` | **from**, **to**, index |
 | `add-view` | **id**, **level**, scope, title, description, include, exclude |
 | `update-view` | **id**, title, description, include, exclude |
@@ -82,8 +84,10 @@ Example:
 
 ```json
 [
-  { "op": "add-element", "id": "notifications", "kind": "container", "parent": "shop", "name": "Notifications", "technology": "Go", "description": "Sends order emails." },
-  { "op": "add-relationship", "from": "checkout-api", "to": "notifications", "description": "Asks it to send order confirmations", "technology": "AMQP" },
+  { "op": "add-element", "id": "notifications", "kind": "container", "parent": "shop", "name": "Notifications", "technology": "Go", "description": "Sends order emails.", "tags": { "owner": "checkout-team" } },
+  { "op": "add-element", "id": "email-queue", "kind": "container", "parent": "shop", "name": "Email Queue", "technology": "RabbitMQ", "shape": "queue" },
+  { "op": "add-relationship", "from": "checkout-api", "to": "email-queue", "description": "Queues order confirmations on", "technology": "AMQP" },
+  { "op": "add-relationship", "from": "notifications", "to": "email-queue", "description": "Takes emails to send from", "technology": "AMQP" },
   { "op": "add-element", "id": "email-provider", "kind": "system", "name": "Email Provider", "external": true },
   { "op": "add-relationship", "from": "notifications", "to": "email-provider", "description": "Sends email using", "technology": "SMTP" },
   { "op": "update-element", "id": "checkout-api", "notes": "Publishes an `order-placed` event after payment." }

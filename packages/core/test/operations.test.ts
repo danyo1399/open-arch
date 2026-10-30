@@ -14,8 +14,8 @@ const fails = (doc: OpenArchDocument, ...ops: Parameters<typeof applyOperations>
 
 describe("elements", () => {
   it("adds an element with a name from its ID when none is given", () => {
-    const doc = apply(shop(), { op: "add-element", id: "cart-cache", kind: "container", parent: "shop", technology: "Redis", tags: ["cache"] });
-    expect(doc.elements["cart-cache"]).toEqual({ kind: "container", name: "Cart Cache", parent: "shop", technology: "Redis", tags: ["cache"] });
+    const doc = apply(shop(), { op: "add-element", id: "cart-cache", kind: "container", parent: "shop", technology: "Redis", shape: "database", tags: { " owner ": " checkout ", cache: "" } });
+    expect(doc.elements["cart-cache"]).toEqual({ kind: "container", name: "Cart Cache", parent: "shop", technology: "Redis", shape: "database", tags: { owner: "checkout", cache: "" } });
   });
 
   it("refuses elements that break the rules, with a suggestion for typos", () => {
@@ -25,15 +25,28 @@ describe("elements", () => {
     expect(fails(shop(), { op: "add-element", id: "x", kind: "component", parent: "shop" })).toMatch(/must be a container/);
     expect(fails(shop(), { op: "add-element", id: "x", kind: "container", parent: "shpo" })).toBe('No element has the ID "shpo". Did you mean "shop"?');
     expect(fails(shop(), { op: "add-element", id: "x", kind: "container", parent: "shop", external: true })).toMatch(/Only people and systems/);
+    expect(fails(shop(), { op: "add-element", id: "x", kind: "system", tags: { " ": "y" } })).toBe("A tag needs a name.");
   });
 
-  it("updates and removes fields, and merges properties", () => {
+  it("sets and clears shapes, and refuses unknown ones and shapes for people", () => {
+    let doc = apply(shop(), { op: "update-element", id: "api", shape: "queue" });
+    expect(doc.elements.api!.shape).toBe("queue");
+    doc = apply(doc, { op: "update-element", id: "api", shape: "box" }, { op: "update-element", id: "db", shape: null });
+    expect(doc.elements.api).not.toHaveProperty("shape");
+    expect(doc.elements.db).not.toHaveProperty("shape");
+    expect(fails(shop(), { op: "update-element", id: "api", shape: "databse" as never })).toBe('Unknown shape "databse". Did you mean "database"? Use one of: box, database, queue, web-browser, mobile-app, folder.');
+    expect(fails(shop(), { op: "add-element", id: "bot", kind: "person", shape: "folder" })).toMatch(/People are always drawn as a person/);
+    expect(apply(shop(), { op: "add-element", id: "x", kind: "system", shape: "box" }).elements.x).toEqual({ kind: "system", name: "X" });
+  });
+
+  it("updates and removes fields, and merges tags", () => {
     const doc = apply(
       shop(),
-      { op: "update-element", id: "api", name: "Orders API", technology: null, notes: "Runs on **Fargate**.", properties: { owner: "checkout", repo: "orders" } },
-      { op: "update-element", id: "api", properties: { repo: null } },
+      { op: "update-element", id: "api", name: "Orders API", technology: null, notes: "Runs on **Fargate**.", tags: { owner: "checkout", repo: "orders", pii: "" } },
+      { op: "update-element", id: "api", tags: { repo: null, owner: "payments" } },
     );
-    expect(doc.elements.api).toEqual({ kind: "container", name: "Orders API", parent: "shop", notes: "Runs on **Fargate**.", properties: { owner: "checkout" } });
+    expect(doc.elements.api).toEqual({ kind: "container", name: "Orders API", parent: "shop", notes: "Runs on **Fargate**.", tags: { owner: "payments", pii: "" } });
+    expect(apply(doc, { op: "update-element", id: "api", tags: { owner: null, pii: null } }).elements.api).not.toHaveProperty("tags");
     expect(fails(shop(), { op: "update-element", id: "api" })).toMatch(/Say what to change/);
   });
 
@@ -72,6 +85,12 @@ describe("relationships", () => {
     expect(doc.elements.api!.uses).toEqual([{ to: "db", description: "Reads stock" }]);
     doc = apply(doc, { op: "remove-relationship", from: "api", to: "db" });
     expect(doc.elements.api!.uses).toBeUndefined();
+  });
+
+  it("merges a relationship's tags", () => {
+    let doc = apply(shop(), { op: "add-relationship", from: "api", to: "db", description: "Reads stock", tags: { async: "" } });
+    doc = apply(doc, { op: "update-relationship", from: "api", to: "db", tags: { async: null, protocol: "postgres" } });
+    expect(doc.elements.api!.uses).toEqual([{ to: "db", description: "Reads stock", tags: { protocol: "postgres" } }]);
   });
 
   it("refuses relationships no view could draw, and duplicates", () => {
@@ -186,7 +205,9 @@ describe("parseOperations", () => {
     expect(bad({ op: "add-elemnt" })).toMatch(/^unknown "op" "add-elemnt". Did you mean "add-element"\?/);
     expect(bad({ op: "add-element", id: "x", kind: "system", desc: "y" })).toMatch(/^add-element has no field "desc"\./);
     expect(bad({ op: "add-element", id: "x" })).toBe('add-element needs "kind".');
-    expect(bad([{ op: "remove-view", id: "a" }, { op: "update-element", id: "x", tags: "a" }])).toBe('Operation 2: update-element: "tags" must be a list of strings.');
+    expect(bad([{ op: "remove-view", id: "a" }, { op: "update-element", id: "x", tags: ["a"] }])).toBe(
+      'Operation 2: update-element: "tags" must be an object of tag names and string values, like { "owner": "payments" } (null removes a tag).',
+    );
     expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", at: [1, 2, 3] })).toBe('add-sticky: "at" must be a position, [x, y].');
     expect(bad({ op: "update-sticky", view: "v", id: "n", at: null })).toBe("ok");
   });

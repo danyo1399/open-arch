@@ -1,5 +1,5 @@
 {
-  "openarch": 1,
+  "openarch": 2,
   "name": "Food Delivery",
   "description": "A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 5 in order: each zooms in one step, and its sticky notes explain what you're looking at.",
   "export": { "docs": "docs" },
@@ -43,7 +43,7 @@
       "kind": "system",
       "name": "Delivery Platform",
       "description": "Lets customers order food, restaurants prepare it and couriers deliver it.",
-      "properties": {
+      "tags": {
         "owner": "Ordering team"
       },
       "notes": "**A software system** is the biggest thing you draw inside your organisation: something that does a job for people and that one team can own.\n\nThis is the system the example looks inside: its containers are in view 3, and the components of one container in view 4."
@@ -54,6 +54,7 @@
       "parent": "delivery-platform",
       "description": "Shows couriers their jobs and the way there.",
       "technology": "React Native",
+      "shape": "mobile-app",
       "uses": [
         { "to": "order-routes", "description": "Accepts jobs and updates deliveries using", "technology": "HTTPS/JSON" },
         { "to": "maps-service", "description": "Gets directions from", "technology": "HTTPS" }
@@ -65,6 +66,7 @@
       "parent": "delivery-platform",
       "description": "Lets customers browse menus, order and track their food.",
       "technology": "React Native",
+      "shape": "mobile-app",
       "notes": "**A container** is something that runs or stores data on its own: an app, a website, an API, a background worker, a database or a queue. The word has nothing to do with Docker.\n\nThis one is a mobile app, installed on customers' phones.",
       "uses": [
         { "to": "order-routes", "description": "Places and tracks orders using", "technology": "HTTPS/JSON" }
@@ -90,7 +92,7 @@
       "parent": "delivery-platform",
       "description": "Takes orders, charges for them and tracks their progress.",
       "technology": "Node.js",
-      "properties": {
+      "tags": {
         "owner": "Ordering team",
         "repository": "github.com/example/order-api"
       },
@@ -155,8 +157,8 @@
       "parent": "delivery-platform",
       "description": "Carries events like order-placed and order-ready.",
       "technology": "Kafka",
-      "tags": ["queue"],
-      "notes": "A message queue is a container too: it runs and stores data on its own.\n\nIts `queue` tag is only a label. Of the tags, only `database` changes a box's shape."
+      "shape": "queue",
+      "notes": "A message queue is a container too: it runs and stores data on its own.\n\nIts shape, Queue, draws it as a pipe. Pick a box's shape in this panel."
     },
     "orders-db": {
       "kind": "container",
@@ -164,8 +166,11 @@
       "parent": "delivery-platform",
       "description": "Stores orders, menus and deliveries.",
       "technology": "PostgreSQL",
-      "tags": ["database"],
-      "notes": "The `database` tag draws it as a cylinder."
+      "shape": "database",
+      "tags": {
+        "owner": "Ordering team"
+      },
+      "notes": "Its shape, Database, draws it as a cylinder.\n\nIts tags hold facts about it, like who owns it. A tag is a name and a value, and the value can be left empty."
     },
     "restaurant-portal": {
       "kind": "container",
@@ -173,6 +178,7 @@
       "parent": "delivery-platform",
       "description": "Lets restaurants manage menus and incoming orders.",
       "technology": "React",
+      "shape": "web-browser",
       "uses": [
         { "to": "order-routes", "description": "Accepts orders and marks them ready using", "technology": "HTTPS/JSON" }
       ]
@@ -204,7 +210,7 @@
       "kind": "system",
       "name": "Support Desk",
       "description": "Tracks customer problems and refunds.",
-      "properties": {
+      "tags": {
         "owner": "Customer Care team"
       },
       "notes": "Another system inside the organisation. It's a separate system, not a container of the Delivery Platform, because a different team (Customer Care) builds and runs it.\n\nThis example doesn't look inside it, so it has no containers.",
@@ -294,8 +300,8 @@
       "stickies": {
         "about": { "text": "A container view looks inside one system. The dashed frame is the Delivery Platform: its containers are inside, and the people and systems they talk to are outside.", "color": "blue", "at": [-460, -20] },
         "containers": { "text": "A container is something that runs or stores data on its own: an app, a website, an API, a worker, a database or a queue. Nothing to do with Docker!", "at": [1460, 660] },
-        "database": { "text": "The cylinder is a database. Anything tagged \"database\" is drawn that way.", "at": [630, 930] },
         "implied": { "text": "Dashed arrows are implied: the real relationship belongs to something inside the box. The apps actually call the Order Routes component inside the Order API (view 4).", "color": "pink", "at": [210, 930] },
+        "shapes": { "text": "Shapes say what a box is: the cylinder is a database, the pipe is a queue, and the phones are mobile apps. Pick one under Shape in the panel on the right.", "at": [630, 930] },
         "technology": { "text": "Boxes and arrows can say what they're built with: [Container: Node.js] on a box, or the protocol under an arrow's description.", "at": [1050, 930] }
       },
       "layout": {

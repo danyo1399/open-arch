@@ -2,7 +2,7 @@
 
 An architecture model (C4) that people and AI agents can both read and change safely.
 
-- **One file:** the whole model lives in a `.openarch` file, JSON with a canonical layout: people, systems, containers and components, keyed by ID, each with its relationships, notes and properties, plus views (diagrams) with their saved box positions.
+- **One file:** the whole model lives in a `.openarch` file, JSON with a canonical layout: people, systems, containers and components, keyed by ID, each with its relationships, notes, shape and tags (name/value facts like an owner), plus views (diagrams) with their saved box positions.
 - **Views are computed:** a view picks elements from the shared model, and the boxes and arrows are worked out from it, including relationships implied by nested elements. A view can also carry sticky notes: text for the people reading that diagram, which isn't part of the model.
 - **Docs are generated:** markdown pages with Mermaid diagrams (an index, a page per element and per view) are generated from the model for people to read, on GitHub or anywhere else.
 - **Changes are checked:** people change the model in the designer and agents change it with `open-arch` commands. Both go through the same validated operations, so a change that would break the model is refused and nothing is saved.

@@ -8,7 +8,7 @@ Carries events like order-placed and order-ready.
 
 A message queue is a container too: it runs and stores data on its own.
 
-Its `queue` tag is only a label. Of the tags, only `database` changes a box's shape.
+Its shape, Queue, draws it as a pipe. Pick a box's shape in this panel.
 
 ## Used by
 
@@ -16,12 +16,6 @@ Its `queue` tag is only a label. Of the tags, only `database` changes a box's sh
 |---|---|---|
 | [Dispatch Worker](dispatch-worker.md) | Reads order-ready events from | Kafka |
 | [Event Publisher](event-publisher.md) | Publishes order-placed and order-ready to | Kafka |
-
-## Details
-
-| | |
-|---|---|
-| Tags | queue |
 
 ## Shown in
 

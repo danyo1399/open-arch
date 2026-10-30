@@ -6,7 +6,9 @@
 
 Stores orders, menus and deliveries.
 
-The `database` tag draws it as a cylinder.
+Its shape, Database, draws it as a cylinder.
+
+Its tags hold facts about it, like who owns it. A tag is a name and a value, and the value can be left empty.
 
 ## Used by
 
@@ -15,11 +17,11 @@ The `database` tag draws it as a cylinder.
 | [Dispatch Worker](dispatch-worker.md) | Records which courier has each order | SQL |
 | [Order Repository](order-repository.md) | Reads and writes orders in | SQL |
 
-## Details
+## Tags
 
-| | |
+| Tag | Value |
 |---|---|
-| Tags | database |
+| owner | Ordering team |
 
 ## Shown in
 

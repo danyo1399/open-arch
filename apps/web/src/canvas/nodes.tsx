@@ -23,7 +23,7 @@ export function ElementNode({ id, data, selected }: NodeProps<ElementFlowNode>) 
   const connection = useConnection();
   // While someone drags a new arrow, the whole box is a drop target.
   const dropTarget = connection.inProgress && connection.fromNode.id !== id;
-  const classes = ["c4", `c4-${e.external ? "external" : e.kind}`, e.tags.includes("database") ? "c4-db" : "", selected ? "selected" : ""];
+  const classes = ["c4", `c4-${e.external ? "external" : e.kind}`, e.kind !== "person" && e.shape !== "box" ? `c4-shape-${e.shape}` : "", selected ? "selected" : ""];
   return (
     <div className={classes.join(" ")}>
       <Handle type="target" position={Position.Top} className={dropTarget ? "handle-drop" : "handle-hidden"} isConnectableStart={false} />

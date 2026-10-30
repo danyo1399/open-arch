@@ -40,6 +40,9 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
   if (el.external && wantedParent) {
     out.push({ severity: "warning", rule: "external-ignored", message: "Only people and systems can be external.", path: at("external"), fix: "Remove external." });
   }
+  if (el.kind === "person" && el.shape !== "box") {
+    out.push({ severity: "warning", rule: "shape-ignored", message: "People are always drawn as a person.", path: at("shape"), fix: "Remove shape." });
+  }
 
   const seen = new Set<string>();
   el.uses.forEach((rel) => {

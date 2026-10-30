@@ -6,16 +6,19 @@
 import { KIND_RANK } from "./model.js";
 import {
   ELEMENT_KINDS,
+  ELEMENT_SHAPES,
   FORMAT_VERSION,
   ID_PATTERN,
   STICKY_COLORS,
   VIEW_LEVELS,
   type Diagnostic,
   type ElementData,
+  type ElementShape,
   type OpenArchDocument,
   type Position,
   type RelationshipData,
   type StickyData,
+  type Tags,
   type ViewData,
 } from "./types.js";
 
@@ -48,7 +51,7 @@ export function parseDocument(text: string): ParseResult {
 type Report = (path: string, rule: string, message: string, fix?: string) => void;
 
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
-const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "tags", "properties", "notes", "uses"];
+const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "tags", "notes", "uses"];
 const RELATIONSHIP_KEYS = ["to", "description", "technology", "tags"];
 const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "stickies", "layout"];
 const STICKY_KEYS = ["text", "color", "at"];
@@ -77,14 +80,31 @@ function strList(value: unknown, path: string, report: Report): string[] | undef
   return undefined;
 }
 
-function readDocument(raw: unknown, report: Report): OpenArchDocument {
-  if (!isObject(raw)) {
+function tagMap(value: unknown, path: string, report: Report): Tags | undefined {
+  if (value === undefined) return undefined;
+  if (isObject(value) && Object.values(value).every((v) => typeof v === "string")) return value as Tags;
+  report(
+    path,
+    "field-type",
+    'Must be an object of tag names and values, like { "owner": "payments" }.',
+    Array.isArray(value) ? 'Give a tag without a value "" as its value. To draw a cylinder, set "shape": "database" instead of a tag.' : undefined,
+  );
+  return undefined;
+}
+
+function readDocument(input: unknown, report: Report): OpenArchDocument {
+  if (!isObject(input)) {
     report("", "field-type", "The file must hold a JSON object.");
     return emptyDocument("Untitled");
   }
-  unknownKeys(raw, TOP_KEYS, "", report);
+  unknownKeys(input, TOP_KEYS, "", report);
+  const raw = input.openarch === 1 ? upgradeFromV1(input, report) : input;
   if (raw.openarch !== FORMAT_VERSION) {
-    report("openarch", "version-unsupported", raw.openarch === undefined ? `Missing "openarch": ${FORMAT_VERSION}.` : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}.`);
+    report(
+      "openarch",
+      "version-unsupported",
+      raw.openarch === undefined ? `Missing "openarch": ${FORMAT_VERSION}.` : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades version 1.`,
+    );
   }
   const name = str(raw.name, "name", report);
   if (!name?.trim()) report("name", "field-required", "The workspace needs a `name`.");
@@ -118,6 +138,34 @@ function readDocument(raw: unknown, report: Report): OpenArchDocument {
   return doc;
 }
 
+/**
+ * Version 1 had tags as a list of labels, of which `database` drew a cylinder, and name/value
+ * facts in `properties`. Version 2 has a `shape`, and tags with values that hold both.
+ */
+function upgradeFromV1(raw: Record<string, unknown>, report: Report): Record<string, unknown> {
+  if (!isObject(raw.elements)) return { ...raw, openarch: FORMAT_VERSION };
+  const elements = Object.entries(raw.elements).map(([id, e]) => [id, isObject(e) ? upgradeElementFromV1(e, `elements.${id}`, report) : e]);
+  return { ...raw, openarch: FORMAT_VERSION, elements: Object.fromEntries(elements) };
+}
+
+const isLabels = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === "string");
+const labelTags = (labels: string[]): Tags => Object.fromEntries(labels.filter((t) => t.trim()).map((t) => [t, ""]));
+
+function upgradeElementFromV1(e: Record<string, unknown>, path: string, report: Report): Record<string, unknown> {
+  const { tags, properties, uses, ...out } = e;
+  const cylinder = e.kind !== "person" && isLabels(tags) && tags.includes("database");
+  if (cylinder) out.shape = "database";
+  if (properties !== undefined && !isObject(properties)) report(`${path}.properties`, "field-type", "Must be an object of string values.");
+  // Labels that aren't a list are left for the reader to report.
+  if (tags !== undefined && !isLabels(tags)) out.tags = tags;
+  else {
+    const merged = { ...labelTags((tags ?? []).filter((t) => !(cylinder && t === "database"))), ...(isObject(properties) ? properties : {}) };
+    if (Object.keys(merged).length) out.tags = merged;
+  }
+  if (uses !== undefined) out.uses = Array.isArray(uses) ? uses.map((r) => (isObject(r) && isLabels(r.tags) ? { ...r, tags: labelTags(r.tags) } : r)) : uses;
+  return out;
+}
+
 function readId(id: string, path: string, report: Report): boolean {
   if (ID_PATTERN.test(id)) return true;
   report(path, "id-format", `"${id}" isn't a valid ID. IDs are lowercase kebab-case, like "checkout-api".`);
@@ -148,12 +196,12 @@ function readElement(id: string, value: unknown, path: string, report: Report): 
     if (typeof value.external === "boolean") element.external = value.external;
     else report(`${path}.external`, "field-type", "Must be true or false.");
   }
-  const tags = strList(value.tags, `${path}.tags`, report);
-  if (tags) element.tags = tags;
-  if (value.properties !== undefined) {
-    if (isObject(value.properties) && Object.values(value.properties).every((v) => typeof v === "string")) element.properties = value.properties as Record<string, string>;
-    else report(`${path}.properties`, "field-type", "Must be an object of string values.");
+  if (value.shape !== undefined) {
+    if ((ELEMENT_SHAPES as readonly unknown[]).includes(value.shape)) element.shape = value.shape as ElementShape;
+    else report(`${path}.shape`, "shape-invalid", `\`shape\` must be one of: ${ELEMENT_SHAPES.join(", ")}.`);
   }
+  const tags = tagMap(value.tags, `${path}.tags`, report);
+  if (tags) element.tags = tags;
   if (value.uses !== undefined) {
     if (!Array.isArray(value.uses)) report(`${path}.uses`, "field-type", "Must be a list of relationships.");
     else {
@@ -183,7 +231,7 @@ function readRelationship(value: unknown, path: string, report: Report): Relatio
     const v = str(value[key], `${path}.${key}`, report);
     if (v !== undefined) rel[key] = v;
   }
-  const tags = strList(value.tags, `${path}.tags`, report);
+  const tags = tagMap(value.tags, `${path}.tags`, report);
   if (tags) rel.tags = tags;
   return rel;
 }
@@ -300,6 +348,10 @@ function block(entries: [string, string][], indent: string): string {
   return `{\n${entries.map(([k, v]) => `${indent}  ${JSON.stringify(k)}: ${v}`).join(",\n")}\n${indent}}`;
 }
 
+function sortedTags(tags: Tags): Tags {
+  return Object.fromEntries(Object.keys(tags).sort().map((k) => [k, tags[k]!]));
+}
+
 function present<T>(value: T | undefined | null, keep: (v: T) => boolean = () => true): value is T {
   return value !== undefined && value !== null && keep(value);
 }
@@ -313,15 +365,15 @@ function elementText(e: ElementData, indent: string): string {
   if (present(e.description, (v) => v !== "")) entries.push(["description", JSON.stringify(e.description)]);
   if (present(e.technology, (v) => v !== "")) entries.push(["technology", JSON.stringify(e.technology)]);
   if (e.external) entries.push(["external", "true"]);
-  if (present(e.tags, (v) => v.length > 0)) entries.push(["tags", inline(e.tags)]);
-  if (present(e.properties, (v) => Object.keys(v).length > 0)) {
-    const keys = Object.keys(e.properties).sort();
-    entries.push(["properties", block(keys.map((k) => [k, JSON.stringify(e.properties![k])]), `${indent}  `)]);
+  if (present(e.shape, (v) => v !== "box")) entries.push(["shape", JSON.stringify(e.shape)]);
+  if (present(e.tags, (v) => Object.keys(v).length > 0)) {
+    const keys = Object.keys(e.tags).sort();
+    entries.push(["tags", block(keys.map((k) => [k, JSON.stringify(e.tags![k])]), `${indent}  `)]);
   }
   if (present(e.notes, (v) => v !== "")) entries.push(["notes", JSON.stringify(e.notes)]);
   if (present(e.uses, (v) => v.length > 0)) {
     const rels = e.uses.map((r) =>
-      inline({ to: r.to, description: r.description || undefined, technology: r.technology || undefined, tags: r.tags?.length ? r.tags : undefined }),
+      inline({ to: r.to, description: r.description || undefined, technology: r.technology || undefined, tags: r.tags && Object.keys(r.tags).length ? sortedTags(r.tags) : undefined }),
     );
     entries.push(["uses", `[\n${rels.map((r) => `${indent}    ${r}`).join(",\n")}\n${indent}  ]`]);
   }

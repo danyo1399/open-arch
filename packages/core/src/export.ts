@@ -113,12 +113,8 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     }
     if (d.uses.length) lines.push("", "## Uses", "", "| Element | Description | Technology |", "|---|---|---|", ...d.uses.map(({ rel }) => relRow(ws, rel.to, rel)));
     if (d.usedBy.length) lines.push("", "## Used by", "", "| Element | Description | Technology |", "|---|---|---|", ...d.usedBy.map(({ from, rel }) => relRow(ws, from.id, rel)));
-    const props = Object.entries(e.properties).sort(([a], [b]) => a.localeCompare(b));
-    if (props.length || e.tags.length) {
-      lines.push("", "## Details", "", "| | |", "|---|---|");
-      for (const [k, v] of props) lines.push(`| ${cell(k)} | ${cell(v)} |`);
-      if (e.tags.length) lines.push(`| Tags | ${cell(e.tags.join(", "))} |`);
-    }
+    const tags = Object.entries(e.tags).sort(([a], [b]) => a.localeCompare(b));
+    if (tags.length) lines.push("", "## Tags", "", "| Tag | Value |", "|---|---|", ...tags.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
     if (d.views.length) {
       lines.push("", "## Shown in", "", ...d.views.map(({ view, as }) => `- [${view.title}](../views/${view.id}.md)${as === "frame" ? " (as the frame)" : ""}`));
     }

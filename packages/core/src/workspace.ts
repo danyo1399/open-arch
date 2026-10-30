@@ -26,10 +26,10 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
       description: e.description || undefined,
       technology: e.technology || undefined,
       external: e.external ?? false,
-      tags: e.tags ?? [],
-      properties: e.properties ?? {},
+      shape: e.shape ?? "box",
+      tags: e.tags ?? {},
       notes: e.notes || undefined,
-      uses: (e.uses ?? []).map((r, index) => ({ to: r.to, description: r.description || undefined, technology: r.technology || undefined, tags: r.tags ?? [], index })),
+      uses: (e.uses ?? []).map((r, index) => ({ to: r.to, description: r.description || undefined, technology: r.technology || undefined, tags: r.tags ?? {}, index })),
     });
   }
   for (const [id, v] of Object.entries(doc.views)) {

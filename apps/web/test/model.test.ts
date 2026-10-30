@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { followsName, idFromName, uniqueId } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 1,
+  openarch: 2,
   name: "Shop",
   elements: {
     api: { kind: "system", name: "API" },

@@ -23,8 +23,8 @@ export function show(io: Io, opts: ShowOptions): number {
     const json = {
       ...summary(element),
       description: element.description,
+      shape: element.kind === "person" ? undefined : element.shape,
       tags: element.tags,
-      properties: element.properties,
       notes: element.notes,
       children: d.children.map((c) => c.id),
       uses: d.uses.map(({ rel, target }) => ({ to: rel.to, description: rel.description, technology: rel.technology, tags: rel.tags, known: !!target })),
@@ -39,8 +39,9 @@ export function show(io: Io, opts: ShowOptions): number {
     field("parent", d.parent ? `${d.parent.id} (${d.parent.name})` : element.parent);
     field("technology", element.technology);
     field("description", element.description);
-    field("tags", element.tags.join(", "));
-    for (const [k, v] of Object.entries(element.properties)) field(k, v);
+    field("shape", element.shape === "box" ? undefined : element.shape);
+    const tags = Object.entries(element.tags).sort(([a], [b]) => a.localeCompare(b));
+    if (tags.length) lines.push("", "Tags:", ...table(tags.map(([name, value]) => [`  ${name}`, value])));
     if (element.notes) lines.push("", "Notes:", ...element.notes.split("\n").map((l) => `  ${l}`.trimEnd()));
     if (d.children.length) lines.push("", "Contains:", ...table(d.children.map(row)));
     lines.push("", "Uses:");

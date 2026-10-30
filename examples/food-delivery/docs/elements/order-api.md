@@ -18,9 +18,9 @@ Its relationships are listed on its components, not on the Order API itself, whi
 - [Order Service](order-service.md) (component) – Applies the ordering rules: prices, payment and each order's status.
 - [Payment Gateway](payment-gateway.md) (component) – Wraps the payment provider's API.
 
-## Details
+## Tags
 
-| | |
+| Tag | Value |
 |---|---|
 | owner | Ordering team |
 | repository | github.com/example/order-api |

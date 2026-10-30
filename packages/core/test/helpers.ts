@@ -3,14 +3,14 @@ import { applyOperations, buildWorkspace, checkWorkspace, type OpenArchDocument,
 /** A small model: a customer, a shop with three containers and a component, and an external system. */
 export function shop(): OpenArchDocument {
   return {
-    openarch: 1,
+    openarch: 2,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web-app", description: "Buys things", technology: "HTTPS" }] },
       shop: { kind: "system", name: "Shop" },
       "web-app": { kind: "container", name: "Web App", parent: "shop", technology: "React", uses: [{ to: "controller", description: "Places orders" }] },
       api: { kind: "container", name: "API", parent: "shop", technology: "Node.js" },
-      db: { kind: "container", name: "DB", parent: "shop", tags: ["database"] },
+      db: { kind: "container", name: "DB", parent: "shop", shape: "database" },
       controller: {
         kind: "component",
         name: "Controller",

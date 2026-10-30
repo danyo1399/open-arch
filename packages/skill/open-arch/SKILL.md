@@ -23,10 +23,11 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 - **Add an element:**
   `open-arch add-element checkout-api --kind container --parent shop --name "Checkout API" --technology Node.js --description "Validates carts and takes payment."`
   Containers need a system as `--parent`; components need a container. People and systems are top-level; add `--external` for ones outside your organisation. Longer documentation goes in `--notes` (markdown).
+  Give databases, queues, web apps, mobile apps and file stores a `--shape`: `database`, `queue`, `web-browser`, `mobile-app` or `folder`. Facts like the owner or repository go in tags: `--tag owner=payments` (repeatable).
 - **Add a relationship** ("from uses to"):
   `open-arch add-relationship checkout-api orders-db --description "Reads and writes orders" --technology SQL`
   Describe it from the user's side as a short verb phrase. Put it on the most detailed element that's true: if a component makes the call, use the component; views at higher levels show it on the container or system automatically.
-- **Change fields:** `open-arch update-element <id> --description "..." --technology ""` (an empty value removes a field). Change a relationship with `update-relationship <from> <to>`.
+- **Change fields:** `open-arch update-element <id> --description "..." --technology ""` (an empty value removes a field). `--tag name=value` sets one tag and leaves the rest; `--remove-tag name` removes one. Change a relationship with `update-relationship <from> <to>`.
 - **Move an element** to another parent: `open-arch update-element <id> --parent <new-parent>`.
 - **Rename an ID:** `open-arch rename <old-id> <new-id>` updates every reference. To change only the display name, use `update-element <id> --name "..."`.
 - **Remove:** `open-arch remove-element <id>` also removes what's inside it, views scoped to them, and every reference. `remove-relationship <from> <to>` and `remove-view <id>` remove one thing.
