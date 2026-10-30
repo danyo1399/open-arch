@@ -70,19 +70,32 @@ describe("measureLabelSizes", () => {
   // Just enough of a page to measure in: a label on the page is 6px a letter on its longest line, up to
   // its max-width, and 20px a line; one that isn't on the page measures nothing, as in a browser.
   let measures = 0;
-  type Fake = { parent?: Fake; children: Fake[]; textContent: string };
-  const element = (): Fake & Record<string, unknown> => {
-    const el = {
+  interface Fake {
+    className: string;
+    textContent: string;
+    style: { cssText: string };
+    children: Fake[];
+    parent: Fake | undefined;
+    setAttribute(): void;
+    append(...kids: Fake[]): void;
+    appendChild(kid: Fake): Fake;
+    remove(): void;
+    getBoundingClientRect(): { width: number; height: number };
+  }
+  const element = (): Fake => {
+    const el: Fake = {
       className: "",
       textContent: "",
       style: { cssText: "" },
-      children: [] as Fake[],
-      parent: undefined as Fake | undefined,
+      children: [],
+      parent: undefined,
       setAttribute() {},
       append(...kids: Fake[]) {
         for (const kid of kids) el.appendChild(kid);
       },
       appendChild(kid: Fake) {
+        // Out of any parent it had, as in the DOM.
+        kid.remove();
         kid.parent = el;
         el.children.push(kid);
         return kid;
@@ -93,7 +106,7 @@ describe("measureLabelSizes", () => {
       },
       getBoundingClientRect() {
         measures++;
-        let top: Fake = el;
+        let top = el;
         while (top.parent) top = top.parent;
         if (top !== body) return { width: 0, height: 0 };
         const maxWidth = Number(/max-width: (\d+)px/.exec(el.style.cssText)![1]);
@@ -102,7 +115,7 @@ describe("measureLabelSizes", () => {
     };
     return el;
   };
-  let body = element();
+  let body: Fake;
   beforeEach(() => {
     body = element();
     vi.stubGlobal("document", { createElement: element, body });
@@ -116,15 +129,17 @@ describe("measureLabelSizes", () => {
   const edge = (description: string) => ({ description }) as ViewEdge;
   const labels = (count: number, from = 0) => Array.from({ length: count }, (_, k) => edge(`label number ${from + k} with some words in it`));
 
-  it("measures each label once at each width, and has every size after", () => {
+  it("measures each label once at each width, has every size after, and leaves the page as it was", () => {
+    expect(LABEL_WIDTHS).toEqual([190, 140, 100]);
     const edges = [edge("first label to measure"), edge("a second, rather longer label to measure")];
     const sizes = measureLabelSizes(edges);
-    // With widths 190, 140 and 100: 22 letters is 132px, as wide at 140 as at 190, so 140 is left out, but narrower at 100.
+    // 22 letters is 132px, as wide at 140 as at 190, so 140 is left out, but narrower at 100.
     expect(sizes[0]!.map((s) => [s.maxWidth, s.w])).toEqual([
       [190, 132],
       [100, 100],
     ]);
-    expect(sizes[1]!.map((s) => s.maxWidth)).toEqual(LABEL_WIDTHS);
+    expect(sizes[1]!.map((s) => s.maxWidth)).toEqual([190, 140, 100]);
+    expect(body.children).toHaveLength(0);
     expect(measures).toBe(2 * LABEL_WIDTHS.length);
     measureLabelSizes(edges);
     expect(measures).toBe(2 * LABEL_WIDTHS.length);

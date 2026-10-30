@@ -699,9 +699,11 @@ function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[],
 
   for (let pass = 0; pass < 2; pass++) {
     for (const link of links) {
+      // Routed again with its first route off the grid, keeping that if there's no way now.
+      const previous = grid.routes.get(link.id);
       grid.remove(link.id);
       const [from, to, starts, goals] = [rects.get(link.from)!, rects.get(link.to)!, ports.get(link.from)!, ports.get(link.to)!];
-      const route = acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to);
+      const route = acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to) ?? previous;
       if (route) grid.place(link.id, route);
     }
   }
@@ -736,7 +738,7 @@ function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: 
   return { ...routing, rects, routable, ignored };
 }
 
-/** Each link's points: its route, or a straight line between its boxes when it has none. */
+/** Each link's points: its route, or a straight line between its boxes when it has none. The points are shared with the routes, so they mustn't be changed. */
 function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<string, Route>): Map<string, Point[]> {
   const out = new Map<string, Point[]>();
   for (const link of links) {
@@ -744,14 +746,14 @@ function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<st
     const to = boxes.get(link.to);
     if (!from || !to) continue;
     const route = routes.get(link.id);
-    // Copies, as a route's points are shared with other routes and its ports.
-    out.set(link.id, route ? route.points.map((p) => ({ ...p })) : straight(from, to));
+    out.set(link.id, route ? [...route.points] : straight(from, to));
   }
   return out;
 }
 
 /**
- * Each link's route, from a point on its source box's border to one on its target's.
+ * Each link's route, from a point on its source box's border to one on its target's,
+ * whose points mustn't be changed, as they're shared between routes.
  * Routes cross `frames` (boundaries drawn around boxes) freely but keep off their sides.
  * They go around `notes`, boxes no arrow starts or ends at, only where one is in the
  * way: every obstacle adds grid lines right across the diagram, so a note out in empty
