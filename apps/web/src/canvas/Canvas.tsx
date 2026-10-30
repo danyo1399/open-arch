@@ -198,6 +198,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   // Routed together from the boxes as drawn now, so arrows keep clear of each other and follow boxes being dragged.
   const { routes, labels } = useMemo(() => {
     const boxes = new Map<string, Box>();
+    const notes: Box[] = [];
     const frames: Box[] = [];
     // The frame's name, in its bottom left corner (see .frame-label).
     const frameNames: Box[] = [];
@@ -205,8 +206,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       if (n.type === "element") {
         boxes.set(n.id, { x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H });
       } else if (n.type === "sticky") {
-        // No arrow starts or ends at a note, but they all go around it.
-        boxes.set(n.id, { x: n.position.x, y: n.position.y, w: n.measured?.width ?? STICKY_W, h: n.measured?.height ?? stickyHeight(n.data.sticky.text) });
+        // No arrow starts or ends at a note, but any it's in the way of goes around it.
+        notes.push({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? STICKY_W, h: n.measured?.height ?? stickyHeight(n.data.sticky.text) });
       } else {
         frames.push({ x: n.position.x, y: n.position.y, w: n.data.width, h: n.data.height });
         const width = n.data.element.name.length * 8 + kindLabel(n.data.element).length * 6.5 + 12;
@@ -214,13 +215,13 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       }
     }
     const edges = cv?.edges ?? [];
-    const routes = routeLinks(boxes, edges.map((e) => ({ id: arrowId(e), from: e.from, to: e.to })), frames);
+    const routes = routeLinks(boxes, edges.map((e) => ({ id: arrowId(e), from: e.from, to: e.to })), frames, notes);
     const sizes = new Map<string, { w: number; h: number }>();
     for (const e of edges) {
       const size = labelSize(e);
       if (size) sizes.set(arrowId(e), size);
     }
-    return { routes, labels: placeLabels(routes, sizes, [...boxes.values(), ...frameNames]) };
+    return { routes, labels: placeLabels(routes, sizes, [...boxes.values(), ...notes, ...frameNames]) };
   }, [nodes, cv]);
 
   const edges = useMemo<ArrowEdge[]>(
