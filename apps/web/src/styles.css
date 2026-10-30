@@ -661,6 +661,9 @@ button.heading {
 .react-flow {
   --xy-background-color: var(--canvas);
   --xy-edge-stroke: var(--edge);
+  /* React Flow draws an arrow it has focused, as clicking one does, in this colour. Only a
+     selected arrow changes colour (see .arrow.selected). */
+  --xy-edge-stroke-selected: var(--edge);
 }
 .toolbar {
   display: flex;
@@ -1077,6 +1080,8 @@ button.heading {
   stroke-dasharray: 6 4;
 }
 .react-flow__edge-path.arrow.selected {
+  /* For React Flow's rule for a focused arrow, which outranks this one. */
+  --xy-edge-stroke-selected: var(--accent);
   stroke: var(--accent);
   stroke-width: 2.5;
 }
