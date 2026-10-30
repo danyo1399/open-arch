@@ -123,10 +123,10 @@ export const estimateLabel: MeasureLabel = (lines, maxWidth) => {
  * hand need.
  */
 const measured = new Map<string, { w: number; h: number }>();
-const MEASURED_LIMIT = 10_000;
+export const MEASURED_LIMIT = 10_000;
 const measuredKey = (lines: LabelLine[], maxWidth: number) => JSON.stringify([lines, maxWidth]);
 
-/** Lets go of every label size measured so far, so each is measured afresh, as when the styles they depend on change. */
+/** Lets go of every label size measured so far. For tests, which measure in pages of their own. */
 export function forgetLabelSizes(): void {
   measured.clear();
 }
@@ -163,17 +163,18 @@ export function labelSizes(edge: ViewEdge, measureOne: MeasureLabel): LabelSize[
  * page out once rather than once a label.
  */
 export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
-  // Each label's key at each width, in LABEL_WIDTHS' order.
-  const keys = edges.map((e) => {
+  // What each label is measured at, at each width, in LABEL_WIDTHS' order.
+  type Wanted = { key: string; lines: LabelLine[]; maxWidth: number };
+  const each = edges.map((e): Wanted[] => {
     const lines = labelLines(e);
-    return lines.length ? LABEL_WIDTHS.map((maxWidth) => [measuredKey(lines, maxWidth), lines, maxWidth] as const) : [];
+    return lines.length ? LABEL_WIDTHS.map((maxWidth) => ({ key: measuredKey(lines, maxWidth), lines, maxWidth })) : [];
   });
-  const wanted = new Map(keys.flat().map(([key, lines, maxWidth]) => [key, { lines, maxWidth }]));
+  const wanted = new Map(each.flat().map((w) => [w.key, w]));
   // The sizes these labels need are used now, so they're the last to be let go.
-  const missing: { key: string; lines: LabelLine[]; maxWidth: number }[] = [];
-  for (const [key, { lines, maxWidth }] of wanted) {
+  const missing: Wanted[] = [];
+  for (const [key, w] of wanted) {
     const size = measured.get(key);
-    if (!size) missing.push({ key, lines, maxWidth });
+    if (!size) missing.push(w);
     else {
       measured.delete(key);
       measured.set(key, size);
@@ -187,14 +188,15 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
   if (missing.length) {
     const probes = missing.map(({ key, lines, maxWidth }) => [key, probe(lines, maxWidth)] as const);
     const holder = document.body.appendChild(document.createElement("div"));
-    holder.append(...probes.map(([, div]) => div));
+    // One at a time: spread into append, a big enough view would be more arguments than a call can take.
+    for (const [, div] of probes) holder.appendChild(div);
     for (const [key, div] of probes) {
       const { width, height } = div.getBoundingClientRect();
       measured.set(key, { w: width, h: height });
     }
     holder.remove();
   }
-  return keys.map((at) => (at.length ? sizesAt((_, k) => measured.get(at[k]![0])!) : []));
+  return each.map((at) => (at.length ? sizesAt((_, k) => measured.get(at[k]!.key)!) : []));
 }
 
 export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {

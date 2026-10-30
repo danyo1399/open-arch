@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ViewEdge } from "@open-arch/core";
-import { estimateLabel, forgetLabelSizes, labelSizes, measureLabelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
+import { estimateLabel, forgetLabelSizes, labelSizes, MEASURED_LIMIT, measureLabelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
 
 describe("pathThrough", () => {
   it("hops over the top of an arrow it crosses, whichever way it runs", () => {
@@ -79,7 +79,9 @@ describe("measureLabelSizes", () => {
       append(...kids: { textContent: string }[]) {
         el.children.push(...kids);
       },
-      appendChild: <T,>(kid: T) => kid,
+      appendChild<T>(kid: T) {
+        return kid;
+      },
       remove() {},
       getBoundingClientRect() {
         measures++;
@@ -96,6 +98,7 @@ describe("measureLabelSizes", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    forgetLabelSizes();
   });
   const edge = (description: string) => ({ description }) as ViewEdge;
   const labels = (count: number, from = 0) => Array.from({ length: count }, (_, k) => edge(`label number ${from + k} with some words in it`));
@@ -115,24 +118,30 @@ describe("measureLabelSizes", () => {
   });
 
   it("has a size for every label when the view needs more than it keeps, measuring only the new ones", () => {
-    // 3,000 labels measured, then a view of 3,500 that includes them: 10,500 sizes, more than the 10,000 kept,
-    // and making room mustn't let go of the ones the view already had.
-    const edges = labels(3500);
-    measureLabelSizes(edges.slice(0, 3000));
-    expect(measures).toBe(9000);
+    // Most of a view measured, then all of it, which needs more sizes than are kept: making room
+    // mustn't let go of the ones the view already had. Each label takes 3 sizes, one a width.
+    const total = Math.ceil(MEASURED_LIMIT / 3) + 200;
+    const first = total - 500;
+    const edges = labels(total);
+    measureLabelSizes(edges.slice(0, first));
+    expect(measures).toBe(3 * first);
     for (const sizes of measureLabelSizes(edges)) for (const size of sizes) expect(size.w).toBeGreaterThan(0);
-    expect(measures).toBe(9000 + 1500);
+    expect(measures).toBe(3 * total);
   });
 
   it("lets go of the sizes used least recently once it has more than it keeps", () => {
-    // 3,400 labels' sizes, then 300 new ones: 11,100 sizes, so the first labels' are let go and measured again.
-    measureLabelSizes(labels(3400));
-    measureLabelSizes(labels(300, 5000));
-    expect(measures).toBe(3700 * 3);
-    measureLabelSizes(labels(1));
-    expect(measures).toBe(3700 * 3 + 3);
-    // The most recent are still there.
-    measureLabelSizes(labels(300, 5000));
-    expect(measures).toBe(3700 * 3 + 3);
+    // Labels a and b measured, then a again, then enough new ones to go over the limit: sizes are let
+    // go one at a time, the least recently used first, so b's go, and a's, used again since, are kept.
+    // Letting go of the first measured first would take a's.
+    const [a, b] = [labels(1, 100_000), labels(1, 200_000)];
+    measureLabelSizes(a);
+    measureLabelSizes(b);
+    measureLabelSizes(a);
+    measureLabelSizes(labels(Math.floor(MEASURED_LIMIT / 3) - 1));
+    const before = measures;
+    measureLabelSizes(a);
+    expect(measures, "a measured again").toBe(before);
+    measureLabelSizes(b);
+    expect(measures, "b measured again").toBeGreaterThan(before);
   });
 });

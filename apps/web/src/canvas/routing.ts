@@ -88,10 +88,10 @@ interface Port {
 
 interface Route {
   /** Grid points from the start's stub to the end's, each next to the last. None for a route straight across a gap too narrow for the grid. */
-  cells: number[];
-  ports: [Port, Port];
-  points: Point[];
-  cost: number;
+  readonly cells: readonly number[];
+  readonly ports: readonly [Port, Port];
+  readonly points: readonly Point[];
+  readonly cost: number;
 }
 
 /** A box's sides in whole pixels, so the grid lines built from them match exactly. */
@@ -114,7 +114,7 @@ function distanceTo(x: number, y: number, r: Rect): number {
  * axes. Its arms at cell `k` are along the axes into and out of it, `k` and `k + 1`:
  * the same where it goes straight through, and one of each where it turns.
  */
-function movesOf(cells: number[], start: Port, end: Port): (typeof H | typeof V)[] {
+function movesOf(cells: readonly number[], start: Port, end: Port): (typeof H | typeof V)[] {
   return [start.axis, ...cells.slice(1).map((q, k) => (Math.abs(q - cells[k]!) === 1 ? H : V)), end.axis];
 }
 
@@ -232,9 +232,10 @@ class Grid {
   /** For each row, and each column, the steps to the runs on the others closer than NEAR, which would look like the same line. */
   private readonly besideRows: number[][];
   private readonly besideCols: number[][];
-  /** Where routed arrows attach on each side, by `Port.side`, and the routes marked. */
+  /** Where routed arrows attach on each side, by `Port.side`. */
   private readonly attached = new Map<string, Port[]>();
-  private readonly marked = new Set<Route>();
+  /** The route each link has on the grid, by link ID: the grid's own, so what's taken away is always what was put there. */
+  private readonly placed = new Map<string, Route>();
   // Search state, reused between searches.
   private readonly cost: Float64Array;
   private readonly prev: Int32Array;
@@ -425,7 +426,7 @@ class Grid {
    * the routes on the grid now. A route with no cells runs straight between its
    * ports, across a gap too narrow for the grid.
    */
-  costOf(cells: number[], [start, end]: [Port, Port]): number {
+  costOf(cells: readonly number[], [start, end]: readonly [Port, Port]): number {
     let cost = this.portCost(start) + this.portCost(end);
     if (!cells.length) return cost + Math.hypot(end.at.x - start.at.x, end.at.y - start.at.y);
     const moves = movesOf(cells, start, end);
@@ -447,7 +448,7 @@ class Grid {
    * between a box and its stubs isn't on the grid, so crossing another arrow there,
    * by its arrowhead, would cost nothing.
    */
-  cellsOf(points: Point[], [start, end]: [Port, Port]): number[] | undefined {
+  cellsOf(points: readonly Point[], [start, end]: readonly [Port, Port]): number[] | undefined {
     const { nx } = this;
     const between = (p: Point, a: Point, b: Point) => (a.x === b.x && p.x === a.x && (p.y - a.y) * (p.y - b.y) <= 0) || (a.y === b.y && p.y === a.y && (p.x - a.x) * (p.x - b.x) <= 0);
     const [first, second, last, before] = [points[0]!, points[1]!, points[points.length - 1]!, points[points.length - 2]!];
@@ -476,12 +477,22 @@ class Grid {
     return cells;
   }
 
-  /** Records a route's runs, its arms at each point, and its ports, so later routes avoid them; `by` is 1 to add, -1 to remove. */
-  mark(route: Route, by: 1 | -1) {
-    // A route is only taken away if it's there, and only added once, so the counts never go wrong.
-    if (this.marked.has(route) === (by === 1)) return;
-    if (by === 1) this.marked.add(route);
-    else this.marked.delete(route);
+  /** Each link's route on the grid, by link ID. */
+  get routes(): ReadonlyMap<string, Route> {
+    return this.placed;
+  }
+
+  /** Puts `route` on the grid as link `id`'s, in place of any it had, or with none, just takes that away. Later routes avoid what's there. */
+  place(id: string, route: Route | undefined): void {
+    const old = this.placed.get(id);
+    if (old) this.mark(old, -1);
+    if (route) this.mark(route, 1);
+    if (route) this.placed.set(id, route);
+    else this.placed.delete(id);
+  }
+
+  /** Records a route's runs, its arms at each point, and its ports; `by` is 1 to add, -1 to remove. */
+  private mark(route: Route, by: 1 | -1) {
     const { cells, ports } = route;
     const moves = movesOf(cells, ...ports);
     cells.forEach((p, k) => {
@@ -500,7 +511,7 @@ class Grid {
 }
 
 /** Drops repeated points and points in the middle of a straight run. */
-function simplify(points: Point[]): Point[] {
+function simplify(points: readonly Point[]): Point[] {
   const out: Point[] = [];
   for (const p of points) {
     const a = out[out.length - 2];
@@ -529,7 +540,7 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect): Route {
     return pos >= lo && pos <= hi;
   };
   // Moves the run from point `i` to point `i + 1` across, onto the line `to`, if the runs either side of it still go the way they did.
-  const move = (pts: Point[], i: number, across: boolean, line: number) => {
+  const move = (pts: readonly Point[], i: number, across: boolean, line: number) => {
     const out = pts.map((p, k) => (k === i || k === i + 1 ? (across ? { x: p.x, y: line } : { x: line, y: p.y }) : p));
     const way = (a: Point, b: Point) => Math.sign(across ? b.y - a.y : b.x - a.x);
     for (const k of [i - 1, i + 1]) {
@@ -599,7 +610,7 @@ function facing(a0: number, a1: number, b0: number, b1: number, count: number): 
 }
 
 /** Whether any run of a route goes through the inside of `r`. */
-function runsThrough(points: Point[], r: Rect): boolean {
+function runsThrough(points: readonly Point[], r: Rect): boolean {
   return points.slice(1).some((b, k) => {
     const a = points[k]!;
     return Math.min(a.x, b.x) < r.right && Math.max(a.x, b.x) > r.left && Math.min(a.y, b.y) < r.bottom && Math.max(a.y, b.y) > r.top;
@@ -610,7 +621,8 @@ interface Routing {
   grid: Grid;
   /** Where arrows can attach to each box. */
   ports: Map<string, Port[]>;
-  routes: Map<string, Route>;
+  /** Each link's route, as on the grid (see Grid.place). */
+  routes: ReadonlyMap<string, Route>;
 }
 
 /** The cheapest route for a link from any of `starts` to any of `goals`, given the routes already on the grid. */
@@ -678,22 +690,14 @@ function routeAround(rects: Map<string, Rect>, obstacles: Rect[], links: Link[],
   const grid = new Grid([...rects.values(), ...obstacles], frames, aligned);
   const ports = new Map([...rects].map(([id, r]) => [id, grid.portsOf(id, r, at.get(id)!)]));
 
-  const routes = new Map<string, Route>();
   for (let pass = 0; pass < 2; pass++) {
     for (const link of links) {
-      const old = routes.get(link.id);
-      if (old) grid.mark(old, -1);
+      grid.place(link.id, undefined);
       const [from, to, starts, goals] = [rects.get(link.from)!, rects.get(link.to)!, ports.get(link.from)!, ports.get(link.to)!];
-      const route = acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to);
-      if (!route) {
-        routes.delete(link.id);
-        continue;
-      }
-      grid.mark(route, 1);
-      routes.set(link.id, route);
+      grid.place(link.id, acrossGap(grid, from, to, starts, goals, across.get(link.id)!) ?? routeOne(grid, starts, goals, from, to));
     }
   }
-  return { grid, ports, routes };
+  return { grid, ports, routes: grid.routes };
 }
 
 /** Routes every link it can, in the order they were routed, going around notes only where they're in the way (see routeLinks). */
@@ -725,12 +729,12 @@ function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: 
 }
 
 /** Each link's points: its route, or a straight line between its boxes when it has none. */
-function pointsOf(boxes: Map<string, Box>, links: Link[], routes: Map<string, Route>): Map<string, Point[]> {
+function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<string, Route>): Map<string, Point[]> {
   const out = new Map<string, Point[]>();
   for (const link of links) {
     const from = boxes.get(link.from);
     const to = boxes.get(link.to);
-    if (from && to) out.set(link.id, routes.get(link.id)?.points ?? straight(from, to));
+    if (from && to) out.set(link.id, [...(routes.get(link.id)?.points ?? straight(from, to))]);
   }
   return out;
 }
@@ -776,7 +780,7 @@ function within(from: number, d: number, lo: number, hi: number, t: [number, num
 }
 
 /** How long a stretch of a route lies inside `b`. */
-function lengthInside(points: Point[], b: Box): number {
+function lengthInside(points: readonly Point[], b: Box): number {
   let sum = 0;
   const t: [number, number] = [0, 1];
   for (let k = 1; k < points.length; k++) {
@@ -792,7 +796,7 @@ function lengthInside(points: Point[], b: Box): number {
 }
 
 /** The smallest box around a route. */
-function bounds(points: Point[]): Box {
+function bounds(points: readonly Point[]): Box {
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);
   const [x, y] = [Math.min(...xs), Math.min(...ys)];
@@ -802,12 +806,12 @@ function bounds(points: Point[]): Box {
 /** Whether two boxes overlap or touch. */
 const meet = (a: Box, b: Box) => a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h;
 
-function routeLength(points: Point[]): number {
+function routeLength(points: readonly Point[]): number {
   return points.slice(1).reduce((sum, b, k) => sum + Math.hypot(b.x - points[k]!.x, b.y - points[k]!.y), 0);
 }
 
 /** The point `s` pixels along a route. */
-function along(points: Point[], s: number): Point {
+function along(points: readonly Point[], s: number): Point {
   for (let k = 1; k < points.length; k++) {
     const [p, q] = [points[k - 1]!, points[k]!];
     const length = Math.hypot(q.x - p.x, q.y - p.y);
@@ -864,13 +868,13 @@ interface Spot {
 /** What labels are placed among: boxes and the like (with the gap labels keep from them), and every arrow, by link ID. */
 interface Scene {
   obstacles: Box[];
-  routes: Map<string, { points: Point[]; bounds: Box }>;
+  routes: Map<string, { points: readonly Point[]; bounds: Box }>;
   heads: Map<string, Box>;
 }
 
 const padded = (b: Box): Box => ({ x: b.x - LABEL_GAP, y: b.y - LABEL_GAP, w: b.w + 2 * LABEL_GAP, h: b.h + 2 * LABEL_GAP });
 
-function headOf(points: Point[]): Box {
+function headOf(points: readonly Point[]): Box {
   const at = along(points, routeLength(points) - HEAD / 2);
   return { x: at.x - HEAD / 2, y: at.y - HEAD / 2, w: HEAD, h: HEAD };
 }
@@ -881,7 +885,7 @@ function sceneOf(routes: Map<string, Point[]>, obstacles: Box[]): Scene {
   return scene;
 }
 
-function setRoute(scene: Scene, id: string, points: Point[]): void {
+function setRoute(scene: Scene, id: string, points: readonly Point[]): void {
   scene.routes.set(id, { points, bounds: bounds(points) });
   scene.heads.set(id, headOf(points));
 }
@@ -891,7 +895,7 @@ function setRoute(scene: Scene, id: string, points: Point[]): void {
  * from other labels. `sizes` are the sizes the label can be, widest first: the
  * narrower ones are tried only where the widest can't find room.
  */
-function spotsAlong(id: string, points: Point[], sizes: Size[], scene: Scene): Spot[] {
+function spotsAlong(id: string, points: readonly Point[], sizes: Size[], scene: Scene): Spot[] {
   const total = routeLength(points);
   const spots: Spot[] = [];
   // Only what's near the route can be covered by its label.
@@ -1020,7 +1024,7 @@ export function layoutArrows<S extends Size>(
       const hidden = others.reduce((sum, o) => sum + COVERS_ARROW * lengthInside(r.points, o) + (COVERS_HEAD * overlap(head, o)) / (HEAD * HEAD), 0);
       return { route: r, label: best, cost: r.cost + best.cost + hidden };
     };
-    grid.mark(route, -1);
+    grid.place(link.id, undefined);
     // The route as it stands, costed against the routes as they are now.
     const kept = total({ ...route, cost: grid.costOf(route.cells, route.ports) });
     // Another route, with its label, has to cost no more than this to be worth moving to.
@@ -1034,8 +1038,7 @@ export function layoutArrows<S extends Size>(
       if (option.cost <= bar && option.cost < best.cost) best = option;
     }
     moved ||= best !== kept;
-    grid.mark(best.route, 1);
-    routes.set(link.id, best.route);
+    grid.place(link.id, best.route);
     setRoute(scene, link.id, best.route.points);
     placed.set(link.id, best.label);
   }
