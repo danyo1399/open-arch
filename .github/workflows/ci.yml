@@ -1,8 +1,8 @@
 name: CI
 
 # Four machines, two of them macOS and Windows, so not on every push: only when a release is
-# published, or when started by hand (Actions, CI, Run workflow). Branches run the same checks
-# locally before they're merged (AGENTS.md).
+# published, or when started by hand (Actions, CI, Run workflow). Branches run the checks and the
+# smoke test locally before they're merged (AGENTS.md); macOS and Windows are checked only here.
 on:
   release:
     types: [published]
@@ -84,7 +84,8 @@ jobs:
           path: apps/desktop/smoke/*.png
           if-no-files-found: warn
 
-      # --publish never: on CI, electron-builder otherwise tries to publish a draft GitHub release.
+      # --publish never: on CI, electron-builder otherwise tries to publish to a GitHub release,
+      # above all when building a release's tag.
       # .deb packages need a homepage; use this repository's until package.json names one.
       - name: Build installers
         run: pnpm --filter @open-arch/desktop dist --publish never -c.extraMetadata.homepage="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"

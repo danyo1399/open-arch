@@ -41,7 +41,7 @@ How agents (and people) build features and fix bugs in this repo. What open-arch
 
 ## Checks
 
-The same as [CI](.github/workflows/ci.yml), which only runs for a release, so nothing else runs them on a branch. Every one must pass before a branch is merged into `main`.
+The same as [CI](.github/workflows/ci.yml), but CI doesn't run on pushes, only for a release or when started by hand, so run them yourself. Every one must pass before a branch is merged into `main`.
 
 ```bash
 pnpm typecheck && pnpm test && pnpm build

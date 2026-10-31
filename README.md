@@ -110,7 +110,7 @@ pnpm open-arch show --file examples/shop/shop.openarch
 
 ## CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs when a release is published, or when you start it from the Actions tab (**CI**, then **Run workflow**). It doesn't run on pushes: run the [checks](AGENTS.md#checks) yourself before merging.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs when a release is published, or when you start it from the Actions tab (**CI**, then **Run workflow**). It doesn't run on pushes or pull requests: run the [checks](AGENTS.md#checks) yourself before merging. They test the desktop app only on your own system, so start a run on `main` by hand to check macOS and Windows before a release.
 
 It has two jobs:
 
