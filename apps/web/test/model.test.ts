@@ -1,6 +1,6 @@
-import { buildWorkspace, computeView } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { followRenames, followsName, idFromName, renamedId, renamesIn, shownInProperties, uniqueId, viewAction } from "../src/model.js";
+import { followRenames, followsName, idFromName, renamedId, renamesBetween, renamesIn, shownInProperties, undoRenames, uniqueId, viewAction } from "../src/model.js";
 
 const ws = buildWorkspace({
   openarch: 2,
@@ -202,9 +202,72 @@ describe("renames", () => {
     expect(followRenames([...saved], renamesIn([...saved]))).toEqual([{ op: "update-element", id: "payments", name: "Payments" }]);
   });
 
+  it("takes them back, last first", () => {
+    expect(undoRenames(renames).map((r) => `${r.id}>${r.to}`)).toEqual(["checkout>orders", "billing>payments", "payments>new-system"]);
+    expect(renamedId(undoRenames(renames), renamedId(renames, "new-system"))).toBe("new-system");
+  });
+
   it("adds no fields an operation didn't have", () => {
     const later = renamesIn([{ op: "rename", id: "api", to: "checkout-api" }]);
     expect(followRenames([{ op: "update-element", id: "api", name: "Checkout API" }], later)).toEqual([{ op: "update-element", id: "checkout-api", name: "Checkout API" }]);
     expect(Object.keys(followRenames([{ op: "update-view", id: "v", title: "V" }], later)[0]!)).toEqual(["op", "id", "title"]);
+  });
+});
+
+describe("renamesBetween", () => {
+  const shop: OpenArchDocument = {
+    openarch: 2,
+    name: "Shop",
+    elements: {
+      customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },
+      shop: { kind: "system", name: "Shop", description: "Sells things" },
+      web: { kind: "container", name: "Web App", parent: "shop", technology: "React", uses: [{ to: "api" }] },
+      api: { kind: "container", name: "API", parent: "shop", technology: "Go" },
+      "api-2": { kind: "container", name: "API", parent: "shop", technology: "Go" },
+      "api-3": { kind: "container", name: "API", parent: "shop", technology: "Go" },
+    },
+    views: {
+      landscape: { title: "Landscape", level: "landscape", layout: { customer: [0, 0], shop: [0, 200] } },
+      "shop-containers": { title: "Shop containers", level: "container", scope: "shop", layout: { web: [0, 0], api: [300, 0] } },
+    },
+  };
+  const before = buildWorkspace(shop);
+  /** The renames worked out from the file before and after these operations. */
+  const between = (ops: Operation[]) => renamesBetween(before, buildWorkspace(applyOperations(shop, ops).doc)).map((r) => `${r.id}>${r.to}`);
+
+  it("finds an element's rename, with its new name, and a view's, with its new title", () => {
+    expect(between([{ op: "update-element", id: "web", name: "Storefront" }, { op: "rename", id: "web", to: "storefront" }])).toEqual(["web>storefront"]);
+    expect(between([{ op: "update-view", id: "shop-containers", title: "Shop surroundings" }, { op: "rename", id: "shop-containers", to: "shop-surroundings" }])).toEqual([
+      "shop-containers>shop-surroundings",
+    ]);
+  });
+
+  it("finds an element's rename once that of the element it's in, or uses, is known", () => {
+    expect(
+      between([
+        { op: "rename", id: "shop", to: "store" },
+        { op: "rename", id: "web", to: "storefront" },
+        { op: "rename", id: "customer", to: "shopper" },
+        { op: "rename", id: "shop-containers", to: "store-containers" },
+      ]),
+    ).toEqual(["shop>store", "customer>shopper", "web>storefront", "shop-containers>store-containers"]);
+  });
+
+  it("finds nothing where nothing was renamed", () => {
+    expect(between([{ op: "update-element", id: "web", name: "Storefront" }])).toEqual([]);
+    expect(between([{ op: "remove-element", id: "web" }])).toEqual([]);
+  });
+
+  it("leaves out an element deleted as another is added, unless they're the same but for the name", () => {
+    expect(between([{ op: "remove-element", id: "web" }, { op: "add-element", id: "mobile", kind: "container", parent: "shop", name: "Mobile App", technology: "Swift" }])).toEqual([]);
+    // Moved as well: its box isn't where the old one was.
+    expect(between([{ op: "rename", id: "api", to: "orders" }, { op: "set-layout", view: "shop-containers", positions: { orders: [300, 300] } }])).toEqual([]);
+  });
+
+  it("leaves out a rename it can't tell apart from another", () => {
+    // api-2 and api-3 are the same apart from their IDs, so either could be the one renamed.
+    expect(between([{ op: "remove-element", id: "api-3" }, { op: "rename", id: "api-2", to: "orders" }])).toEqual([]);
+    // api is placed in a view, and api-2 isn't, like the new one.
+    expect(between([{ op: "remove-element", id: "api" }, { op: "rename", id: "api-2", to: "orders" }])).toEqual(["api-2>orders"]);
   });
 });

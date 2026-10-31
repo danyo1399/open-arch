@@ -1,5 +1,5 @@
 /** Small questions about the model that the designer's UI asks. */
-import { computeAllViews, describeElement, isInside, type ArchElement, type ComputedView, type Operation, type Relationship, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeAllViews, describeElement, isInside, type ArchElement, type ComputedView, type ElementData, type Operation, type Relationship, type Sticky, type ViewData, type ViewDef, type Workspace } from "@open-arch/core";
 import type { Selection } from "./canvas/Canvas.js";
 
 /** IDs the designer gives new elements before they have a name. */
@@ -128,6 +128,78 @@ export function renamesIn(ops: Operation[]): Rename[] {
 /** An ID after these renames, applied in order. */
 export function renamedId(renames: Rename[], id: string): string {
   return renames.reduce((current, r) => (current === r.id ? r.to : current), id);
+}
+
+/** The renames that take these back, last first: what undoing an edit that made them does. */
+export function undoRenames(renames: Rename[]): Rename[] {
+  return [...renames].reverse().map((r) => ({ op: "rename", id: r.to, to: r.id }));
+}
+
+/** Data as text with its keys in order, so two copies compare equal whatever order they were written in. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).filter(([, v]) => v !== undefined);
+    return `{${entries
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * The renames that took `before` to `after`, worked out from the two, for a change that didn't
+ * say: a file reloaded after an agent or the CLI changed it, or an earlier version restored. An
+ * ID that went is renamed to one that came when they're the same kind of thing and match in
+ * everything but their name or title, with the IDs they refer to followed, and where the boxes
+ * stood in each view. When an ID could have gone to more than one, it's left out, as if deleted.
+ */
+export function renamesBetween(before: Workspace, after: Workspace): Rename[] {
+  const renames: Rename[] = [];
+  const follow = (id: string) => renamedId(renames, id);
+  const { elements: was, views: wasViews } = before.doc;
+  const { elements: is, views: isViews } = after.doc;
+  const placed = (views: Record<string, ViewData>, id: string) => Object.values(views).flatMap((v) => (v.layout && Object.hasOwn(v.layout, id) ? [canonical(v.layout[id])] : [])).sort();
+  /** The keys of `a` that `b` doesn't have. */
+  const only = (a: object, b: object) => Object.keys(a).filter((id) => !Object.hasOwn(b, id));
+
+  /** What an element is, apart from its ID and name, in the IDs of `after`. */
+  const element = ({ name: _, ...e }: ElementData, at: string[], to: (id: string) => string) =>
+    canonical({ ...e, parent: e.parent && to(e.parent), uses: e.uses?.map((r) => ({ ...r, to: to(r.to) })), at });
+  /** What a view is, apart from its ID and title, in the IDs of `after`. */
+  const view = ({ title: _, ...v }: ViewData, to: (id: string) => string) =>
+    canonical({
+      ...v,
+      scope: v.scope && to(v.scope),
+      include: v.include?.map(to),
+      exclude: v.exclude?.map(to),
+      layout: v.layout && Object.fromEntries(Object.entries(v.layout).map(([id, at]) => [to(id), at])),
+    });
+
+  /**
+   * Pairs IDs that went with ones that came, a round at a time: a container matches once its
+   * system's rename is known. `same(gone, came)` says whether they match, with `gone` renamed.
+   */
+  const pair = (gone: string[], came: string[], same: (gone: string, came: string) => boolean) => {
+    for (let found = true; found; ) {
+      found = false;
+      const paired = new Set(renames.flatMap((r) => [r.id, r.to]));
+      const left = came.filter((id) => !paired.has(id));
+      const matches = new Map(gone.filter((id) => !paired.has(id)).map((id) => [id, left.filter((to) => same(id, to))]));
+      for (const [id, [to, ...others]] of matches) {
+        if (!to || others.length > 0) continue;
+        // Two that went could each be the one that came.
+        if ([...matches.values()].filter((m) => m.includes(to)).length > 1) continue;
+        renames.push({ op: "rename", id, to });
+        found = true;
+      }
+    }
+  };
+
+  pair(only(was, is), only(is, was), (id, to) => element(was[id]!, placed(wasViews, id), (x) => (x === id ? to : follow(x))) === element(is[to]!, placed(isViews, to), (x) => x));
+  pair(only(wasViews, isViews), only(isViews, wasViews), (id, to) => view(wasViews[id]!, follow) === view(isViews[to]!, (x) => x));
+  return renames;
 }
 
 /**

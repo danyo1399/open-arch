@@ -3,6 +3,7 @@ import { applyOperations, checkWorkspace, loadWorkspace, OpError, serializeDocum
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DocsSummary } from "./bridge.js";
 import type { WorkspaceHost } from "./hosts.js";
+import { renamesBetween, renamesIn, undoRenames, type Rename } from "./model.js";
 
 /** Operations to apply, or a function that works them out from the current workspace. */
 export type Edit = Operation[] | ((ws: Workspace) => Operation[]);
@@ -35,13 +36,23 @@ export interface WorkspaceState {
 
 const HISTORY_LIMIT = 100;
 
+/**
+ * A version of the file to go back or forward to, with the renames that lead from the earlier of
+ * the two versions to the later: the ones the edit made, which Undo takes back and Redo makes again.
+ */
+type Step = { text: string; renames: Rename[] };
+
 /** Earlier versions of the file, for Undo, and ones undone, for Redo. Last is next. */
-type History = { undo: string[]; redo: string[] };
+type History = { undo: Step[]; redo: Step[] };
+
+/** The renames between two versions of the file, worked out from them. */
+const renamesFrom = (before: string, after: string) => renamesBetween(loadWorkspace(before), loadWorkspace(after));
 
 /**
  * `onApplied` hears the operations of each edit as it's applied, in the same render as the
  * workspace they make, so what the designer has open can follow a rename without a render in
- * between where it points at an ID that's gone.
+ * between where it points at an ID that's gone. Undo, Redo, a restore and a reload write a whole
+ * version of the file instead, and it hears the renames they make.
  */
 export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[]) => void): WorkspaceState {
   const [text, setText] = useState<string | null>(null);
@@ -94,7 +105,9 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         void enqueue(async () => {
           const next = await host.load();
           if (cancelled || next === current.current) return;
+          const renames = current.current === null ? [] : renamesFrom(current.current, next);
           commit(next);
+          applied.current?.(renames);
           setSavedText(next);
           updateHistory(() => ({ undo: [], redo: [] }));
           setMessage({ kind: "info", text: "The workspace changed outside this window, so it was reloaded." });
@@ -161,7 +174,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
           return false;
         }
-        updateHistory((h) => ({ undo: [...h.undo, before].slice(-HISTORY_LIMIT), redo: [] }));
+        updateHistory((h) => ({ undo: [...h.undo, { text: before, renames: renamesIn(ops) }].slice(-HISTORY_LIMIT), redo: [] }));
         return true;
       }),
     [enqueue, write],
@@ -173,13 +186,14 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         const before = current.current;
         if (before === null) return false;
         if (target === before) return true;
+        const renames = renamesFrom(before, target);
         try {
-          await write(target);
+          await write(target, () => applied.current?.(renames));
         } catch (error) {
           setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
           return false;
         }
-        updateHistory((h) => ({ undo: [...h.undo, before].slice(-HISTORY_LIMIT), redo: [] }));
+        updateHistory((h) => ({ undo: [...h.undo, { text: before, renames }].slice(-HISTORY_LIMIT), redo: [] }));
         return true;
       }),
     [enqueue, write],
@@ -192,9 +206,11 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         const stack = historyRef.current[direction];
         const target = stack[stack.length - 1];
         if (now === null || target === undefined) return;
-        await write(target);
+        const { renames } = target;
+        await write(target.text, () => applied.current?.(direction === "undo" ? undoRenames(renames) : renames));
+        const back: Step = { text: now, renames };
         updateHistory((h) =>
-          direction === "undo" ? { undo: h.undo.slice(0, -1), redo: [...h.redo, now] } : { redo: h.redo.slice(0, -1), undo: [...h.undo, now] },
+          direction === "undo" ? { undo: h.undo.slice(0, -1), redo: [...h.redo, back] } : { redo: h.redo.slice(0, -1), undo: [...h.undo, back] },
         );
       }),
     [enqueue, write],
