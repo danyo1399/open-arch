@@ -24,11 +24,17 @@ writeFileSync(join(userData, "state.json"), JSON.stringify({ lastFile: join(fold
 const out = at("../smoke");
 mkdirSync(out, { recursive: true });
 
-const result = spawnSync(electron, [at("./smoke-main.mjs")], {
+// Electron refuses to run as root, as agents often do in containers, unless its sandbox is off.
+const args = [...(process.getuid?.() === 0 ? ["--no-sandbox"] : []), at("./smoke-main.mjs")];
+// On Linux with no display, as on a server or in a container, the app gets a virtual one.
+const headless = process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
+const [command, commandArgs] = headless ? ["xvfb-run", ["--auto-servernum", "--server-args=-screen 0 1920x1080x24", electron, ...args]] : [electron, args];
+const result = spawnSync(command, commandArgs, {
   stdio: "inherit",
   env: { ...process.env, OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli },
   timeout: 60_000,
 });
 // On Windows, Electron's helper processes can hold files in userData for a moment after it exits.
 rmSync(temp, { recursive: true, force: true, maxRetries: 10 });
+if (result.error?.code === "ENOENT" && headless) console.error("There's no display, and xvfb-run isn't installed to make one. Install xvfb, or run this where there's a display.");
 process.exit(result.status ?? 1);

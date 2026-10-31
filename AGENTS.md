@@ -30,49 +30,55 @@ How agents (and people) build features and fix bugs in this repo. What open-arch
 2. If the file format changes, raise `FORMAT_VERSION` and upgrade older files as they're read, as `document.ts` does for version 1, so existing files keep opening. The next save writes the new version.
 3. Add tests beside the existing ones (`packages/*/test`, `apps/*/test`, Vitest).
 4. For a change you can see, run the designer and check it in the browser.
-5. Run the checks below, then [review and merge](#review-and-merge).
+5. Run the [checks](#checks), then [review and merge](#review-and-merge).
 
 ## Fixing a bug
 
 1. Reproduce it. Where the code is testable (core, the CLI, the designer's model, layout and routing), write a test that fails because of the bug. For a bug that only shows in the UI, reproduce it in the designer.
 2. Find the cause, not just the place it shows up. Look for the same mistake on the other paths: the CLI, the designer, `show`, the docs and Mermaid often each handle the same data.
 3. Fix it, and keep the test.
-4. Run the checks below, then [review and merge](#review-and-merge).
+4. Run the [checks](#checks), then [review and merge](#review-and-merge).
 
 ## Checks
 
-The same as [CI](.github/workflows/ci.yml), but CI doesn't run on pushes, only for a release or when started by hand, so run them yourself. Every one must pass before a branch is merged into `main`.
+`pnpm verify` runs every check a branch must pass before it's merged into `main`, in order, and stops at the first that fails:
+
+1. `pnpm install --frozen-lockfile`
+2. `pnpm typecheck`, `pnpm test` and `pnpm build`
+3. `open-arch check`, `fmt --check` and `export --check` on every example
+4. the desktop smoke test, `pnpm --filter @open-arch/desktop smoke`. It's skipped when only Markdown changed since `main`. The desktop app bundles the designer, core, the CLI and the skill, so most changes reach it. With no display on Linux, it runs the app under `xvfb-run`.
 
 ```bash
-pnpm typecheck && pnpm test && pnpm build
+pnpm verify
 ```
 
-```bash
-(for f in examples/*/*.openarch; do pnpm open-arch check --file "$f" && pnpm open-arch fmt --check --file "$f" && pnpm open-arch export --check --file "$f" || exit 1; done)
-```
+They're the same as [CI](.github/workflows/ci.yml)'s, but CI doesn't run on pushes, only for a release or when started by hand. `pnpm land` runs them for you; run `pnpm verify` yourself to see where a branch stands. When every check passes on committed work, it records that, and only work it recorded can be pushed to `main`.
 
 If `export --check` fails because the docs were meant to change, regenerate them with `pnpm open-arch export --file <example>` and include them in the change.
 
-Unless the change only touches Markdown, also run the desktop smoke test. The desktop app bundles the designer, core, the CLI and the skill, so most changes reach it.
-
-```bash
-pnpm --filter @open-arch/desktop smoke
-```
-
-Done means: the checks pass, new behaviour has tests, everything that describes the behaviour (CLI help, skill, README, the tour's notes) says what it now does, nothing unrelated changed, a reviewer approved it, and it's merged into `main` and pushed.
+Done means: the checks pass, new behaviour has tests, everything that describes the behaviour (CLI help, skill, README, the tour's notes) says what it now does, nothing unrelated changed, a reviewer approved it, and `pnpm land` merged it into `main`.
 
 ## Review and merge
 
-Every change is reviewed by a subagent before it reaches `main`.
+`pnpm land` takes a branch from finished to merged. Commit your work, then, in the branch's worktree:
 
-1. Commit your work on the branch.
-2. Ask a subagent to review the branch. Give it the task and how to see the change: `git fetch origin`, then `git diff origin/main...HEAD` and `git log origin/main..HEAD` in the worktree. Point it at this file, and ask for its findings and a verdict: **approved** or **changes requested**. Don't give it your own view of the change; let it read the code fresh. It reviews only: it doesn't edit files.
-3. If it approves, go on to step 4: an approval on the first review is enough. If it requests changes, fix them, commit, and go back to step 2 for a review of the whole branch. If you think a finding is wrong, don't skip it quietly: say why in the next request, and let the reviewer decide.
-4. Bring the branch up to date: undo any change to `.claude/launch.json` (`git restore .claude/launch.json`), then `git fetch origin`, then `git rebase origin/main` in the worktree. If the rebase had conflicts, go back to step 2 once they're resolved.
-5. Run all the [checks](#checks) on the result. Nothing is merged until every one passes. If one fails, fix it and go back to step 2.
-6. Push from the worktree: `git push origin HEAD:main`. Git refuses unless it's a fast-forward; if it does, `main` moved: go back to step 4.
-7. Update the main checkout (the first path in `git worktree list`), but only if `git -C <main> branch --show-current` prints `main`: `git -C <main> merge --ff-only origin/main`. If it prints anything else, or the merge refuses because of local commits or another session's uncommitted changes, leave it and tell the user. Never stash, reset or check out over changes there.
-8. Remove the worktree and the branch, from the main checkout in one command: `git -C <main> worktree remove <path> && git -C <main> branch -d <branch>`. If a tool created the worktree, let the tool remove it.
+```bash
+pnpm land --task "<what you were asked to do, in a sentence or two>"
+```
+
+It stops at anything that needs you, and says what to do. In order, it:
+
+1. Undoes any change to `.claude/launch.json`, then refuses other uncommitted changes, `main`, and a branch with nothing to land.
+2. Fetches, and rebases the branch onto `origin/main`. If the rebase hits conflicts, it undoes it and stops: run `git rebase origin/main`, resolve them, and run `pnpm land` again.
+3. Runs `pnpm verify` on the result, unless these files already passed. If a check fails, fix it in a new commit and run `pnpm land` again.
+4. Has Claude review the branch, unless this commit was already approved. The reviewer gets the task and reads the code fresh. It can read, and run the tests, but it can't edit files. A rebase without conflicts keeps an approval. If the reviewer requests changes, `pnpm land` prints the findings and stops. Fix them in a new commit and run `pnpm land` again, for a review of the whole branch. If you think a finding is wrong, don't skip it quietly: say why with `--note "..."`, and the reviewer decides.
+5. Pushes to `main`. If `main` moved meanwhile, it goes back to step 2.
+6. Updates the main checkout (the first path in `git worktree list`) with a fast-forward, if it's on `main`. Otherwise, or if the fast-forward refuses because of local commits or another session's uncommitted changes, it leaves it as it is and says so. Tell the user.
+7. Removes the worktree and the branch, unless you're in the main checkout. If a tool created the worktree (one under `.claude/worktrees/`, or pass `--keep-worktree`), it leaves them for the tool to remove.
+
+The checks take a few minutes, and a review several more. If your shell gives commands a time limit, allow 30 minutes or run it in the background. The review needs the `claude` CLI, signed in.
+
+Don't push to `main` any other way. `pnpm install` sets up a pre-push hook that refuses a push to `main` of work `pnpm verify` hasn't passed in this clone.
 
 ## Commits
 

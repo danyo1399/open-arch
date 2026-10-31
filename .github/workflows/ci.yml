@@ -1,8 +1,8 @@
 name: CI
 
 # Four machines, two of them macOS and Windows, so not on every push: only when a release is
-# published, or when started by hand (Actions, CI, Run workflow). Branches run the checks and the
-# smoke test locally before they're merged (AGENTS.md); macOS and Windows are checked only here.
+# published, or when started by hand (Actions, CI, Run workflow). Branches run the same checks
+# locally with pnpm verify before they're merged (AGENTS.md); macOS and Windows are checked only here.
 on:
   release:
     types: [published]

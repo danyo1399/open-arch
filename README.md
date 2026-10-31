@@ -86,7 +86,7 @@ Run the desktop app against the web dev server, so UI changes reload live (start
 pnpm --filter @open-arch/desktop dev
 ```
 
-Check the desktop app end to end against a temporary copy of the example; screenshots go to `apps/desktop/smoke/`:
+Check the desktop app end to end against a temporary copy of the example; screenshots go to `apps/desktop/smoke/`. With no display on Linux, it runs the app under `xvfb-run`:
 
 ```bash
 pnpm --filter @open-arch/desktop smoke
@@ -96,6 +96,18 @@ Package installers for the current platform into `apps/desktop/release/`:
 
 ```bash
 pnpm --filter @open-arch/desktop dist
+```
+
+Run every check a change must pass before it's merged, the same ones as CI (see [AGENTS.md](AGENTS.md#checks)):
+
+```bash
+pnpm verify
+```
+
+Have a branch reviewed by Claude, checked, and merged into `main`, from its worktree (see [AGENTS.md](AGENTS.md#review-and-merge)):
+
+```bash
+pnpm land --task "<what the branch is for>"
 ```
 
 Build and use the CLI:
@@ -110,7 +122,7 @@ pnpm open-arch show --file examples/shop/shop.openarch
 
 ## CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs when a release is published, or when you start it from the Actions tab (**CI**, then **Run workflow**). It doesn't run on pushes or pull requests: run the [checks](AGENTS.md#checks) yourself before merging. They test the desktop app only on your own system, so start a run on `main` by hand to check macOS and Windows before a release.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs when a release is published, or when you start it from the Actions tab (**CI**, then **Run workflow**). It doesn't run on pushes or pull requests: `pnpm verify` runs the same checks before merging. They test the desktop app only on your own system, so start a run on `main` by hand to check macOS and Windows before a release.
 
 It has two jobs:
 

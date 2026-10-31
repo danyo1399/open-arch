@@ -1,0 +1,248 @@
+// pnpm land: takes the branch checked out here to main (AGENTS.md, Review and merge). In order, it
+// brings the branch up to date with main, runs pnpm verify, has Claude review it, pushes it to
+// main, and tidies up the main checkout and the worktree. At anything that needs you, it stops and
+// says what to do next.
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
+import { approved, capture, git, spawnArgs, stateDir, verified } from "./lib.mjs";
+import { verify as runChecks } from "./verify.mjs";
+
+const USAGE = `pnpm land --task "<what the branch is for>" [--note "<your reply to the last review>"] [--keep-worktree]
+
+Takes the branch checked out here to main: rebases it onto origin/main, runs pnpm verify, has
+Claude review it, pushes it to main, then updates the main checkout and removes the worktree and
+the branch. --task is needed when the branch hasn't been approved yet. See AGENTS.md.`;
+
+/** Something that needs whoever is landing the branch. */
+export class Stop extends Error {}
+
+/** How many times to go round when main moves while a branch is being checked. */
+const ATTEMPTS = 3;
+
+/** The reviewer's answer. */
+export const VERDICT_SCHEMA = {
+  type: "object",
+  properties: { approved: { type: "boolean" }, report: { type: "string" } },
+  required: ["approved", "report"],
+  additionalProperties: false,
+};
+
+/** What the reviewer may run: it reads, and can try the tests, but changes nothing. */
+const REVIEWER_TOOLS = ["Read", "Grep", "Glob", "Bash"];
+const REVIEWER_ALLOWED = [
+  "Read",
+  "Grep",
+  "Glob",
+  ...["log", "diff", "show", "status", "grep", "blame", "ls-files", "rev-parse"].map((c) => `Bash(git ${c}:*)`),
+  "Bash(ls:*)",
+  "Bash(pnpm test:*)",
+  "Bash(pnpm typecheck)",
+];
+
+export function reviewPrompt({ branch, task, note, previous }) {
+  return [
+    `You're reviewing the branch "${branch}" of this repository before it's merged into main. Review only: don't edit, create or delete files, and don't commit, push or switch branches.`,
+    `What it's for:\n${task}`,
+    "See the change with `git log origin/main..HEAD` and `git diff origin/main...HEAD`. AGENTS.md says how features are built and bugs fixed here, and what a commit should look like: read it. Read the code around the change, not just the diff. Check that the change does what it's for, and fixes a bug's cause, not just where it shows; that it's correct, on every path that handles the same data; that it matches the code around it; that new behaviour has tests; that everything describing the behaviour (CLI help, the skill, the README, the tour's notes) says what it now does; that nothing unrelated changed; and that the commits follow AGENTS.md.",
+    "The checks (typecheck, tests, builds, the examples and the desktop smoke test) have passed, so you don't need to run them, though you can run tests to try something out.",
+    ...(previous ? [`Your last review of this branch, at ${previous.commit.slice(0, 7)}, asked for changes:\n${previous.report}\n\nCheck whether they're fixed, but review the whole branch again.`] : []),
+    ...(note ? [`The author's reply to that review:\n${note}`] : []),
+    "Set approved to true if it can be merged as it is, or false if anything must change first. In report, list each finding with its file and line and why it matters, say which ones must be fixed, and end with your verdict.",
+  ].join("\n\n");
+}
+
+/** Reviews the branch with the claude CLI, on read-only tools. Resolves to its verdict. */
+export function claudeReview({ cwd, branch, task, note, previous, log }) {
+  const dir = mkdtempSync(join(tmpdir(), "open-arch-review-"));
+  const settings = join(dir, "settings.json");
+  // The reviewer's own hooks have nothing to do with a review.
+  writeFileSync(settings, JSON.stringify({ disableAllHooks: true, permissions: { allow: REVIEWER_ALLOWED } }));
+  const args = ["-p", "--output-format", "json", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", REVIEWER_TOOLS.join(","), "--settings", settings, "--json-schema", JSON.stringify(VERDICT_SCHEMA)];
+  const s = spawnArgs("claude", args);
+  return new Promise((resolve, reject) => {
+    const child = spawn(s.command, s.args, { cwd, shell: s.shell, stdio: ["pipe", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    const started = Date.now();
+    const tick = setInterval(() => log(`Still reviewing (${Math.round((Date.now() - started) / 60_000)} min)`), 60_000);
+    const limit = setTimeout(() => child.kill(), 30 * 60_000);
+    const done = () => {
+      clearInterval(tick);
+      clearTimeout(limit);
+      rmSync(dir, { recursive: true, force: true });
+    };
+    child.on("error", (error) => {
+      done();
+      reject(error.code === "ENOENT" ? new Stop("pnpm land reviews with the claude CLI (Claude Code), and it isn't installed here.") : error);
+    });
+    child.on("close", (code) => {
+      done();
+      let result;
+      try {
+        result = JSON.parse(out);
+      } catch {
+        // Reported below.
+      }
+      const verdict = result?.structured_output;
+      if (code !== 0 || result?.is_error || typeof verdict?.approved !== "boolean") {
+        const why = (typeof result?.result === "string" && result.result) || err || out;
+        return reject(new Stop(`The review didn't finish: ${why.trim() || `claude exited with ${code}`}`));
+      }
+      resolve({ approved: verdict.approved, report: verdict.report });
+    });
+    child.stdin.end(reviewPrompt({ branch, task, note, previous }));
+  });
+}
+
+/** The last review of each branch, so the next one can see what it asked for. */
+const lastReview = {
+  file: (branch, cwd) => join(stateDir(cwd), "reviews", `${encodeURIComponent(branch)}.json`),
+  get(branch, cwd) {
+    const file = this.file(branch, cwd);
+    return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : undefined;
+  },
+  set(branch, review, cwd) {
+    mkdirSync(join(stateDir(cwd), "reviews"), { recursive: true });
+    writeFileSync(this.file(branch, cwd), JSON.stringify(review, null, 2));
+  },
+  delete(branch, cwd) {
+    rmSync(this.file(branch, cwd), { force: true });
+  },
+};
+
+const isAncestor = (a, b, cwd) => capture("git", ["merge-base", "--is-ancestor", a, b], { cwd }).status === 0;
+
+/** Rebases onto origin/main, if it moved. A conflict undoes the rebase and stops. */
+function rebase(root, log) {
+  if (isAncestor("origin/main", "HEAD", root)) return;
+  const before = git(["rev-parse", "HEAD"], root);
+  log("Rebasing onto origin/main");
+  if (capture("git", ["rebase", "origin/main"], { cwd: root }).status !== 0) {
+    capture("git", ["rebase", "--abort"], { cwd: root });
+    throw new Stop("Rebasing onto main hit conflicts, so the rebase was undone. Run git rebase origin/main, resolve them, and run pnpm land again: the result gets a new review.");
+  }
+  // AGENTS.md asks for another review only when a rebase had conflicts, so a clean one keeps the approval.
+  if (approved.has(before, root)) approved.add(git(["rev-parse", "HEAD"], root), root);
+}
+
+const samePath = (a, b) => realpathSync(a) === realpathSync(b);
+
+/** After the push: brings the main checkout up to date, and removes the worktree and the branch. */
+function tidy({ root, branch, keepWorktree, log }) {
+  const mainRoot = git(["worktree", "list", "--porcelain"], root).split("\n")[0].replace(/^worktree /, "");
+  if (samePath(mainRoot, root)) {
+    log(`This is the main checkout, so it stays on ${branch}. To move it to main: git switch main && git merge --ff-only origin/main && git branch -d ${branch}`);
+    return;
+  }
+  const mainBranch = git(["branch", "--show-current"], mainRoot);
+  if (mainBranch === "main") {
+    // Never stashes, resets or checks out over changes there: a fast-forward refuses instead.
+    const ff = capture("git", ["merge", "--ff-only", "origin/main"], { cwd: mainRoot });
+    log(ff.status === 0 ? `Brought the main checkout (${mainRoot}) up to date.` : `Couldn't fast-forward the main checkout (${mainRoot}), so it was left as it is:\n${(ff.stderr || ff.stdout).trim()}`);
+  } else {
+    log(`The main checkout (${mainRoot}) is on ${mainBranch || "no branch"}, not main, so it was left as it is.`);
+  }
+  if (keepWorktree || root.replace(/\\/g, "/").includes("/.claude/worktrees/")) {
+    log("Left the worktree and the branch for whatever made them to remove.");
+    return;
+  }
+  const removed = capture("git", ["worktree", "remove", root], { cwd: mainRoot });
+  if (removed.status !== 0) return log(`Couldn't remove the worktree ${root}:\n${(removed.stderr || removed.stdout).trim()}`);
+  const deleted = capture("git", ["branch", "-d", branch], { cwd: mainRoot });
+  log(deleted.status === 0 ? `Removed the worktree and the branch ${branch}.` : `Removed the worktree, but not the branch ${branch}:\n${(deleted.stderr || deleted.stdout).trim()}`);
+}
+
+/**
+ * Lands the branch checked out in `cwd`. `review` and `verify` are the review and the checks:
+ * Claude and pnpm verify, unless a test swaps them. Throws Stop when it needs someone.
+ */
+export async function land({ cwd, task, note, keepWorktree = false, review = claudeReview, verify = runChecks, log = (m) => console.log(`\n[land] ${m}`) }) {
+  const root = git(["rev-parse", "--show-toplevel"], cwd);
+  const branch = git(["branch", "--show-current"], root);
+  if (!branch) throw new Stop("Check out the branch you want to land first.");
+  if (branch === "main") throw new Stop("This is main. Land a branch, made in a worktree of its own (AGENTS.md, Before you start).");
+
+  // A dev server's launch.json entry is never part of a change.
+  if (capture("git", ["diff", "--quiet", "HEAD", "--", ".claude/launch.json"], { cwd: root }).status === 1) {
+    git(["restore", "--source=HEAD", "--staged", "--worktree", ".claude/launch.json"], root);
+  }
+  const status = git(["status", "--porcelain"], root);
+  if (status) throw new Stop(`Commit or remove these changes first:\n${status}`);
+
+  log("Fetching origin");
+  git(["fetch", "origin"], root);
+  if (git(["rev-list", "--count", "origin/main..HEAD"], root) === "0") throw new Stop(`Nothing to land: ${branch} has no commits that aren't on main.`);
+  const needsTask = () => new Stop(`${branch} needs a review, and the reviewer needs to know what it's for: pnpm land --task "<what you were asked to do>"`);
+  // Before the checks, so they aren't run for nothing.
+  if (!task && !approved.has(git(["rev-parse", "HEAD"], root), root)) throw needsTask();
+
+  for (let attempt = 1; ; attempt++) {
+    rebase(root, log);
+    const head = git(["rev-parse", "HEAD"], root);
+
+    const tree = git(["rev-parse", "HEAD^{tree}"], root);
+    if (verified.has(tree, root)) {
+      log("These files already passed the checks.");
+    } else {
+      log("Running the checks (pnpm verify)");
+      if (!(await verify(root)) || !verified.has(tree, root)) throw new Stop("The checks didn't pass. Fix what failed in a new commit, and run pnpm land again.");
+    }
+
+    if (approved.has(head, root)) {
+      log(`${head.slice(0, 7)} is already approved.`);
+    } else {
+      if (!task) throw needsTask();
+      const last = lastReview.get(branch, root);
+      const commits = git(["rev-list", "--count", "origin/main..HEAD"], root);
+      log(`Reviewing ${branch} (${commits} commit${commits === "1" ? "" : "s"}). This takes a few minutes.`);
+      const verdict = await review({ cwd: root, branch, task, note, previous: last && !last.approved ? last : undefined, log });
+      lastReview.set(branch, { commit: head, ...verdict }, root);
+      log(`Review of ${head.slice(0, 7)}: ${verdict.approved ? "approved" : "changes requested"}\n\n${verdict.report}`);
+      if (!verdict.approved) {
+        throw new Stop('Changes requested. Fix them in a new commit, and run pnpm land again for a review of the whole branch. If you think a finding is wrong, say why with --note "...", and the reviewer decides.');
+      }
+      approved.add(head, root);
+    }
+
+    log("Pushing to main");
+    const push = capture("git", ["push", "origin", "HEAD:main"], { cwd: root });
+    if (push.status === 0) {
+      log(`Pushed ${head.slice(0, 7)} to main.`);
+      break;
+    }
+    git(["fetch", "origin"], root);
+    if (isAncestor("origin/main", "HEAD", root)) throw new Stop(`git push failed:\n${(push.stderr || push.stdout).trim()}`);
+    if (attempt === ATTEMPTS) throw new Stop("main kept moving while this was being checked. Run pnpm land again.");
+    log("main moved while this was being checked, so going round again.");
+  }
+
+  lastReview.delete(branch, root);
+  tidy({ root, branch, keepWorktree, log });
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  let values;
+  try {
+    ({ values } = parseArgs({ options: { task: { type: "string" }, note: { type: "string" }, "keep-worktree": { type: "boolean" }, help: { type: "boolean", short: "h" } } }));
+  } catch (error) {
+    console.error(`${error.message}\n\n${USAGE}`);
+    process.exit(1);
+  }
+  if (values.help) {
+    console.log(USAGE);
+    process.exit(0);
+  }
+  land({ cwd: process.cwd(), task: values.task, note: values.note, keepWorktree: values["keep-worktree"] }).then(
+    () => process.exit(0),
+    (error) => {
+      console.error(`\nopen-arch land: ${error instanceof Stop ? error.message : error.stack}`);
+      process.exit(1);
+    },
+  );
+}
