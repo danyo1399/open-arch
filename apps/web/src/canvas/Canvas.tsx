@@ -33,6 +33,14 @@ const arrowId = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
 const FRAME_PAD = { x: 40, top: 56, bottom: 40 };
 /** How a view's diagram is fitted to the canvas. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
+/**
+ * How far React Flow lifts a node it has selected above the others, so a box being dragged
+ * passes over the rest. It's SELECTED_NODE_Z in @xyflow/system, which doesn't export it:
+ * stacking.test.ts checks it against React Flow, in case a new version changes it.
+ */
+export const SELECTED_LIFT = 1000;
+/** A note's z-index: above the arrows and boxes, even a selected box, like a note stuck on a printed diagram. */
+export const STICKY_Z = SELECTED_LIFT + 1;
 
 interface CanvasProps {
   ws: Workspace;
@@ -199,8 +207,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           selected: selection?.kind === "sticky" && selection.id === sticky.id,
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,
-          // Above the arrows and boxes, like a note stuck on a printed diagram.
-          zIndex: 1,
+          zIndex: STICKY_Z,
         }),
       ),
     ]);
@@ -421,6 +428,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           onSelect(null);
         }}
         connectionMode={ConnectionMode.Loose}
+        // The arrow being drawn stays over everything, as React Flow means it to, even a selected note.
+        connectionLineContainerStyle={{ zIndex: STICKY_Z + SELECTED_LIFT + 1 }}
         deleteKeyCode={null}
         selectionKeyCode={null}
         multiSelectionKeyCode={null}
