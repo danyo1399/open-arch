@@ -1,8 +1,8 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, serializeDocument } from "@open-arch/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BrowserHost } from "../src/hosts.js";
-import { workspaceTitle, WorkspaceLibrary, type LibraryChange } from "../src/library.js";
+import { BrowserHost, exampleHost } from "../src/hosts.js";
+import { importProblem, workspaceTitle, WorkspaceLibrary, type LibraryChange } from "../src/library.js";
 
 let dbCount = 0;
 let library: WorkspaceLibrary;
@@ -101,5 +101,22 @@ describe("browser host", () => {
 
   it("says so when the workspace is gone", async () => {
     await expect(new BrowserHost(library, "missing", "x.openarch").load()).rejects.toThrow(/isn't stored/);
+  });
+});
+
+describe("importing", () => {
+  it("lets in workspaces the designer can edit", async () => {
+    expect(importProblem({ name: "shop.openarch", text: await exampleHost().load() })).toBeNull();
+    expect(importProblem({ name: "bom.openarch", text: `﻿${doc("A")}` })).toBeNull();
+  });
+
+  it("refuses files that aren't workspaces", () => {
+    expect(importProblem({ name: "notes.txt", text: "hello" })).toBe("notes.txt isn't an open-arch workspace.");
+    expect(importProblem({ name: "package.json", text: '{"name":"x"}' })).toBe("package.json isn't an open-arch workspace.");
+  });
+
+  it("refuses workspaces with problems that stop them being edited", () => {
+    const text = JSON.stringify({ openarch: 2, name: "A", elements: {}, views: {}, extra: true });
+    expect(importProblem({ name: "a.openarch", text })).toMatch(/^a\.openarch has problems that stop it being edited \(at extra\): Unknown field "extra"\. .*import it again\.$/);
   });
 });

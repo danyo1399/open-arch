@@ -151,3 +151,22 @@ async function keepStorage(): Promise<void> {
 export function workspaceTitle(record: StoredWorkspace): string {
   return parseDocument(record.text).doc.name;
 }
+
+/**
+ * Why a file can't be imported, or null when it can. Only files the designer
+ * can edit are let in: a workspace in the browser can't be fixed by hand.
+ */
+export function importProblem(file: { name: string; text: string }): string | null {
+  const text = file.text.replace(/^﻿/, "");
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    raw = undefined;
+  }
+  if (typeof raw !== "object" || raw === null || !("openarch" in raw)) return `${file.name} isn't an open-arch workspace.`;
+  const { diagnostics, valid } = parseDocument(text);
+  if (valid) return null;
+  const first = diagnostics[0]!;
+  return `${file.name} has problems that stop it being edited${first.path ? ` (at ${first.path})` : ""}: ${first.message} Fix the file, then import it again.`;
+}

@@ -8,33 +8,25 @@
 import { FILE_EXTENSION } from "@open-arch/core";
 import { download } from "./hosts.js";
 
-/** A file the user picked: a workspace, or a zip of them (transfer.ts reads both). */
 export interface PickedFile {
   name: string;
-  data: Uint8Array;
-}
-
-/** A file to export: a workspace's text, or a zip of several. */
-export interface ExportFile {
-  name: string;
-  data: string | Uint8Array;
+  text: string;
 }
 
 export interface FileProvider {
   id: string;
   importLabel: string;
   exportLabel: string;
-  exportAllLabel: string;
-  /** Ask the user for files to import. Resolves to none when they cancel. */
+  /** Ask the user for workspace files. Resolves to none when they cancel. */
   pick(): Promise<PickedFile[]>;
-  /** Save a copy of a file there. Resolves to false when the user cancels. */
-  save(file: ExportFile): Promise<boolean>;
+  /** Save a copy of a workspace file there. Resolves to false when the user cancels. */
+  save(name: string, text: string): Promise<boolean>;
 }
 
-const ACCEPT = `${FILE_EXTENSION},application/json,.zip,application/zip`;
+const ACCEPT = `${FILE_EXTENSION},application/json`;
 
 export async function readFiles(files: Iterable<File>): Promise<PickedFile[]> {
-  return Promise.all([...files].map(async (file) => ({ name: file.name, data: new Uint8Array(await file.arrayBuffer()) })));
+  return Promise.all([...files].map(async (file) => ({ name: file.name, text: await file.text() })));
 }
 
 /** <input type="file"> works in every browser, and lets the user pick several files at once. */
@@ -58,29 +50,23 @@ function pickLocalFiles(): Promise<PickedFile[]> {
 }
 
 interface SavePicker {
-  showSaveFilePicker(options: object): Promise<{ createWritable(): Promise<{ write(data: BlobPart): Promise<void>; close(): Promise<void> }> }>;
+  showSaveFilePicker(options: object): Promise<{ createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }> }>;
 }
 
-const fileType = (name: string) =>
-  name.endsWith(".zip")
-    ? { description: "open-arch workspaces", mime: "application/zip", extension: ".zip" }
-    : { description: "open-arch workspace", mime: "application/json", extension: FILE_EXTENSION };
-
 /** Chrome and Edge ask where to save; other browsers download the file. */
-async function saveLocalFile({ name, data }: ExportFile): Promise<boolean> {
-  const type = fileType(name);
+async function saveLocalFile(name: string, text: string): Promise<boolean> {
   if (!("showSaveFilePicker" in window)) {
-    download(name, data as BlobPart, type.mime);
+    download(name, text, "application/json");
     return true;
   }
   try {
     const handle = await (window as unknown as SavePicker).showSaveFilePicker({
       id: "open-arch",
       suggestedName: name,
-      types: [{ description: type.description, accept: { [type.mime]: [type.extension] } }],
+      types: [{ description: "open-arch workspace", accept: { "application/json": [FILE_EXTENSION] } }],
     });
     const writable = await handle.createWritable();
-    await writable.write(data as BlobPart);
+    await writable.write(text);
     await writable.close();
     return true;
   } catch (error) {
@@ -93,7 +79,6 @@ export const deviceFiles: FileProvider = {
   id: "device",
   importLabel: "Import file…",
   exportLabel: "Export file…",
-  exportAllLabel: "Export all…",
   pick: pickLocalFiles,
   save: saveLocalFile,
 };

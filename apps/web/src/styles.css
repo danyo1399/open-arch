@@ -1199,15 +1199,8 @@ button.heading {
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
-.library-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
 .library h2 {
-  margin: 0;
+  margin: 0 0 8px;
   font-size: 15px;
 }
 .library-list {

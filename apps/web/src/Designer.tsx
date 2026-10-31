@@ -273,7 +273,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
   const exportTo = (provider: FileProvider) =>
     attempt(async () => {
-      if (state.text !== null && (await provider.save({ name: host.name, data: state.text })) && host.storage === "memory") state.markSaved();
+      if (state.text !== null && (await provider.save(host.name, state.text)) && host.storage === "memory") state.markSaved();
     });
 
   if (state.loadError) {
