@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { approved, capture, git, isMain, spawnArgs, stateDir, verified } from "./lib.mjs";
+import { setupHooks } from "./setup-hooks.mjs";
 import { verify as runChecks } from "./verify.mjs";
 
 const USAGE = `pnpm land --task "<what the branch is for>" [--note "<your reply to the last review>"] [--keep-worktree]
@@ -30,24 +31,26 @@ export const VERDICT_SCHEMA = {
   additionalProperties: false,
 };
 
-/** What the reviewer may run: it reads, and can try the tests, but changes nothing. */
-const REVIEWER_TOOLS = ["Read", "Grep", "Glob", "Bash"];
-const REVIEWER_ALLOWED = [
-  "Read",
-  "Grep",
-  "Glob",
-  ...["log", "diff", "show", "status", "grep", "blame", "ls-files", "rev-parse"].map((c) => `Bash(git ${c}:*)`),
-  "Bash(ls:*)",
-  "Bash(pnpm test:*)",
-  "Bash(pnpm typecheck)",
-];
+/**
+ * The reviewer's tools only read files. With no shell, nothing it runs can write one (git diff and
+ * git log can, with --output), so the change and its commits are handed to it as files instead.
+ */
+const REVIEWER_TOOLS = ["Read", "Grep", "Glob"];
 
-export function reviewPrompt({ branch, task, note, previous }) {
+/** Writes what the reviewer reads besides the code into `dir`: the change, its commits, and recent ones on main. */
+export function writeChange(cwd, dir) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "diff.patch"), git(["diff", "origin/main...HEAD"], cwd));
+  writeFileSync(join(dir, "commits.txt"), git(["log", "--stat", "origin/main..HEAD"], cwd));
+  writeFileSync(join(dir, "main-commits.txt"), git(["log", "-20", "origin/main"], cwd));
+}
+
+export function reviewPrompt({ branch, task, note, previous, change }) {
   return [
-    `You're reviewing the branch "${branch}" of this repository before it's merged into main. Review only: don't edit, create or delete files, and don't commit, push or switch branches.`,
+    `You're reviewing the branch "${branch}" of this repository before it's merged into main. Review only: you can read files, but not change them or run commands.`,
     `What it's for:\n${task}`,
-    "See the change with `git log origin/main..HEAD` and `git diff origin/main...HEAD`. AGENTS.md says how features are built and bugs fixed here, and what a commit should look like: read it. Read the code around the change, not just the diff. Check that the change does what it's for, and fixes a bug's cause, not just where it shows; that it's correct, on every path that handles the same data; that it matches the code around it; that new behaviour has tests; that everything describing the behaviour (CLI help, the skill, the README, the tour's notes) says what it now does; that nothing unrelated changed; and that the commits follow AGENTS.md.",
-    "The checks (typecheck, tests, builds, the examples and the desktop smoke test) have passed, so you don't need to run them, though you can run tests to try something out.",
+    `The change, \`git diff origin/main...HEAD\`, is in ${join(change, "diff.patch")}. Its commits, with their messages, are in ${join(change, "commits.txt")}, and the last 20 commits on main, for how messages are written here, in ${join(change, "main-commits.txt")}. The repository's files are as the branch has them. AGENTS.md says how features are built and bugs fixed here, and what a commit should look like: read it. Read the code around the change, not just the diff. Check that the change does what it's for, and fixes a bug's cause, not just where it shows; that it's correct, on every path that handles the same data; that it matches the code around it; that new behaviour has tests; that everything describing the behaviour (CLI help, the skill, the README, the tour's notes) says what it now does; that nothing unrelated changed; and that the commits follow AGENTS.md.`,
+    "The checks (typecheck, tests, builds, the examples and the desktop smoke test) have passed.",
     ...(previous ? [`Your last review of this branch, at ${previous.commit.slice(0, 7)}, asked for changes:\n${previous.report}\n\nCheck whether they're fixed, but review the whole branch again.`] : []),
     ...(note ? [`${previous ? "The author's reply to that review" : "A note from the author"}:\n${note}`] : []),
     "Set approved to true if it can be merged as it is, or false if anything must change first. In report, list each finding with its file and line and why it matters, say which ones must be fixed, and end with your verdict.",
@@ -57,10 +60,12 @@ export function reviewPrompt({ branch, task, note, previous }) {
 /** Reviews the branch with the claude CLI, on read-only tools. Resolves to its verdict. */
 export function claudeReview({ cwd, branch, task, note, previous, log }) {
   const dir = mkdtempSync(join(tmpdir(), "open-arch-review-"));
+  const change = join(dir, "change");
+  writeChange(cwd, change);
   const settings = join(dir, "settings.json");
   // The reviewer's own hooks have nothing to do with a review.
-  writeFileSync(settings, JSON.stringify({ disableAllHooks: true, permissions: { allow: REVIEWER_ALLOWED } }));
-  const args = ["-p", "--output-format", "json", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", REVIEWER_TOOLS.join(","), "--settings", settings, "--json-schema", JSON.stringify(VERDICT_SCHEMA)];
+  writeFileSync(settings, JSON.stringify({ disableAllHooks: true, permissions: { allow: REVIEWER_TOOLS } }));
+  const args = ["-p", "--output-format", "json", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", REVIEWER_TOOLS.join(","), "--add-dir", change, "--settings", settings, "--json-schema", JSON.stringify(VERDICT_SCHEMA)];
   const s = spawnArgs("claude", args);
   return new Promise((resolve, reject) => {
     const child = spawn(s.command, s.args, { cwd, shell: s.shell, stdio: ["pipe", "pipe", "pipe"] });
@@ -95,7 +100,7 @@ export function claudeReview({ cwd, branch, task, note, previous, log }) {
       }
       resolve({ approved: verdict.approved, report: verdict.report });
     });
-    child.stdin.end(reviewPrompt({ branch, task, note, previous }));
+    child.stdin.end(reviewPrompt({ branch, task, note, previous, change }));
   });
 }
 
@@ -173,6 +178,9 @@ export async function land({ cwd, task, note, keepWorktree = false, review = cla
   }
   const status = git(["status", "--porcelain"], root);
   if (status) throw new Stop(`Commit or remove these changes first:\n${status}`);
+  // pnpm install puts the pre-push hook in place, but a branch from before it moved there can undo
+  // that, so make sure of it before pushing.
+  setupHooks(root, log);
 
   log("Fetching origin");
   git(["fetch", "origin"], root);
@@ -201,7 +209,7 @@ export async function land({ cwd, task, note, keepWorktree = false, review = cla
       const commits = git(["rev-list", "--count", "origin/main..HEAD"], root);
       log(`Reviewing ${branch} (${commits} commit${commits === "1" ? "" : "s"}). This takes a few minutes.`);
       const verdict = await review({ cwd: root, branch, task, note, previous: last && !last.approved ? last : undefined, log });
-      // It can only read, but git diff and git log can write a file (--output), so make sure it didn't.
+      // Its tools only read, but if something changed here anyway, landing it would skip the review.
       const changed = git(["status", "--porcelain"], root);
       if (changed || git(["rev-parse", "HEAD"], root) !== head) throw new Stop(`The reviewer changed the worktree, which it mustn't, so nothing was landed. Look at what it did:\n${changed || "HEAD moved"}`);
       lastReview.set(branch, { commit: head, ...verdict }, root);

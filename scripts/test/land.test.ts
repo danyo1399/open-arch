@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { pushedToMain } from "../git-hooks/open-arch-pre-push.mjs";
-import { land, reviewPrompt, Stop } from "../land.mjs";
+import { land, reviewPrompt, Stop, writeChange } from "../land.mjs";
 import { approved, cmdArg, spawnArgs, verified } from "../lib.mjs";
 import { setupHooks } from "../setup-hooks.mjs";
 import { checks, onlyMarkdown } from "../verify.mjs";
@@ -151,9 +151,10 @@ describe("pnpm land", () => {
     let first = true;
     const verify = (root: string) => {
       if (first) {
-        // Another branch lands meanwhile.
+        // Another branch lands meanwhile, its files checked as pnpm land would.
         first = false;
         commit(main, "c.txt", "three\n");
+        verified.add(git(main, "rev-parse", "HEAD^{tree}"), main);
         git(main, "push", "-q", "origin", "main");
       }
       return fake.verify(root);
@@ -186,6 +187,14 @@ describe("pnpm land", () => {
     expect(git(main, "rev-parse", "main")).not.toBe(git(main, "rev-parse", "origin/main"));
     expect(messages.join("\n")).toMatch(/is on elsewhere, not main/);
     expect(existsSync(worktree)).toBe(false);
+  });
+
+  it("puts the pre-push hook back in place before pushing", async () => {
+    const { main, worktree } = repos();
+    git(main, "config", "core.hooksPath", "scripts/git-hooks");
+    await land({ cwd: worktree, task: "Add b", ...passing() });
+    expect(spawnSync("git", ["config", "--get", "core.hooksPath"], { cwd: main, encoding: "utf8" }).stdout).toBe("");
+    expect(existsSync(join(main, ".git", "hooks", "open-arch-pre-push.mjs"))).toBe(true);
   });
 
   it("lands from the main checkout without removing it", async () => {
@@ -251,6 +260,11 @@ describe("the pre-push hook", () => {
   it("leaves the clone's other hooks working, and a pre-push hook of its own alone", () => {
     const { main, worktree } = repos();
     const hooks = join(main, ".git", "hooks");
+    writeFileSync(join(hooks, "pre-commit"), `#!/bin/sh\ntouch "${join(main, "..", "pre-commit-ran")}"\n`, { mode: 0o755 });
+    install(main);
+    commit(worktree, "c.txt", "three\n");
+    expect(existsSync(join(main, "..", "pre-commit-ran"))).toBe(true);
+
     writeFileSync(join(hooks, "pre-push"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     messages.length = 0;
     install(main);
@@ -332,12 +346,22 @@ describe("running commands", () => {
     expect(cmdArg("two words")).toBe('^^^"two^^^ words^^^"');
   });
 
-  it("gives the reviewer the task, its last findings and the reply to them", () => {
-    const prompt = reviewPrompt({ branch: "fix", task: "Fix the bug", note: "That finding is wrong.", previous: { commit: "abcdef1234", report: "Finding 1" } });
+  it("hands the reviewer the change, its commits and recent ones on main, as files", () => {
+    const { worktree } = repos();
+    const dir = join(worktree, "..", "change");
+    writeChange(worktree, dir);
+    expect(readFileSync(join(dir, "diff.patch"), "utf8")).toMatch(/\+\+\+ b\/b\.txt\n@@ -0,0 \+1 @@\n\+two/);
+    expect(readFileSync(join(dir, "commits.txt"), "utf8")).toMatch(/Add b[\s\S]*b\.txt \| 1 \+/);
+    expect(readFileSync(join(dir, "main-commits.txt"), "utf8")).toMatch(/First/);
+  });
+
+  it("gives the reviewer the task, where the change is, its last findings and the reply to them", () => {
+    const prompt = reviewPrompt({ branch: "fix", task: "Fix the bug", note: "That finding is wrong.", previous: { commit: "abcdef1234", report: "Finding 1" }, change: "/tmp/x" });
+    expect(prompt).toContain(`is in ${join("/tmp/x", "diff.patch")}`);
     expect(prompt).toContain("What it's for:\nFix the bug");
     expect(prompt).toContain("at abcdef1, asked for changes:\nFinding 1");
     expect(prompt).toContain("The author's reply to that review:\nThat finding is wrong.");
-    expect(reviewPrompt({ branch: "fix", task: "Fix the bug" })).not.toContain("last review");
-    expect(reviewPrompt({ branch: "fix", task: "Fix the bug", note: "The name is on purpose." })).toContain("A note from the author:\nThe name is on purpose.");
+    expect(reviewPrompt({ branch: "fix", task: "Fix the bug", change: "/tmp/x" })).not.toContain("last review");
+    expect(reviewPrompt({ branch: "fix", task: "Fix the bug", note: "The name is on purpose.", change: "/tmp/x" })).toContain("A note from the author:\nThe name is on purpose.");
   });
 });

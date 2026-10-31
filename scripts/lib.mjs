@@ -23,7 +23,9 @@ const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
 
 /**
  * An argument quoted for cmd.exe running a .cmd or .bat file, which reads it twice: once for the
- * command line and again for the file's %*. The same as cross-spawn does.
+ * command line and again for the file's %*. cross-spawn quotes the same way, though it escapes
+ * twice only for shims in node_modules/.bin; pnpm.cmd and claude.cmd, from npm or corepack, are
+ * shims too, wherever they are.
  */
 export function cmdArg(arg) {
   const quoted = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
