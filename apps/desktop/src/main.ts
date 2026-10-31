@@ -13,10 +13,23 @@ import { syncDocs, writeWorkspaceFile } from "open-arch/workspace";
 import type { AgentContext } from "../../web/src/bridge.js";
 import type { AgentBackend, AgentEvent } from "./agent.js";
 import { OpenCodeBackend } from "./opencode.js";
+import { userDataFolder } from "./user-data.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const devUrl = process.env.OPEN_ARCH_DEV_URL;
 const FILTERS = [{ name: "open-arch workspace", extensions: [FILE_EXTENSION.slice(1)] }];
+
+// Before the app is ready, so Electron's own storage moves with it. Asking
+// Electron for its folder creates it, but nothing is kept there.
+const electronUserData = app.getPath("userData");
+const userData = userDataFolder({
+  packaged: app.isPackaged,
+  current: electronUserData,
+  appData: app.getPath("appData"),
+  name: app.name,
+  appDir: join(here, ".."),
+});
+if (userData !== electronUserData) app.setPath("userData", userData);
 
 /** Files the user opened, created or saved through the app. The renderer can only touch these. */
 const opened = new Set<string>();

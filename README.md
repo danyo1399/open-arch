@@ -88,6 +88,8 @@ Run the desktop app against the web dev server, so UI changes reload live (start
 pnpm --filter @open-arch/desktop dev
 ```
 
+Run either way, or with Electron on `apps/desktop`, the app keeps the file it last opened, and Electron's other data, in the checkout's own `apps/desktop/user-data/`. So it never reopens a file that a copy in another worktree, or the installed app, last opened.
+
 Check the desktop app end to end against a temporary copy of the example; screenshots go to `apps/desktop/smoke/`. With no display on Linux, it runs the app under `xvfb-run`:
 
 ```bash

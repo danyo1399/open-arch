@@ -69,6 +69,7 @@ app.on("browser-window-created", (_e, win) => {
       const page = (js) => win.webContents.executeJavaScript(js);
       const text = () => page("document.body.innerText");
       await sleep(3000);
+      check(app.getPath("userData") === userData, "keeps its state in the smoke test's folder");
       check((await text()).includes("Checkout API components"), "reopens the last file and draws a view");
       check(await page("!!window.openArchDesktop && typeof window.require === 'undefined'"), "exposes only the bridge, not Node");
       await screenshot(win, "1-opened.png");
