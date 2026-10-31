@@ -78,7 +78,7 @@ It stops at anything that needs you, and says what to do. In order, it:
 
 The checks take a few minutes, and a review several more. If your shell gives commands a time limit, allow 30 minutes or run it in the background. The review needs the `claude` CLI, signed in.
 
-Don't push to `main` any other way. `pnpm install` sets up a pre-push hook that refuses a push to `main` of work `pnpm verify` hasn't passed in this clone.
+Don't push to `main` any other way. `pnpm install` puts a pre-push hook in the clone's hooks folder, which every worktree shares, and it refuses a push to `main` of work `pnpm verify` hasn't passed in this clone. If the clone already has a pre-push hook, or git's hooks folder is set with `core.hooksPath`, it says so and leaves them alone.
 
 ## Commits
 

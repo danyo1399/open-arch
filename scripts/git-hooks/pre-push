@@ -1,3 +1,3 @@
 #!/bin/sh
-# Git runs this before every push. See pre-push.mjs.
-exec node "$(dirname "$0")/pre-push.mjs" "$@"
+# open-arch pre-push hook. pnpm install copies it into the clone's hooks folder (scripts/setup-hooks.mjs).
+exec node "$(dirname "$0")/open-arch-pre-push.mjs" "$@"

@@ -6,9 +6,8 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { approved, capture, git, spawnArgs, stateDir, verified } from "./lib.mjs";
+import { approved, capture, git, isMain, spawnArgs, stateDir, verified } from "./lib.mjs";
 import { verify as runChecks } from "./verify.mjs";
 
 const USAGE = `pnpm land --task "<what the branch is for>" [--note "<your reply to the last review>"] [--keep-worktree]
@@ -50,7 +49,7 @@ export function reviewPrompt({ branch, task, note, previous }) {
     "See the change with `git log origin/main..HEAD` and `git diff origin/main...HEAD`. AGENTS.md says how features are built and bugs fixed here, and what a commit should look like: read it. Read the code around the change, not just the diff. Check that the change does what it's for, and fixes a bug's cause, not just where it shows; that it's correct, on every path that handles the same data; that it matches the code around it; that new behaviour has tests; that everything describing the behaviour (CLI help, the skill, the README, the tour's notes) says what it now does; that nothing unrelated changed; and that the commits follow AGENTS.md.",
     "The checks (typecheck, tests, builds, the examples and the desktop smoke test) have passed, so you don't need to run them, though you can run tests to try something out.",
     ...(previous ? [`Your last review of this branch, at ${previous.commit.slice(0, 7)}, asked for changes:\n${previous.report}\n\nCheck whether they're fixed, but review the whole branch again.`] : []),
-    ...(note ? [`The author's reply to that review:\n${note}`] : []),
+    ...(note ? [`${previous ? "The author's reply to that review" : "A note from the author"}:\n${note}`] : []),
     "Set approved to true if it can be merged as it is, or false if anything must change first. In report, list each finding with its file and line and why it matters, say which ones must be fixed, and end with your verdict.",
   ].join("\n\n");
 }
@@ -202,6 +201,9 @@ export async function land({ cwd, task, note, keepWorktree = false, review = cla
       const commits = git(["rev-list", "--count", "origin/main..HEAD"], root);
       log(`Reviewing ${branch} (${commits} commit${commits === "1" ? "" : "s"}). This takes a few minutes.`);
       const verdict = await review({ cwd: root, branch, task, note, previous: last && !last.approved ? last : undefined, log });
+      // It can only read, but git diff and git log can write a file (--output), so make sure it didn't.
+      const changed = git(["status", "--porcelain"], root);
+      if (changed || git(["rev-parse", "HEAD"], root) !== head) throw new Stop(`The reviewer changed the worktree, which it mustn't, so nothing was landed. Look at what it did:\n${changed || "HEAD moved"}`);
       lastReview.set(branch, { commit: head, ...verdict }, root);
       log(`Review of ${head.slice(0, 7)}: ${verdict.approved ? "approved" : "changes requested"}\n\n${verdict.report}`);
       if (!verdict.approved) {
@@ -226,7 +228,7 @@ export async function land({ cwd, task, note, keepWorktree = false, review = cla
   tidy({ root, branch, keepWorktree, log });
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isMain(import.meta.url)) {
   let values;
   try {
     ({ values } = parseArgs({ options: { task: { type: "string" }, note: { type: "string" }, "keep-worktree": { type: "boolean" }, help: { type: "boolean", short: "h" } } }));

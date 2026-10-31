@@ -3,8 +3,7 @@
 // pnpm land and the pre-push hook know these files passed.
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { capture, git, run, verified } from "./lib.mjs";
+import { capture, git, isMain, run, verified } from "./lib.mjs";
 
 /** The desktop app bundles nearly everything, so only a change to Markdown alone skips its smoke test. */
 export function onlyMarkdown(paths) {
@@ -67,6 +66,6 @@ export function verify(cwd = process.cwd()) {
   return true;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isMain(import.meta.url)) {
   process.exit(verify(git(["rev-parse", "--show-toplevel"])) ? 0 : 1);
 }

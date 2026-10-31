@@ -1,20 +1,35 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { pathToFileURL } from "node:url";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { pushedToMain } from "../git-hooks/open-arch-pre-push.mjs";
 import { land, reviewPrompt, Stop } from "../land.mjs";
-import { pushedToMain } from "../git-hooks/pre-push.mjs";
-import { approved, spawnArgs, verified } from "../lib.mjs";
+import { approved, cmdArg, spawnArgs, verified } from "../lib.mjs";
+import { setupHooks } from "../setup-hooks.mjs";
 import { checks, onlyMarkdown } from "../verify.mjs";
 
-const HOOKS = fileURLToPath(new URL("../git-hooks", import.meta.url));
+const LIB = pathToFileURL(join(import.meta.dirname, "..", "lib.mjs")).href;
 const temps: string[] = [];
+const savedEnv = { ...process.env };
 
 beforeAll(() => {
-  // Commits in the test repositories, whatever this machine's git setup.
-  Object.assign(process.env, { GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" });
+  // The test repositories ignore this machine's git setup, and say who commits.
+  const config = join(realpathSync(mkdtempSync(join(tmpdir(), "open-arch-gitconfig-"))), "gitconfig");
+  writeFileSync(config, "");
+  Object.assign(process.env, {
+    GIT_CONFIG_GLOBAL: config,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "Test",
+    GIT_AUTHOR_EMAIL: "test@example.com",
+    GIT_COMMITTER_NAME: "Test",
+    GIT_COMMITTER_EMAIL: "test@example.com",
+  });
+});
+
+afterAll(() => {
+  process.env = savedEnv;
 });
 
 afterEach(() => {
@@ -41,7 +56,7 @@ function repos() {
   const remote = join(dir, "remote.git");
   const main = join(dir, "main");
   const worktree = join(dir, "feature");
-  git(dir, "init", "-q", "--bare", "-b", "main", remote);
+  git(dir, "init", "-q", "--bare", "--initial-branch=main", remote);
   git(dir, "clone", "-q", remote, main);
   git(main, "symbolic-ref", "HEAD", "refs/heads/main");
   commit(main, "a.txt", "one\n", "First");
@@ -182,6 +197,16 @@ describe("pnpm land", () => {
     expect(git(main, "branch", "--show-current")).toBe("feature");
   });
 
+  it("stops, landing nothing, if the reviewer changed the worktree", async () => {
+    const { remote, worktree } = repos();
+    const before = remoteMain(remote);
+    const fake = passing();
+    const writing = { ...fake, review: async () => (writeFileSync(join(worktree, "diff.txt"), "oops\n"), { approved: true, report: "Fine." }) };
+    await expect(land({ cwd: worktree, task: "Add b", ...writing })).rejects.toThrow(/reviewer changed the worktree[\s\S]*diff\.txt/);
+    expect(remoteMain(remote)).toBe(before);
+    expect(approved.has(git(worktree, "rev-parse", "HEAD"), worktree)).toBe(false);
+  });
+
   it("keeps the worktree when asked", async () => {
     const { worktree } = repos();
     await land({ cwd: worktree, task: "Add b", keepWorktree: true, ...passing() });
@@ -190,10 +215,13 @@ describe("pnpm land", () => {
 });
 
 describe("the pre-push hook", () => {
-  const push = (cwd: string, ref: string) => spawnSync("git", ["-c", `core.hooksPath=${HOOKS}`, "push", "-q", "origin", ref], { cwd, encoding: "utf8" });
+  const push = (cwd: string, ref: string) => spawnSync("git", ["push", "-q", "origin", ref], { cwd, encoding: "utf8" });
+  const messages: string[] = [];
+  const install = (cwd: string) => setupHooks(cwd, (m: string) => messages.push(m));
 
   it("refuses a push to main of files that haven't passed the checks, and lets them through once they have", () => {
     const { remote, worktree, head } = repos();
+    install(worktree);
     const refused = push(worktree, "HEAD:main");
     expect(refused.status).not.toBe(0);
     expect(refused.stderr).toMatch(/main only takes code that passed the checks/);
@@ -206,8 +234,43 @@ describe("the pre-push hook", () => {
 
   it("lets pushes to other branches through", () => {
     const { remote, worktree, head } = repos();
+    install(worktree);
     expect(push(worktree, "HEAD:feature").status).toBe(0);
     expect(git(remote, "rev-parse", "feature")).toBe(head);
+  });
+
+  it("is installed once for every worktree, and works on a branch that has no scripts", () => {
+    // These repositories have none of open-arch's files, as a branch from before the hook wouldn't.
+    const { main, worktree } = repos();
+    install(main);
+    expect(git(worktree, "rev-parse", "--git-path", "hooks/pre-push")).toMatch(/hooks\/pre-push$/);
+    const refused = push(worktree, "HEAD:main");
+    expect(refused.stderr).toMatch(/main only takes code that passed the checks/);
+  });
+
+  it("leaves the clone's other hooks working, and a pre-push hook of its own alone", () => {
+    const { main, worktree } = repos();
+    const hooks = join(main, ".git", "hooks");
+    writeFileSync(join(hooks, "pre-push"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    messages.length = 0;
+    install(main);
+    expect(readFileSync(join(hooks, "pre-push"), "utf8")).toBe("#!/bin/sh\nexit 0\n");
+    expect(messages.join("\n")).toMatch(/already a pre-push hook/);
+    expect(push(worktree, "HEAD:main").status).toBe(0);
+  });
+
+  it("takes over from the first version, which set core.hooksPath, and leaves a hooks folder of your own alone", () => {
+    const { main, worktree } = repos();
+    git(main, "config", "core.hooksPath", "scripts/git-hooks");
+    install(main);
+    expect(spawnSync("git", ["config", "--get", "core.hooksPath"], { cwd: main, encoding: "utf8" }).stdout).toBe("");
+    expect(push(worktree, "HEAD:main").status).not.toBe(0);
+
+    git(main, "config", "core.hooksPath", ".husky");
+    messages.length = 0;
+    install(main);
+    expect(git(main, "config", "--get", "core.hooksPath")).toBe(".husky");
+    expect(messages.join("\n")).toMatch(/hooks folder is \.husky/);
   });
 
   it("reads which commits go to main", () => {
@@ -244,10 +307,29 @@ describe("pnpm verify", () => {
 });
 
 describe("running commands", () => {
-  it("quotes arguments for the Windows shell, and leaves them alone elsewhere", () => {
-    expect(spawnArgs("claude", ["--json-schema", '{"type":"object"}'], "win32")).toEqual({ command: "claude", args: ['"--json-schema"', '"{\\"type\\":\\"object\\"}"'], shell: true });
-    expect(spawnArgs("git", ["log"], "win32")).toEqual({ command: "git", args: ["log"], shell: false });
-    expect(spawnArgs("claude", ['{"a":1}'], "linux")).toEqual({ command: "claude", args: ['{"a":1}'], shell: false });
+  it("knows a script is the one being run when its path goes through a symlink", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "open-arch-link-")));
+    temps.push(dir);
+    mkdirSync(join(dir, "real"));
+    writeFileSync(join(dir, "real", "main.mjs"), `import { isMain } from ${JSON.stringify(LIB)};\nconsole.log(isMain(import.meta.url));\n`);
+    symlinkSync(join(dir, "real"), join(dir, "link"), "junction");
+    expect(spawnSync(process.execPath, [join(dir, "link", "main.mjs")], { encoding: "utf8" }).stdout.trim()).toBe("true");
+  });
+
+  it("runs .cmd files on Windows through the shell, with their arguments quoted for it, and anything else as it is", () => {
+    const at = (file?: string) => ({ platform: "win32", find: () => file });
+    expect(spawnArgs("pnpm", ["test"], at("C:\\node\\pnpm.cmd"))).toEqual({ command: "pnpm", args: [cmdArg("test")], shell: true });
+    expect(spawnArgs("claude", ["-p"], at("C:\\bin\\claude.exe"))).toEqual({ command: "C:\\bin\\claude.exe", args: ["-p"], shell: false });
+    expect(spawnArgs("missing", ["x"], at(undefined))).toEqual({ command: "missing", args: ["x"], shell: false });
+    expect(spawnArgs("C:\\node\\node.exe", ["x"], at("never asked"))).toEqual({ command: "C:\\node\\node.exe", args: ["x"], shell: false });
+    expect(spawnArgs("pnpm", ['{"a":1}'], { platform: "linux" })).toEqual({ command: "pnpm", args: ['{"a":1}'], shell: false });
+  });
+
+  it("quotes for cmd.exe reading a .cmd file: quotes, a trailing backslash, %, and spaces", () => {
+    expect(cmdArg('{"a":1}')).toBe('^^^"{\\^^^"a\\^^^":1}^^^"');
+    expect(cmdArg("dir\\")).toBe('^^^"dir\\\\^^^"');
+    expect(cmdArg("100%")).toBe('^^^"100^^^%^^^"');
+    expect(cmdArg("two words")).toBe('^^^"two^^^ words^^^"');
   });
 
   it("gives the reviewer the task, its last findings and the reply to them", () => {
@@ -256,5 +338,6 @@ describe("running commands", () => {
     expect(prompt).toContain("at abcdef1, asked for changes:\nFinding 1");
     expect(prompt).toContain("The author's reply to that review:\nThat finding is wrong.");
     expect(reviewPrompt({ branch: "fix", task: "Fix the bug" })).not.toContain("last review");
+    expect(reviewPrompt({ branch: "fix", task: "Fix the bug", note: "The name is on purpose." })).toContain("A note from the author:\nThe name is on purpose.");
   });
 });

@@ -1,16 +1,44 @@
 // What scripts/verify.mjs, scripts/land.mjs and the pre-push hook share: running commands, and
 // what this clone remembers about which code passed the checks and which commits were approved.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+/** Whether the module at `url` is the script node was asked to run, wherever symlinks lead. */
+export function isMain(url) {
+  return !!process.argv[1] && url === pathToFileURL(realpathSync(process.argv[1])).href;
+}
+
+/** Where a command is on PATH on Windows, with the extension that makes it run. */
+function findOnPath(command) {
+  const exts = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";");
+  for (const dir of (process.env.PATH ?? "").split(";")) {
+    for (const ext of exts) if (dir && existsSync(join(dir, command + ext))) return join(dir, command + ext);
+  }
+  return undefined;
+}
+
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
 
 /**
- * On Windows, pnpm and claude are .cmd files, which only run through the shell. The shell would
- * drop the quotes in an argument like a JSON schema, so each argument is quoted for it.
+ * An argument quoted for cmd.exe running a .cmd or .bat file, which reads it twice: once for the
+ * command line and again for the file's %*. The same as cross-spawn does.
  */
-export function spawnArgs(command, args, platform = process.platform) {
-  if (platform !== "win32" || command === "git" || command === process.execPath) return { command, args, shell: false };
-  return { command, args: args.map((a) => `"${a.replace(/"/g, '\\"')}"`), shell: true };
+export function cmdArg(arg) {
+  const quoted = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
+  return quoted.replace(CMD_META, "^$1").replace(CMD_META, "^$1");
+}
+
+/**
+ * How to spawn a command. On Windows, pnpm, and claude when npm installed it, are .cmd files,
+ * which only run through the shell, so their arguments are quoted for it. Anything else runs as it is.
+ */
+export function spawnArgs(command, args, { platform = process.platform, find = findOnPath } = {}) {
+  if (platform !== "win32" || /[\\/]/.test(command)) return { command, args, shell: false };
+  const file = find(command);
+  if (!file || !/\.(cmd|bat)$/i.test(file)) return { command: file ?? command, args, shell: false };
+  return { command, args: args.map(cmdArg), shell: true };
 }
 
 /** Runs a command with its output on screen, and returns its exit status. */
@@ -52,7 +80,7 @@ function hashSet(name) {
   };
 }
 
-/** Trees (the files of a commit) that passed `pnpm verify`. */
+/** Trees (the files of a commit) that passed `pnpm verify`. The pre-push hook reads the same folder. */
 export const verified = hashSet("verified");
 
 /** Commits whose branch a review approved. */
