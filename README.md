@@ -25,7 +25,7 @@ One UI, two ways to run it.
 
 | | Web app | Desktop app |
 |---|---|---|
-| Where workspaces live | In the browser's storage (IndexedDB), as many as you like, saved as you work. **Import file…** and **Export file…** copy .openarch files in and out; nothing stays linked to a file | In a .openarch file, saved as you work |
+| Where workspaces live | In the browser's storage (IndexedDB), as many as you like, saved as you work. **Import file…** and **Export file…** copy .openarch files in and out, and **Export all…** saves every workspace in one .zip that **Import file…** reads back, skipping any already there; nothing stays linked to a file | In a .openarch file, saved as you work |
 | Docs | **Export docs** downloads them as a .zip | Every save rewrites the docs folder the workspace names |
 | Notices outside edits | Edits to the same workspace in another tab | Watches the file, so an agent's or editor's changes show up |
 | Try without a file | The bundled examples (the tour and the shop); **Save** keeps a copy in the browser | The bundled examples |

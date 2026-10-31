@@ -2,10 +2,11 @@
 import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrowserHost, type WorkspaceHost } from "./hosts.js";
-import { importProblem, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
+import { workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
 import { ConfirmDialog } from "./panels/dialogs.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
 import { StartPage } from "./Start.js";
+import { importFiles, workspacesZip } from "./transfer.js";
 
 const edited = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -35,19 +36,18 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
 
   const create = () => attempt(async () => open(await library.add(`architecture${FILE_EXTENSION}`, serializeDocument(emptyDocument("Architecture")))));
 
-  /** One file opens straight away; several go in the list. */
-  const importFiles = (files: PickedFile[] | Promise<PickedFile[]>) =>
+  /** One workspace opens straight away; several go in the list. */
+  const importFrom = (files: Promise<PickedFile[]>) =>
     attempt(async () => {
-      const added: StoredWorkspace[] = [];
-      const problems: string[] = [];
-      for (const file of await files) {
-        const problem = importProblem(file);
-        if (problem) problems.push(problem);
-        else added.push(await library.add(file.name, file.text));
-      }
-      if (added.length === 1 && problems.length === 0) return open(added[0]!);
+      const { added, existing, problems } = await importFiles(library, await files);
+      const found = [...added, ...existing];
+      if (found.length === 1 && problems.length === 0) return open(found[0]!);
       await refresh();
-      if (added.length > 0) setNotice(`Imported ${added.length === 1 ? "1 workspace" : `${added.length} workspaces`}.`);
+      const summary = [
+        added.length > 0 && `Imported ${added.length === 1 ? "1 workspace" : `${added.length} workspaces`}.`,
+        existing.length > 0 && `${existing.length === 1 ? "1 was" : `${existing.length} were`} already here, so ${existing.length === 1 ? "it wasn't" : "they weren't"} added again.`,
+      ];
+      setNotice(summary.filter(Boolean).join(" ") || null);
       if (problems.length > 0) setError(problems.join(" "));
     });
 
@@ -55,14 +55,14 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
     <StartPage
       error={error}
       onOpen={onOpen}
-      onDropFiles={(files) => importFiles(readFiles(files))}
+      onDropFiles={(files) => importFrom(readFiles(files))}
       actions={
         <>
           <button className="primary big" onClick={create}>
             New workspace
           </button>
           {providers.map((provider) => (
-            <button key={provider.id} className="big" onClick={() => importFiles(provider.pick())}>
+            <button key={provider.id} className="big" onClick={() => importFrom(provider.pick())}>
               {provider.importLabel}
             </button>
           ))}
@@ -70,7 +70,16 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
       }
     >
       <section className="library" aria-label="Your workspaces">
-        <h2>Your workspaces</h2>
+        <div className="library-header">
+          <h2>Your workspaces</h2>
+          {records &&
+            records.length > 0 &&
+            providers.map((provider) => (
+              <button key={provider.id} onClick={() => attempt(async () => void (await provider.save(workspacesZip(records))))} title="Save every workspace in one .zip file">
+                {provider.exportAllLabel}
+              </button>
+            ))}
+        </div>
         {notice && (
           <p className="small" role="status">
             {notice}
@@ -89,7 +98,7 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
                 </span>
                 <span className="library-actions">
                   {providers.map((provider) => (
-                    <button key={provider.id} onClick={() => attempt(async () => void (await provider.save(record.fileName, record.text)))}>
+                    <button key={provider.id} onClick={() => attempt(async () => void (await provider.save({ name: record.fileName, data: record.text })))}>
                       {provider.exportLabel}
                     </button>
                   ))}
@@ -102,7 +111,7 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
           </ul>
         )}
         <p className="muted small">
-          Workspaces save in this browser as you work, on this device only, and clearing the site's data deletes them. Export a copy of any you want to keep or share. To import, you can also drop .openarch files here.
+          Workspaces save in this browser as you work, on this device only, and clearing the site's data deletes them. Export a copy of any you want to keep or share. Export all saves them in one .zip, which Import file… reads too. To import, you can also drop .openarch or .zip files here.
         </p>
       </section>
       {removing && (
