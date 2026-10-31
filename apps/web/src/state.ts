@@ -35,6 +35,9 @@ export interface WorkspaceState {
 
 const HISTORY_LIMIT = 100;
 
+/** Earlier versions of the file, for Undo, and ones undone, for Redo. Last is next. */
+type History = { undo: string[]; redo: string[] };
+
 /**
  * `onApplied` hears the operations of each edit as it's applied, in the same render as the
  * workspace they make, so what the designer has open can follow a rename without a render in
@@ -43,7 +46,7 @@ const HISTORY_LIMIT = 100;
 export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[]) => void): WorkspaceState {
   const [text, setText] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ undo: string[]; redo: string[] }>({ undo: [], redo: [] });
+  const [history, setHistory] = useState<History>({ undo: [], redo: [] });
   const [message, setMessage] = useState<WorkspaceState["message"]>(null);
   const [savedText, setSavedText] = useState<string | null>(null);
   const [docs, setDocs] = useState<DocsSummary | null>(null);
@@ -51,6 +54,10 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   const [deleted, setDeleted] = useState(false);
   const isDeleted = useRef(false);
   const current = useRef<string | null>(null);
+  // The history as the queue's tasks leave it, as `current` is the text. Undo pressed twice
+  // before the first one's save has finished queues two steps from the same render, so each
+  // step reads the history when it runs, not when it was pressed.
+  const historyRef = useRef(history);
   const applied = useRef(onApplied);
   applied.current = onApplied;
   const queue = useRef<Promise<unknown>>(Promise.resolve());
@@ -58,6 +65,11 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   const commit = (next: string) => {
     current.current = next;
     setText(next);
+  };
+
+  const updateHistory = (change: (h: History) => History) => {
+    historyRef.current = change(historyRef.current);
+    setHistory(historyRef.current);
   };
 
   // Every write goes through one queue, so edits made quickly apply in order.
@@ -84,7 +96,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           if (cancelled || next === current.current) return;
           commit(next);
           setSavedText(next);
-          setHistory({ undo: [], redo: [] });
+          updateHistory(() => ({ undo: [], redo: [] }));
           setMessage({ kind: "info", text: "The workspace changed outside this window, so it was reloaded." });
         });
       },
@@ -149,7 +161,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
           return false;
         }
-        setHistory((h) => ({ undo: [...h.undo, before].slice(-HISTORY_LIMIT), redo: [] }));
+        updateHistory((h) => ({ undo: [...h.undo, before].slice(-HISTORY_LIMIT), redo: [] }));
         return true;
       }),
     [enqueue, write],
@@ -167,7 +179,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
           return false;
         }
-        setHistory((h) => ({ undo: [...h.undo, before].slice(-HISTORY_LIMIT), redo: [] }));
+        updateHistory((h) => ({ undo: [...h.undo, before].slice(-HISTORY_LIMIT), redo: [] }));
         return true;
       }),
     [enqueue, write],
@@ -177,15 +189,15 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     (direction: "undo" | "redo") =>
       void enqueue(async () => {
         const now = current.current;
-        const stack = history[direction];
+        const stack = historyRef.current[direction];
         const target = stack[stack.length - 1];
         if (now === null || target === undefined) return;
         await write(target);
-        setHistory((h) =>
+        updateHistory((h) =>
           direction === "undo" ? { undo: h.undo.slice(0, -1), redo: [...h.redo, now] } : { redo: h.redo.slice(0, -1), undo: [...h.undo, now] },
         );
       }),
-    [enqueue, history, write],
+    [enqueue, write],
   );
 
   const storage = deleted ? "memory" : host.storage;
