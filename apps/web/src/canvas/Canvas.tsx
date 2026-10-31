@@ -11,6 +11,7 @@ import {
   useReactFlow,
   type Connection,
   type NodeChange,
+  type OnConnectStart,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { uniqueId } from "../model.js";
@@ -335,14 +336,18 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
 
   // An arrow comes from the ID its box had when the drag, or the first click, began. Pressing the
   // box saves a name being typed in the details, and the rename that follows can land before the drop.
-  const connectingFrom = useRef<(id: string) => string>((id) => id);
-  const onConnectStart = () => {
-    connectingFrom.current = current;
+  // A click waits for the next click on a dot, and a drag can come and go in between, so each box
+  // an arrow started from keeps its own way to follow renames.
+  const startedFrom = useRef(new Map<string, (id: string) => string>());
+  const onConnectStart: OnConnectStart = (_, { nodeId }) => {
+    if (nodeId) startedFrom.current.set(nodeId, current);
   };
+  /** The ID now of the box an arrow started from. */
+  const sourceNow = (id: string) => startedFrom.current.get(id)?.(id) ?? id;
 
   const onConnect = useCallback(
     (c: Connection) => {
-      const from = connectingFrom.current(c.source);
+      const from = sourceNow(c.source);
       void edit([{ op: "add-relationship", from, to: c.target }]).then((ok) => ok && onSelect({ kind: "arrow", from, to: c.target }));
     },
     [edit, onSelect],
@@ -392,7 +397,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         onConnectStart={onConnectStart}
         onClickConnectStart={onConnectStart}
         onConnect={onConnect}
-        isValidConnection={(c) => connectingFrom.current(c.source) !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
+        isValidConnection={(c) => sourceNow(c.source) !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
         onNodeClick={(_, node) => selectNode(node)}
         onNodeContextMenu={(event, node) => {
           if (node.type !== "element" && node.type !== "frame") return;
