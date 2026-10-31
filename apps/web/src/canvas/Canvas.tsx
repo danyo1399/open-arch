@@ -1,4 +1,4 @@
-import { computeView, diagnosticTarget, kindLabel, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Position, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeView, diagnosticTarget, KIND_RANK, kindLabel, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Position, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -11,11 +11,10 @@ import {
   useReactFlow,
   type Connection,
   type NodeChange,
-  type OnConnectStart,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { uniqueId } from "../model.js";
+import { uniqueId, type Rename } from "../model.js";
 import { menuPoint } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
@@ -54,8 +53,8 @@ interface CanvasProps {
   edit(edit: Edit): Promise<boolean>;
   /** A right-click on an element's box or on the frame, at that point on the screen. */
   onElementMenu(id: string, at: { x: number; y: number }): void;
-  /** An ID this render shows, after any rename applied since. */
-  current(id: string): string;
+  /** Every rename this render's IDs reflect, in order. */
+  renames: Rename[];
 }
 
 /** Element kinds that can be added to a view at its level, and the parent each gets. */
@@ -128,7 +127,47 @@ export function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined, 
   return [frame, ...rest];
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, current }: CanvasProps) {
+/**
+ * The React Flow node ID of each box, by its element's ID, after these renames. A box keeps its
+ * node through a rename, so a drag or a connection begun just before one finishes normally:
+ * React Flow drops a node it's dragging when the node goes, and a click on a dot that's been
+ * replaced never comes. A new box's node ID is its element's ID, or that numbered when another
+ * box's node has it: after new-system becomes payments, another new-system can be added.
+ */
+export function nodeIds(previous: ReadonlyMap<string, string>, renames: Rename[], ids: string[]): Map<string, string> {
+  const moved = new Map(previous);
+  for (const r of renames) {
+    const node = moved.get(r.id);
+    if (node === undefined) continue;
+    moved.delete(r.id);
+    moved.set(r.to, node);
+  }
+  // Boxes that left the view are forgotten.
+  const next = new Map(ids.flatMap((id) => (moved.has(id) ? [[id, moved.get(id)!] as const] : [])));
+  const taken = new Set(next.values());
+  for (const id of ids) {
+    if (next.has(id)) continue;
+    let node = id;
+    // # isn't in element IDs, so no other box's ID can be the same.
+    for (let n = 2; taken.has(node); n++) node = `${id}#${n}`;
+    next.set(id, node);
+    taken.add(node);
+  }
+  return next;
+}
+
+/**
+ * Boxes in the order computeView gives them, by kind and then ID, but by node ID, so a rename
+ * doesn't move a box among the others. React would move its DOM node, and the browser drops a
+ * click whose button went down before the move: one on a box's dot, to connect it, just after
+ * typing its name.
+ */
+export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<string, string>): ArchElement[] {
+  const node = (e: ArchElement) => nodeIdOf.get(e.id) ?? e.id;
+  return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
+}
+
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, renames }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -138,6 +177,17 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   const saved = useMemo<Record<string, Point>>(() => Object.fromEntries(Object.entries(view.layout).map(([id, p]) => [id, { x: p[0], y: p[1] }])), [view]);
 
   const ids = useMemo(() => cv?.nodes.map((n) => n.id) ?? [], [cv]);
+  // Each render's node IDs are worked out from the last one's, with the renames applied since.
+  const nodeIdsSoFar = useRef({ renames: renames.length, ids: new Map<string, string>() });
+  /** Each box's node ID, by its element's ID. */
+  const nodeIdOf = useMemo(() => {
+    const last = nodeIdsSoFar.current;
+    const next = nodeIds(last.ids, renames.slice(last.renames), ids);
+    nodeIdsSoFar.current = { renames: renames.length, ids: next };
+    return next;
+  }, [ids, renames]);
+  /** Each box's element's ID, by its node ID. */
+  const elementOf = useMemo(() => new Map([...nodeIdOf].map(([element, node]) => [node, element])), [nodeIdOf]);
   const graphKey = `${view.id}|${ids.join(",")}|${cv?.edges.map((e) => `${e.from}>${e.to}`).join(",") ?? ""}`;
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
@@ -192,13 +242,13 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     const stickyAt = placeStickies(view.stickies, Object.values(positions), stickySize);
     setNodes((previous) => [
       ...withFrame(
-        cv.nodes.map((element) => ({
-          id: element.id,
+        inNodeOrder(cv.nodes, nodeIdOf).map((element) => ({
+          id: nodeIdOf.get(element.id)!,
           type: "element",
           position: positions[element.id]!,
           data: { element, problems: problemCounts.get(element.id) ?? 0 },
           selected: selection?.kind === "element" && selection.id === element.id,
-          measured: previous.find((p) => p.id === element.id)?.measured,
+          measured: previous.find((p) => p.id === nodeIdOf.get(element.id))?.measured,
         })),
         cv.boundary,
         selection?.kind === "element" && selection.id === cv.boundary?.id,
@@ -216,7 +266,16 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         }),
       ),
     ]);
-  }, [cv, positions, problemCounts, selection, view.stickies, stickySize, editing, finishEditing]);
+  }, [cv, nodeIdOf, positions, problemCounts, selection, view.stickies, stickySize, editing, finishEditing]);
+
+  /**
+   * The ID of the element a node is for, as this render has it. React Flow has the nodes from an
+   * effect, a render behind, so a node's own element can be from before a rename.
+   */
+  const elementOfNode = useCallback(
+    (node: ElementFlowNode | FrameFlowNode) => (node.type === "frame" ? (cv?.boundary?.id ?? node.data.element.id) : (elementOf.get(node.id) ?? node.data.element.id)),
+    [cv, elementOf],
+  );
 
   // The sizes each arrow's label can be drawn at, which don't change as boxes move.
   const sizes = useMemo(() => {
@@ -234,7 +293,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     const frameNames: Box[] = [];
     for (const n of nodes) {
       if (n.type === "element") {
-        boxes.set(n.id, { x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H });
+        boxes.set(elementOfNode(n), { x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H });
       } else if (n.type === "sticky") {
         // No arrow starts or ends at a note, but any it's in the way of goes around it.
         notes.push({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight(n.data.sticky.text, stickySize) });
@@ -247,7 +306,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     const links = (cv?.edges ?? []).map((e) => ({ id: arrowId(e), from: e.from, to: e.to }));
     const { routes, labels } = layoutArrows(boxes, links, sizes, { frames, notes, keepClear: frameNames });
     return { routes, labels, crossed: crossings(routes) };
-  }, [nodes, cv, sizes, stickySize]);
+  }, [nodes, cv, sizes, stickySize, elementOfNode]);
 
   const edges = useMemo<ArrowEdge[]>(
     () =>
@@ -256,8 +315,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         return {
           id,
           type: "arrow",
-          source: e.from,
-          target: e.to,
+          source: nodeIdOf.get(e.from) ?? e.from,
+          target: nodeIdOf.get(e.to) ?? e.to,
           selected: selection?.kind === "arrow" && selection.from === e.from && selection.to === e.to,
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
           data: {
@@ -269,7 +328,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           },
         };
       }) ?? [],
-    [cv, routes, labels, crossed, selection, onSelect],
+    [cv, nodeIdOf, routes, labels, crossed, selection, onSelect],
   );
 
   // Fit the diagram to the window once per view, after its boxes have been measured.
@@ -330,16 +389,16 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   /** Every box's position as shown now, including ones placed automatically. */
   const currentLayout = useCallback((): Record<string, Position> => {
     const out: Record<string, Position> = {};
-    for (const n of nodesRef.current) if (n.type === "element") out[n.id] = [Math.round(n.position.x), Math.round(n.position.y)];
+    for (const n of nodesRef.current) if (n.type === "element") out[elementOfNode(n)] = [Math.round(n.position.x), Math.round(n.position.y)];
     return out;
-  }, []);
+  }, [elementOfNode]);
 
   const selectNode = (node: FlowNode) => {
     if (node.type === "sticky") {
       if (selection?.kind !== "sticky" || selection.id !== node.data.sticky.id) onSelect({ kind: "sticky", id: node.data.sticky.id });
       return;
     }
-    const id = node.type === "frame" ? node.data.element.id : node.id;
+    const id = elementOfNode(node);
     if (selection?.kind !== "element" || selection.id !== id) onSelect({ kind: "element", id });
   };
 
@@ -352,23 +411,15 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     [currentLayout, edit, view.id],
   );
 
-  // An arrow comes from the ID its box had when the drag, or the first click, began. Pressing the
-  // box saves a name being typed in the details, and the rename that follows can land before the drop.
-  // A click waits for the next click on a dot, and a drag can come and go in between, so each box
-  // an arrow started from keeps its own way to follow renames.
-  const startedFrom = useRef(new Map<string, (id: string) => string>());
-  const onConnectStart: OnConnectStart = (_, { nodeId }) => {
-    if (nodeId) startedFrom.current.set(nodeId, current);
-  };
-  /** The ID now of the box an arrow started from. */
-  const sourceNow = (id: string) => startedFrom.current.get(id)?.(id) ?? id;
-
+  // Pressing a box saves a name being typed in the details, and the rename that follows can land
+  // before the drop. The boxes keep their nodes (see nodeIds), so an arrow joins the elements
+  // they're for as this render has them, and the edit follows any rename since.
   const onConnect = useCallback(
     (c: Connection) => {
-      const from = sourceNow(c.source);
-      void edit([{ op: "add-relationship", from, to: c.target }]).then((ok) => ok && onSelect({ kind: "arrow", from, to: c.target }));
+      const [from, to] = [elementOf.get(c.source) ?? c.source, elementOf.get(c.target) ?? c.target];
+      void edit([{ op: "add-relationship", from, to }]).then((ok) => ok && onSelect({ kind: "arrow", from, to }));
     },
-    [edit, onSelect],
+    [edit, onSelect, elementOf],
   );
 
   const add = (kind: ElementKind, parent?: string) => {
@@ -412,22 +463,20 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeDragStop={onNodeDragStop}
-        onConnectStart={onConnectStart}
-        onClickConnectStart={onConnectStart}
         onConnect={onConnect}
-        isValidConnection={(c) => sourceNow(c.source) !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
+        isValidConnection={(c) => c.source !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
         onNodeClick={(_, node) => selectNode(node)}
         onNodeContextMenu={(event, node) => {
           if (node.type !== "element" && node.type !== "frame") return;
           event.preventDefault();
-          onElementMenu(node.type === "frame" ? node.data.element.id : node.id, menuPoint(event));
+          onElementMenu(elementOfNode(node), menuPoint(event));
         }}
         // Dragging a box swallows its click, so select it when the drag starts; otherwise the
         // layout saved on drop redraws the boxes with the old selection.
         onNodeDragStart={(_, node) => selectNode(node)}
         // A click that wobbles a few pixels is still a click, not nothing.
         nodeClickDistance={4}
-        onEdgeClick={(_, edge) => onSelect({ kind: "arrow", from: edge.source, to: edge.target })}
+        onEdgeClick={(_, edge) => onSelect({ kind: "arrow", from: elementOf.get(edge.source) ?? edge.source, to: elementOf.get(edge.target) ?? edge.target })}
         onPaneClick={() => {
           setMenuOpen(false);
           onSelect(null);

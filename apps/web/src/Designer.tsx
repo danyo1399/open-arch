@@ -92,6 +92,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const { ws, diagnostics } = state;
   /** An ID this render shows, after any rename applied since: a press can land after one. */
   const current = useCallback((id: string) => renamedId(renames.current.slice(renamesSeen), id), [renamesSeen]);
+  /** The renames this render's IDs reflect, so the diagram's boxes can keep their nodes through them. */
+  const shownRenames = useMemo(() => renames.current.slice(0, renamesSeen), [renamesSeen]);
   // An edit made with this render's IDs follows any rename applied before it runs: pressed just
   // after typing a new name, it queues behind the edit that saves the name, or lands before the
   // render that shows it. One worked out from the workspace as it is when it runs needs nothing.
@@ -419,7 +421,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       <main className="main" inert={narrow && pane !== "diagram"}>
         {view ? (
           <ReactFlowProvider key={view.id}>
-            <Canvas ws={ws} view={view} diagnostics={diagnostics} selection={selection} onSelect={selectOnCanvas} edit={edit} onElementMenu={openElementMenu} current={current} />
+            <Canvas ws={ws} view={view} diagnostics={diagnostics} selection={selection} onSelect={selectOnCanvas} edit={edit} onElementMenu={openElementMenu} renames={shownRenames} />
           </ReactFlowProvider>
         ) : (
           <div className="canvas-message">
