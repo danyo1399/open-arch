@@ -44,6 +44,21 @@ const check = (ok, what) => {
 const doc = () => JSON.parse(readFileSync(file, "utf8"));
 const docsPage = (path) => readFileSync(join(folder, "docs", path), "utf8");
 
+/**
+ * Saves a screenshot of the window. Now and then capturing fails with UnknownVizError, which used to
+ * crash the whole smoke test, and works a moment later, so it tries a few times.
+ */
+async function screenshot(win, name) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return writeFileSync(join(out, name), (await win.webContents.capturePage()).toPNG());
+    } catch (error) {
+      if (attempt === 5) throw error;
+      await sleep(1000);
+    }
+  }
+}
+
 app.on("browser-window-created", (_e, win) => {
   const errors = [];
   win.webContents.on("console-message", (event) => {
@@ -56,7 +71,7 @@ app.on("browser-window-created", (_e, win) => {
       await sleep(3000);
       check((await text()).includes("Checkout API components"), "reopens the last file and draws a view");
       check(await page("!!window.openArchDesktop && typeof window.require === 'undefined'"), "exposes only the bridge, not Node");
-      writeFileSync(join(out, "1-opened.png"), (await win.webContents.capturePage()).toPNG());
+      await screenshot(win, "1-opened.png");
 
       // An edit in the designer: rename the workspace in its settings panel.
       await page(`(async () => {
@@ -80,7 +95,7 @@ app.on("browser-window-created", (_e, win) => {
       const after = await text();
       check(after.includes("Storefront") && after.includes("changed outside the designer"), "reloads when the CLI changes the file");
       check(docsPage("elements/web-app.md").includes("# Storefront"), "the CLI refreshes the docs too");
-      writeFileSync(join(out, "2-reloaded.png"), (await win.webContents.capturePage()).toPNG());
+      await screenshot(win, "2-reloaded.png");
 
       // Ask AI: send a request, approve what the agent asks to do, then undo its change.
       const click = (selector, label) => page(`(() => {
@@ -104,7 +119,7 @@ app.on("browser-window-created", (_e, win) => {
       check("cart-cache" in doc().elements, "the agent changes the file once approved");
       const panel = await page(`document.querySelector(".ask-ai").innerText`);
       check(panel.includes("Added the Cart Cache container.") && panel.includes("Undo AI change"), "shows the outcome and offers to undo it");
-      writeFileSync(join(out, "3-ask-ai.png"), (await win.webContents.capturePage()).toPNG());
+      await screenshot(win, "3-ask-ai.png");
       await click(".ask-ai button", "Undo AI change");
       await sleep(1000);
       check(!("cart-cache" in doc().elements) && doc().elements["web-app"].name === "Storefront", "Undo AI change restores the file as it was");
