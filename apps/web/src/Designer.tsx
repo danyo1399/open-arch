@@ -63,7 +63,7 @@ const MORE_ICON = "M5 12h.01M12 12h.01M19 12h.01";
 interface DesignerProps {
   host: WorkspaceHost;
   onClose(): void;
-  /** After saving an example: carry on with the saved copy. */
+  /** After saving an example, or a workspace deleted in another tab: carry on with the saved copy. */
   onHostChange(host: WorkspaceHost): void;
 }
 
@@ -258,7 +258,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
   const attempt = (task: () => Promise<void>) => void task().catch((e: Error) => state.notify({ kind: "error", text: e.message }));
 
-  /** An example only lives in this tab until it's saved: as a file on desktop, in the browser's storage on the web. */
+  /**
+   * An example, or a workspace deleted in another tab, only lives in this tab until it's saved:
+   * as a file on desktop, in the browser's storage on the web.
+   */
   const save = () =>
     attempt(async () => {
       if (state.text === null) return;
@@ -273,7 +276,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
   const exportTo = (provider: FileProvider) =>
     attempt(async () => {
-      if (state.text !== null && (await provider.save(host.name, state.text)) && host.storage === "memory") state.markSaved();
+      if (state.text !== null && (await provider.save(host.name, state.text)) && state.storage === "memory") state.markSaved();
     });
 
   if (state.loadError) {
@@ -291,11 +294,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   // While Ask AI is open, the agent's edits reload the file again and again, and the panel already says what it changed.
   const message = state.message?.kind === "info" && askOpen ? null : state.message;
   const status =
-    host.storage === "file"
+    state.storage === "file"
       ? host.syncsDocs && ws.doc.export?.docs
         ? `Saved · docs in ${ws.doc.export.docs}/`
         : "Saved"
-      : host.storage === "browser"
+      : state.storage === "browser"
         ? "Saved in this browser"
         : state.unsaved
           ? "Not saved"
@@ -346,11 +349,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         {!narrow && (
           <>
             <span className="muted small file-name">{host.name}</span>
-            <span className={`storage storage-${host.storage}${state.unsaved ? " unsaved" : ""}`}>{status}</span>
+            <span className={`storage storage-${state.storage}${state.unsaved ? " unsaved" : ""}`}>{status}</span>
           </>
         )}
         <span className="spacer" />
-        {host.storage === "memory" && (
+        {state.storage === "memory" && (
           <button className={state.unsaved ? "primary" : ""} onClick={save} title={desktop ? undefined : "Keep it in this browser, with your other workspaces"}>
             {desktop ? "Save as…" : "Save"}
           </button>

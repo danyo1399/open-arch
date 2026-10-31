@@ -27,7 +27,7 @@ One UI, two ways to run it.
 |---|---|---|
 | Where workspaces live | In the browser's storage (IndexedDB), as many as you like, saved as you work. **Import file…** and **Export file…** copy .openarch files in and out; nothing stays linked to a file | In a .openarch file, saved as you work |
 | Docs | **Export docs** downloads them as a .zip | Every save rewrites the docs folder the workspace names |
-| Notices outside edits | Edits to the same workspace in another tab | Watches the file, so an agent's or editor's changes show up |
+| Notices outside edits | Edits to the same workspace in another tab, and deleting it there: it stays open, and **Save** keeps it again | Watches the file, so an agent's or editor's changes show up |
 | Try without a file | The bundled examples (the tour and the shop); **Save** keeps a copy in the browser | The bundled examples |
 | Ask AI | | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
 | Install | Installable as an app (Chrome, Edge, Safari's **Add to Dock** or **Add to Home Screen**) that opens offline | An installer per OS |
@@ -50,7 +50,7 @@ OpenCode's default model is used. To use another, start the app with `OPEN_ARCH_
 open-arch init
 ```
 
-This creates `architecture.openarch`, generates its docs into `docs/architecture/`, installs the agent skill, and adds a section to `AGENTS.md` telling agents to use it. Then open the file in the designer, or ask an agent to model the system.
+This creates `architecture.openarch`, generates its docs into `docs/architecture/`, installs the agent skill, and adds a section to `AGENTS.md` telling agents to use it. Then open the file in the desktop app, or ask an agent to model the system. The web app can't change the file itself: import it there, then export it back over the file when you're done.
 
 ## Development
 

@@ -1,8 +1,9 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, serializeDocument } from "@open-arch/core";
+import { forceCloseDatabase } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserHost, exampleHost } from "../src/hosts.js";
-import { importProblem, workspaceTitle, WorkspaceLibrary, type LibraryChange } from "../src/library.js";
+import { importFiles, importProblem, workspaceTitle, WorkspaceLibrary, type LibraryChange } from "../src/library.js";
 
 let dbCount = 0;
 let library: WorkspaceLibrary;
@@ -61,6 +62,16 @@ describe("workspace library", () => {
     expect(await library.list()).toEqual([]);
   });
 
+  it("opens the database again after the browser closes it", async () => {
+    const open = vi.spyOn(indexedDB, "open");
+    const a = await library.add("a.openarch", doc("A"));
+    // As when the site's data is cleared, or iOS suspends a Home Screen app.
+    forceCloseDatabase(open.mock.results[0]!.value.result);
+    await library.save(a.id, doc("A2"));
+    expect((await library.get(a.id))!.text).toBe(doc("A2"));
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
   it("tells other tabs about changes", async () => {
     const otherTab = new WorkspaceLibrary(dbName);
     const added = nextChange(otherTab);
@@ -99,6 +110,21 @@ describe("browser host", () => {
     stop();
   });
 
+  it("hears when another tab deletes the same workspace", async () => {
+    const a = await library.add("a.openarch", doc("A"));
+    const b = await library.add("b.openarch", doc("B"));
+    const otherTab = new WorkspaceLibrary(dbName);
+    const heard: string[] = [];
+    const stop = new BrowserHost(library, a.id, a.fileName).watch(
+      () => heard.push("saved"),
+      () => heard.push("removed"),
+    );
+    await otherTab.remove(b.id);
+    await otherTab.remove(a.id);
+    await vi.waitFor(() => expect(heard).toEqual(["removed"]));
+    stop();
+  });
+
   it("says so when the workspace is gone", async () => {
     await expect(new BrowserHost(library, "missing", "x.openarch").load()).rejects.toThrow(/isn't stored/);
   });
@@ -118,5 +144,49 @@ describe("importing", () => {
   it("refuses workspaces with problems that stop them being edited", () => {
     const text = JSON.stringify({ openarch: 2, name: "A", elements: {}, views: {}, extra: true });
     expect(importProblem({ name: "a.openarch", text })).toMatch(/^a\.openarch has problems that stop it being edited \(at extra\): Unknown field "extra"\. .*import it again\.$/);
+  });
+
+  it("adds several files", async () => {
+    const files = [
+      { name: "a.openarch", text: doc("A") },
+      { name: "b.openarch", text: doc("B") },
+      { name: "c.openarch", text: doc("C") },
+    ];
+    const { added, problems, open } = await importFiles(library, files);
+    expect(added.map((r) => r.fileName)).toEqual(["a.openarch", "b.openarch", "c.openarch"]);
+    expect(problems).toEqual([]);
+    expect(open).toBeNull();
+    expect((await library.list()).map(workspaceTitle)).toEqual(["C", "B", "A"]);
+  });
+
+  it("reports refused files and still adds the rest", async () => {
+    const files = [
+      { name: "notes.txt", text: "hello" },
+      { name: "a.openarch", text: doc("A") },
+      { name: "package.json", text: '{"name":"x"}' },
+      { name: "b.openarch", text: doc("B") },
+    ];
+    const { added, problems, open } = await importFiles(library, files);
+    expect(added.map((r) => r.fileName)).toEqual(["a.openarch", "b.openarch"]);
+    expect(problems).toEqual(["notes.txt isn't an open-arch workspace.", "package.json isn't an open-arch workspace."]);
+    expect(open).toBeNull();
+    expect((await library.list()).map(workspaceTitle)).toEqual(["B", "A"]);
+  });
+
+  it("opens a single file straight away only when nothing was refused", async () => {
+    const one = await importFiles(library, [{ name: "a.openarch", text: doc("A") }]);
+    expect(one.open).toEqual(one.added[0]);
+    expect(one.open).toMatchObject({ fileName: "a.openarch", text: doc("A") });
+
+    const withRefused = await importFiles(library, [
+      { name: "b.openarch", text: doc("B") },
+      { name: "notes.txt", text: "hello" },
+    ]);
+    expect(withRefused.added).toHaveLength(1);
+    expect(withRefused.problems).toHaveLength(1);
+    expect(withRefused.open).toBeNull();
+
+    expect((await importFiles(library, [])).open).toBeNull();
+    expect((await importFiles(library, [{ name: "notes.txt", text: "hello" }])).open).toBeNull();
   });
 });

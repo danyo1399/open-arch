@@ -2,7 +2,7 @@
 import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrowserHost, type WorkspaceHost } from "./hosts.js";
-import { importProblem, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
+import { importFiles, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
 import { ConfirmDialog } from "./panels/dialogs.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
 import { StartPage } from "./Start.js";
@@ -36,16 +36,10 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
   const create = () => attempt(async () => open(await library.add(`architecture${FILE_EXTENSION}`, serializeDocument(emptyDocument("Architecture")))));
 
   /** One file opens straight away; several go in the list. */
-  const importFiles = (files: PickedFile[] | Promise<PickedFile[]>) =>
+  const importFrom = (files: PickedFile[] | Promise<PickedFile[]>) =>
     attempt(async () => {
-      const added: StoredWorkspace[] = [];
-      const problems: string[] = [];
-      for (const file of await files) {
-        const problem = importProblem(file);
-        if (problem) problems.push(problem);
-        else added.push(await library.add(file.name, file.text));
-      }
-      if (added.length === 1 && problems.length === 0) return open(added[0]!);
+      const { added, problems, open: opened } = await importFiles(library, await files);
+      if (opened) return open(opened);
       await refresh();
       if (added.length > 0) setNotice(`Imported ${added.length === 1 ? "1 workspace" : `${added.length} workspaces`}.`);
       if (problems.length > 0) setError(problems.join(" "));
@@ -55,14 +49,14 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
     <StartPage
       error={error}
       onOpen={onOpen}
-      onDropFiles={(files) => importFiles(readFiles(files))}
+      onDropFiles={(files) => importFrom(readFiles(files))}
       actions={
         <>
           <button className="primary big" onClick={create}>
             New workspace
           </button>
           {providers.map((provider) => (
-            <button key={provider.id} className="big" onClick={() => importFiles(provider.pick())}>
+            <button key={provider.id} className="big" onClick={() => importFrom(provider.pick())}>
               {provider.importLabel}
             </button>
           ))}

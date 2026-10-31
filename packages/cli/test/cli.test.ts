@@ -224,7 +224,10 @@ describe("init", () => {
     mkdirSync(join(project, ".git"));
     writeFileSync(join(project, "AGENTS.md"), "# Project rules\n\nUse tabs.\n");
 
-    expect(cli(project, "init", "--name", "Payments").code).toBe(0);
+    const created = cli(project, "init", "--name", "Payments");
+    expect(created.code).toBe(0);
+    // The web app keeps its own copy, so it's the desktop app that edits the file.
+    expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
     expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 2, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {

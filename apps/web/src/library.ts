@@ -60,6 +60,11 @@ export class WorkspaceLibrary {
           db.close();
           this.db = null;
         };
+        // The browser can close it too: when the site's data is cleared, or iOS suspends a
+        // Home Screen app. The next call opens it again, rather than failing until a reload.
+        db.onclose = () => {
+          this.db = null;
+        };
         resolve(db);
       };
       request.onerror = () => reject(request.error);
@@ -169,4 +174,25 @@ export function importProblem(file: { name: string; text: string }): string | nu
   if (valid) return null;
   const first = diagnostics[0]!;
   return `${file.name} has problems that stop it being edited${first.path ? ` (at ${first.path})` : ""}: ${first.message} Fix the file, then import it again.`;
+}
+
+/** What importing some files did. */
+export interface Imported {
+  added: StoredWorkspace[];
+  /** Why each file that wasn't added was refused. */
+  problems: string[];
+  /** The workspace to open straight away: the only file, when it was added. Several go in the list. */
+  open: StoredWorkspace | null;
+}
+
+/** Adds every file that can be imported, and says why the others can't. */
+export async function importFiles(library: WorkspaceLibrary, files: { name: string; text: string }[]): Promise<Imported> {
+  const added: StoredWorkspace[] = [];
+  const problems: string[] = [];
+  for (const file of files) {
+    const problem = importProblem(file);
+    if (problem) problems.push(problem);
+    else added.push(await library.add(file.name, file.text));
+  }
+  return { added, problems, open: added.length === 1 && problems.length === 0 ? added[0]! : null };
 }

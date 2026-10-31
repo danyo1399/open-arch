@@ -64,7 +64,7 @@ export function init(io: Io, opts: InitOptions): number {
     writeFileSync(agentsMd, withSection(existed ? readFileSync(agentsMd, "utf8") : "", agentsSection(workspace, docsPath)));
     io.out(`${existed ? "updated" : "created"} ${displayPath(io.cwd, agentsMd)}\n`);
   }
-  io.out("\nNext: add elements with `open-arch add-element <id> --kind system --name \"...\"`, or open the file in the designer.\n");
+  io.out("\nNext: add elements with `open-arch add-element <id> --kind system --name \"...\"`, or open the file in the desktop app. The web app edits a copy: import the file, then export it back.\n");
   return 0;
 }
 

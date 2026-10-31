@@ -20,7 +20,9 @@ export interface WorkspaceState {
   redo(): void;
   canUndo: boolean;
   canRedo: boolean;
-  /** Changes since the workspace was last saved or exported (memory hosts only). */
+  /** Where edits go: the host's storage, or "memory" once the workspace is deleted outside this window. */
+  storage: WorkspaceHost["storage"];
+  /** Changes since the workspace was last saved or exported (memory only). */
   unsaved: boolean;
   markSaved(): void;
   /** What the last save did to the docs folder (desktop). */
@@ -45,6 +47,9 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   const [message, setMessage] = useState<WorkspaceState["message"]>(null);
   const [savedText, setSavedText] = useState<string | null>(null);
   const [docs, setDocs] = useState<DocsSummary | null>(null);
+  // Once the workspace is deleted outside this window, edits stay in this tab, so none are lost.
+  const [deleted, setDeleted] = useState(false);
+  const isDeleted = useRef(false);
   const current = useRef<string | null>(null);
   const applied = useRef(onApplied);
   applied.current = onApplied;
@@ -72,16 +77,27 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         setSavedText(t);
       })
       .catch((e: Error) => !cancelled && setLoadError(e.message));
-    const stop = host.watch?.(() => {
-      void enqueue(async () => {
-        const next = await host.load();
-        if (cancelled || next === current.current) return;
-        commit(next);
-        setSavedText(next);
-        setHistory({ undo: [], redo: [] });
-        setMessage({ kind: "info", text: "The workspace changed outside this window, so it was reloaded." });
-      });
-    });
+    const stop = host.watch?.(
+      () => {
+        void enqueue(async () => {
+          const next = await host.load();
+          if (cancelled || next === current.current) return;
+          commit(next);
+          setSavedText(next);
+          setHistory({ undo: [], redo: [] });
+          setMessage({ kind: "info", text: "The workspace changed outside this window, so it was reloaded." });
+        });
+      },
+      () => {
+        void enqueue(async () => {
+          if (cancelled) return;
+          isDeleted.current = true;
+          setDeleted(true);
+          setSavedText(null);
+          setMessage({ kind: "error", text: "This workspace was deleted in another tab. It's still open here, but only in this tab: Save keeps it in this browser, or export the file." });
+        });
+      },
+    );
     return () => {
       cancelled = true;
       stop?.();
@@ -94,9 +110,11 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   /** Saves, then shows the new text, and runs `then` in the same render. */
   const write = useCallback(
     async (next: string, then?: () => void) => {
-      const summary = await host.save(next);
-      if (summary) setDocs(summary);
-      if (host.storage === "file") setSavedText(next);
+      if (!isDeleted.current) {
+        const summary = await host.save(next);
+        if (summary) setDocs(summary);
+        if (host.storage === "file") setSavedText(next);
+      }
       commit(next);
       then?.();
     },
@@ -170,6 +188,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     [enqueue, history, write],
   );
 
+  const storage = deleted ? "memory" : host.storage;
+
   return {
     ws,
     text,
@@ -181,7 +201,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     redo: () => step("redo"),
     canUndo: history.undo.length > 0,
     canRedo: history.redo.length > 0,
-    unsaved: host.storage === "memory" && text !== null && text !== savedText,
+    storage,
+    unsaved: storage === "memory" && text !== null && text !== savedText,
     markSaved: () => setSavedText(current.current),
     docs,
     message,

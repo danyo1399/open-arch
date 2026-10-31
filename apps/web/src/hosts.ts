@@ -20,8 +20,8 @@ export interface WorkspaceHost {
   load(): Promise<string>;
   /** Save the file's new text. May report the docs folder it refreshed. */
   save(text: string): Promise<DocsSummary | null | void>;
-  /** Calls `onChange` when the workspace changes outside this window. Returns a function that stops watching. */
-  watch?(onChange: () => void): () => void;
+  /** Calls `onChange` when the workspace changes outside this window, and `onRemoved` when it's deleted there. Returns a function that stops watching. */
+  watch?(onChange: () => void, onRemoved?: () => void): () => void;
 }
 
 // --- In memory: the examples ------------------------------------------------------
@@ -88,10 +88,12 @@ export class BrowserHost implements WorkspaceHost {
     return this.library.save(this.id, text);
   }
 
-  /** Hears about edits made to the same workspace in another tab. */
-  watch(onChange: () => void): () => void {
+  /** Hears about edits made to the same workspace in another tab, and about it being deleted there. */
+  watch(onChange: () => void, onRemoved?: () => void): () => void {
     return this.library.onChange((change) => {
-      if (change.type === "saved" && change.id === this.id) onChange();
+      if (change.id !== this.id) return;
+      if (change.type === "saved") onChange();
+      if (change.type === "removed") onRemoved?.();
     });
   }
 }
