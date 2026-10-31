@@ -60,7 +60,7 @@ flowchart TB
 
 > Dashed arrows are implied: the real relationship belongs to something inside the box. The apps actually call the Order Routes component inside the Order API (view 4).
 
-> Shapes say what a box is: the cylinder is a database, the pipe is a queue, and the phones are mobile apps. Pick one under Shape in the panel on the right.
+> Shapes say what a box is: the cylinder is a database, the pipe is a queue, and the phones are mobile apps. Pick one under Shape in a box's details.
 
 > Boxes and arrows can say what they're built with: [Container: Node.js] on a box, or the protocol under an arrow's description.
 

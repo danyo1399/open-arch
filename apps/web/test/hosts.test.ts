@@ -1,7 +1,7 @@
 import { buildWorkspace, checkWorkspace, loadWorkspace } from "@open-arch/core";
 import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { docsZip, exampleHost } from "../src/hosts.js";
+import { docsZip, exampleHost, tourHost } from "../src/hosts.js";
 import { deletePlan, relationshipRef, uniqueId } from "../src/model.js";
 
 describe("hosts", () => {
@@ -9,6 +9,16 @@ describe("hosts", () => {
     const ws = loadWorkspace(await exampleHost().load());
     expect(ws.elements.size).toBe(10);
     expect(checkWorkspace(ws)).toEqual([]);
+  });
+
+  // Only a wide window has the views on the left and the details on the right. A phone has
+  // them on tabs, so a note that points at a side of the screen is wrong there.
+  it("bundles examples whose notes are true at every window size", async () => {
+    for (const host of [exampleHost(), tourHost()]) {
+      const ws = loadWorkspace(await host.load());
+      const notes = [...[...ws.views.values()].flatMap((v) => v.stickies.map((s) => s.text)), ...[...ws.elements.values()].flatMap((e) => e.notes ?? [])];
+      expect(notes.filter((text) => /on the (left|right)|sidebar/i.test(text))).toEqual([]);
+    }
   });
 
   it("keeps an example's edits in memory", async () => {

@@ -226,12 +226,12 @@
       "level": "landscape",
       "include": ["*"],
       "stickies": {
-        "about": { "text": "This is a landscape view: every person and system in the model, and how they connect. It's the map of the whole business.\n\nClick any box to read about it in the panel on the right.", "color": "blue", "at": [-200, -280] },
+        "about": { "text": "This is a landscape view: every person and system in the model, and how they connect. It's the map of the whole business.\n\nClick any box to read about it in its details.", "color": "blue", "at": [-200, -280] },
         "arrows": { "text": "Read an arrow as a sentence: Support Agent → handles customer problems using → Support Desk.\n\nDashed arrows stand for arrows between the parts inside the boxes. View 3 explains.", "at": [-440, 520] },
         "external": { "text": "Grey boxes are external: run by another company. You show how you use them, never what's inside them.", "at": [960, 520] },
         "people": { "text": "The boxes with rounded tops are people: roles like Customer or Courier, not named individuals.", "at": [960, 0] },
         "systems": { "text": "The square blue boxes are software systems. A system is something one team owns that does a job for people, like the Delivery Platform.", "at": [960, 260] },
-        "welcome": { "text": "Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.\n\nOpen views 1 to 5 in the sidebar in order. Each one zooms in a step.", "color": "green", "at": [-440, -280] }
+        "welcome": { "text": "Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.\n\nOpen views 1 to 5 under Views, in order. Each one zooms in a step.", "color": "green", "at": [-440, -280] }
       },
       "layout": {
         "courier": [640, 0],
@@ -301,7 +301,7 @@
         "about": { "text": "A container view looks inside one system. The dashed frame is the Delivery Platform: its containers are inside, and the people and systems they talk to are outside.", "color": "blue", "at": [-460, -20] },
         "containers": { "text": "A container is something that runs or stores data on its own: an app, a website, an API, a worker, a database or a queue. Nothing to do with Docker!", "at": [1460, 660] },
         "implied": { "text": "Dashed arrows are implied: the real relationship belongs to something inside the box. The apps actually call the Order Routes component inside the Order API (view 4).", "color": "pink", "at": [210, 930] },
-        "shapes": { "text": "Shapes say what a box is: the cylinder is a database, the pipe is a queue, and the phones are mobile apps. Pick one under Shape in the panel on the right.", "at": [630, 930] },
+        "shapes": { "text": "Shapes say what a box is: the cylinder is a database, the pipe is a queue, and the phones are mobile apps. Pick one under Shape in a box's details.", "at": [630, 930] },
         "technology": { "text": "Boxes and arrows can say what they're built with: [Container: Node.js] on a box, or the protocol under an arrow's description.", "at": [1050, 930] }
       },
       "layout": {
