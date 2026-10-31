@@ -76,9 +76,18 @@ export type LabelSize = { w: number; h: number; maxWidth: number };
 /** One line of a label, and the class it's drawn with. */
 export type LabelLine = { text: string; className?: string };
 
-/** The lines an arrow's label shows: its description, then its technology in brackets. Drawn, measured and estimated alike from these. */
-export function labelLines(edge: Pick<ViewEdge, "description" | "technology">): LabelLine[] {
-  return [...(edge.description ? [{ text: edge.description }] : []), ...(edge.technology ? [{ text: `[${edge.technology}]`, className: "arrow-tech" }] : [])];
+/** What an arrow for a relationship with no description says in place of one, so the gap is plain to see. */
+export const NO_DESCRIPTION = "(no description)";
+
+/**
+ * The lines an arrow's label shows: its description, then its technology in brackets.
+ * An arrow for a relationship with no description says so instead; an implied one,
+ * which stands for relationships between what's inside the boxes, just leaves it out.
+ * Drawn, measured and estimated alike from these.
+ */
+export function labelLines(edge: Pick<ViewEdge, "description" | "technology" | "implied">): LabelLine[] {
+  const description = edge.description ? [{ text: edge.description }] : edge.implied ? [] : [{ text: NO_DESCRIPTION, className: "arrow-missing" }];
+  return [...description, ...(edge.technology ? [{ text: `[${edge.technology}]`, className: "arrow-tech" }] : [])];
 }
 
 /** How big a label showing `lines` is drawn at most `maxWidth` wide. */

@@ -1120,6 +1120,10 @@ button.heading {
 .arrow-tech {
   color: var(--muted);
 }
+.arrow-missing {
+  color: var(--muted);
+  font-style: italic;
+}
 
 /* --- Toast, dialogs, start screen ------------------------------------------ */
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ViewEdge } from "@open-arch/core";
-import { estimateLabel, forgetLabelSizes, LABEL_WIDTHS, labelSizes, MEASURED_LIMIT, measureLabelSizes, pathThrough } from "../src/canvas/RoutedEdge.js";
+import { estimateLabel, forgetLabelSizes, LABEL_WIDTHS, labelLines, labelSizes, MEASURED_LIMIT, measureLabelSizes, NO_DESCRIPTION, pathThrough } from "../src/canvas/RoutedEdge.js";
 
 describe("pathThrough", () => {
   it("hops over the top of an arrow it crosses, whichever way it runs", () => {
@@ -61,8 +61,26 @@ describe("labelSizes", () => {
     expect(labelSizes(edge("anything"), (_lines, maxWidth) => ({ w: Math.min(maxWidth, 120), h: 20 })).map((s) => s.maxWidth)).toEqual([190, 100]);
   });
 
-  it("has no size for an arrow with nothing to say", () => {
-    expect(labelSizes(edge(""), estimateLabel)).toEqual([]);
+  it("has no size for an implied arrow with nothing to say", () => {
+    expect(labelSizes({ ...edge(""), implied: true }, estimateLabel)).toEqual([]);
+  });
+});
+
+describe("labelLines", () => {
+  it("shows the description, then the technology in brackets", () => {
+    expect(labelLines({ description: "Charges cards", technology: "HTTPS", implied: false })).toEqual([{ text: "Charges cards" }, { text: "[HTTPS]", className: "arrow-tech" }]);
+  });
+
+  it("says when a relationship has no description", () => {
+    const missing = { text: NO_DESCRIPTION, className: "arrow-missing" };
+    expect(labelLines({ implied: false })).toEqual([missing]);
+    expect(labelLines({ description: "", technology: "HTTPS", implied: false })).toEqual([missing, { text: "[HTTPS]", className: "arrow-tech" }]);
+    expect(labelSizes({ implied: false } as ViewEdge, estimateLabel)).not.toEqual([]);
+  });
+
+  it("leaves the description out of an implied arrow that has none", () => {
+    expect(labelLines({ implied: true })).toEqual([]);
+    expect(labelLines({ technology: "HTTPS", implied: true })).toEqual([{ text: "[HTTPS]", className: "arrow-tech" }]);
   });
 });
 
