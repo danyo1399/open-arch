@@ -970,6 +970,8 @@ button.heading {
   border-radius: 10px;
   background: color-mix(in srgb, var(--frame) 5%, transparent);
   position: relative;
+  /* React Flow only gives nodes it can select a pointer, and it can't select the frame. */
+  cursor: pointer;
 }
 .frame.selected {
   border-color: var(--accent);

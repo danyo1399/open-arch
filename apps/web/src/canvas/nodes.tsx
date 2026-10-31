@@ -5,7 +5,8 @@ import { useEffect, useRef } from "react";
 export type ElementNodeData = { element: ArchElement; problems: number };
 export type ElementFlowNode = Node<ElementNodeData, "element">;
 
-export type FrameNodeData = { element: ArchElement; width: number; height: number };
+/** `selected` is here rather than on the node: see withFrame. */
+export type FrameNodeData = { element: ArchElement; width: number; height: number; selected: boolean };
 export type FrameFlowNode = Node<FrameNodeData, "frame">;
 
 export type StickyNodeData = {
@@ -43,9 +44,9 @@ export function ElementNode({ id, data, selected }: NodeProps<ElementFlowNode>) 
   );
 }
 
-export function FrameNode({ data, selected }: NodeProps<FrameFlowNode>) {
+export function FrameNode({ data }: NodeProps<FrameFlowNode>) {
   return (
-    <div className={`frame${selected ? " selected" : ""}`} style={{ width: data.width, height: data.height }}>
+    <div className={`frame${data.selected ? " selected" : ""}`} style={{ width: data.width, height: data.height }}>
       <div className="frame-label">
         {data.element.name} <span>[{kindLabel(data.element)}]</span>
       </div>

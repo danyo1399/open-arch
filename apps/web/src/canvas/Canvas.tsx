@@ -73,7 +73,8 @@ function newStickyId(view: ViewDef): string {
   for (let i = 2; ; i++) if (!taken.has(`note-${i}`)) return `note-${i}`;
 }
 
-function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined): FlowNode[] {
+/** The nodes with a frame round the boxes inside the boundary. `selected` sets its highlight; left out, the frame keeps the one it had. */
+export function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined, selected?: boolean): FlowNode[] {
   const elements = nodes.filter((n): n is ElementFlowNode => n.type === "element");
   const rest = nodes.filter((n) => n.type !== "frame");
   const inside = boundary ? elements.filter((n) => n.data.element.parent === boundary.id) : [];
@@ -84,11 +85,13 @@ function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined): FlowNo
   const right = Math.round(Math.max(...inside.map((n) => n.position.x + (n.measured?.width ?? NODE_W))) + FRAME_PAD.x);
   const bottom = Math.round(Math.max(...inside.map((n) => n.position.y + (n.measured?.height ?? NODE_H))) + FRAME_PAD.bottom);
   const previous = nodes.find((n): n is FrameFlowNode => n.id === FRAME_ID);
+  const highlighted = selected ?? previous?.data.selected ?? false;
   // Reuse the frame when nothing about it changed. A new object without `measured`
   // makes React Flow measure it again, which updates the nodes, which rebuilds the frame...
   if (
     previous &&
     previous.data.element === boundary &&
+    previous.data.selected === highlighted &&
     previous.position.x === left &&
     previous.position.y === top &&
     previous.width === right - left &&
@@ -101,13 +104,15 @@ function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined): FlowNo
     id: FRAME_ID,
     type: "frame",
     position: { x: left, y: top },
-    data: { element: boundary, width: right - left, height: bottom - top },
+    data: { element: boundary, width: right - left, height: bottom - top, selected: highlighted },
     width: right - left,
     height: bottom - top,
     draggable: false,
     connectable: false,
+    // Clicking it still selects it (see selectNode). React Flow lifts a node it has selected
+    // above the others, and the frame would then cover the boxes inside it and take their clicks.
+    selectable: false,
     zIndex: -1,
-    selected: previous?.selected ?? false,
   };
   return [frame, ...rest];
 }
@@ -183,7 +188,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           measured: previous.find((p) => p.id === element.id)?.measured,
         })),
         cv.boundary,
-      ).map((n) => (n.type === "frame" ? { ...n, selected: selection?.kind === "element" && selection.id === cv.boundary?.id } : n)),
+        selection?.kind === "element" && selection.id === cv.boundary?.id,
+      ),
       ...view.stickies.map(
         (sticky): StickyFlowNode => ({
           id: stickyNodeId(sticky.id),
