@@ -1,15 +1,18 @@
 name: CI
 
+# Four machines, two of them macOS and Windows, so not on every push: only when a release is
+# published, or when started by hand (Actions, CI, Run workflow). Branches run the same checks
+# locally before they're merged (AGENTS.md).
 on:
-  push:
-  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
