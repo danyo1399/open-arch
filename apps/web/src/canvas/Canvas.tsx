@@ -14,10 +14,11 @@ import {
   type OnConnectStart,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueId } from "../model.js";
 import { menuPoint } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY_W, stickyHeight, type Point } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, measureLabelSizes, type ArrowEdge } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
@@ -41,6 +42,8 @@ const FIT = { padding: 0.15, maxZoom: 1.2 };
 export const SELECTED_LIFT = 1000;
 /** A note's z-index: above the arrows and boxes, even a selected box, like a note stuck on a printed diagram. */
 export const STICKY_Z = SELECTED_LIFT + 1;
+/** Any touch screen, as in styles.css, where sticky notes are drawn bigger. */
+const TOUCH = "(any-pointer: coarse)";
 
 interface CanvasProps {
   ws: Workspace;
@@ -182,9 +185,11 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     [edit, view.id],
   );
 
+  const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
+
   useEffect(() => {
     if (!cv || !positions) return setNodes([]);
-    const stickyAt = placeStickies(view.stickies, Object.values(positions));
+    const stickyAt = placeStickies(view.stickies, Object.values(positions), stickySize);
     setNodes((previous) => [
       ...withFrame(
         cv.nodes.map((element) => ({
@@ -211,7 +216,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         }),
       ),
     ]);
-  }, [cv, positions, problemCounts, selection, view.stickies, editing, finishEditing]);
+  }, [cv, positions, problemCounts, selection, view.stickies, stickySize, editing, finishEditing]);
 
   // The sizes each arrow's label can be drawn at, which don't change as boxes move.
   const sizes = useMemo(() => {
@@ -232,7 +237,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         boxes.set(n.id, { x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H });
       } else if (n.type === "sticky") {
         // No arrow starts or ends at a note, but any it's in the way of goes around it.
-        notes.push({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? STICKY_W, h: n.measured?.height ?? stickyHeight(n.data.sticky.text) });
+        notes.push({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight(n.data.sticky.text, stickySize) });
       } else {
         frames.push({ x: n.position.x, y: n.position.y, w: n.data.width, h: n.data.height });
         const width = n.data.element.name.length * 8 + kindLabel(n.data.element).length * 6.5 + 12;
@@ -242,7 +247,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     const links = (cv?.edges ?? []).map((e) => ({ id: arrowId(e), from: e.from, to: e.to }));
     const { routes, labels } = layoutArrows(boxes, links, sizes, { frames, notes, keepClear: frameNames });
     return { routes, labels, crossed: crossings(routes) };
-  }, [nodes, cv, sizes]);
+  }, [nodes, cv, sizes, stickySize]);
 
   const edges = useMemo<ArrowEdge[]>(
     () =>
@@ -384,7 +389,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     const center = rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
     const id = newStickyId(view);
     const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
-    const spot = freeSpotAmong({ x: center.x - STICKY_W / 2, y: center.y - 50 }, occupied);
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
       if (!ok) return;
       onSelect({ kind: "sticky", id });

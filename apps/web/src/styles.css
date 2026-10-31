@@ -155,8 +155,9 @@ textarea {
   resize: vertical;
 }
 /* Phones and tablets zoom in on a text box with smaller text when it gets focus, and stay
-   zoomed in. That includes a sticky note's, on the diagram. Any touch screen, even with a
-   trackpad as well. */
+   zoomed in. Any touch screen, even with a trackpad as well. That includes the text box for
+   editing a sticky note on the diagram, so notes' text is 16px there too (see .sticky), and a
+   note keeps its size when you start editing it. */
 @media (any-pointer: coarse) {
   input,
   select,
@@ -1002,6 +1003,16 @@ button.heading {
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08), 0 8px 16px -6px rgba(0, 0, 0, 0.3);
   outline: 3px solid transparent;
   outline-offset: 2px;
+}
+/* On a touch screen, a note's text is 16px, the same as the text box for editing it (text boxes
+   are 16px there: see input, select, textarea), so the note doesn't grow when you start editing.
+   It's a little wider too, so a line holds about as many words. TOUCH_STICKY in
+   canvas/autoLayout.ts estimates notes' sizes from this. */
+@media (any-pointer: coarse) {
+  .sticky {
+    width: 220px;
+    font-size: 16px;
+  }
 }
 .sticky.selected,
 .sticky.editing {

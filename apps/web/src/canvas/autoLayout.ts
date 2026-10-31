@@ -84,22 +84,34 @@ export function freeSpotAmong(start: Point, occupied: Point[]): Point {
   return candidates.find((p) => !overlaps(p)) ?? { x: Math.round(start.x), y: Math.round(start.y) };
 }
 
-export const STICKY_W = 200;
+/** How big sticky notes are drawn: their width, about how many characters fit on a line, and a line's height. */
+export interface StickySize {
+  width: number;
+  perLine: number;
+  lineHeight: number;
+}
+/** Notes with 13px text, as `.sticky` in styles.css draws them. */
+export const STICKY: StickySize = { width: 200, perLine: 26, lineHeight: 18 };
+/**
+ * Notes on a touch screen. Their text is 16px, so a phone doesn't zoom in
+ * when you edit one, and they're wider to suit (see `.sticky` in styles.css).
+ */
+export const TOUCH_STICKY: StickySize = { width: 220, perLine: 23, lineHeight: 22 };
 const STICKY_GAP = 24;
 
 /** A sticky note's height before it has been drawn, estimated from its text. */
-export function stickyHeight(text: string): number {
-  const lines = text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 26)), 0);
-  return 26 + lines * 18;
+export function stickyHeight(text: string, size = STICKY): number {
+  const lines = text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / size.perLine)), 0);
+  return 26 + lines * size.lineHeight;
 }
 
 /**
  * Positions for every sticky note: saved ones as they are, and the rest, in
  * order, in a column to the right of everything else.
  */
-export function placeStickies(stickies: { id: string; text: string; at?: [number, number] }[], boxes: Point[]): Record<string, Point> {
+export function placeStickies(stickies: { id: string; text: string; at?: [number, number] }[], boxes: Point[], size = STICKY): Record<string, Point> {
   const placed = stickies.filter((s) => s.at).map((s) => ({ x: s.at![0], y: s.at![1] }));
-  const rights = [...boxes.map((b) => b.x + NODE_W), ...placed.map((p) => p.x + STICKY_W)];
+  const rights = [...boxes.map((b) => b.x + NODE_W), ...placed.map((p) => p.x + size.width)];
   const x = rights.length ? Math.max(...rights) + 80 : 0;
   let y = boxes.length ? Math.min(...boxes.map((b) => b.y)) : 0;
   const out: Record<string, Point> = {};
@@ -109,7 +121,7 @@ export function placeStickies(stickies: { id: string; text: string; at?: [number
       continue;
     }
     out[s.id] = { x, y };
-    y += stickyHeight(s.text) + STICKY_GAP;
+    y += stickyHeight(s.text, size) + STICKY_GAP;
   }
   return out;
 }
