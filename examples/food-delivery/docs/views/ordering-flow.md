@@ -38,7 +38,7 @@ flowchart TB
 
 > Rename a box here and it changes in every view, because there's only one model underneath.
 
-> Your turn! Use + Add to add a container or a sticky note, drag from the dot under a box to another box to draw an arrow, and double-click a note to edit it. Undo takes anything back.
+> Your turn! Use + Add, or right-click the diagram, to add a container or a sticky note. Drag from the dot under a box to another box to draw an arrow, and double-click a note to edit it. Undo takes anything back.
 
 ## Elements
 
