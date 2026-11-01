@@ -82,6 +82,8 @@ The checks take a few minutes, and a review several more. If your shell gives co
 
 Don't push to `main` any other way. `pnpm install` puts a pre-push hook in the clone's hooks folder, which every worktree shares, and it refuses a push to `main` of work `pnpm verify` hasn't passed in this clone. If the clone already has a pre-push hook, or git's hooks folder is set with `core.hooksPath`, it says so and leaves them alone.
 
+Never force-push to `main`, whatever the reason: not with `--force`, `--force-with-lease`, a `+` refspec, or any other way. It throws away commits that other agents have landed. The pre-push hook doesn't stop it, so it's up to you. If something on `main` is wrong, fix it or `git revert` it in a new commit, and land that with `pnpm land` like any other change.
+
 ## Commits
 
 - Each commit is one complete feature or fix, with a full message. Commits land on `main` as they are, so squash work in progress before the first review. Fixes for a review's findings go in their own commit: "Fix review findings in the phone layout".
