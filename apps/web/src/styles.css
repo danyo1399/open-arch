@@ -727,6 +727,24 @@ button.heading {
   z-index: 30;
   min-width: 160px;
 }
+/* A right-click menu's lists, with any submenu open beside it. Each is placed on the screen on
+   its own, so this takes no room. */
+.context-menu-lists {
+  display: contents;
+}
+/* An item that opens a submenu: an arrow at its right, and lit while the submenu is open. */
+.menu-items button[aria-haspopup] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.menu-items button[aria-expanded="true"] {
+  background: var(--hover);
+}
+.submenu-arrow {
+  color: var(--muted);
+}
 /* Below the view's toolbar, which it would cover on a narrow canvas. */
 .usages {
   position: absolute;

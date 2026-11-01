@@ -12,10 +12,10 @@ import {
   type Connection,
   type NodeChange,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueId, type Rename } from "../model.js";
-import { menuPoint } from "../panels/ContextMenu.js";
+import { ContextMenu, menuPoint, type MenuAction } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
@@ -422,9 +422,15 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     [edit, onSelect, elementOf],
   );
 
-  const add = (kind: ElementKind, parent?: string) => {
+  /** Where on the diagram something added goes: at a point, or else in the middle of the canvas. */
+  const addPoint = (at?: Point): Point => {
+    if (at) return at;
     const rect = wrapper.current!.getBoundingClientRect();
-    const center = rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+  };
+
+  const add = (kind: ElementKind, parent?: string, at?: Point) => {
+    const center = addPoint(at);
     const id = uniqueId(ws, `new-${kind}`);
     const existing = currentLayout();
     const spot = freeSpotAmong({ x: center.x - NODE_W / 2, y: center.y - NODE_H / 2 }, Object.values(existing).map(([x, y]) => ({ x, y })));
@@ -435,9 +441,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     ]).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
   };
 
-  const addSticky = () => {
-    const rect = wrapper.current!.getBoundingClientRect();
-    const center = rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+  const addSticky = (at?: Point) => {
+    const center = addPoint(at);
     const id = newStickyId(view);
     const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
@@ -448,7 +453,16 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     });
   };
 
+  /** What can be added to this view, by + Add and the diagram's right-click menu, centred on a point on the diagram or else in the middle. */
+  const addItems = (at?: Point): MenuAction[] => [
+    ...addableKinds(ws, view).map((k) => ({ label: k.label, onSelect: () => add(k.kind, k.parent, at) })),
+    { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
+  ];
+
   const [menuOpen, setMenuOpen] = useState(false);
+  /** The diagram's right-click menu: where it opened on the screen, and that point on the diagram. */
+  const [paneMenu, setPaneMenu] = useState<{ x: number; y: number; at: Point } | null>(null);
+  const closePaneMenu = useCallback(() => setPaneMenu(null), []);
 
   if (scopeErrors.length) {
     return <div className="canvas-message">This view can't be drawn: {scopeErrors[0]!.message}</div>;
@@ -481,6 +495,13 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           setMenuOpen(false);
           onSelect(null);
         }}
+        // Right-clicking the diagram's background offers what + Add does, added where it was clicked.
+        onPaneContextMenu={(event) => {
+          event.preventDefault();
+          setMenuOpen(false);
+          const point = { x: event.clientX, y: event.clientY };
+          setPaneMenu({ ...point, at: rf.screenToFlowPosition(point) });
+        }}
         connectionMode={ConnectionMode.Loose}
         // The arrow being drawn stays over everything, as React Flow means it to, even a selected note.
         connectionLineContainerStyle={{ zIndex: STICKY_Z + SELECTED_LIFT + 1 }}
@@ -506,28 +527,20 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
             </button>
             {menuOpen && (
               <div className="menu-items" role="menu">
-                {addableKinds(ws, view).map((k) => (
-                  <button
-                    key={`${k.kind}-${k.parent ?? ""}`}
-                    role="menuitem"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      add(k.kind, k.parent);
-                    }}
-                  >
-                    {k.label}
-                  </button>
+                {addItems().map((item) => (
+                  <Fragment key={item.label}>
+                    {item.divider && <hr />}
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        item.onSelect();
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  </Fragment>
                 ))}
-                <hr />
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    addSticky();
-                  }}
-                >
-                  Sticky note
-                </button>
               </div>
             )}
           </div>
@@ -538,6 +551,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           This view has no elements yet. Use <strong>+ Add</strong> to create one.
         </div>
       )}
+      {paneMenu && <ContextMenu x={paneMenu.x} y={paneMenu.y} items={[{ label: "Add", items: addItems(paneMenu.at) }]} onClose={closePaneMenu} />}
     </div>
   );
 }
