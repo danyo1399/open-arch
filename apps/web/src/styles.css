@@ -973,9 +973,13 @@ button.heading {
   opacity: 0;
   pointer-events: none;
 }
+/* Covers the whole box while a new arrow is dragged. It sits over the box's text: the
+   kind line and description are faded with opacity, which draws them above anything
+   without a z-index, so an arrow dropped on them wouldn't connect. */
 .react-flow__handle.handle-drop {
   top: 0;
   left: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   transform: none;
