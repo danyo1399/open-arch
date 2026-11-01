@@ -1,7 +1,8 @@
 export const ELEMENT_KINDS = ["person", "system", "container", "component"] as const;
 export type ElementKind = (typeof ELEMENT_KINDS)[number];
 
-export const VIEW_LEVELS = ["landscape", "context", "container", "component"] as const;
+/** A sequence view isn't a C4 level of detail: it draws steps between elements, in order. */
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "sequence"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -17,7 +18,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 3;
+export const FORMAT_VERSION = 4;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -74,8 +75,25 @@ export interface ViewData {
   notes?: string;
   /** Notes for people reading the diagram, keyed by an ID unique within the view. */
   stickies?: Record<string, StickyData>;
-  /** Box positions saved by the designer, keyed by element ID. */
+  /** Box positions saved by the designer, keyed by element ID. Not used on sequence views. */
   layout?: Record<string, Position>;
+  /** Sequence views only: what happens, in order. */
+  steps?: StepData[];
+}
+
+/**
+ * One step of a sequence view: `from` calls `to`, or with `reply`, answers it. A call needs a
+ * relationship from `from` (or something inside it) to `to` (or something inside it); a reply
+ * goes back along one from `to` to `from`.
+ */
+export interface StepData {
+  from: string;
+  to: string;
+  /** What's sent, e.g. "Submits the order". Without it, a call is labelled with its relationship's description. */
+  description?: string;
+  technology?: string;
+  /** True for an answer to an earlier call, drawn as a dashed arrow. */
+  reply?: boolean;
 }
 
 /** A sticky note on a view. It explains the diagram; it isn't part of the model. */
@@ -130,6 +148,20 @@ export interface ViewDef {
   /** In reading order: placed notes top to bottom and left to right, then unplaced ones by ID. */
   stickies: Sticky[];
   layout: Record<string, Position>;
+  /** Sequence views only, in order; empty on other views. */
+  steps: Step[];
+}
+
+export interface Step {
+  /** Where it lives in the document, e.g. `views.place-order.steps[0]`. */
+  path: string;
+  /** Its number on the diagram: 1 is the first. */
+  number: number;
+  from: string;
+  to: string;
+  description?: string;
+  technology?: string;
+  reply: boolean;
 }
 
 export interface Sticky {

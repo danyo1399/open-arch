@@ -2,6 +2,7 @@ import { computeView, diagnosticTarget, scopeProblems, type Diagnostic, type Ope
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
+import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { BrowserHost, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
@@ -36,6 +37,7 @@ function detailsName(ws: Workspace, view: ViewDef | null, selection: Selection):
   if (shown.kind === "element") return shown.element.name;
   if (shown.kind === "arrow") return `${name(shown.from)} → ${name(shown.to)}`;
   if (shown.kind === "sticky") return "Sticky note";
+  if (shown.kind === "step") return `Step ${shown.step.number}`;
   if (shown.kind === "several") return shapesLabel(shown.elements.length, shown.stickies.length);
   return shown.kind === "view" ? "This view" : "Workspace";
 }
@@ -132,6 +134,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   useEffect(() => {
     if (selection?.kind === "element" && ws && !ws.elements.has(selection.id)) setSelection(null);
     if (selection?.kind === "sticky" && ws && !ws.views.get(viewId ?? "")?.stickies.some((s) => s.id === selection.id)) setSelection(null);
+    if (selection?.kind === "step" && ws && selection.number > (ws.views.get(viewId ?? "")?.steps.length ?? 0)) setSelection(null);
   }, [ws, selection, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
@@ -222,6 +225,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "element") setDialog({ kind: "delete", id: current(selection.id) });
     // A note is only text on one view, and Undo brings it back, so it goes without asking.
     if (selection?.kind === "sticky" && view) void edit([{ op: "remove-sticky", view: view.id, id: selection.id }]).then(() => select(null));
+    // A step is one line of a sequence, and Undo brings it back, so it goes without asking too.
+    if (selection?.kind === "step" && view) void edit([{ op: "remove-step", view: view.id, step: selection.number }]).then(() => select(null));
     if (selection?.kind === "arrow" && computed && ws) {
       const edge = computed.edges.find((e) => e.from === selection.from && e.to === selection.to);
       if (!edge || edge.implied) return;
@@ -460,7 +465,22 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
       {/* Under another pane, the diagram keeps its size, so it keeps its zoom too. */}
       <main className="main" inert={narrow && pane !== "diagram"}>
-        {view ? (
+        {view?.level === "sequence" ? (
+          computed ? (
+            <SequenceDiagram
+              key={view.id}
+              ws={ws}
+              computed={computed}
+              selection={selection}
+              onSelect={select}
+              edit={edit}
+              onElementMenu={openElementMenu}
+              onError={(text) => state.notify({ kind: "error", text })}
+            />
+          ) : (
+            <div className="canvas-message">This view can't be drawn: {view && scopeProblems(ws, view)[0]?.message}</div>
+          )
+        ) : view ? (
           <ReactFlowProvider key={view.id}>
             <Canvas
               ws={ws}

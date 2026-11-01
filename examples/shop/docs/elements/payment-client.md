@@ -27,5 +27,6 @@ Each charge has an idempotency key, so retrying a request can't charge a card tw
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)
+- [Placing an order](../views/place-order.md)
 
 [All views and elements](../README.md)

@@ -7,6 +7,7 @@ import {
   tagEntries,
   tagText,
   type ArchElement,
+  type ComputedView,
   type Relationship,
   type Tags,
   type TreeNode,
@@ -79,6 +80,10 @@ export function show(io: Io, opts: ShowOptions): number {
     const problems = scopeProblems(ws, view);
     if (problems.length) throw new CliError(`View "${view.id}" can't be shown: ${problems[0]!.message} Run \`open-arch check\`.`);
     const cv = computeView(ws, view);
+    if (view.level === "sequence") {
+      print(sequenceJson(cv), sequenceText(ws, cv));
+      return 0;
+    }
     const json = {
       id: view.id,
       title: view.title,
@@ -120,6 +125,64 @@ export function show(io: Io, opts: ShowOptions): number {
 
   const near = suggest(opts.id, [...ws.elements.keys(), ...ws.views.keys()]);
   throw new CliError(`No element or view has the ID "${opts.id}".${near ? ` Did you mean "${near}"?` : ""} Run \`open-arch show\` to list them.`);
+}
+
+function sequenceJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    notes: view.notes,
+    participants: cv.nodes.map(summary),
+    steps: cv.steps.map((s) => ({
+      step: s.number,
+      from: s.from,
+      to: s.to,
+      reply: s.reply || undefined,
+      description: s.description,
+      technology: s.technology,
+      label: s.label,
+      labelTechnology: s.labelTechnology,
+      relationships: s.sources,
+    })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function sequenceText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const via = (s: ComputedView["steps"][number]) => {
+    if (s.sources.length === 0) return "  (no relationship!)";
+    const rels = s.sources.map(({ element, index }) => `${element} -> ${ws.elements.get(element)!.uses[index]!.to}`);
+    const direct = rels.length === 1 && rels[0] === (s.reply ? `${s.to} -> ${s.from}` : `${s.from} -> ${s.to}`);
+    return direct ? "" : `  (via ${rels.join(", ")})`;
+  };
+  const lines = [
+    `${view.id}: ${view.title}`,
+    "  level:       sequence view",
+    ...(view.description ? [`  description: ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Participants:",
+    ...(cv.nodes.length ? table(cv.nodes.map(row)) : ["  (none)"]),
+    "",
+    "Steps:",
+    ...(cv.steps.length
+      ? table(
+          cv.steps.map((s) => [
+            `  ${s.number}.`,
+            `${s.from} ${s.reply ? "-->" : "->"} ${s.to}`,
+            relLabel({ description: s.label, technology: s.labelTechnology }) + (s.reply ? "  (reply)" : "") + via(s),
+          ]),
+        )
+      : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
 }
 
 function overviewText(ws: Workspace, workspace: string): string {

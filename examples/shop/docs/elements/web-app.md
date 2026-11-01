@@ -23,6 +23,7 @@ Single-page app served from a CDN.
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)
+- [Placing an order](../views/place-order.md)
 - [Shop containers](../views/shop-containers.md)
 
 [All views and elements](../README.md)

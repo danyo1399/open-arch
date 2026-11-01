@@ -8,6 +8,7 @@ An online shop, used as the open-arch example.
 
 - [Checkout API components](views/checkout-api-components.md) – How a checkout request is handled.
 - [System landscape](views/landscape.md) – Every person and system, and how they connect.
+- [Placing an order](views/place-order.md) – What happens, in order, when a customer places an order.
 - [Shop containers](views/shop-containers.md) – What runs inside the shop.
 - [Shop context](views/shop-context.md) – Who uses the shop, and which systems it depends on.
 

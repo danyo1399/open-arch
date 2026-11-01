@@ -104,6 +104,14 @@ function notes(io: Io, v: Values): string | null | undefined {
   }
 }
 
+/** A step's number, from `--<name> <n>` or a positional argument: 1 is the first. */
+function stepNumber(v: Values[string], name: string): number | undefined {
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  if (typeof v !== "string" || !Number.isInteger(n) || n < 1) throw new CliError(`${name} must be a step's number: 1 is the first.`, 2);
+  return n;
+}
+
 function index(v: Values[string]): number | undefined {
   if (v === undefined) return undefined;
   const n = Number(v);
@@ -196,7 +204,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container or component.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component or sequence.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",
@@ -237,6 +245,33 @@ export const BUILDERS: Record<string, Builder> = {
   "remove-sticky": (_io, _v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
     return [{ op: "remove-sticky", view: view!, id: id! }];
+  },
+  "add-step": (_io, v, p, usage) => {
+    const [view, from, to] = need(p, ["<view>", "<from>", "<to>"], usage);
+    return [
+      { op: "add-step", view: view!, from: from!, to: to!, description: text(v.description), technology: text(v.technology), reply: v.reply === true || undefined, step: stepNumber(v.step, "--step") },
+    ];
+  },
+  "update-step": (_io, v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    if (v.reply === true && v.call === true) throw new CliError("Pass --reply or --call, not both.", 2);
+    return [
+      {
+        op: "update-step",
+        view: view!,
+        step: stepNumber(n, "<n>")!,
+        from: text(v.from),
+        to: text(v.to),
+        description: clearable(v.description),
+        technology: clearable(v.technology),
+        reply: v.reply === true ? true : v.call === true ? false : undefined,
+        newStep: stepNumber(v["move-to"], "--move-to"),
+      },
+    ];
+  },
+  "remove-step": (_io, _v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [{ op: "remove-step", view: view!, step: stepNumber(n, "<n>")! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

@@ -13,7 +13,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 
 ## Workflow
 
-1. **Look first.** `open-arch show` prints the whole model as a tree and lists the views. `open-arch show <id>` prints one element (fields, notes, what it uses, what uses it, which views show it) or one view (its description, notes, boxes and arrows). Add `--json` for structured output.
+1. **Look first.** `open-arch show` prints the whole model as a tree and lists the views. `open-arch show <id>` prints one element (fields, notes, what it uses, what uses it, which views show it) or one view (its description, notes, boxes and arrows, or a sequence view's steps). Add `--json` for structured output.
 2. **Change it with commands**, using the recipes below. For several related changes, prefer one `open-arch apply` batch: it's all or nothing.
 3. **Read the result.** Each command prints what it changed, plus any warnings (for example, a relationship without a description). Fix warnings your change caused. If a command fails, read the message, fix the command, and run it again; nothing was saved.
 4. **Confirm** with `open-arch check` when you're done, and report what you changed.
@@ -33,6 +33,10 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 - **Rename an ID:** `open-arch rename <old-id> <new-id>` updates every reference. To change only the display name, use `update-element <id> --name "..."`.
 - **Remove:** `open-arch remove-element <id>` also removes what's inside it, views scoped to them, and every reference. `remove-relationship <from> <to>` and `remove-view <id>` remove one thing.
 - **Add a diagram:** `open-arch add-view <id> --level <landscape|context|container|component> --scope <id>`. Context and container views take a system as scope; component views take a container; landscape views take none. Give it a one-sentence `--description`, and `--notes` (markdown) for longer documentation about the diagram.
+- **Show what happens in order** (a sequence diagram): `open-arch add-view place-order --level sequence --title "Placing an order"`, then a step for each call, in order:
+  `open-arch add-step place-order customer web-app --description "Places an order"`
+  `open-arch add-step place-order checkout-api web-app --reply --description "Order number"`
+  A step from A to B needs a relationship from A (or something inside A) to B (or something inside B); a `--reply` goes back along one from B to A. Add missing relationships first. Without `--description`, a call shows its relationship's description. The view shows the elements in its steps, in the order they first appear, so it takes no scope, include or exclude. `--step <n>` inserts a step at number n; change or move one with `update-step <view> <n>` (`--move-to <n>`), and remove one with `remove-step <view> <n>`. Steps are numbered from 1, as `show <view>` prints them.
 - **Show or hide something in one diagram:** `open-arch show-in-view <view> <id>...` / `hide-in-view <view> <id>...`.
 - **Explain a diagram with a sticky note:** `open-arch add-sticky <view> <id> --text "Orders are paid before they're saved."` (`--color yellow|pink|blue|green`). Notes are for people reading that diagram, not part of the model; leave out `--at` and the designer places them beside it. Change or remove one with `update-sticky` / `remove-sticky <view> <id>`.
 - **Several changes at once:** write a JSON list of operations and run `open-arch apply changes.json` (or pipe it to `open-arch apply -`):

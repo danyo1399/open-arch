@@ -17,6 +17,7 @@ Customers use the shop from a browser on desktop or mobile.
 ## Shown in
 
 - [System landscape](../views/landscape.md)
+- [Placing an order](../views/place-order.md)
 - [Shop containers](../views/shop-containers.md)
 - [Shop context](../views/shop-context.md)
 

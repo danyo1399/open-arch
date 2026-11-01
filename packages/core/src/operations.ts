@@ -20,13 +20,14 @@ import {
   type OpenArchDocument,
   type Position,
   type RelationshipData,
+  type StepData,
   type StickyColor,
   type StickyData,
   type Tags,
   type ViewData,
   type ViewLevel,
 } from "./types.js";
-import { computeView, scopeProblems } from "./views.js";
+import { computeView, scopeProblems, stepRelationships } from "./views.js";
 import { buildWorkspace } from "./workspace.js";
 
 /** Changes to tags: a value sets a tag (an empty one makes it a plain label) and null removes it. */
@@ -49,6 +50,9 @@ export type Operation =
   | { op: "add-sticky"; view: string; id: string; text: string; color?: StickyColor; at?: [number, number] }
   | { op: "update-sticky"; view: string; id: string; text?: string; color?: StickyColor; at?: [number, number] | null }
   | { op: "remove-sticky"; view: string; id: string }
+  | { op: "add-step"; view: string; from: string; to: string; description?: string; technology?: string; reply?: boolean; step?: number }
+  | { op: "update-step"; view: string; step: number; from?: string; to?: string; description?: string | null; technology?: string | null; reply?: boolean; newStep?: number }
+  | { op: "remove-step"; view: string; step: number }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -65,7 +69,7 @@ export class OpError extends Error {
 
 // --- Checking the shape of operations sent as JSON ----------------------------------
 
-type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "tags" | "nullable-tags" | "index" | "positions" | "point" | "nullable-point";
+type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "tags" | "nullable-tags" | "index" | "number" | "positions" | "point" | "nullable-point";
 
 const SHAPES: Record<OperationName, { required: string[]; fields: Record<string, FieldType> }> = {
   "add-element": {
@@ -96,6 +100,15 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "add-sticky": { required: ["view", "id", "text"], fields: { view: "string", id: "string", text: "string", color: "string", at: "point" } },
   "update-sticky": { required: ["view", "id"], fields: { view: "string", id: "string", text: "string", color: "string", at: "nullable-point" } },
   "remove-sticky": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-step": {
+    required: ["view", "from", "to"],
+    fields: { view: "string", from: "string", to: "string", description: "string", technology: "string", reply: "boolean", step: "number" },
+  },
+  "update-step": {
+    required: ["view", "step"],
+    fields: { view: "string", step: "number", from: "string", to: "string", description: "nullable-string", technology: "nullable-string", reply: "boolean", newStep: "number" },
+  },
+  "remove-step": { required: ["view", "step"], fields: { view: "string", step: "number" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
@@ -119,6 +132,8 @@ function fits(type: FieldType, value: unknown): boolean {
       return isRecord(value) && Object.values(value).every((v) => typeof v === "string" || v === null);
     case "index":
       return Number.isInteger(value) && (value as number) >= 0;
+    case "number":
+      return Number.isInteger(value) && (value as number) >= 1;
     case "positions":
       return (
         isRecord(value) &&
@@ -139,6 +154,7 @@ const TYPE_TEXT: Record<FieldType, string> = {
   tags: 'an object of tag names and string values, like { "owner": "payments" }',
   "nullable-tags": 'an object of tag names and string values, like { "owner": "payments" } (null removes a tag)',
   index: "a whole number, 0 or more",
+  number: "a step's number, 1 or more",
   positions: "an object of [x, y] positions (null removes one)",
   point: "a position, [x, y]",
   "nullable-point": "a position, [x, y], or null to let the designer place it",
@@ -261,6 +277,16 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       if (Object.keys(view.stickies!).length === 0) delete view.stickies;
       return `removed sticky note ${op.id} from view ${op.view}`;
     }
+    case "add-step":
+      return addStep(doc, op);
+    case "update-step":
+      return updateStep(doc, op);
+    case "remove-step": {
+      const view = requireSequence(doc, op.view);
+      requireStep(view, op.view, op.step);
+      view.steps!.splice(op.step - 1, 1);
+      return `removed step ${op.step} from view ${op.view}`;
+    }
     case "update-workspace":
       return updateWorkspace(doc, op);
   }
@@ -342,6 +368,8 @@ function removeElement(doc: OpenArchDocument, id: string): string {
     if (v.include) v.include = v.include.filter((x) => !gone.has(x));
     if (v.exclude) v.exclude = v.exclude.filter((x) => !gone.has(x));
     if (v.exclude?.length === 0) delete v.exclude;
+    // A step needs both its ends.
+    if (v.steps) v.steps = v.steps.filter((step) => !gone.has(step.from) && !gone.has(step.to));
   }
   const extra = [gone.size > 1 ? `${gone.size - 1} element${gone.size === 2 ? "" : "s"} inside it` : "", removedViews.length ? `view${removedViews.length === 1 ? "" : "s"} ${removedViews.join(", ")}` : ""].filter(Boolean);
   return `removed ${id}${extra.length ? ` and ${extra.join(" and ")}` : ""}`;
@@ -366,6 +394,10 @@ function rename(doc: OpenArchDocument, from: string, to: string): string {
     if (v.include) v.include = v.include.map((x) => (x === from ? to : x));
     if (v.exclude) v.exclude = v.exclude.map((x) => (x === from ? to : x));
     if (v.layout?.[from]) v.layout = renameKey(v.layout, from, to);
+    for (const step of v.steps ?? []) {
+      if (step.from === from) step.from = to;
+      if (step.to === from) step.to = to;
+    }
   }
   return `renamed ${from} to ${to}`;
 }
@@ -427,22 +459,26 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   assertNewId(doc, op.id);
   if (!(VIEW_LEVELS as readonly string[]).includes(op.level)) throw new OpError(`Unknown level "${op.level}". Use one of: ${VIEW_LEVELS.join(", ")}.`);
   const ws = buildWorkspace(doc);
-  const draft = { id: op.id, path: `views.${op.id}`, title: "", level: op.level, scope: op.scope, include: ["*"], exclude: [], stickies: [], layout: {} };
+  const draft = { id: op.id, path: `views.${op.id}`, title: "", level: op.level, scope: op.scope, include: ["*"], exclude: [], stickies: [], layout: {}, steps: [] };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
+  const sequence = op.level === "sequence";
+  if (sequence && (op.include || op.exclude)) throw new OpError(SEQUENCE_PARTICIPANTS);
   checkIds(doc, op.include, "include");
   checkIds(doc, op.exclude, "exclude");
   const scope = op.scope ? doc.elements[op.scope] : undefined;
   const title =
-    op.title?.trim() || (scope ? `${scope.name} ${op.level === "context" ? "context" : op.level === "container" ? "containers" : "components"}` : "System landscape");
+    op.title?.trim() ||
+    (sequence ? titleFromId(op.id) : scope ? `${scope.name} ${op.level === "context" ? "context" : op.level === "container" ? "containers" : "components"}` : "System landscape");
   doc.views[op.id] = clean<ViewData>({
     title,
     description: op.description?.trim(),
     level: op.level,
     scope: op.scope,
-    include: op.include ? [...op.include] : ["*"],
+    include: sequence ? undefined : op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
     notes: op.notes?.trim(),
+    steps: sequence ? [] : undefined,
   });
   return `added view ${op.id}`;
 }
@@ -462,6 +498,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
     if (value === null || !value.trim()) delete view[key];
     else view[key] = value.trim();
   }
+  if (view.level === "sequence" && (op.include !== undefined || op.exclude !== undefined)) throw new OpError(SEQUENCE_PARTICIPANTS);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -482,6 +519,7 @@ function shows(doc: OpenArchDocument, viewId: string, id: string): boolean {
 
 function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
   const view = requireView(doc, viewId);
+  if (view.level === "sequence") throw new OpError(SEQUENCE_PARTICIPANTS);
   requireElement(doc, id);
   if (shows(doc, viewId, id)) return `${id} is already in view ${viewId}`;
   if (view.exclude?.includes(id)) {
@@ -497,6 +535,7 @@ function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
 
 function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
   const view = requireView(doc, viewId);
+  if (view.level === "sequence") throw new OpError(SEQUENCE_PARTICIPANTS);
   requireElement(doc, id);
   if (!shows(doc, viewId, id)) throw new OpError(`"${id}" isn't a box in view "${viewId}".`);
   if (view.include?.includes(id)) view.include = view.include.filter((x) => x !== id);
@@ -506,6 +545,7 @@ function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
 
 function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<string, Position | null>): string {
   const view = requireView(doc, viewId);
+  if (view.level === "sequence") throw new OpError("A sequence view is laid out from its steps, so it has no box positions.");
   const layout: Record<string, Position> = { ...view.layout };
   for (const [id, pos] of Object.entries(positions)) {
     if (pos === null) {
@@ -550,6 +590,68 @@ function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "updat
   else if (op.at !== undefined) sticky.at = [Math.round(op.at[0]), Math.round(op.at[1])];
   return `updated sticky note ${op.id} in view ${op.view}`;
 }
+
+/** Why a sequence view can't be given elements to show or hide. */
+const SEQUENCE_PARTICIPANTS =
+  "A sequence view shows the elements in its steps, in the order they first appear, so it takes no include or exclude list. Add a step with add-step, or remove one with remove-step.";
+
+function addStep(doc: OpenArchDocument, op: Extract<Operation, { op: "add-step" }>): string {
+  const view = requireSequence(doc, op.view);
+  const steps = view.steps ?? [];
+  const step = clean<StepData>({ from: op.from, to: op.to, description: op.description?.trim(), technology: op.technology?.trim(), reply: op.reply || undefined });
+  checkStep(doc, step);
+  const at = op.step ?? steps.length + 1;
+  if (at > steps.length + 1) throw new OpError(`View "${op.view}" has ${countSteps(steps.length)}, so a new one can be step 1 to ${steps.length + 1}.`);
+  view.steps = [...steps.slice(0, at - 1), step, ...steps.slice(at - 1)];
+  return `added step ${at} to view ${op.view}: ${op.from} ${op.reply ? "replies to" : "->"} ${op.to}`;
+}
+
+function updateStep(doc: OpenArchDocument, op: Extract<Operation, { op: "update-step" }>): string {
+  const view = requireSequence(doc, op.view);
+  const step = requireStep(view, op.view, op.step);
+  const fields = ["from", "to", "description", "technology", "reply", "newStep"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on step ${op.step}: ${fields.join(", ")}.`);
+  const ends = op.from !== undefined || op.to !== undefined || op.reply !== undefined;
+  if (op.from !== undefined) step.from = op.from;
+  if (op.to !== undefined) step.to = op.to;
+  if (op.reply !== undefined) {
+    if (op.reply) step.reply = true;
+    else delete step.reply;
+  }
+  for (const key of ["description", "technology"] as const) {
+    const value = op[key];
+    if (value === undefined) continue;
+    if (value === null || !value.trim()) delete step[key];
+    else step[key] = value.trim();
+  }
+  if (ends) checkStep(doc, step);
+  const steps = view.steps!;
+  if (op.newStep !== undefined && op.newStep !== op.step) {
+    if (op.newStep > steps.length) throw new OpError(`View "${op.view}" has ${countSteps(steps.length)}, so "newStep" must be 1 to ${steps.length}.`);
+    steps.splice(op.step - 1, 1);
+    steps.splice(op.newStep - 1, 0, step);
+    return `moved step ${op.step} to ${op.newStep} in view ${op.view}`;
+  }
+  return `updated step ${op.step} in view ${op.view}`;
+}
+
+/** Refuses a step that the model has no relationship for, or that joins an unknown element or one to itself. */
+function checkStep(doc: OpenArchDocument, step: StepData): void {
+  requireElement(doc, step.from);
+  requireElement(doc, step.to);
+  if (step.from === step.to) throw new OpError("A step can't go from an element to itself.");
+  const ws = buildWorkspace(doc);
+  if (isInside(ws, step.from, step.to) || isInside(ws, step.to, step.from)) {
+    throw new OpError(`"${step.from}" and "${step.to}" contain one another, so no relationship can join them, and no step either.`);
+  }
+  if (stepRelationships(ws, step.from, step.to, step.reply).length) return;
+  const [caller, callee] = step.reply ? [step.to, step.from] : [step.from, step.to];
+  throw new OpError(
+    `The model has no relationship from "${caller}" to "${callee}"${step.reply ? " for this reply to go back along" : ""}. Add one first with add-relationship ${caller} ${callee}, or with one between elements inside them.`,
+  );
+}
+
+const countSteps = (n: number) => `${n} step${n === 1 ? "" : "s"}`;
 
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {
   if (op.name === undefined && op.description === undefined && op.docs === undefined) throw new OpError("Say what to change: name, description or docs.");
@@ -599,6 +701,19 @@ function requireView(doc: OpenArchDocument, id: string): ViewData {
     throw new OpError(`No view has the ID "${id}".${near ? ` Did you mean "${near}"?` : ""}`);
   }
   return v;
+}
+
+function requireSequence(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "sequence") throw new OpError(`View "${id}" is a ${view.level} view. Only sequence views have steps.`);
+  return view;
+}
+
+function requireStep(view: ViewData, viewId: string, number: number): StepData {
+  const steps = view.steps ?? [];
+  const step = steps[number - 1];
+  if (!step) throw new OpError(steps.length ? `View "${viewId}" has ${countSteps(steps.length)}: "step" must be 1 to ${steps.length}.` : `View "${viewId}" has no steps yet.`);
+  return step;
 }
 
 function requireSticky(view: ViewData, viewId: string, id: string): StickyData {

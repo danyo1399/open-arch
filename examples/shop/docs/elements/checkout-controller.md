@@ -23,5 +23,6 @@ Handles checkout requests from the web app.
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)
+- [Placing an order](../views/place-order.md)
 
 [All views and elements](../README.md)

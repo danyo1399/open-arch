@@ -1,5 +1,5 @@
 {
-  "openarch": 3,
+  "openarch": 4,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -106,6 +106,24 @@
       "description": "Every person and system, and how they connect.",
       "level": "landscape",
       "include": ["*"]
+    },
+    "place-order": {
+      "title": "Placing an order",
+      "description": "What happens, in order, when a customer places an order.",
+      "level": "sequence",
+      "notes": "Stock is reserved and the card is charged before the order is saved, so every saved order is paid for.",
+      "steps": [
+        { "from": "customer", "to": "web-app", "description": "Places an order" },
+        { "from": "web-app", "to": "checkout-controller", "description": "Sends the cart and the card token" },
+        { "from": "checkout-controller", "to": "warehouse" },
+        { "from": "checkout-controller", "to": "payment-client" },
+        { "from": "payment-client", "to": "payment-provider" },
+        { "from": "payment-provider", "to": "payment-client", "description": "Payment confirmed", "reply": true },
+        { "from": "checkout-controller", "to": "order-repository" },
+        { "from": "order-repository", "to": "orders-db", "description": "Inserts the order" },
+        { "from": "checkout-controller", "to": "web-app", "description": "Order number", "reply": true },
+        { "from": "web-app", "to": "customer", "description": "Shows the confirmation", "reply": true }
+      ]
     },
     "shop-containers": {
       "title": "Shop containers",

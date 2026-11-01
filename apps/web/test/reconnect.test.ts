@@ -34,7 +34,7 @@ describe("boxAt", () => {
 describe("reconnectOps", () => {
   // The controller inside the API calls the DB twice, so the shop's container view draws one arrow, API → DB, for both.
   const doc: OpenArchDocument = {
-    openarch: 3,
+    openarch: 4,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },

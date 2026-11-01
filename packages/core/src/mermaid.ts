@@ -16,14 +16,33 @@ const CLASS_DEFS = [
   "classDef external fill:#999999,stroke:#6b6b6b,color:#ffffff",
 ];
 
+/** Words a sequence diagram reads as keywords, whatever their case. */
+const SEQUENCE_RESERVED = new Set([
+  "participant", "actor", "as", "autonumber", "activate", "deactivate", "note", "over", "left", "right", "of", "loop", "alt", "else", "opt", "par", "and",
+  "rect", "critical", "break", "end", "box", "title", "link", "links", "properties", "details", "create", "destroy", "off",
+]);
+
 /** Mermaid node ID for an element ID: kebab-case becomes snake_case, which Mermaid parses safely. */
 export function mermaidId(id: string): string {
   const out = id.replace(/-/g, "_");
   return RESERVED.has(out) ? `${out}_` : out;
 }
 
+/** A participant's ID in a sequence diagram, which has keywords of its own. */
+function participantId(id: string): string {
+  const out = mermaidId(id);
+  return SEQUENCE_RESERVED.has(out) ? `${out}_` : out;
+}
+
 function escape(text: string): string {
   return text.replace(/"/g, "#quot;").replace(/</g, "#lt;").replace(/>/g, "#gt;").replace(/\|/g, "#124;").replace(/`/g, "#96;");
+}
+
+const SEQUENCE_ENTITIES: Record<string, string> = { "#": "#35;", ";": "#59;", '"': "#quot;", "<": "#lt;", ">": "#gt;", "|": "#124;", "`": "#96;" };
+
+/** Text for one line of a sequence diagram, where `#` and `;` mean something too, and a line break ends the line. */
+function escapeLine(text: string): string {
+  return text.replace(/\s*\r?\n\s*/g, " ").replace(/[#;"<>|`]/g, (c) => SEQUENCE_ENTITIES[c]!);
 }
 
 function nodeLabel(e: ArchElement): string {
@@ -50,6 +69,7 @@ function nodeLine(e: ArchElement): string {
 }
 
 export function renderMermaid(cv: ComputedView): string {
+  if (cv.view.level === "sequence") return renderSequence(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = boundary ? cv.nodes.filter((n) => n.parent === boundary.id) : [];
@@ -81,5 +101,29 @@ export function renderMermaid(cv: ComputedView): string {
     for (const [cls, ids] of byClass) lines.push(`  class ${ids.join(",")} ${cls}`);
   }
   if (boundary) lines.push(`  style ${mermaidId(boundary.id)}_boundary fill:none,stroke:#444444,stroke-dasharray:5 5`);
+  return lines.join("\n");
+}
+
+
+/**
+ * A sequence view as a Mermaid sequence diagram: a lifeline per element, people as actors, and
+ * each step numbered, calls as solid arrows and replies as dashed ones.
+ */
+function renderSequence(cv: ComputedView): string {
+  const lines = ["sequenceDiagram"];
+  if (cv.steps.length === 0) {
+    lines.push("  %% This view has no steps yet.");
+    return lines.join("\n");
+  }
+  lines.push("  autonumber");
+  for (const e of cv.nodes) {
+    const kind = kindLabel(e);
+    const detail = e.technology ? `${kind}: ${e.technology}` : kind;
+    lines.push(`  ${e.kind === "person" ? "actor" : "participant"} ${participantId(e.id)} as ${escapeLine(e.name)}<br/>[${escapeLine(detail)}]`);
+  }
+  for (const step of cv.steps) {
+    const text = [step.label ?? "(no description)", step.labelTechnology ? `[${step.labelTechnology}]` : undefined].filter(Boolean).map((t) => escapeLine(t!)).join(" ");
+    lines.push(`  ${participantId(step.from)}${step.reply ? "-->>" : "->>"}${participantId(step.to)}: ${text}`);
+  }
   return lines.join("\n");
 }

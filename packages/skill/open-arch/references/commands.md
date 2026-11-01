@@ -18,7 +18,7 @@ Exit codes: 0 = done, 1 = refused or failed (nothing saved), 2 = the command was
 |---|---|
 | `open-arch show` | The model as a tree, and the views |
 | `open-arch show <element-id>` | The element's fields, tags, notes, what it uses, what uses it (directly and through what's inside it), with those relationships' notes, and the views showing it |
-| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for |
+| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along |
 | `open-arch check [--json] [--strict]` | Problems in the model; exits 1 on errors (or warnings, with `--strict`) |
 | `open-arch export [folder] [--check]` | Writes the docs to the folder, or to the workspace's docs folder; `--check` exits 1 if they're out of date |
 
@@ -39,7 +39,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
 | `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
-| `add-view <id>` | `--level <landscape\|context\|container\|component>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->` |
+| `add-view <id>` | `--level <landscape\|context\|container\|component\|sequence>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. A sequence view takes no scope, include or exclude |
 | `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--notes`, `--notes-file` |
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
@@ -47,12 +47,17 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-sticky <view> <id>` | `--text` (required), `--color <yellow\|pink\|blue\|green>`, `--at <x,y>` |
 | `update-sticky <view> <id>` | `--text`, `--color`, `--at <x,y>` (`--at ""` lets the designer place it) |
 | `remove-sticky <view> <id>` | |
+| `add-step <view> <from> <to>` | Sequence views only. `--description`, `--technology`, `--reply` (`<from>` answers `<to>`), `--step <n>` (insert it as step n; default: after the last) |
+| `update-step <view> <n>` | `--from <id>`, `--to <id>`, `--description`, `--technology`, `--reply` / `--call`, `--move-to <n>` |
+| `remove-step <view> <n>` | The steps after it move up one |
 | `update-workspace` | `--name`, `--description`, `--docs <folder>` (`--docs ""` stops generating docs) |
 | `apply [file\|-]` | A JSON list of operations, all or nothing (see below) |
 | `init [file]` | `--name`, `--docs <folder>`, `--no-skills`, `--no-agents-md` |
 | `fmt [--check]` | Rewrites the file in canonical form |
 
 `--index` picks one relationship when an element has several to the same target: 0 is the first. Without it, the command says how many there are and what each describes.
+
+A step is named by its number in its sequence view, as `show <view>` prints it: 1 is the first. A step from A to B needs a relationship in the model from A, or something inside A, to B, or something inside B. A reply goes back along one from B to A. If there's none, the command refuses the step: add the relationship first.
 
 ## Operations for `apply`
 
@@ -78,6 +83,9 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `add-sticky` | **view**, **id**, **text**, color, at (`[x, y]`) |
 | `update-sticky` | **view**, **id**, text, color, at (`null` lets the designer place it) |
 | `remove-sticky` | **view**, **id** |
+| `add-step` | **view**, **from**, **to**, description, technology, reply (`true` for an answer), step (its number: 1 is the first; default: after the last) |
+| `update-step` | **view**, **step**, from, to, description, technology, reply, newStep (the number to move it to) |
+| `remove-step` | **view**, **step** |
 | `update-workspace` | name, description, docs |
 
 Example:

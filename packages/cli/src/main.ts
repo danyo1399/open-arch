@@ -69,7 +69,8 @@ Validates the workspace. Exits 1 when there are errors (or any warnings, with --
 Without an id: the model as a tree, and the list of views.
 With an element id: its fields, notes, what it uses and what uses it (with those
 relationships' notes), and the views showing it.
-With a view id: its description and notes, and the boxes and arrows the view draws.
+With a view id: its description and notes, and the boxes and arrows the view draws, or for
+a sequence view, its steps in order.
 `,
     options: { ...FILE, json: b },
     run: (io, v, p) => show(io, { file: str(v.file), json: bool(v.json), id: p[0] }),
@@ -100,7 +101,8 @@ all or nothing. Each operation is an object with "op" and the same fields as the
 command, e.g. [{ "op": "add-element", "id": "cache", "kind": "container", "parent": "shop" }].
 Operations: add-element, update-element, remove-element, rename, add-relationship,
 update-relationship, remove-relationship, add-view, update-view, remove-view, show-in-view,
-hide-in-view, set-layout, add-sticky, update-sticky, remove-sticky, update-workspace.
+hide-in-view, set-layout, add-sticky, update-sticky, remove-sticky, add-step, update-step,
+remove-step, update-workspace.
 In updates, null removes a field.
 `,
     {},
@@ -177,10 +179,12 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|sequence> [options]
 
+A sequence view shows steps between elements, in order: add them with add-step. It takes no
+scope, include or exclude.
   --scope <id>           A system for context and container views, a container for component views
-  --title <title>        Default: from the scope and level
+  --title <title>        Default: from the scope and level, or for a sequence view, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
@@ -217,6 +221,31 @@ why it's drawn this way. It isn't part of the model. The id must be unique withi
     { text: s, color: s, at: s },
   ),
   "remove-sticky": writer(`Usage: open-arch remove-sticky <view> <id>\n`, {}),
+  "add-step": writer(
+    `Usage: open-arch add-step <view> <from> <to> [--description <text>] [--technology <text>] [--reply] [--step <n>]
+
+Adds a step to a sequence view: <from> calls <to>. The model needs a relationship from <from>,
+or something inside it, to <to>, or something inside it.
+  --description <text>   What's sent, e.g. "Submits the order" (default: the relationship's)
+  --technology <text>    e.g. JSON/HTTPS (default: the relationship's)
+  --reply                <from> answers an earlier call from <to>, drawn as a dashed arrow. It
+                         goes back along a relationship from <to> to <from>
+  --step <n>             Its number: 1 is the first (default: after the last)
+`,
+    { description: s, technology: s, reply: b, step: s },
+  ),
+  "update-step": writer(
+    `Usage: open-arch update-step <view> <n> [--from <id>] [--to <id>] [--description <text>] [--technology <text>]
+                            [--reply | --call] [--move-to <n>]
+
+<n> is the step's number, as show prints it: 1 is the first.
+  --reply, --call        Make it an answer to an earlier call, or a call
+  --move-to <n>          Give it another number; the steps between move up or down one
+An empty value removes a field.
+`,
+    { from: s, to: s, description: s, technology: s, reply: b, call: b, "move-to": s },
+  ),
+  "remove-step": writer(`Usage: open-arch remove-step <view> <n>\n\nRemoves a sequence view's step <n>; the steps after it move up one.\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -242,6 +271,7 @@ Change (each change is checked first; nothing is saved if it would break the mod
   add-view <id>          update-view <id>          remove-view <id>
   show-in-view <view> <id>...     hide-in-view <view> <id>...     update-workspace
   add-sticky <view> <id>          update-sticky <view> <id>       remove-sticky <view> <id>
+  add-step <view> <from> <to>     update-step <view> <n>          remove-step <view> <n>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

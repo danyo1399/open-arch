@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 3)
+# The open-arch workspace (format version 4)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers and components, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 3,
+  "openarch": 4,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -39,6 +39,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
         "how-orders-flow": { "text": "Every order goes through the web app.", "color": "blue", "at": [260, 0] }
       },
       "layout": { "customer": [0, 0], "web-app": [0, 160] }
+    },
+    "browse": {
+      "title": "Browsing the shop",
+      "level": "sequence",
+      "steps": [
+        { "from": "customer", "to": "web-app", "description": "Opens the shop" },
+        { "from": "web-app", "to": "customer", "description": "Shows the products", "reply": true }
+      ]
     }
   }
 }
@@ -48,14 +56,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `3` |
+| `openarch` | Format version, always `4` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 and 2 files too, and write them back as version 3. Version 2 is the same, but without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1, 2 and 3 files too, and write them back as version 4. Version 3 is the same, but without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view.
 
@@ -104,13 +112,14 @@ A relationship can't join an element to its own parent, child or anything nested
 |---|---|
 | `title` | Diagram title |
 | `description` | One sentence, shown under the title on the diagram |
-| `level` | `landscape`, `context`, `container` or `component` |
-| `scope` | A system for context and container views, a container for component views, none for landscape |
-| `include` | IDs to show, or `"*"` for the default selection |
-| `exclude` | IDs to hide |
+| `level` | `landscape`, `context`, `container`, `component` or `sequence` |
+| `scope` | A system for context and container views, a container for component views, none for landscape and sequence |
+| `include` | IDs to show, or `"*"` for the default selection. Not used on sequence views |
+| `exclude` | IDs to hide. Not used on sequence views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
 | `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside the diagram) |
-| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID |
+| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence views |
+| `steps` | Sequence views only: what happens, in order (see below) |
 
 | Level | Boxes | `"*"` includes |
 |---|---|---|
@@ -118,6 +127,18 @@ A relationship can't join an element to its own parent, child or anything nested
 | `context` | People and systems | The scope system, plus every person and system connected to it |
 | `container` | The scope's containers inside a frame; people and other systems outside it | The scope's containers, plus everything connected to them |
 | `component` | The scope's components inside a frame; sibling containers; people and other systems | The scope's components, plus everything connected to them |
+
+A `sequence` view isn't a level of detail: it shows what happens, in order, like a UML sequence diagram. Each element in its steps gets a lifeline, left to right in the order it first appears, and each step is a numbered arrow, top to bottom. A step has:
+
+| Field | Meaning |
+|---|---|
+| `from` | The element that acts |
+| `to` | The element it calls, or answers |
+| `description` | What's sent, e.g. "Submits the order". Without it, a call shows its relationship's description |
+| `technology` | e.g. `JSON/HTTPS`. Without it, a call shows its relationship's technology |
+| `reply` | `true` for an answer to an earlier call, drawn as a dashed arrow |
+
+Steps go along the model's relationships: a call from A to B needs a relationship from A, or something inside A, to B, or something inside B, and a reply from B to A goes back along one of those. Elements at any level of detail can be in the same sequence: a person, a container and a component. Commands refuse a step the model has no relationship for, and `check` warns when one loses its relationship, for example when the relationship is removed. Removing an element removes its steps.
 
 Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside them.
 
@@ -128,7 +149,7 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships.
 - `elements/<id>.md`: the element's details, notes, relationships (with their notes), contents and the views showing it.
 
 Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite or delete pages with that marker, so other files in the folder are safe. Don't edit generated pages: the next change rewrites them.
@@ -140,8 +161,9 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `3` (or `1` or `2`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `4` (or `1`, `2` or `3`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
+| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence view, or `steps` on another view |
 | `field-type` | error | A field has the wrong type |
 | `field-required` | error | A required field is missing |
 | `id-format` | error | An ID isn't kebab-case |
@@ -169,6 +191,9 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | `view-include-lifted` | warning | An `include` entry is too detailed for the level and is shown as its ancestor |
 | `view-include-boundary` | warning | An `include` entry is the view's own scope |
 | `view-exclude-unused` | warning | An `exclude` entry isn't in the view anyway |
+| `step-unknown-element` | error | A step's `from` or `to` isn't an element |
+| `step-self` | error | A step goes from an element to itself |
+| `step-relationship-missing` | warning | The model has no relationship for a step to go along |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |
 
-The first eleven are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.
+The first twelve are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.

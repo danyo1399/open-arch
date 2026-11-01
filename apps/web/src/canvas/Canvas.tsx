@@ -44,6 +44,8 @@ export type Selection =
   | { kind: "element"; id: string }
   | { kind: "arrow"; from: string; to: string }
   | { kind: "sticky"; id: string }
+  /** A sequence view's step, by its number: 1 is the first. */
+  | { kind: "step"; number: number }
   | { kind: "several"; elements: string[]; stickies: string[] }
   | { kind: "workspace" }
   | null;

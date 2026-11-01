@@ -1,5 +1,5 @@
 /** Small questions about the model that the designer's UI asks. */
-import { computeAllViews, describeElement, isInside, VIEW_LEVELS, type ArchElement, type ComputedView, type ElementData, type Operation, type Relationship, type Sticky, type ViewData, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeAllViews, describeElement, isInside, VIEW_LEVELS, type ArchElement, type ComputedView, type ElementData, type Operation, type Relationship, type Step, type Sticky, type ViewData, type ViewDef, type Workspace } from "@open-arch/core";
 import type { Selection } from "./canvas/Canvas.js";
 
 /** IDs the designer gives new elements before they have a name. */
@@ -87,7 +87,8 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  if (!view || !computed || !element || computed.boundary?.id === id) return null;
+  // A sequence view shows the elements in its steps, so it has nothing to show or hide.
+  if (!view || !computed || !element || view.level === "sequence" || computed.boundary?.id === id) return null;
   if (computed.nodes.some((n) => n.id === id)) return "hide";
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
@@ -170,6 +171,7 @@ export type Shown =
   | { kind: "element"; element: ArchElement }
   | { kind: "arrow"; from: string; to: string }
   | { kind: "sticky"; view: ViewDef; sticky: Sticky }
+  | { kind: "step"; view: ViewDef; step: Step }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
@@ -188,6 +190,8 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
   if (selection?.kind === "arrow") return selection;
   const sticky = selection?.kind === "sticky" ? view?.stickies.find((s) => s.id === selection.id) : undefined;
   if (view && sticky) return { kind: "sticky", view, sticky };
+  const step = selection?.kind === "step" ? view?.steps[selection.number - 1] : undefined;
+  if (view && step) return { kind: "step", view, step };
   return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
 }
 
@@ -256,6 +260,7 @@ export function renamesBetween(before: Workspace, after: Workspace): Rename[] {
       include: v.include?.map(to),
       exclude: v.exclude?.map(to),
       layout: v.layout && Object.fromEntries(Object.entries(v.layout).map(([id, at]) => [to(id), at])),
+      steps: v.steps?.map((step) => ({ ...step, from: to(step.from), to: to(step.to) })),
     });
 
   /**
@@ -322,7 +327,12 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "add-sticky":
       case "update-sticky":
       case "remove-sticky":
+      case "remove-step":
         return { ...op, view: follow(op.view) };
+      case "add-step":
+        return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };
+      case "update-step":
+        return { ...op, view: follow(op.view), ...(op.from && { from: follow(op.from) }), ...(op.to && { to: follow(op.to) }) };
       case "update-workspace":
         return op;
     }

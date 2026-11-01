@@ -886,6 +886,172 @@ button.heading {
   white-space: nowrap;
 }
 
+/* --- Sequence views ------------------------------------------------------- */
+
+.canvas.sequence {
+  display: flex;
+  flex-direction: column;
+}
+/* Above the diagram rather than over it, as nothing on it can be moved out of the way. Its
+   form opens under its left end, over the diagram. */
+.sequence-toolbar {
+  position: relative;
+  z-index: 5;
+  margin: 15px 15px 8px;
+  align-self: flex-start;
+}
+.step-form {
+  min-width: 280px;
+  max-width: calc(100vw - 48px);
+  gap: 4px;
+  padding: 12px;
+}
+.step-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.sequence-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.sequence-surface {
+  position: relative;
+  user-select: none;
+  /* Room round the diagram, so its last lifeline and step aren't against the edge. */
+  margin: 0 24px 24px 0;
+}
+.sequence-surface.drawing,
+.sequence-surface.drawing * {
+  cursor: crosshair;
+}
+.sequence-lines {
+  position: absolute;
+  inset: 0 auto auto 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.lifeline {
+  stroke: var(--frame);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+}
+.lifeline.target {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+/* A lifeline's heading: its element's box, smaller. Dragging it, or the lifeline, draws a step. */
+.c4.sequence-head {
+  position: absolute;
+  min-height: 0;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.sequence-head .c4-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.c4.sequence-head.target {
+  outline-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.lifeline-grip {
+  position: absolute;
+  width: 28px;
+  cursor: crosshair;
+  touch-action: none;
+}
+.step-arrow {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.step-hit {
+  stroke: transparent;
+  stroke-width: 16;
+}
+.step-line {
+  stroke: var(--edge);
+  stroke-width: 1.5;
+}
+.step-arrow.reply .step-line {
+  stroke-dasharray: 6 4;
+}
+.step-arrow.unbacked .step-line {
+  stroke: var(--danger);
+}
+.step-arrow.selected .step-line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+#seq-call polyline {
+  fill: var(--edge);
+  stroke: var(--edge);
+}
+#seq-reply polyline {
+  stroke: var(--edge);
+  stroke-width: 1.5;
+}
+.step-drawing {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+.step-label {
+  position: absolute;
+  z-index: 1;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 4px;
+  background: var(--label-bg);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-label:hover {
+  background: var(--hover);
+}
+.step-label.selected {
+  color: var(--accent);
+  font-weight: 600;
+}
+.step-number {
+  display: inline-block;
+  min-width: 18px;
+  margin-right: 2px;
+  border-radius: 9px;
+  background: var(--edge);
+  color: var(--canvas);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.step-label.selected .step-number {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.sequence-notes {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sequence-notes .sticky {
+  cursor: pointer;
+}
+
 .c4 {
   position: relative;
   width: 220px;

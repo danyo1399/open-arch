@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 10 elements, 4 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 10 elements, 5 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -174,6 +174,40 @@ describe("changing", () => {
     expect(JSON.parse(read(dir)).views.landscape).not.toHaveProperty("stickies");
   });
 
+  it("adds, changes, moves and removes a sequence view's steps, and shows them", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "refund", "--level", "sequence", "--description", "Giving money back.").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.refund).toEqual({ title: "Refund", description: "Giving money back.", level: "sequence", steps: [] });
+    expect(cli(dir, "add-step", "refund", "customer", "web-app", "--description", "Asks for a refund").code).toBe(0);
+    expect(cli(dir, "add-step", "refund", "payment-client", "payment-provider").code).toBe(0);
+    expect(cli(dir, "add-step", "refund", "web-app", "checkout-api", "--step", "2").code).toBe(0);
+    expect(cli(dir, "add-step", "refund", "payment-provider", "checkout-api", "--reply", "--description", "Refunded").code).toBe(0);
+    const shown = cli(dir, "show", "refund").out;
+    expect(shown).toContain("Participants:\n  customer          person             Customer\n  web-app           container          Web App [React]\n");
+    expect(shown).toContain(
+      [
+        "Steps:",
+        "  1.  customer -> web-app                 Asks for a refund [HTTPS]",
+        "  2.  web-app -> checkout-api             Places orders [HTTPS/JSON]  (via web-app -> checkout-controller)",
+        "  3.  payment-client -> payment-provider  Charges cards [HTTPS]",
+        "  4.  payment-provider --> checkout-api   Refunded  (reply)  (via payment-client -> payment-provider)",
+      ].join("\n"),
+    );
+    expect(JSON.parse(cli(dir, "show", "refund", "--json").out).steps[3]).toMatchObject({ step: 4, from: "payment-provider", to: "checkout-api", reply: true, label: "Refunded" });
+    expect(read(dir, "docs/views/refund.md")).toContain("  payment_provider-->>checkout_api: Refunded\n");
+
+    expect(cli(dir, "update-step", "refund", "4", "--move-to", "1", "--description", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.refund.steps[0]).toEqual({ from: "payment-provider", to: "checkout-api", reply: true });
+    expect(cli(dir, "update-step", "refund", "1", "--call").err).toContain('no relationship from "payment-provider" to "checkout-api"');
+    expect(cli(dir, "update-step", "refund", "1", "--reply", "--call")).toMatchObject({ code: 2, err: expect.stringContaining("not both") });
+    expect(cli(dir, "remove-step", "refund", "0")).toMatchObject({ code: 2, err: expect.stringContaining("<n> must be a step's number") });
+    expect(cli(dir, "remove-step", "refund", "1").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.refund.steps).toHaveLength(3);
+    expect(cli(dir, "add-step", "refund", "orders-db", "customer").err).toContain('The model has no relationship from "orders-db" to "customer"');
+    expect(cli(dir, "show-in-view", "refund", "orders-db").err).toContain("Add a step with add-step");
+    expect(cli(dir, "add-step", "landscape", "customer", "shop").err).toContain("Only sequence views have steps");
+  });
+
   it("gives views and relationships notes, shows them, and puts them in the docs", () => {
     const dir = example();
     expect(cli(dir, "update-view", "shop-containers", "--notes", "Drawn for **new starters**.").code).toBe(0);
@@ -227,22 +261,22 @@ describe("changing", () => {
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 3', '"openarch": 1')
+      .replace('"openarch": 4', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 3, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 4, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it("reads a version 2 file, and writes it back as version 3", () => {
+  it.each([2, 3])("reads a version %i file, and writes it back as version 4", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 3', '"openarch": 2'));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 4', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 3,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 4,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -275,7 +309,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 3, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 4, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

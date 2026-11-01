@@ -111,6 +111,21 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     } else {
       lines.push("None yet.");
     }
+    if (cv.steps.length) {
+      lines.push("", "## Steps", "", "| # | From | To | Description | Technology |", "|---|---|---|---|---|");
+      for (const step of cv.steps) {
+        const end = (id: string) => {
+          const e = ws.elements.get(id);
+          return e ? link(e, "views") : cell(id);
+        };
+        const description = step.reply ? `Reply${step.label ? `: ${cell(step.label)}` : ""}` : cell(step.label);
+        lines.push(`| ${step.number} | ${end(step.from)} | ${end(step.to)} | ${description} | ${cell(step.labelTechnology)} |`);
+      }
+      // The notes of the relationships the steps go along, each once.
+      const seen = new Set<string>();
+      const sources = cv.steps.flatMap((step) => step.sources).filter(({ element, index }) => !seen.has(`${element}#${index}`) && seen.add(`${element}#${index}`));
+      lines.push(...relNotes(ws, sources.map(({ element, index }) => ({ from: element, rel: ws.elements.get(element)!.uses[index]! }))));
+    }
     if (cv.edges.length) {
       lines.push("", "## Relationships", "", "| From | To | Description | Technology |", "|---|---|---|---|");
       for (const e of cv.edges) {

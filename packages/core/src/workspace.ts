@@ -54,6 +54,15 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         .map(([sid, s]) => ({ id: sid, path: `views.${id}.stickies.${sid}`, text: s.text, color: s.color ?? "yellow", at: s.at }))
         .sort(readingOrder),
       layout: v.layout ?? {},
+      steps: (v.steps ?? []).map((step, i) => ({
+        path: `views.${id}.steps[${i}]`,
+        number: i + 1,
+        from: step.from,
+        to: step.to,
+        description: step.description || undefined,
+        technology: step.technology || undefined,
+        reply: step.reply ?? false,
+      })),
     });
   }
   for (const element of ws.elements.values()) {

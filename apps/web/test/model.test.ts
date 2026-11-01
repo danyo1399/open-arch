@@ -22,7 +22,7 @@ import {
 } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 3,
+  openarch: 4,
   name: "Shop",
   elements: {
     api: { kind: "system", name: "API" },
@@ -77,7 +77,7 @@ describe("byName", () => {
 
   it("puts the model tree in alphabetical order at every level, whatever the kinds and IDs", () => {
     const site = buildWorkspace({
-      openarch: 3,
+      openarch: 4,
       name: "Site",
       elements: {
         customer: { kind: "person", name: "Customer" },
@@ -113,7 +113,7 @@ describe("byName", () => {
 
 describe("viewList", () => {
   const site = buildWorkspace({
-    openarch: 3,
+    openarch: 4,
     name: "Site",
     elements: {
       website: { kind: "system", name: "Client Website" },
@@ -163,7 +163,7 @@ describe("viewList", () => {
 
 describe("viewAction", () => {
   const shop = buildWorkspace({
-    openarch: 3,
+    openarch: 4,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }] },
@@ -219,7 +219,7 @@ describe("viewAction", () => {
 
 describe("arrowRelationships", () => {
   const shop = buildWorkspace({
-    openarch: 3,
+    openarch: 4,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Browses" }, { to: "web" }, { to: "shop", description: "Pays" }] },
@@ -253,7 +253,7 @@ describe("arrowRelationships", () => {
 
 describe("shownInProperties", () => {
   const noted = buildWorkspace({
-    openarch: 3,
+    openarch: 4,
     name: "Shop",
     elements: { api: { kind: "system", name: "API" } },
     views: { landscape: { title: "Landscape", level: "landscape", stickies: { note: { text: "Read me" } } } },
@@ -447,7 +447,7 @@ describe("renames", () => {
 
 describe("renamesBetween", () => {
   const shop: OpenArchDocument = {
-    openarch: 3,
+    openarch: 4,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },

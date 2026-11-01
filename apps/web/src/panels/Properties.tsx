@@ -1,7 +1,7 @@
-import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type Operation, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type Operation, type Step, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { followsName, idFromName, relationshipRef, shownInProperties, uniqueId, viewAction } from "../model.js";
+import { byName, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, viewAction } from "../model.js";
 import type { Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
 
@@ -51,6 +51,7 @@ export function Properties(props: PropertiesProps) {
   if (shown.kind === "element") body = <ElementProperties {...props} element={shown.element} />;
   else if (shown.kind === "arrow") body = <ArrowProperties {...props} from={shown.from} to={shown.to} />;
   else if (shown.kind === "sticky") body = <StickyProperties {...props} view={shown.view} sticky={shown.sticky} />;
+  else if (shown.kind === "step") body = <StepProperties {...props} view={shown.view} step={shown.step} />;
   else if (shown.kind === "several") body = <SeveralProperties {...props} elements={shown.elements} stickies={shown.stickies} />;
   else if (shown.kind === "view") body = <ViewProperties {...props} view={shown.view} />;
   else body = <WorkspaceProperties {...props} />;
@@ -243,7 +244,14 @@ function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { 
       <header className="props-header">
         <span className="badge badge-sticky">Sticky note</span>
       </header>
-      <Field label="Text" value={sticky.text} multiline rows={6} onCommit={(text) => text.trim() && set({ text })} hint="Double-click the note to edit it in place." />
+      <Field
+        label="Text"
+        value={sticky.text}
+        multiline
+        rows={6}
+        onCommit={(text) => text.trim() && set({ text })}
+        hint={view.level === "sequence" ? "A sequence's notes are shown beside it." : "Double-click the note to edit it in place."}
+      />
       <fieldset className="field swatches">
         <legend className="field-label">Colour</legend>
         {STICKY_COLORS.map((color) => (
@@ -254,9 +262,90 @@ function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { 
       </fieldset>
       <p className="muted small">Sticky notes explain this diagram to the people reading it: what to look at, or why it's drawn this way. They belong to this view and aren't part of the model, so other views don't show them. The docs show them under the diagram.</p>
       <div className="actions">
-        {sticky.at && <button onClick={() => set({ at: null })}>Move beside the diagram</button>}
+        {sticky.at && view.level !== "sequence" && <button onClick={() => set({ at: null })}>Move beside the diagram</button>}
         <button className="danger" onClick={() => void edit([{ op: "remove-sticky", view: view.id, id: sticky.id }]).then(() => onSelect(null))}>
           Delete note
+        </button>
+      </div>
+    </>
+  );
+}
+
+function StepProperties({ ws, view, computed, step, edit, onSelect }: PropertiesProps & { view: ViewDef; step: Step }) {
+  const computedStep = computed?.steps.find((s) => s.number === step.number);
+  const set = (fields: Omit<Extract<Operation, { op: "update-step" }>, "op" | "view" | "step">) => void edit([{ op: "update-step", view: view.id, step: step.number, ...fields }]);
+  const elements = [...ws.elements.values()].sort(byName);
+  const name = (id: string) => ws.elements.get(id)?.name ?? id;
+  const count = view.steps.length;
+  const move = (to: number) => void edit([{ op: "update-step", view: view.id, step: step.number, newStep: to }]).then((ok) => ok && onSelect({ kind: "step", number: to }));
+  const end = (field: "from" | "to", label: string) => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={step[field]} onChange={(e) => set({ [field]: e.target.value })}>
+        {!ws.elements.has(step[field]) && <option value={step[field]}>{step[field]} (not an element)</option>}
+        {elements.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.name} [{kindLabel(e)}]
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  // A call without a description is labelled with its relationship's.
+  const fallback = !step.reply && !step.description ? computedStep?.label : undefined;
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Step {step.number}</span>
+        <span className="muted small">of {count}</span>
+      </header>
+      {end("from", "From")}
+      {end("to", step.reply ? "Replies to" : "Calls")}
+      <label className="check">
+        <input type="checkbox" checked={step.reply} onChange={(e) => set({ reply: e.target.checked })} />
+        A reply to an earlier call, drawn dashed
+      </label>
+      <Field
+        label="Description"
+        value={step.description ?? ""}
+        autoFocus={!step.description && !fallback}
+        placeholder={fallback ? `${fallback} (from the relationship)` : "e.g. Submits the order"}
+        onCommit={(description) => set({ description: description || null })}
+      />
+      <Field
+        label="Technology"
+        value={step.technology ?? ""}
+        placeholder={!step.reply && computedStep?.labelTechnology && !step.technology ? `${computedStep.labelTechnology} (from the relationship)` : "e.g. JSON/HTTPS"}
+        onCommit={(technology) => set({ technology: technology || null })}
+      />
+      <h3>Goes along</h3>
+      {computedStep && computedStep.sources.length > 0 ? (
+        <ul className="plain">
+          {computedStep.sources.map(({ element, index }) => {
+            const rel = ws.elements.get(element)?.uses[index];
+            if (!rel) return null;
+            return (
+              <li key={`${element}-${index}`}>
+                <button className="link" onClick={() => onSelect({ kind: "element", id: element })}>
+                  {name(element)}
+                </button>{" "}
+                → {name(rel.to)} <span className="muted small">{rel.description ?? ""}</span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="error small">The model has no relationship for this step. Add one in a diagram that shows both elements, or change the step.</p>
+      )}
+      <div className="actions">
+        <button disabled={step.number === 1} onClick={() => move(step.number - 1)}>
+          Move up
+        </button>
+        <button disabled={step.number === count} onClick={() => move(step.number + 1)}>
+          Move down
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-step", view: view.id, step: step.number }]).then(() => onSelect(null))}>
+          Delete step
         </button>
       </div>
     </>
@@ -337,6 +426,37 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
         placeholder="Longer documentation, in markdown"
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
       />
+      {view.level === "sequence" ? (
+        <>
+          <dl className="facts">
+            <dt>Level</dt>
+            <dd>sequence</dd>
+            <dt>Elements</dt>
+            <dd>{computed?.nodes.length ?? 0}</dd>
+            <dt>Steps</dt>
+            <dd>{view.steps.length}</dd>
+          </dl>
+          <p className="muted small">
+            A sequence shows what happens, in order. Each step goes along a relationship in the model. Drag from one lifeline to another to add a step there, or use + Add step. Select a step to change it, or move it up or down.
+          </p>
+        </>
+      ) : (
+        <BoxViewFacts {...{ ws, view, computed, scope }} />
+      )}
+      <div className="actions">
+        <button onClick={() => onSelect({ kind: "workspace" })}>Workspace settings</button>
+        <button className="danger" onClick={() => onDeleteView(view.id)}>
+          Delete view…
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** What a diagram of boxes shows, and how to arrange it. */
+function BoxViewFacts({ ws, view, computed, scope }: { ws: Workspace; view: ViewDef; computed: ComputedView | null; scope?: ArchElement }) {
+  return (
+    <>
       <dl className="facts">
         <dt>Level</dt>
         <dd>{view.level}</dd>
@@ -359,12 +479,6 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
       </dl>
       <p className="muted small">Select a box, arrow or sticky note to edit it. Drag boxes and notes to arrange them; their positions are saved with the view.</p>
       <p className="muted small">With a mouse, drag across the background to select several and move them together, or Ctrl-click (⌘-click on a Mac) each one. Scroll to move round the diagram, and Ctrl-scroll (⌘-scroll on a Mac) to zoom.</p>
-      <div className="actions">
-        <button onClick={() => onSelect({ kind: "workspace" })}>Workspace settings</button>
-        <button className="danger" onClick={() => onDeleteView(view.id)}>
-          Delete view…
-        </button>
-      </div>
     </>
   );
 }

@@ -69,6 +69,7 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   context: "Context: one system and what it connects to",
   container: "Container: the parts of one system",
   component: "Component: the parts of one container",
+  sequence: "Sequence: steps between elements, in order",
 };
 
 export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
@@ -78,7 +79,12 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
   const [scope, setScope] = useState<string>("");
   const scopeId = scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
-  const defaultTitle = scopeName ? `${scopeName} ${level === "context" ? "context" : level === "container" ? "containers" : "components"}` : "System landscape";
+  const defaultTitle =
+    level === "sequence"
+      ? "New sequence"
+      : scopeName
+        ? `${scopeName} ${level === "context" ? "context" : level === "container" ? "containers" : "components"}`
+        : "System landscape";
   const [title, setTitle] = useState("");
 
   const create = () => {
@@ -128,8 +134,9 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       <label className="field">
         <span className="field-label">Title</span>
-        <input value={title} placeholder={defaultTitle} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+        <input value={title} placeholder={level === "sequence" ? "e.g. Placing an order" : defaultTitle} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
+      {level === "sequence" && <p className="muted small">A sequence shows what happens, step by step: who calls whom, and who answers. Each step goes along a relationship in the model.</p>}
     </Modal>
   );
 }

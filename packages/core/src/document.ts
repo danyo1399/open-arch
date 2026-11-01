@@ -17,6 +17,7 @@ import {
   type OpenArchDocument,
   type Position,
   type RelationshipData,
+  type StepData,
   type StickyData,
   type Tags,
   type ViewData,
@@ -53,7 +54,10 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "tags", "notes", "uses"];
 const RELATIONSHIP_KEYS = ["to", "description", "technology", "tags", "notes"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "stickies", "layout"];
+const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "stickies", "layout"];
+/** Fields a sequence view doesn't take: its participants and their places come from its steps. */
+const NOT_ON_SEQUENCE = ["include", "exclude", "layout"];
+const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "color", "at"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -104,7 +108,7 @@ function readDocument(input: unknown, report: Report): OpenArchDocument {
       "version-unsupported",
       raw.openarch === undefined
         ? `Missing "openarch": ${FORMAT_VERSION}.`
-        : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades versions 1 and 2.`,
+        : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades versions 1 to 3.`,
     );
   }
   const name = str(raw.name, "name", report);
@@ -145,6 +149,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 1) out = upgradeFromV1(out, report);
   // Version 3 added notes to views and relationships, so a version 2 file means the same in it.
   if (out.openarch === 2) out = { ...out, openarch: 3 };
+  // Version 4 added sequence views, so a version 3 file means the same in it.
+  if (out.openarch === 3) out = { ...out, openarch: 4 };
   return out;
 }
 
@@ -277,16 +283,36 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   const title = str(value.title, `${path}.title`, report);
   if (!title?.trim()) report(`${path}.title`, "field-required", "`title` is required.");
   const view: ViewData = { title: title?.trim() ? title : id, level: value.level as ViewData["level"] };
+  const sequence = view.level === "sequence";
+  for (const key of sequence ? NOT_ON_SEQUENCE : ["steps"]) {
+    if (value[key] === undefined) continue;
+    report(
+      `${path}.${key}`,
+      "field-not-allowed",
+      sequence ? `Sequence views don't take \`${key}\`: they show the elements in their steps, in the order they first appear.` : `Only sequence views have \`steps\`.`,
+      `Remove \`${key}\`.`,
+    );
+  }
   const description = str(value.description, `${path}.description`, report);
   if (description !== undefined) view.description = description;
   const scope = str(value.scope, `${path}.scope`, report);
   if (scope !== undefined) view.scope = scope;
-  const include = strList(value.include, `${path}.include`, report);
+  const include = sequence ? undefined : strList(value.include, `${path}.include`, report);
   if (include) view.include = include;
-  const exclude = strList(value.exclude, `${path}.exclude`, report);
+  const exclude = sequence ? undefined : strList(value.exclude, `${path}.exclude`, report);
   if (exclude) view.exclude = exclude;
   const notes = str(value.notes, `${path}.notes`, report);
   if (notes !== undefined) view.notes = notes;
+  if (sequence && value.steps !== undefined) {
+    if (!Array.isArray(value.steps)) report(`${path}.steps`, "field-type", "Must be a list of steps.");
+    else {
+      view.steps = [];
+      value.steps.forEach((item, i) => {
+        const step = readStep(item, `${path}.steps[${i}]`, report);
+        if (step) view.steps!.push(step);
+      });
+    }
+  }
   if (value.stickies !== undefined) {
     if (!isObject(value.stickies)) report(`${path}.stickies`, "field-type", "Must be an object keyed by sticky note ID.");
     else {
@@ -297,7 +323,7 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
       }
     }
   }
-  if (value.layout !== undefined) {
+  if (!sequence && value.layout !== undefined) {
     if (!isObject(value.layout)) report(`${path}.layout`, "field-type", "Must be an object keyed by element ID.");
     else {
       view.layout = {};
@@ -311,6 +337,30 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
     }
   }
   return view;
+}
+
+function readStep(value: unknown, path: string, report: Report): StepData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A step must be an object like { "from": "customer", "to": "web-app" }.');
+    return undefined;
+  }
+  unknownKeys(value, STEP_KEYS, path, report);
+  const from = str(value.from, `${path}.from`, report);
+  const to = str(value.to, `${path}.to`, report);
+  if (!from) report(`${path}.from`, "field-required", "`from` is required: the ID of the element that acts.");
+  if (!to) report(`${path}.to`, "field-required", "`to` is required: the ID of the element it calls or answers.");
+  if (!from || !to) return undefined;
+  const step: StepData = { from, to };
+  for (const key of ["description", "technology"] as const) {
+    const v = str(value[key], `${path}.${key}`, report);
+    if (v !== undefined) step[key] = v;
+  }
+  if (value.reply !== undefined) {
+    if (typeof value.reply === "boolean") {
+      if (value.reply) step.reply = true;
+    } else report(`${path}.reply`, "field-type", "Must be true or false.");
+  }
+  return step;
 }
 
 function readSticky(id: string, value: unknown, path: string, report: Report): StickyData | undefined {
@@ -414,16 +464,23 @@ function viewText(v: ViewData, indent: string): string {
   const entries: [string, string][] = [["title", JSON.stringify(v.title)]];
   if (present(v.description, (d) => d !== "")) entries.push(["description", JSON.stringify(v.description)]);
   entries.push(["level", JSON.stringify(v.level)]);
+  const sequence = v.level === "sequence";
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
-  entries.push(["include", inline(v.include ?? ["*"])]);
-  if (present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
+  if (!sequence) entries.push(["include", inline(v.include ?? ["*"])]);
+  if (!sequence && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
   if (present(v.notes, (n) => n !== "")) entries.push(["notes", JSON.stringify(v.notes)]);
+  if (sequence) {
+    const steps = (v.steps ?? []).map((s) =>
+      inline({ from: s.from, to: s.to, description: s.description || undefined, technology: s.technology || undefined, reply: s.reply || undefined }),
+    );
+    entries.push(["steps", steps.length ? `[\n${steps.map((s) => `${indent}    ${s}`).join(",\n")}\n${indent}  ]` : "[]"]);
+  }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();
     const sticky = (s: StickyData) => inline({ text: s.text, color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)) });
     entries.push(["stickies", block(keys.map((k) => [k, sticky(v.stickies![k]!)]), `${indent}  `)]);
   }
-  if (present(v.layout, (l) => Object.keys(l).length > 0)) {
+  if (!sequence && present(v.layout, (l) => Object.keys(l).length > 0)) {
     const keys = Object.keys(v.layout).sort();
     entries.push(["layout", block(keys.map((k) => [k, inline(v.layout![k]!.map((n) => Math.round(n)))]), `${indent}  `)]);
   }
