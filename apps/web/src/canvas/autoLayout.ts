@@ -14,9 +14,55 @@ export interface Point {
   y: number;
 }
 
+/** `load`, run the first time it's needed and kept, but run again the next time after it failed. */
+export function loadOnce<T>(load: () => Promise<T>): () => Promise<T> {
+  let loading: Promise<T> | undefined;
+  return () =>
+    (loading ??= load().catch((error: unknown) => {
+      loading = undefined;
+      throw error;
+    }));
+}
+
 // ELK is large, so it's loaded the first time a view needs laying out.
-let elk: Promise<ElkEngine> | undefined;
-const loadElk = () => (elk ??= import("elkjs/lib/elk.bundled.js").then(({ default: ELK }) => new ELK()));
+const loadElk = loadOnce(() => import("elkjs/lib/elk.bundled.js").then(({ default: ELK }) => new ELK()));
+
+/**
+ * Positions for every box, from ELK. When ELK can't lay them out, they go in rows (see
+ * gridLayout) and `failed` says so, so the diagram is still drawn. That happens when ELK's file
+ * can't be loaded: offline, or when the app was updated after the page was opened, since each
+ * update gives the file a new name and the old one is gone.
+ */
+export async function layOut(
+  nodes: { id: string; inside: boolean }[],
+  edges: { from: string; to: string }[],
+  layout = elkLayout,
+): Promise<{ positions: Record<string, Point>; failed: boolean }> {
+  try {
+    return { positions: await layout(nodes, edges), failed: false };
+  } catch {
+    return { positions: gridLayout(nodes), failed: true };
+  }
+}
+
+/** Positions in rows of four, for when ELK can't be used: the boxes outside the frame, then below them the ones inside it. */
+export function gridLayout(nodes: { id: string; inside: boolean }[]): Record<string, Point> {
+  const PER_ROW = 4;
+  const out: Record<string, Point> = {};
+  /** Puts the boxes in rows from `top` down, and says where the next one would start. */
+  const rows = (ids: string[], top: number) => {
+    ids.forEach((id, i) => (out[id] = { x: (i % PER_ROW) * (NODE_W + 70), y: top + Math.floor(i / PER_ROW) * (NODE_H + 110) }));
+    return top + Math.ceil(ids.length / PER_ROW) * (NODE_H + 110);
+  };
+  const outside = nodes.filter((n) => !n.inside).map((n) => n.id);
+  const below = rows(outside, 0);
+  // Room above the boxes inside for the frame's top edge.
+  rows(
+    nodes.filter((n) => n.inside).map((n) => n.id),
+    outside.length ? below + 60 : 0,
+  );
+  return out;
+}
 
 export async function elkLayout(nodes: { id: string; inside: boolean }[], edges: { from: string; to: string }[]): Promise<Record<string, Point>> {
   const box = (id: string): ElkNode => ({ id, width: NODE_W, height: NODE_H });

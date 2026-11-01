@@ -17,7 +17,7 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueId, type Rename } from "../model.js";
 import { ContextMenu, menuPoint, type MenuAction } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, measureLabelSizes, type ArrowEdge } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
@@ -53,6 +53,8 @@ interface CanvasProps {
   edit(edit: Edit): Promise<boolean>;
   /** A right-click on an element's box or on the frame, at that point on the screen. */
   onElementMenu(id: string, at: { x: number; y: number }): void;
+  /** A problem drawing the diagram, to tell the person about. */
+  onError(text: string): void;
   /** Every rename this render's IDs reflect, in order. */
   renames: Rename[];
 }
@@ -167,7 +169,7 @@ export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<strin
   return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, renames }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onError, renames }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -196,10 +198,14 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     if (!cv || !missing) return;
     let cancelled = false;
     const boundary = cv.boundary?.id;
-    void elkLayout(
+    void layOut(
       cv.nodes.map((n) => ({ id: n.id, inside: !!boundary && n.parent === boundary })),
       cv.edges,
-    ).then((positions) => !cancelled && setAuto({ key: graphKey, positions }));
+    ).then(({ positions, failed }) => {
+      if (cancelled) return;
+      if (failed) onError("Couldn't lay out the new boxes automatically, so they're in rows for now. Reload the page to try again.");
+      setAuto({ key: graphKey, positions });
+    });
     return () => {
       cancelled = true;
     };
