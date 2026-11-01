@@ -307,6 +307,7 @@ describe("renames", () => {
           { op: "add-element", id: "api-2", kind: "container", parent: "api" },
           { op: "rename", id: "api", to: "payments-api" },
           { op: "remove-relationship", from: "web", to: "api" },
+          { op: "update-relationship", from: "web", to: "db", index: 1, newFrom: "api", newTo: "orders" },
           { op: "add-view", id: "api", level: "container", scope: "api", include: ["*", "api"] },
           { op: "update-view", id: "orders", exclude: ["api"] },
           { op: "hide-in-view", view: "orders", id: "api" },
@@ -321,6 +322,7 @@ describe("renames", () => {
       { op: "add-element", id: "api-2", kind: "container", parent: "checkout-api" },
       { op: "rename", id: "checkout-api", to: "payments-api" },
       { op: "remove-relationship", from: "web", to: "checkout-api" },
+      { op: "update-relationship", from: "web", to: "db", index: 1, newFrom: "checkout-api", newTo: "order-flow" },
       { op: "add-view", id: "api", level: "container", scope: "checkout-api", include: ["*", "checkout-api"] },
       { op: "update-view", id: "order-flow", exclude: ["checkout-api"] },
       { op: "hide-in-view", view: "order-flow", id: "checkout-api" },
@@ -348,6 +350,7 @@ describe("renames", () => {
     const later = renamesIn([{ op: "rename", id: "api", to: "checkout-api" }]);
     expect(followRenames([{ op: "update-element", id: "api", name: "Checkout API" }], later)).toEqual([{ op: "update-element", id: "checkout-api", name: "Checkout API" }]);
     expect(Object.keys(followRenames([{ op: "update-view", id: "v", title: "V" }], later)[0]!)).toEqual(["op", "id", "title"]);
+    expect(Object.keys(followRenames([{ op: "update-relationship", from: "api", to: "db", description: "Reads" }], later)[0]!)).toEqual(["op", "from", "to", "description"]);
   });
 });
 

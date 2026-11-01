@@ -289,9 +289,10 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "rename":
         return { ...op, id: follow(op.id) };
       case "add-relationship":
-      case "update-relationship":
       case "remove-relationship":
         return { ...op, from: follow(op.from), to: follow(op.to) };
+      case "update-relationship":
+        return { ...op, from: follow(op.from), to: follow(op.to), ...(op.newFrom && { newFrom: follow(op.newFrom) }), ...(op.newTo && { newTo: follow(op.newTo) }) };
       case "add-view":
         return { ...op, ...(op.scope && { scope: follow(op.scope) }), ...lists(op) };
       case "update-view":

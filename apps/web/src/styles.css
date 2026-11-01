@@ -1169,6 +1169,70 @@ button.heading {
 .arrow-label.selected {
   border-color: var(--accent);
 }
+/* The grips on a selected arrow's start and end, to drag either to another box. The grip is
+   bigger than the dot it draws, so it's easy to grab, and bigger again on a touch screen. */
+.arrow-grip {
+  position: absolute;
+  left: -12px;
+  top: -12px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  pointer-events: all;
+  cursor: grab;
+  touch-action: none;
+}
+.arrow-grip::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+}
+.arrow-grip.moving {
+  opacity: 0;
+  cursor: grabbing;
+}
+@media (any-pointer: coarse) {
+  .arrow-grip {
+    left: -20px;
+    top: -20px;
+    width: 40px;
+    height: 40px;
+  }
+  .arrow-grip::before {
+    width: 12px;
+    height: 12px;
+  }
+}
+/* An arrow whose start or end is being dragged, drawn straight to the pointer. */
+.arrow-moving {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.arrow-moving path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.arrow-moving polyline,
+.arrow-moving circle {
+  fill: var(--accent);
+  stroke: var(--accent);
+  stroke-linejoin: round;
+}
+/* The box a moving end would go to. */
+.react-flow__node.drop-target .c4 {
+  outline-color: var(--accent);
+  outline-style: dashed;
+}
 .arrow-tech {
   color: var(--muted);
 }

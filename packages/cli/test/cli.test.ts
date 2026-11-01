@@ -140,6 +140,18 @@ describe("changing", () => {
     expect(cli(dir, "check").code).toBe(0);
   });
 
+  it("moves a relationship to other elements, keeping what it says", () => {
+    const dir = example();
+    const moved = cli(dir, "update-relationship", "checkout-controller", "warehouse", "--new-from", "order-repository", "--new-to", "payment-provider");
+    expect(moved).toMatchObject({ code: 0, out: expect.stringContaining("moved relationship checkout-controller -> warehouse to order-repository -> payment-provider\n") });
+    const doc = JSON.parse(read(dir));
+    expect(doc.elements["checkout-controller"].uses.map((u: { to: string }) => u.to)).toEqual(["order-repository", "payment-client"]);
+    expect(doc.elements["order-repository"].uses[1]).toEqual({ to: "payment-provider", description: "Reserves stock", technology: "gRPC" });
+    expect(read(dir, "docs/views/checkout-api-components.md")).toContain('order_repository -->|"Reserves stock<br/>[gRPC]"| payment_provider');
+    expect(cli(dir, "update-relationship", "web-app", "checkout-controller", "--new-to", "web-app").err).toBe("open-arch: An element can't use itself.\n");
+    expect(cli(dir, "update-relationship", "--help").out).toContain("--new-from and --new-to move it");
+  });
+
   it("removes fields with empty values and hides elements from views", () => {
     const dir = example();
     expect(cli(dir, "update-element", "web-app", "--technology", "", "--tag", "frontend").code).toBe(0);

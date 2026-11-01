@@ -189,6 +189,9 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
         </button>
       </p>
       {edge.implied && <p className="muted small">This arrow stands for relationships between elements inside these boxes. Edit them here or on those elements.</p>}
+      <p className="muted small">
+        Drag the dot at either end of the arrow to another box to move that end there.{edge.sources.length > 1 && " Every relationship the arrow stands for moves with it."}
+      </p>
       <ul className="rels">
         {edge.sources.map(({ element, index }) => {
           const source = ws.elements.get(element);

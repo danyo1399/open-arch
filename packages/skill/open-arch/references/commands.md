@@ -37,7 +37,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `remove-element <id>` | Also removes what's inside it, views scoped to them, and every reference |
 | `rename <old-id> <new-id>` | Works for elements and views; updates every reference |
 | `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
-| `update-relationship <from> <to>` | `--index <n>`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
+| `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
 | `add-view <id>` | `--level <landscape\|context\|container\|component>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->` |
 | `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--notes`, `--notes-file` |
@@ -67,7 +67,7 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `remove-element` | **id** |
 | `rename` | **id**, **to** |
 | `add-relationship` | **from**, **to**, description, technology, tags, notes |
-| `update-relationship` | **from**, **to**, index, description, technology, tags (merged, like an element's), notes |
+| `update-relationship` | **from**, **to**, index, newFrom, newTo (the elements it moves to), description, technology, tags (merged, like an element's), notes |
 | `remove-relationship` | **from**, **to**, index |
 | `add-view` | **id**, **level**, scope, title, description, include, exclude, notes |
 | `update-view` | **id**, title, description, include, exclude, notes |

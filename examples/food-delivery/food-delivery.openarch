@@ -280,7 +280,7 @@
       "stickies": {
         "about": { "text": "Views don't copy the model, they pick from it. This one lists exactly which elements to show (its include list), so it tells one story: placing an order.", "color": "blue", "at": [0, 0] },
         "shared": { "text": "Rename a box here and it changes in every view, because there's only one model underneath.", "at": [840, 230] },
-        "try": { "text": "Your turn! Use + Add, or right-click the diagram, to add a container or a sticky note. Drag from the dot under a box to another box to draw an arrow, and double-click a note to edit it. Undo takes anything back.", "color": "green", "at": [840, 650] }
+        "try": { "text": "Your turn! Use + Add, or right-click the diagram, to add a container or a sticky note. Drag from the dot under a box to another box to draw an arrow, or select an arrow and drag the dot at either end to move it. Double-click a note to edit it. Undo takes anything back.", "color": "green", "at": [840, 650] }
       },
       "layout": {
         "customer": [320, 0],

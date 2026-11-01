@@ -180,6 +180,8 @@ export const BUILDERS: Record<string, Builder> = {
         from: from!,
         to: to!,
         index: index(v.index),
+        newFrom: text(v["new-from"]),
+        newTo: text(v["new-to"]),
         description: clearable(v.description),
         technology: clearable(v.technology),
         tags: tags(v),

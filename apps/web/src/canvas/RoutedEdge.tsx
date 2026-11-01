@@ -3,8 +3,12 @@
  * with rounded corners, and labelled where the canvas places their labels.
  */
 import type { ViewEdge } from "@open-arch/core";
-import { BaseEdge, EdgeLabelRenderer, type Edge, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, useReactFlow, ViewportPortal, type Edge, type EdgeProps } from "@xyflow/react";
+import { useEffect, useRef, type PointerEvent } from "react";
 import type { Point } from "./autoLayout.js";
+
+/** An arrow's start, at the box it's from, or its end, at the box it points to. */
+export type ArrowEnd = "from" | "to";
 
 export type ArrowData = {
   edge: ViewEdge;
@@ -15,8 +19,17 @@ export type ArrowData = {
   /** Where the route crosses other arrows, along its horizontal runs (see crossings in routing.ts). */
   crossings: Point[];
   onSelect(): void;
+  /** A selected arrow's start or end is being dragged, and is at this point on the diagram. */
+  onEndDrag(end: ArrowEnd, at: Point): void;
+  /** The start or end let go at this point on the diagram, or null when the drag was cancelled. */
+  onEndDrop(end: ArrowEnd, at: Point | null): void;
+  /** The end being dragged, while one is. The canvas draws the arrow then, from its other end. */
+  moving?: ArrowEnd;
 };
 export type ArrowEdge = Edge<ArrowData, "arrow">;
+
+/** How far, in pixels, a grip at an arrow's end moves before it's dragged, so a click that wobbles does nothing. */
+const DRAG_DISTANCE = 4;
 
 const CORNER = 8;
 /** Radius of the little arc a route draws to hop over an arrow it crosses. */
@@ -213,14 +226,76 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
   return each.map((at) => (at.length ? sizesAt((_, k) => measured.get(at[k]!.key)!) : []));
 }
 
+/**
+ * A grip on each end of a selected arrow, to drag that end to another box. The grips are over the
+ * boxes, so the half of each on its box can be grabbed too. A grip keeps the pointer while it's
+ * dragged, and reports where it is; the canvas draws the arrow being moved, and moves it.
+ */
+function EndGrips({ data }: { data: ArrowData }) {
+  const rf = useReactFlow();
+  const drag = useRef<{ end: ArrowEnd; pointer: number; x: number; y: number; moving: boolean } | null>(null);
+  const latest = useRef(data);
+  latest.current = data;
+  // Grips taken away mid-drag, as when the arrow leaves the view, hear no more of the pointer.
+  useEffect(
+    () => () => {
+      const d = drag.current;
+      if (d?.moving) latest.current.onEndDrop(d.end, null);
+    },
+    [],
+  );
+  const { points } = data;
+  const at = (e: PointerEvent) => rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+  const stop = (dropped: Point | null) => {
+    const d = drag.current;
+    drag.current = null;
+    if (d?.moving) data.onEndDrop(d.end, dropped);
+  };
+  const grip = (end: ArrowEnd, p: Readonly<Point>) => (
+    <div
+      key={end}
+      className={`arrow-grip nodrag nopan${data.moving === end ? " moving" : ""}`}
+      style={{ transform: `translate(${p.x}px, ${p.y}px)` }}
+      title={end === "from" ? "Drag to another box to start the arrow there" : "Drag to another box to point the arrow there"}
+      onPointerDown={(e) => {
+        if (e.button !== 0 || drag.current) return;
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = { end, pointer: e.pointerId, x: e.clientX, y: e.clientY, moving: false };
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d || d.pointer !== e.pointerId) return;
+        if (!d.moving && Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_DISTANCE) return;
+        d.moving = true;
+        data.onEndDrag(end, at(e));
+      }}
+      onPointerUp={(e) => drag.current?.pointer === e.pointerId && stop(at(e))}
+      onPointerCancel={(e) => drag.current?.pointer === e.pointerId && stop(null)}
+      onLostPointerCapture={(e) => drag.current?.pointer === e.pointerId && stop(null)}
+      // The click that ends a drag would select the arrow as it was.
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+  return (
+    <ViewportPortal>
+      {grip("from", points[0]!)}
+      {grip("to", points[points.length - 1]!)}
+    </ViewportPortal>
+  );
+}
+
 export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {
   if (!data || data.points.length < 2) return null;
-  const { edge, points, label } = data;
+  const { edge, points, label, moving } = data;
 
   return (
     <>
-      <BaseEdge id={id} path={pathThrough(points, data.crossings)} markerEnd={markerEnd} className={`arrow${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`} interactionWidth={18} />
-      {label && (
+      {!moving && (
+        <BaseEdge id={id} path={pathThrough(points, data.crossings)} markerEnd={markerEnd} className={`arrow${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`} interactionWidth={18} />
+      )}
+      {selected && <EndGrips data={data} />}
+      {label && !moving && (
         <EdgeLabelRenderer>
           <div
             className={`arrow-label nodrag nopan${selected ? " selected" : ""}`}

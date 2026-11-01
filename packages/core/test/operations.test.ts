@@ -104,7 +104,7 @@ describe("relationships", () => {
     doc = apply(doc, { op: "update-relationship", from: "api", to: "db", notes: null });
     expect(doc.elements.api!.uses).toEqual([{ to: "db", description: "Reads stock" }]);
     expect(apply(doc, { op: "update-relationship", from: "api", to: "db", notes: " " }).elements.api!.uses).toEqual([{ to: "db", description: "Reads stock" }]);
-    expect(fails(doc, { op: "update-relationship", from: "api", to: "db" })).toBe("Say what to change: description, technology, tags or notes.");
+    expect(fails(doc, { op: "update-relationship", from: "api", to: "db" })).toBe("Say what to change: newFrom, newTo, description, technology, tags or notes.");
   });
 
   it("merges a relationship's tags", () => {
@@ -117,6 +117,57 @@ describe("relationships", () => {
     expect(fails(shop(), { op: "add-relationship", from: "api", to: "controller" })).toMatch(/contain one another/);
     expect(fails(shop(), { op: "add-relationship", from: "api", to: "api" })).toMatch(/itself/);
     expect(fails(shop(), { op: "add-relationship", from: "controller", to: "db", description: "Stores orders" })).toMatch(/already has/);
+  });
+
+  it("points a relationship at another element, keeping its place and its fields", () => {
+    const doc = shop();
+    doc.elements.controller!.uses![0]!.tags = { owner: "orders" };
+    doc.elements.controller!.uses![0]!.notes = "Writes in one transaction.";
+    const after = applyOperations(doc, [{ op: "update-relationship", from: "controller", to: "db", newTo: "web-app" }]);
+    expect(after.doc.elements.controller!.uses).toEqual([
+      { to: "web-app", description: "Stores orders", technology: "SQL", tags: { owner: "orders" }, notes: "Writes in one transaction." },
+      { to: "payments", description: "Charges cards" },
+    ]);
+    expect(after.summary).toEqual(["moved relationship controller -> db to controller -> web-app"]);
+  });
+
+  it("moves a relationship to another element, after the ones it has, and can change its fields too", () => {
+    const after = apply(shop(), { op: "update-relationship", from: "controller", to: "payments", newFrom: "web-app", technology: "HTTPS" });
+    expect(after.elements.controller!.uses).toEqual([{ to: "db", description: "Stores orders", technology: "SQL" }]);
+    expect(after.elements["web-app"]!.uses).toEqual([
+      { to: "controller", description: "Places orders" },
+      { to: "payments", description: "Charges cards", technology: "HTTPS" },
+    ]);
+    // Both ends at once, and the last one an element had.
+    const both = apply(shop(), { op: "update-relationship", from: "customer", to: "web-app", newFrom: "payments", newTo: "api" });
+    expect(both.elements.customer).not.toHaveProperty("uses");
+    expect(both.elements.payments!.uses).toEqual([{ to: "api", description: "Buys things", technology: "HTTPS" }]);
+    // Ends it already has are no change.
+    expect(apply(shop(), { op: "update-relationship", from: "customer", to: "web-app", newFrom: "customer", newTo: "web-app" })).toEqual(shop());
+  });
+
+  it("moves the relationship it's told to when there's more than one to the same element", () => {
+    let doc = apply(shop(), { op: "add-relationship", from: "controller", to: "db", description: "Reads reports" });
+    doc = apply(doc, { op: "update-relationship", from: "controller", to: "db", index: 1, newTo: "web-app" });
+    expect(doc.elements.controller!.uses!.map((u) => `${u.to}: ${u.description}`)).toEqual(["db: Stores orders", "payments: Charges cards", "web-app: Reads reports"]);
+  });
+
+  it("refuses new ends no view could draw, ones that aren't elements, and duplicates", () => {
+    expect(fails(shop(), { op: "update-relationship", from: "controller", to: "db", newTo: "api" })).toMatch(/contain one another/);
+    expect(fails(shop(), { op: "update-relationship", from: "controller", to: "db", newTo: "controller" })).toMatch(/itself/);
+    expect(fails(shop(), { op: "update-relationship", from: "customer", to: "web-app", newFrom: "web-app" })).toMatch(/itself/);
+    expect(fails(shop(), { op: "update-relationship", from: "controller", to: "db", newTo: "dbb" })).toBe('No element has the ID "dbb". Did you mean "db"?');
+    expect(fails(shop(), { op: "update-relationship", from: "controller", to: "db", newFrom: "paymnts" })).toMatch(/Did you mean "payments"/);
+    const doc = apply(shop(), { op: "add-relationship", from: "api", to: "db", description: "Stores orders" });
+    expect(fails(doc, { op: "update-relationship", from: "api", to: "db", newFrom: "controller" })).toBe('"controller" already has this relationship to "db".');
+    // A different description makes it a different relationship.
+    expect(apply(doc, { op: "update-relationship", from: "api", to: "db", newFrom: "controller", description: "Reads stock" }).elements.controller!.uses).toHaveLength(3);
+  });
+
+  it("checks new ends sent as JSON", () => {
+    expect(parseOperations({ op: "update-relationship", from: "a", to: "b", newTo: "c" })).toEqual([{ op: "update-relationship", from: "a", to: "b", newTo: "c" }]);
+    expect(() => parseOperations({ op: "update-relationship", from: "a", to: "b", newTo: null })).toThrow('update-relationship: "newTo" must be a string.');
+    expect(() => parseOperations({ op: "update-relationship", from: "a", to: "b", newto: "c" })).toThrow(/Did you mean "newTo"/);
   });
 
   it("asks which relationship when there's more than one to the same element", () => {

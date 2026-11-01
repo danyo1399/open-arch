@@ -1,4 +1,19 @@
-import { computeView, diagnosticTarget, KIND_RANK, kindLabel, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Operation, type Position, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import {
+  computeView,
+  diagnosticTarget,
+  KIND_RANK,
+  kindLabel,
+  scopeProblems,
+  type ArchElement,
+  type Diagnostic,
+  type ElementKind,
+  type Operation,
+  type Position,
+  type Sticky,
+  type ViewDef,
+  type ViewEdge,
+  type Workspace,
+} from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -9,18 +24,19 @@ import {
   ReactFlow,
   applyNodeChanges,
   useReactFlow,
+  ViewportPortal,
   type Connection,
   type FitViewOptions,
   type NodeChange,
 } from "@xyflow/react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
+import { relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
 import { ContextMenu, menuPoint, type MenuAction } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
-import { edgeTypes, measureLabelSizes, type ArrowEdge } from "./RoutedEdge.js";
+import { edgeTypes, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 
 /** What's selected. `several` is two or more boxes and sticky notes on the open view, which move together. */
@@ -65,6 +81,8 @@ export function fitBelowToolbar(options: { padding: number; maxZoom?: number }, 
 export const SELECTED_LIFT = 1000;
 /** A note's z-index: above the arrows and boxes, even a selected box, like a note stuck on a printed diagram. */
 export const STICKY_Z = SELECTED_LIFT + 1;
+/** An arrow being drawn, or one whose end is being moved, stays over everything, as React Flow means a new one to, even a selected note. */
+const DRAWING_Z = STICKY_Z + SELECTED_LIFT + 1;
 /** Any touch screen, as in styles.css, where sticky notes are drawn bigger. */
 const TOUCH = "(any-pointer: coarse)";
 
@@ -138,6 +156,32 @@ export function moveOps(view: string, layout: Record<string, Position> | null, n
     ...(layout ? [{ op: "set-layout" as const, view, positions: layout }] : []),
     ...Object.entries(notes).map(([id, at]) => ({ op: "update-sticky" as const, view, id, at })),
   ];
+}
+
+/** The box at this point on the diagram, if there is one: the one drawn on top, where boxes overlap. The frame isn't a box. */
+export function boxAt(nodes: FlowNode[], at: Point): ElementFlowNode | undefined {
+  return nodes.findLast((n): n is ElementFlowNode => {
+    if (n.type !== "element") return false;
+    const { x, y } = n.position;
+    return at.x >= x && at.x <= x + (n.measured?.width ?? NODE_W) && at.y >= y && at.y <= y + (n.measured?.height ?? NODE_H);
+  });
+}
+
+/**
+ * The edit that moves an arrow's start or end to another box: each relationship the arrow stands
+ * for then starts or ends at that box's element, and keeps the element at its other end. An
+ * operation names a relationship by its place among the ones from its element to the same target,
+ * and moving one takes it out of them, so each names its place among the ones still left.
+ */
+export function reconnectOps(ws: Workspace, edge: ViewEdge, end: ArrowEnd, box: string): Operation[] {
+  const moved = new Map<string, number>();
+  return edge.sources.map(({ element, index }) => {
+    const ref = relationshipRef(ws.elements.get(element)!, index);
+    const key = `${ref.from}\u0000${ref.to}`;
+    const before = moved.get(key) ?? 0;
+    moved.set(key, before + 1);
+    return { op: "update-relationship", ...ref, index: ref.index - before, ...(end === "from" ? { newFrom: box } : { newTo: box }) };
+  });
 }
 
 /** The nodes with a frame round the boxes inside the boundary. `selected` sets its highlight; left out, the frame keeps the one it had. */
@@ -375,6 +419,44 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     return { routes, labels, crossed: crossings(routes) };
   }, [nodes, cv, sizes, stickySize, elementOfNode]);
 
+  /** Every box's position as shown now, including ones placed automatically. */
+  const currentLayout = useCallback((): Record<string, Position> => {
+    const out: Record<string, Position> = {};
+    for (const n of nodesRef.current) if (n.type === "element") out[elementOfNode(n)] = [Math.round(n.position.x), Math.round(n.position.y)];
+    return out;
+  }, [elementOfNode]);
+
+  /** A selected arrow's start or end being dragged to another box: the arrow, which end, and where it is on the diagram. */
+  const [moving, setMoving] = useState<{ edge: ViewEdge; end: ArrowEnd; at: Point } | null>(null);
+  const movingArrow = moving && arrowId(moving.edge);
+  const movingEnd = moving?.end;
+
+  /** The box an arrow's end dropped here moves it to: not the box at that end already, or the one at its other end. */
+  const dropBox = useCallback(
+    (edge: ViewEdge, at: Point) => {
+      const box = boxAt(nodesRef.current, at);
+      const id = box && elementOfNode(box);
+      return box && id !== edge.from && id !== edge.to ? box : undefined;
+    },
+    [elementOfNode],
+  );
+
+  // An arrow's start or end let go on another box moves the relationships it stands for there,
+  // as one step for Undo, and selects the arrow they make. The boxes stay where they are: a view
+  // with boxes placed automatically would otherwise be laid out again, as its arrows changed.
+  const dropEnd = useCallback(
+    (edge: ViewEdge, end: ArrowEnd, at: Point | null) => {
+      setMoving(null);
+      const box = at && dropBox(edge, at);
+      if (!box) return;
+      const id = elementOfNode(box);
+      void edit([...reconnectOps(ws, edge, end, id), { op: "set-layout", view: view.id, positions: currentLayout() }]).then(
+        (ok) => ok && onSelect({ kind: "arrow", from: end === "from" ? id : edge.from, to: end === "to" ? id : edge.to }),
+      );
+    },
+    [dropBox, elementOfNode, edit, ws, view.id, currentLayout, onSelect],
+  );
+
   const edges = useMemo<ArrowEdge[]>(
     () =>
       cv?.edges.map((e) => {
@@ -392,10 +474,13 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
             label: labels.get(id),
             crossings: crossed.get(id) ?? [],
             onSelect: () => onSelect({ kind: "arrow", from: e.from, to: e.to }),
+            onEndDrag: (end, at) => setMoving({ edge: e, end, at }),
+            onEndDrop: (end, at) => dropEnd(e, end, at),
+            moving: movingArrow === id ? movingEnd : undefined,
           },
         };
       }) ?? [],
-    [cv, nodeIdOf, routes, labels, crossed, selection, onSelect],
+    [cv, nodeIdOf, routes, labels, crossed, selection, onSelect, dropEnd, movingArrow, movingEnd],
   );
 
   /** Fit the diagram to the canvas, below the toolbar. */
@@ -408,6 +493,16 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     },
     [rf],
   );
+
+  /** The box a moving end would go to, outlined while it's over it. */
+  const dropOn = moving ? dropBox(moving.edge, moving.at)?.id : undefined;
+  const drawnNodes = useMemo(() => (dropOn ? nodes.map((n) => (n.id === dropOn ? { ...n, className: "drop-target" } : n)) : nodes), [nodes, dropOn]);
+  /** The arrow whose end is moving, drawn straight from its other end to where the moving end is. */
+  const movingRoute = moving ? routes.get(arrowId(moving.edge)) : undefined;
+  const movingLine =
+    moving && movingRoute && movingRoute.length >= 2
+      ? { from: moving.end === "from" ? moving.at : movingRoute[0]!, to: moving.end === "to" ? moving.at : movingRoute[movingRoute.length - 1]! }
+      : null;
 
   // Fit the diagram to the window once per view, after its boxes have been measured.
   const fitted = useRef<string | null>(null);
@@ -468,13 +563,6 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     },
     [cv],
   );
-
-  /** Every box's position as shown now, including ones placed automatically. */
-  const currentLayout = useCallback((): Record<string, Position> => {
-    const out: Record<string, Position> = {};
-    for (const n of nodesRef.current) if (n.type === "element") out[elementOfNode(n)] = [Math.round(n.position.x), Math.round(n.position.y)];
-    return out;
-  }, [elementOfNode]);
 
   /** The boxes and notes these nodes draw. */
   const shapesOf = (nodes: FlowNode[]): Shapes => ({
@@ -578,7 +666,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   return (
     <div className="canvas" ref={wrapper} onClick={clickPane}>
       <ReactFlow<FlowNode, ArrowEdge>
-        nodes={nodes}
+        nodes={drawnNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -633,7 +721,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         }}
         connectionMode={ConnectionMode.Loose}
         // The arrow being drawn stays over everything, as React Flow means it to, even a selected note.
-        connectionLineContainerStyle={{ zIndex: STICKY_Z + SELECTED_LIFT + 1 }}
+        connectionLineContainerStyle={{ zIndex: DRAWING_Z }}
         deleteKeyCode={null}
         selectionKeyCode={null}
         multiSelectionKeyCode={MULTI_KEYS}
@@ -642,6 +730,19 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+        {movingLine && (
+          <ViewportPortal>
+            <svg className="arrow-moving" style={{ zIndex: DRAWING_Z }} aria-hidden="true">
+              <defs>
+                <marker id="arrow-moving-head" viewBox="-10 -10 20 20" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+                  <polyline points="-5,-4 0,0 -5,4 -5,-4" />
+                </marker>
+              </defs>
+              <path d={`M ${movingLine.from.x} ${movingLine.from.y} L ${movingLine.to.x} ${movingLine.to.y}`} markerEnd="url(#arrow-moving-head)" />
+              {moving?.end === "from" && <circle cx={movingLine.from.x} cy={movingLine.from.y} r={5} />}
+            </svg>
+          </ViewportPortal>
+        )}
         {/* The fit button fits the view with its own options, then calls onFitView. React Flow fits
             once, with the last options it was asked for, so these are the ones it uses. */}
         <Controls showInteractive={false} onFitView={() => fitDiagram(FIT_BUTTON)} />

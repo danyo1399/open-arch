@@ -38,7 +38,7 @@ export type Operation =
   | { op: "remove-element"; id: string }
   | { op: "rename"; id: string; to: string }
   | { op: "add-relationship"; from: string; to: string; description?: string; technology?: string; tags?: Tags; notes?: string }
-  | { op: "update-relationship"; from: string; to: string; index?: number; description?: string | null; technology?: string | null; tags?: TagChanges; notes?: string | null }
+  | { op: "update-relationship"; from: string; to: string; index?: number; newFrom?: string; newTo?: string; description?: string | null; technology?: string | null; tags?: TagChanges; notes?: string | null }
   | { op: "remove-relationship"; from: string; to: string; index?: number }
   | { op: "add-view"; id: string; level: ViewLevel; scope?: string; title?: string; description?: string; include?: string[]; exclude?: string[]; notes?: string }
   | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[]; notes?: string | null }
@@ -81,7 +81,7 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", description: "string", technology: "string", tags: "tags", notes: "string" } },
   "update-relationship": {
     required: ["from", "to"],
-    fields: { from: "string", to: "string", index: "index", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
+    fields: { from: "string", to: "string", index: "index", newFrom: "string", newTo: "string", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
   },
   "remove-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", index: "index" } },
   "add-view": {
@@ -373,11 +373,7 @@ function rename(doc: OpenArchDocument, from: string, to: string): string {
 function addRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "add-relationship" }>): string {
   const from = requireElement(doc, op.from);
   requireElement(doc, op.to);
-  if (op.from === op.to) throw new OpError("An element can't use itself.");
-  const ws = buildWorkspace(doc);
-  if (isInside(ws, op.from, op.to) || isInside(ws, op.to, op.from)) {
-    throw new OpError(`"${op.from}" and "${op.to}" contain one another, so no view could draw the relationship. Point it at a sibling or at something outside instead.`);
-  }
+  checkEnds(doc, op.from, op.to);
   const description = op.description?.trim() || undefined;
   if (from.uses?.some((r) => r.to === op.to && (r.description || undefined) === description)) {
     throw new OpError(`"${op.from}" already has this relationship to "${op.to}". Use update-relationship to change it.`);
@@ -389,9 +385,13 @@ function addRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "ad
   return `added relationship ${op.from} -> ${op.to}`;
 }
 
+/**
+ * Changes a relationship's fields, and its ends: `newFrom` moves it to another element's `uses`,
+ * at the end, and `newTo` points it at another element. It keeps its description, technology, tags and notes.
+ */
 function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "update-relationship" }>): string {
-  if (op.description === undefined && op.technology === undefined && op.tags === undefined && op.notes === undefined) {
-    throw new OpError("Say what to change: description, technology, tags or notes.");
+  if (op.newFrom === undefined && op.newTo === undefined && op.description === undefined && op.technology === undefined && op.tags === undefined && op.notes === undefined) {
+    throw new OpError("Say what to change: newFrom, newTo, description, technology, tags or notes.");
   }
   const { element, position } = findRelationship(doc, op.from, op.to, op.index);
   const rel = element.uses![position]!;
@@ -406,7 +406,21 @@ function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: 
     if (tags) rel.tags = tags;
     else delete rel.tags;
   }
-  return `updated relationship ${op.from} -> ${op.to}`;
+  const [from, to] = [op.newFrom ?? op.from, op.newTo ?? op.to];
+  if (from === op.from && to === op.to) return `updated relationship ${op.from} -> ${op.to}`;
+  const source = requireElement(doc, from);
+  requireElement(doc, to);
+  checkEnds(doc, from, to);
+  if (source.uses?.some((r) => r !== rel && r.to === to && (r.description || undefined) === (rel.description || undefined))) {
+    throw new OpError(`"${from}" already has this relationship to "${to}".`);
+  }
+  rel.to = to;
+  if (from !== op.from) {
+    element.uses!.splice(position, 1);
+    if (element.uses!.length === 0) delete element.uses;
+    source.uses = [...(source.uses ?? []), rel];
+  }
+  return `moved relationship ${op.from} -> ${op.to} to ${from} -> ${to}`;
 }
 
 function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" }>): string {
@@ -650,6 +664,15 @@ function checkIds(doc: OpenArchDocument, ids: string[] | undefined, field: strin
       const near = suggest(id, Object.keys(doc.elements));
       throw new OpError(`"${id}" in ${field} isn't an element.${near ? ` Did you mean "${near}"?` : ""}`);
     }
+  }
+}
+
+/** Refuses a relationship no view could draw: from an element to itself, or between an element and something inside it. */
+function checkEnds(doc: OpenArchDocument, from: string, to: string): void {
+  if (from === to) throw new OpError("An element can't use itself.");
+  const ws = buildWorkspace(doc);
+  if (isInside(ws, from, to) || isInside(ws, to, from)) {
+    throw new OpError(`"${from}" and "${to}" contain one another, so no view could draw the relationship. Point it at a sibling or at something outside instead.`);
   }
 }
 

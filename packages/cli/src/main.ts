@@ -159,14 +159,17 @@ Adds "<from> uses <to>". Describe it from <from>'s side, e.g. "Reads and writes 
     { description: s, technology: s, tag: many, notes: s, "notes-file": s },
   ),
   "update-relationship": writer(
-    `Usage: open-arch update-relationship <from> <to> [--index <n>] [--description <text>] [--technology <text>]
+    `Usage: open-arch update-relationship <from> <to> [--index <n>] [--new-from <id>] [--new-to <id>]
+                                    [--description <text>] [--technology <text>]
                                     [--tag <name[=value]>]... [--remove-tag <name>]... [--notes <markdown>]
 
 --index picks one when <from> has several relationships to <to> (0 is the first).
+--new-from and --new-to move it to another element at either end. It keeps its
+description, technology, tags and notes.
 --notes takes markdown, or use --notes-file <path> (- for stdin).
 An empty value removes a field.
 `,
-    { index: s, description: s, technology: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
+    { index: s, "new-from": s, "new-to": s, description: s, technology: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
   ),
   "remove-relationship": writer(
     `Usage: open-arch remove-relationship <from> <to> [--index <n>]
