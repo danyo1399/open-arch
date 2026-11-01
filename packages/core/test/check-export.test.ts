@@ -67,8 +67,33 @@ describe("exportDocs", () => {
     const doc = shop();
     doc.views.landscape!.stickies = { later: { text: "Unplaced." }, second: { text: "Lower\n\nright.", at: [300, 100] }, first: { text: "Top.", at: [900, 0] } };
     const text = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "views/landscape.md")!.content;
-    expect(text).toContain("```\n\n## Notes\n\n> Top.\n\n> Lower\n>\n> right.\n\n> Unplaced.\n\n## Elements");
-    expect(page("views/landscape.md")).not.toContain("## Notes");
+    expect(text).toContain("```\n\n## Sticky notes\n\n> Top.\n\n> Lower\n>\n> right.\n\n> Unplaced.\n\n## Elements");
+    expect(page("views/landscape.md")).not.toContain("## Sticky notes");
+  });
+
+  it("puts a view's notes, as markdown, after its description", () => {
+    const doc = shop();
+    doc.views.landscape!.description = "Everything.";
+    doc.views.landscape!.notes = "Drawn for **new starters**.\n\n- Start at the customer.";
+    const text = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "views/landscape.md")!.content;
+    expect(text).toContain("Landscape view.\n\nEverything.\n\nDrawn for **new starters**.\n\n- Start at the customer.\n\n```mermaid\n");
+  });
+
+  it("puts a relationship's notes, as markdown, under each table that lists it", () => {
+    const doc = shop();
+    doc.elements.controller!.uses![0]!.notes = "Over a **pooled** connection.\n\n- Retries twice.";
+    doc.elements.controller!.uses![1]!.description = undefined;
+    doc.elements.controller!.uses![1]!.notes = "Only for card payments.";
+    const docs = exportDocs(buildWorkspace(doc), "shop.openarch");
+    const at = (path: string) => docs.find((f) => f.path === path)!.content;
+    const stores = "### Controller → DB: Stores orders\n\nOver a **pooled** connection.\n\n- Retries twice.";
+    expect(at("elements/controller.md")).toContain(`| [Payments](payments.md) |  |  |\n\n${stores}\n\n### Controller → Payments\n\nOnly for card payments.\n\n## Used by`);
+    expect(at("elements/db.md")).toContain(`| [Controller](controller.md) | Stores orders | SQL |\n\n${stores}\n\n## Shown in`);
+    expect(at("elements/web-app.md")).not.toContain("###");
+    // The container view draws the controller's relationships as arrows from the API, and names them as they are.
+    expect(at("views/shop-containers.md")).toContain(`| [API](../elements/api.md) | [DB](../elements/db.md) | Stores orders | SQL |\n`);
+    expect(at("views/shop-containers.md")).toContain(`\n\n${stores}\n\n### Controller → Payments\n\nOnly for card payments.\n\n[All views and elements]`);
+    expect(page("views/shop-containers.md")).not.toContain("###");
   });
 
   it("puts relationships, contents and views in element pages", () => {

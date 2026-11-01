@@ -52,7 +52,7 @@ flowchart TB
   style delivery_platform_boundary fill:none,stroke:#444444,stroke-dasharray:5 5
 ```
 
-## Notes
+## Sticky notes
 
 > A container view looks inside one system. The dashed frame is the Delivery Platform: its containers are inside, and the people and systems they talk to are outside.
 

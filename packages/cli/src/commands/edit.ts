@@ -166,27 +166,52 @@ export const BUILDERS: Record<string, Builder> = {
     const [id, to] = need(p, ["<old-id>", "<new-id>"], usage);
     return [{ op: "rename", id: id!, to: to! }];
   },
-  "add-relationship": (_io, v, p, usage) => {
+  "add-relationship": (io, v, p, usage) => {
     const [from, to] = need(p, ["<from>", "<to>"], usage);
-    return [{ op: "add-relationship", from: from!, to: to!, description: text(v.description), technology: text(v.technology), tags: tags(v) as Tags | undefined }];
+    return [
+      { op: "add-relationship", from: from!, to: to!, description: text(v.description), technology: text(v.technology), tags: tags(v) as Tags | undefined, notes: notes(io, v) ?? undefined },
+    ];
   },
-  "update-relationship": (_io, v, p, usage) => {
+  "update-relationship": (io, v, p, usage) => {
     const [from, to] = need(p, ["<from>", "<to>"], usage);
-    return [{ op: "update-relationship", from: from!, to: to!, index: index(v.index), description: clearable(v.description), technology: clearable(v.technology), tags: tags(v) }];
+    return [
+      {
+        op: "update-relationship",
+        from: from!,
+        to: to!,
+        index: index(v.index),
+        description: clearable(v.description),
+        technology: clearable(v.technology),
+        tags: tags(v),
+        notes: notes(io, v),
+      },
+    ];
   },
   "remove-relationship": (_io, v, p, usage) => {
     const [from, to] = need(p, ["<from>", "<to>"], usage);
     return [{ op: "remove-relationship", from: from!, to: to!, index: index(v.index) }];
   },
-  "add-view": (_io, v, p, usage) => {
+  "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
     if (!level) throw new CliError(`Pass --level: landscape, context, container or component.\n\n${usage}`, 2);
-    return [{ op: "add-view", id: id!, level: level as never, scope: text(v.scope), title: text(v.title), description: text(v.description), include: list(v.include), exclude: list(v.exclude) }];
+    return [
+      {
+        op: "add-view",
+        id: id!,
+        level: level as never,
+        scope: text(v.scope),
+        title: text(v.title),
+        description: text(v.description),
+        include: list(v.include),
+        exclude: list(v.exclude),
+        notes: notes(io, v) ?? undefined,
+      },
+    ];
   },
-  "update-view": (_io, v, p, usage) => {
+  "update-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
-    return [{ op: "update-view", id: id!, title: text(v.title), description: clearable(v.description), include: list(v.include), exclude: list(v.exclude) }];
+    return [{ op: "update-view", id: id!, title: text(v.title), description: clearable(v.description), include: list(v.include), exclude: list(v.exclude), notes: notes(io, v) }];
   },
   "remove-view": (_io, _v, p, usage) => [{ op: "remove-view", id: need(p, ["<id>"], usage)[0]! }],
   "show-in-view": (_io, _v, p, usage) => {

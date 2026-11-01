@@ -37,11 +37,11 @@ export type Operation =
   | { op: "update-element"; id: string; name?: string; parent?: string; description?: string | null; technology?: string | null; external?: boolean; shape?: ElementShape | null; tags?: TagChanges; notes?: string | null }
   | { op: "remove-element"; id: string }
   | { op: "rename"; id: string; to: string }
-  | { op: "add-relationship"; from: string; to: string; description?: string; technology?: string; tags?: Tags }
-  | { op: "update-relationship"; from: string; to: string; index?: number; description?: string | null; technology?: string | null; tags?: TagChanges }
+  | { op: "add-relationship"; from: string; to: string; description?: string; technology?: string; tags?: Tags; notes?: string }
+  | { op: "update-relationship"; from: string; to: string; index?: number; description?: string | null; technology?: string | null; tags?: TagChanges; notes?: string | null }
   | { op: "remove-relationship"; from: string; to: string; index?: number }
-  | { op: "add-view"; id: string; level: ViewLevel; scope?: string; title?: string; description?: string; include?: string[]; exclude?: string[] }
-  | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[] }
+  | { op: "add-view"; id: string; level: ViewLevel; scope?: string; title?: string; description?: string; include?: string[]; exclude?: string[]; notes?: string }
+  | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[]; notes?: string | null }
   | { op: "remove-view"; id: string }
   | { op: "show-in-view"; view: string; id: string }
   | { op: "hide-in-view"; view: string; id: string }
@@ -78,14 +78,17 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   },
   "remove-element": { required: ["id"], fields: { id: "string" } },
   rename: { required: ["id", "to"], fields: { id: "string", to: "string" } },
-  "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", description: "string", technology: "string", tags: "tags" } },
+  "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", description: "string", technology: "string", tags: "tags", notes: "string" } },
   "update-relationship": {
     required: ["from", "to"],
-    fields: { from: "string", to: "string", index: "index", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags" },
+    fields: { from: "string", to: "string", index: "index", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
   },
   "remove-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", index: "index" } },
-  "add-view": { required: ["id", "level"], fields: { id: "string", level: "string", scope: "string", title: "string", description: "string", include: "strings", exclude: "strings" } },
-  "update-view": { required: ["id"], fields: { id: "string", title: "string", description: "nullable-string", include: "strings", exclude: "strings" } },
+  "add-view": {
+    required: ["id", "level"],
+    fields: { id: "string", level: "string", scope: "string", title: "string", description: "string", include: "strings", exclude: "strings", notes: "string" },
+  },
+  "update-view": { required: ["id"], fields: { id: "string", title: "string", description: "nullable-string", include: "strings", exclude: "strings", notes: "nullable-string" } },
   "remove-view": { required: ["id"], fields: { id: "string" } },
   "show-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "hide-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
@@ -379,17 +382,20 @@ function addRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "ad
   if (from.uses?.some((r) => r.to === op.to && (r.description || undefined) === description)) {
     throw new OpError(`"${op.from}" already has this relationship to "${op.to}". Use update-relationship to change it.`);
   }
-  from.uses = [...(from.uses ?? []), clean<RelationshipData>({ to: op.to, description, technology: op.technology?.trim(), tags: changeTags(undefined, op.tags ?? {}) })];
+  from.uses = [
+    ...(from.uses ?? []),
+    clean<RelationshipData>({ to: op.to, description, technology: op.technology?.trim(), tags: changeTags(undefined, op.tags ?? {}), notes: op.notes?.trim() }),
+  ];
   return `added relationship ${op.from} -> ${op.to}`;
 }
 
 function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "update-relationship" }>): string {
-  if (op.description === undefined && op.technology === undefined && op.tags === undefined) {
-    throw new OpError("Say what to change: description, technology or tags.");
+  if (op.description === undefined && op.technology === undefined && op.tags === undefined && op.notes === undefined) {
+    throw new OpError("Say what to change: description, technology, tags or notes.");
   }
   const { element, position } = findRelationship(doc, op.from, op.to, op.index);
   const rel = element.uses![position]!;
-  for (const key of ["description", "technology"] as const) {
+  for (const key of ["description", "technology", "notes"] as const) {
     const value = op[key];
     if (value === undefined) continue;
     if (value === null || !value.trim()) delete rel[key];
@@ -422,22 +428,25 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     scope: op.scope,
     include: op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
+    notes: op.notes?.trim(),
   });
   return `added view ${op.id}`;
 }
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
   const view = requireView(doc, op.id);
-  if (op.title === undefined && op.description === undefined && op.include === undefined && op.exclude === undefined) {
-    throw new OpError("Say what to change: title, description, include or exclude.");
+  if (op.title === undefined && op.description === undefined && op.include === undefined && op.exclude === undefined && op.notes === undefined) {
+    throw new OpError("Say what to change: title, description, include, exclude or notes.");
   }
   if (op.title !== undefined) {
     if (!op.title.trim()) throw new OpError("The title can't be empty.");
     view.title = op.title.trim();
   }
-  if (op.description !== undefined) {
-    if (op.description === null || !op.description.trim()) delete view.description;
-    else view.description = op.description.trim();
+  for (const key of ["description", "notes"] as const) {
+    const value = op[key];
+    if (value === undefined) continue;
+    if (value === null || !value.trim()) delete view[key];
+    else view[key] = value.trim();
   }
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");

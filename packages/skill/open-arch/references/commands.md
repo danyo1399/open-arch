@@ -17,8 +17,8 @@ Exit codes: 0 = done, 1 = refused or failed (nothing saved), 2 = the command was
 | Command | Prints |
 |---|---|
 | `open-arch show` | The model as a tree, and the views |
-| `open-arch show <element-id>` | The element's fields, tags, notes, what it uses, what uses it (directly and through what's inside it), and the views showing it |
-| `open-arch show <view-id>` | The view's boxes, and its arrows with the relationships each stands for |
+| `open-arch show <element-id>` | The element's fields, tags, notes, what it uses, what uses it (directly and through what's inside it), with those relationships' notes, and the views showing it |
+| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for |
 | `open-arch check [--json] [--strict]` | Problems in the model; exits 1 on errors (or warnings, with `--strict`) |
 | `open-arch export [folder] [--check]` | Writes the docs to the folder, or to the workspace's docs folder; `--check` exits 1 if they're out of date |
 
@@ -36,11 +36,11 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `update-element <id>` | `--name`, `--parent`, `--description`, `--technology`, `--external` / `--internal`, `--shape` (`--shape ""` makes it a box again), `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-element <id>` | Also removes what's inside it, views scoped to them, and every reference |
 | `rename <old-id> <new-id>` | Works for elements and views; updates every reference |
-| `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>` |
-| `update-relationship <from> <to>` | `--index <n>`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>` |
+| `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
+| `update-relationship <from> <to>` | `--index <n>`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
-| `add-view <id>` | `--level <landscape\|context\|container\|component>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>` |
-| `update-view <id>` | `--title`, `--description`, `--include`, `--exclude` |
+| `add-view <id>` | `--level <landscape\|context\|container\|component>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->` |
+| `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--notes`, `--notes-file` |
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
 | `hide-in-view <view> <id>...` | Removes them from include, or adds them to exclude; the model is unchanged |
@@ -66,11 +66,11 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `update-element` | **id**, name, parent, description, technology, external, shape, tags (merged into the old ones; a `null` value removes that tag), notes |
 | `remove-element` | **id** |
 | `rename` | **id**, **to** |
-| `add-relationship` | **from**, **to**, description, technology, tags |
-| `update-relationship` | **from**, **to**, index, description, technology, tags (merged, like an element's) |
+| `add-relationship` | **from**, **to**, description, technology, tags, notes |
+| `update-relationship` | **from**, **to**, index, description, technology, tags (merged, like an element's), notes |
 | `remove-relationship` | **from**, **to**, index |
-| `add-view` | **id**, **level**, scope, title, description, include, exclude |
-| `update-view` | **id**, title, description, include, exclude |
+| `add-view` | **id**, **level**, scope, title, description, include, exclude, notes |
+| `update-view` | **id**, title, description, include, exclude, notes |
 | `remove-view` | **id** |
 | `show-in-view` | **view**, **id** |
 | `hide-in-view` | **view**, **id** |

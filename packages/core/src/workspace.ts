@@ -29,7 +29,14 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
       shape: e.kind === "person" ? "box" : (e.shape ?? "box"),
       tags: e.tags ?? {},
       notes: e.notes || undefined,
-      uses: (e.uses ?? []).map((r, index) => ({ to: r.to, description: r.description || undefined, technology: r.technology || undefined, tags: r.tags ?? {}, index })),
+      uses: (e.uses ?? []).map((r, index) => ({
+        to: r.to,
+        description: r.description || undefined,
+        technology: r.technology || undefined,
+        tags: r.tags ?? {},
+        notes: r.notes || undefined,
+        index,
+      })),
     });
   }
   for (const [id, v] of Object.entries(doc.views)) {
@@ -42,6 +49,7 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
       scope: v.scope,
       include: v.include ?? ["*"],
       exclude: v.exclude ?? [],
+      notes: v.notes || undefined,
       stickies: Object.entries(v.stickies ?? {})
         .map(([sid, s]) => ({ id: sid, path: `views.${id}.stickies.${sid}`, text: s.text, color: s.color ?? "yellow", at: s.at }))
         .sort(readingOrder),

@@ -1,5 +1,5 @@
 {
-  "openarch": 2,
+  "openarch": 3,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -63,7 +63,7 @@
       "description": "Wraps the payment provider's API.",
       "technology": "TypeScript",
       "uses": [
-        { "to": "payment-provider", "description": "Charges cards", "technology": "HTTPS" }
+        { "to": "payment-provider", "description": "Charges cards", "technology": "HTTPS", "notes": "Sends the one-time card token the web app got from the provider, never a card number.\n\nEach charge has an idempotency key, so retrying a request can't charge a card twice." }
       ]
     },
     "orders-db": {
@@ -98,7 +98,8 @@
       "description": "How a checkout request is handled.",
       "level": "component",
       "scope": "checkout-api",
-      "include": ["*"]
+      "include": ["*"],
+      "notes": "A request from the web app comes in to the Checkout Controller. It reserves stock and takes payment before it saves the order, so every saved order is paid for."
     },
     "landscape": {
       "title": "System landscape",

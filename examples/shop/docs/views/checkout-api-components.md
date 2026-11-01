@@ -6,6 +6,8 @@ Component view of [Checkout API](../elements/checkout-api.md).
 
 How a checkout request is handled.
 
+A request from the web app comes in to the Checkout Controller. It reserves stock and takes payment before it saves the order, so every saved order is paid for.
+
 ```mermaid
 flowchart TB
   subgraph checkout_api_boundary["Checkout API [Container]"]
@@ -57,5 +59,11 @@ flowchart TB
 | [Order Repository](../elements/order-repository.md) | [Orders DB](../elements/orders-db.md) | Reads and writes orders | SQL |
 | [Payment Client](../elements/payment-client.md) | [Payment Provider](../elements/payment-provider.md) | Charges cards | HTTPS |
 | [Web App](../elements/web-app.md) | [Checkout Controller](../elements/checkout-controller.md) | Places orders | HTTPS/JSON |
+
+### Payment Client → Payment Provider: Charges cards
+
+Sends the one-time card token the web app got from the provider, never a card number.
+
+Each charge has an idempotency key, so retrying a request can't charge a card twice.
 
 [All views and elements](../README.md)

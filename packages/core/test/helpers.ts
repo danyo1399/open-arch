@@ -3,7 +3,7 @@ import { applyOperations, buildWorkspace, checkWorkspace, type OpenArchDocument,
 /** A small model: a customer, a shop with three containers and a component, and an external system. */
 export function shop(): OpenArchDocument {
   return {
-    openarch: 2,
+    openarch: 3,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web-app", description: "Buys things", technology: "HTTPS" }] },

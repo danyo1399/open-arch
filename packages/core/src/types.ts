@@ -17,7 +17,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 2;
+export const FORMAT_VERSION = 3;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -56,6 +56,8 @@ export interface RelationshipData {
   description?: string;
   technology?: string;
   tags?: Tags;
+  /** Longer documentation, as markdown. */
+  notes?: string;
 }
 
 /** A box's top-left corner, optionally with its width and height. */
@@ -68,6 +70,8 @@ export interface ViewData {
   scope?: string;
   include?: string[];
   exclude?: string[];
+  /** Longer documentation, as markdown. */
+  notes?: string;
   /** Notes for people reading the diagram, keyed by an ID unique within the view. */
   stickies?: Record<string, StickyData>;
   /** Box positions saved by the designer, keyed by element ID. */
@@ -90,6 +94,7 @@ export interface Relationship {
   description?: string;
   technology?: string;
   tags: Tags;
+  notes?: string;
   /** Position in the element's `uses` list. */
   index: number;
 }
@@ -121,6 +126,7 @@ export interface ViewDef {
   scope?: string;
   include: string[];
   exclude: string[];
+  notes?: string;
   /** In reading order: placed notes top to bottom and left to right, then unplaced ones by ID. */
   stickies: Sticky[];
   layout: Record<string, Position>;

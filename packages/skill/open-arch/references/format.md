@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 2)
+# The open-arch workspace (format version 3)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers and components, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 2,
+  "openarch": 3,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -13,7 +13,7 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
       "kind": "person",
       "name": "Customer",
       "uses": [
-        { "to": "web-app", "description": "Browses products and places orders", "technology": "HTTPS" }
+        { "to": "web-app", "description": "Browses products and places orders", "technology": "HTTPS", "notes": "Over **HTTPS** only." }
       ]
     },
     "shop": { "kind": "system", "name": "Shop", "description": "Lets customers browse products and place orders." },
@@ -30,9 +30,11 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
   "views": {
     "shop-containers": {
       "title": "Shop containers",
+      "description": "What runs inside the shop.",
       "level": "container",
       "scope": "shop",
       "include": ["*"],
+      "notes": "Drawn for new starters. Start at the customer.",
       "stickies": {
         "how-orders-flow": { "text": "Every order goes through the web app.", "color": "blue", "at": [260, 0] }
       },
@@ -46,14 +48,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `2` |
+| `openarch` | Format version, always `3` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 files too, and write them back as version 2: a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 and 2 files too, and write them back as version 3. Version 2 is the same, but without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view.
 
@@ -70,7 +72,7 @@ IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elem
 | `shape` | How the box is drawn (see below); without it, a box. Not used on people, who are always drawn as a person |
 | `tags` | Free-form facts as names and string values, e.g. `{ "owner": "payments", "repository": "github.com/example/orders" }`. A tag with the value `""` is a plain label |
 | `notes` | Longer documentation, as markdown |
-| `uses` | Relationships from this element: `to` (an element ID), `description`, `technology`, `tags` (like an element's) |
+| `uses` | Relationships from this element: `to` (an element ID), `description` (a short verb phrase, shown on the arrow), `technology`, `tags` (like an element's) and `notes` (longer documentation, as markdown) |
 
 ### Shapes
 
@@ -101,11 +103,12 @@ A relationship can't join an element to its own parent, child or anything nested
 | Field | Meaning |
 |---|---|
 | `title` | Diagram title |
-| `description` | Optional |
+| `description` | One sentence, shown under the title on the diagram |
 | `level` | `landscape`, `context`, `container` or `component` |
 | `scope` | A system for context and container views, a container for component views, none for landscape |
 | `include` | IDs to show, or `"*"` for the default selection |
 | `exclude` | IDs to hide |
+| `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
 | `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside the diagram) |
 | `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID |
 
@@ -116,7 +119,7 @@ A relationship can't join an element to its own parent, child or anything nested
 | `container` | The scope's containers inside a frame; people and other systems outside it | The scope's containers, plus everything connected to them |
 | `component` | The scope's components inside a frame; sibling containers; people and other systems | The scope's components, plus everything connected to them |
 
-Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They aren't part of the model, so they never become boxes, and no check looks inside them.
+Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside them.
 
 Each element is drawn at the level of detail the view allows: in a container view of `shop`, a component inside `checkout-api` appears as `checkout-api`, and a container of another system appears as that system. Relationships move up with their elements, and several relationships between the same two boxes become one arrow.
 
@@ -125,8 +128,8 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships.
-- `elements/<id>.md`: the element's details, notes, relationships, contents and the views showing it.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them.
+- `elements/<id>.md`: the element's details, notes, relationships (with their notes), contents and the views showing it.
 
 Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite or delete pages with that marker, so other files in the folder are safe. Don't edit generated pages: the next change rewrites them.
 
@@ -137,7 +140,7 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `2` (or `1`, which is upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `3` (or `1` or `2`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
 | `field-type` | error | A field has the wrong type |
 | `field-required` | error | A required field is missing |

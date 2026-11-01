@@ -14,6 +14,12 @@ A third-party card processor.
 |---|---|---|
 | [Payment Client](payment-client.md) | Charges cards | HTTPS |
 
+### Payment Client → Payment Provider: Charges cards
+
+Sends the one-time card token the web app got from the provider, never a card number.
+
+Each charge has an idempotency key, so retrying a request can't charge a card twice.
+
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)

@@ -32,7 +32,7 @@ flowchart TB
   style delivery_platform_boundary fill:none,stroke:#444444,stroke-dasharray:5 5
 ```
 
-## Notes
+## Sticky notes
 
 > Views don't copy the model, they pick from it. This one lists exactly which elements to show (its include list), so it tells one story: placing an order.
 

@@ -4,7 +4,7 @@ import { moveOps } from "../src/canvas/Canvas.js";
 
 describe("moveOps", () => {
   const ws = buildWorkspace({
-    openarch: 2,
+    openarch: 3,
     name: "Shop",
     elements: { web: { kind: "system", name: "Web" }, db: { kind: "system", name: "DB" } },
     views: { landscape: { title: "Landscape", level: "landscape", layout: { web: [0, 0], db: [300, 0] }, stickies: { a: { text: "A" }, b: { text: "B", at: [0, 200] } } } },

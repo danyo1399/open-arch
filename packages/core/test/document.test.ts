@@ -23,7 +23,7 @@ describe("parseDocument", () => {
   it("reports every shape problem and leaves the bad parts out", () => {
     const result = parseDocument(
       JSON.stringify({
-        openarch: 3,
+        openarch: 4,
         name: "X",
         colour: "red",
         elements: {
@@ -63,7 +63,7 @@ describe("parseDocument", () => {
     expect(result.doc.elements.ok!.uses).toEqual([{ to: "x" }]);
     expect(result.diagnostics.find((d) => d.path === "elements.ok.tags")!.fix).toMatch(/"shape": "database"/);
     // Relationships have no shape, so their hint doesn't suggest one.
-    const rel = parseDocument(JSON.stringify({ openarch: 2, name: "X", elements: { a: { kind: "system", name: "A", uses: [{ to: "a", tags: ["sync"] }] } }, views: {} }));
+    const rel = parseDocument(JSON.stringify({ openarch: 3, name: "X", elements: { a: { kind: "system", name: "A", uses: [{ to: "a", tags: ["sync"] }] } }, views: {} }));
     expect(rel.diagnostics.map((d) => [d.path, d.fix])).toEqual([["elements.a.uses[0].tags", 'Give a tag without a value "" as its value.']]);
   });
 
@@ -81,13 +81,36 @@ describe("parseDocument", () => {
       }),
     );
     expect(result.diagnostics).toEqual([]);
-    expect(result.doc.openarch).toBe(2);
+    expect(result.doc.openarch).toBe(3);
     expect(result.doc.elements).toEqual({
       customer: { kind: "person", name: "Customer", tags: { database: "" }, uses: [{ to: "db", description: "Reads", tags: { async: "" } }] },
       shop: { kind: "system", name: "Shop", tags: { core: "yes", owner: "payments" } },
       db: { kind: "container", name: "DB", parent: "shop", shape: "database" },
     });
-    expect(serializeDocument(result.doc)).toContain('"openarch": 2,');
+    expect(serializeDocument(result.doc)).toContain('"openarch": 3,');
+  });
+
+  it("reads version 2 as it is, and writes it back as version 3", () => {
+    const old = { openarch: 2, name: "Old", elements: { a: { kind: "system", name: "A", uses: [{ to: "b", description: "Uses" }] }, b: { kind: "system", name: "B" } }, views: {} };
+    const result = parseDocument(JSON.stringify(old));
+    expect(result.diagnostics).toEqual([]);
+    expect(result.doc).toEqual({ ...old, openarch: 3 });
+    expect(serializeDocument(result.doc)).toContain('"openarch": 3,');
+  });
+
+  it("reads notes on views and relationships, and reports ones that aren't text", () => {
+    const result = parseDocument(
+      JSON.stringify({
+        openarch: 3,
+        name: "X",
+        elements: { a: { kind: "system", name: "A", uses: [{ to: "b", notes: "Over **HTTPS**." }, { to: "b", description: "Other", notes: 5 }] }, b: { kind: "system", name: "B" } },
+        views: { v: { title: "V", level: "landscape", notes: "## Why\n\nTo show it." }, w: { title: "W", level: "landscape", notes: ["x"] } },
+      }),
+    );
+    expect(result.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual(["field-type elements.a.uses[1].notes", "field-type views.w.notes"]);
+    expect(result.doc.elements.a!.uses).toEqual([{ to: "b", notes: "Over **HTTPS**." }, { to: "b", description: "Other" }]);
+    expect(result.doc.views.v!.notes).toBe("## Why\n\nTo show it.");
+    expect(result.doc.views.w).not.toHaveProperty("notes");
   });
 
   it("reports what it can't upgrade in version 1's terms, and keeps the rest", () => {
@@ -137,6 +160,15 @@ describe("serializeDocument", () => {
     doc.elements.api!.shape = "box";
     const text = serializeDocument(doc);
     expect(text).toContain('        { "to": "db", "description": "Stores orders", "technology": "SQL" },\n');
+    doc.elements.controller!.uses![0]!.notes = "Line one.\nLine two.";
+    doc.elements.controller!.uses![0]!.tags = { sync: "" };
+    doc.views.landscape!.notes = "Why it's drawn.";
+    doc.views.landscape!.exclude = ["payments"];
+    doc.views.landscape!.stickies = { hi: { text: "Hi" } };
+    const noted = serializeDocument(doc);
+    expect(noted).toContain('        { "to": "db", "description": "Stores orders", "technology": "SQL", "tags": { "sync": "" }, "notes": "Line one.\\nLine two." },\n');
+    expect(noted).toContain('      "exclude": ["payments"],\n      "notes": "Why it\'s drawn.",\n      "stickies": {');
+    expect(serializeDocument(parseDocument(noted).doc)).toBe(noted);
     expect(text).toContain('      "layout": {\n        "customer": [0, 0],\n        "shop": [10, 21]\n      }');
     expect(text).toContain('    "shop": {\n      "kind": "system",\n      "name": "Shop"\n    },');
     expect(text).toContain('    "api": {\n      "kind": "container",\n      "name": "API",\n      "parent": "shop",\n      "technology": "Node.js"\n    },');

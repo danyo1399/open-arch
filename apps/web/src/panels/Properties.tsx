@@ -210,6 +210,14 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
                 onCommit={(description) => void edit([{ op: "update-relationship", ...ref, description: description || null }])}
               />
               <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit([{ op: "update-relationship", ...ref, technology: technology || null }])} />
+              <Field
+                label="Notes"
+                value={rel.notes ?? ""}
+                multiline
+                rows={4}
+                placeholder="Longer documentation, in markdown"
+                onCommit={(notes) => void edit([{ op: "update-relationship", ...ref, notes: notes || null }])}
+              />
               <div className="field">
                 <span className="field-label">Tags</span>
                 <TagsEditor tags={rel.tags} onChange={(tags) => void edit([{ op: "update-relationship", ...ref, tags }])} />
@@ -241,7 +249,7 @@ function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { 
           </label>
         ))}
       </fieldset>
-      <p className="muted small">Notes explain this diagram to the people reading it: what to look at, or why it's drawn this way. They belong to this view and aren't part of the model, so other views don't show them. The docs show them under the diagram.</p>
+      <p className="muted small">Sticky notes explain this diagram to the people reading it: what to look at, or why it's drawn this way. They belong to this view and aren't part of the model, so other views don't show them. The docs show them under the diagram.</p>
       <div className="actions">
         {sticky.at && <button onClick={() => set({ at: null })}>Move beside the diagram</button>}
         <button className="danger" onClick={() => void edit([{ op: "remove-sticky", view: view.id, id: sticky.id }]).then(() => onSelect(null))}>
@@ -311,7 +319,21 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
       </header>
       <Field label="Title" value={view.title} onCommit={retitle} />
       <Field label="ID" value={view.id} onCommit={changeId} hint={idHint(followsName(view.id, view.title))} />
-      <Field label="Description" value={view.description ?? ""} multiline onCommit={(description) => void edit([{ op: "update-view", id: view.id, description: description || null }])} />
+      <Field
+        label="Description"
+        value={view.description ?? ""}
+        multiline
+        placeholder="One sentence, shown under the title"
+        onCommit={(description) => void edit([{ op: "update-view", id: view.id, description: description || null }])}
+      />
+      <Field
+        label="Notes"
+        value={view.notes ?? ""}
+        multiline
+        rows={6}
+        placeholder="Longer documentation, in markdown"
+        onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
+      />
       <dl className="facts">
         <dt>Level</dt>
         <dd>{view.level}</dd>

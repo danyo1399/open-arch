@@ -34,7 +34,7 @@ flowchart TB
   class maps_service,messaging_provider,payment_provider external
 ```
 
-## Notes
+## Sticky notes
 
 > A context view puts one system in the middle and shows only what touches it: who uses it, and which systems it uses.
 

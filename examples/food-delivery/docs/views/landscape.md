@@ -36,7 +36,7 @@ flowchart TB
   class maps_service,messaging_provider,payment_provider external
 ```
 
-## Notes
+## Sticky notes
 
 > Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.
 >

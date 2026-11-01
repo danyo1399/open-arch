@@ -720,6 +720,17 @@ button.heading {
   font-size: 12px;
   color: var(--muted);
 }
+/* The view's description wraps onto a second line, and no more, so a long one doesn't cover the diagram. */
+.toolbar-title .toolbar-description {
+  max-width: 280px;
+  margin-top: 2px;
+  color: var(--text);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
 .menu {
   position: relative;
 }

@@ -20,7 +20,7 @@ import {
 } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 2,
+  openarch: 3,
   name: "Shop",
   elements: {
     api: { kind: "system", name: "API" },
@@ -72,7 +72,7 @@ describe("followsName", () => {
 
 describe("viewAction", () => {
   const shop = buildWorkspace({
-    openarch: 2,
+    openarch: 3,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }] },
@@ -128,7 +128,7 @@ describe("viewAction", () => {
 
 describe("arrowRelationships", () => {
   const shop = buildWorkspace({
-    openarch: 2,
+    openarch: 3,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Browses" }, { to: "web" }, { to: "shop", description: "Pays" }] },
@@ -162,7 +162,7 @@ describe("arrowRelationships", () => {
 
 describe("shownInProperties", () => {
   const noted = buildWorkspace({
-    openarch: 2,
+    openarch: 3,
     name: "Shop",
     elements: { api: { kind: "system", name: "API" } },
     views: { landscape: { title: "Landscape", level: "landscape", stickies: { note: { text: "Read me" } } } },
@@ -353,7 +353,7 @@ describe("renames", () => {
 
 describe("renamesBetween", () => {
   const shop: OpenArchDocument = {
-    openarch: 2,
+    openarch: 3,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },

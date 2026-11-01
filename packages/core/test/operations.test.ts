@@ -96,6 +96,17 @@ describe("relationships", () => {
     expect(doc.elements.api!.uses).toBeUndefined();
   });
 
+  it("adds, changes and removes a relationship's notes", () => {
+    let doc = apply(shop(), { op: "add-relationship", from: "api", to: "db", description: "Reads stock", notes: "  Read-only.\n\n- Uses a **replica**.  " });
+    expect(doc.elements.api!.uses).toEqual([{ to: "db", description: "Reads stock", notes: "Read-only.\n\n- Uses a **replica**." }]);
+    doc = apply(doc, { op: "update-relationship", from: "api", to: "db", notes: "Cached for a minute." });
+    expect(doc.elements.api!.uses![0]!.notes).toBe("Cached for a minute.");
+    doc = apply(doc, { op: "update-relationship", from: "api", to: "db", notes: null });
+    expect(doc.elements.api!.uses).toEqual([{ to: "db", description: "Reads stock" }]);
+    expect(apply(doc, { op: "update-relationship", from: "api", to: "db", notes: " " }).elements.api!.uses).toEqual([{ to: "db", description: "Reads stock" }]);
+    expect(fails(doc, { op: "update-relationship", from: "api", to: "db" })).toBe("Say what to change: description, technology, tags or notes.");
+  });
+
   it("merges a relationship's tags", () => {
     let doc = apply(shop(), { op: "add-relationship", from: "api", to: "db", description: "Reads stock", tags: { async: "" } });
     doc = apply(doc, { op: "update-relationship", from: "api", to: "db", tags: { async: null, protocol: "postgres" } });
@@ -124,6 +135,23 @@ describe("views", () => {
     expect(doc.views["web-components"]).toEqual({ title: "Web App components", level: "component", scope: "web-app", include: ["*"] });
     expect(fails(shop(), { op: "add-view", id: "v", level: "container", scope: "api" })).toMatch(/must be a system/);
     expect(fails(shop(), { op: "add-view", id: "v", level: "landscape", include: ["shpo"] })).toMatch(/Did you mean "shop"/);
+  });
+
+  it("adds, changes and removes a view's description and notes", () => {
+    let doc = apply(shop(), { op: "add-view", id: "web-components", level: "component", scope: "web-app", description: " The storefront. ", notes: " ## Why\n\nTo show the **storefront**. " });
+    expect(doc.views["web-components"]).toEqual({
+      title: "Web App components",
+      description: "The storefront.",
+      level: "component",
+      scope: "web-app",
+      include: ["*"],
+      notes: "## Why\n\nTo show the **storefront**.",
+    });
+    doc = apply(doc, { op: "update-view", id: "web-components", notes: "Only the storefront." });
+    expect(doc.views["web-components"]!.notes).toBe("Only the storefront.");
+    doc = apply(doc, { op: "update-view", id: "web-components", description: null, notes: "" });
+    expect(doc.views["web-components"]).toEqual({ title: "Web App components", level: "component", scope: "web-app", include: ["*"] });
+    expect(fails(doc, { op: "update-view", id: "web-components" })).toBe("Say what to change: title, description, include, exclude or notes.");
   });
 
   it("hides and shows elements, and refuses ones the view can't draw", () => {

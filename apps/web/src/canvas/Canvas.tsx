@@ -10,6 +10,7 @@ import {
   applyNodeChanges,
   useReactFlow,
   type Connection,
+  type FitViewOptions,
   type NodeChange,
 } from "@xyflow/react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
@@ -40,6 +41,22 @@ const arrowId = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
 const FRAME_PAD = { x: 40, top: 56, bottom: 40 };
 /** How a view's diagram is fitted to the canvas. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
+/** How React Flow's own fit button fits it: its default padding. */
+const FIT_BUTTON = { padding: 0.1 };
+/** Space kept between the toolbar and a fitted diagram. */
+const TOOLBAR_GAP = 12;
+
+/**
+ * Fit options with enough padding at the top to keep the diagram below the toolbar, which
+ * floats over the canvas and is taller when the view has a description. `toolbarBottom` is
+ * how far down the canvas the toolbar ends. A number padding is a share of the canvas's size,
+ * which React Flow turns into pixels as `usual` does.
+ */
+export function fitBelowToolbar(options: { padding: number; maxZoom?: number }, canvasHeight: number, toolbarBottom: number): FitViewOptions {
+  const usual = Math.floor((canvasHeight - canvasHeight / (1 + options.padding)) * 0.5);
+  const top = Math.max(usual, Math.ceil(toolbarBottom + TOOLBAR_GAP));
+  return { ...options, padding: { x: options.padding, y: options.padding, top: `${top}px` } };
+}
 /**
  * How far React Flow lifts a node it has selected above the others, so a box being dragged
  * passes over the rest. It's SELECTED_NODE_Z in @xyflow/system, which doesn't export it:
@@ -381,13 +398,24 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     [cv, nodeIdOf, routes, labels, crossed, selection, onSelect],
   );
 
+  /** Fit the diagram to the canvas, below the toolbar. */
+  const fitDiagram = useCallback(
+    (options: { padding: number; maxZoom?: number } = FIT) => {
+      const canvas = wrapper.current;
+      const toolbar = canvas?.querySelector(".toolbar");
+      if (!canvas || !toolbar) return void rf.fitView(options);
+      void rf.fitView(fitBelowToolbar(options, canvas.clientHeight, toolbar.getBoundingClientRect().bottom - canvas.getBoundingClientRect().top));
+    },
+    [rf],
+  );
+
   // Fit the diagram to the window once per view, after its boxes have been measured.
   const fitted = useRef<string | null>(null);
   useEffect(() => {
     if (!ready || fitted.current === view.id) return;
     fitted.current = view.id;
-    requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView(FIT)));
-  }, [ready, view.id, rf]);
+    requestAnimationFrame(() => requestAnimationFrame(() => fitDiagram()));
+  }, [ready, view.id, fitDiagram]);
 
   // Turning a phone or tablet round fits the diagram to its new shape, once the canvas has it.
   // (Not a window crossing square as it's resized: that keeps the zoom.) Browsers report the
@@ -403,7 +431,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     // After React Flow, whose own observer has measured the canvas by the next frame.
     const fit = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => void rf.fitView(FIT));
+      frame = requestAnimationFrame(() => fitDiagram());
     };
     const resized = new ResizeObserver(() => {
       resizedAt = performance.now();
@@ -423,7 +451,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       resized.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [rf]);
+  }, [fitDiagram]);
 
   /** What the selection box being drawn has picked so far, by node ID. */
   const boxed = useRef<Set<string> | null>(null);
@@ -614,13 +642,20 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls showInteractive={false} />
+        {/* The fit button fits the view with its own options, then calls onFitView. React Flow fits
+            once, with the last options it was asked for, so these are the ones it uses. */}
+        <Controls showInteractive={false} onFitView={() => fitDiagram(FIT_BUTTON)} />
         <Panel position="top-left" className="toolbar">
           <div className="toolbar-title">
             <strong>{view.title}</strong>
             <span>
               {view.level} view{view.scope ? ` of ${ws.elements.get(view.scope)?.name ?? view.scope}` : ""}
             </span>
+            {view.description && (
+              <span className="toolbar-description" title={view.description}>
+                {view.description}
+              </span>
+            )}
           </div>
           <div className="menu">
             <button className="primary" onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen}>

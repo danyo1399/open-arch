@@ -52,8 +52,8 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "tags", "notes", "uses"];
-const RELATIONSHIP_KEYS = ["to", "description", "technology", "tags"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "stickies", "layout"];
+const RELATIONSHIP_KEYS = ["to", "description", "technology", "tags", "notes"];
+const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "stickies", "layout"];
 const STICKY_KEYS = ["text", "color", "at"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -97,12 +97,14 @@ function readDocument(input: unknown, report: Report): OpenArchDocument {
     return emptyDocument("Untitled");
   }
   unknownKeys(input, TOP_KEYS, "", report);
-  const raw = input.openarch === 1 ? upgradeFromV1(input, report) : input;
+  const raw = upgrade(input, report);
   if (raw.openarch !== FORMAT_VERSION) {
     report(
       "openarch",
       "version-unsupported",
-      raw.openarch === undefined ? `Missing "openarch": ${FORMAT_VERSION}.` : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades version 1.`,
+      raw.openarch === undefined
+        ? `Missing "openarch": ${FORMAT_VERSION}.`
+        : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades versions 1 and 2.`,
     );
   }
   const name = str(raw.name, "name", report);
@@ -137,14 +139,23 @@ function readDocument(input: unknown, report: Report): OpenArchDocument {
   return doc;
 }
 
+/** An older file in this version's terms, a version at a time. Newer and unknown versions are left as they are. */
+function upgrade(raw: Record<string, unknown>, report: Report): Record<string, unknown> {
+  let out = raw;
+  if (out.openarch === 1) out = upgradeFromV1(out, report);
+  // Version 3 added notes to views and relationships, so a version 2 file means the same in it.
+  if (out.openarch === 2) out = { ...out, openarch: 3 };
+  return out;
+}
+
 /**
  * Version 1 had tags as a list of labels, of which `database` drew a cylinder, and name/value
  * facts in `properties`. Version 2 has a `shape`, and tags with values that hold both.
  */
 function upgradeFromV1(raw: Record<string, unknown>, report: Report): Record<string, unknown> {
-  if (!isObject(raw.elements)) return { ...raw, openarch: FORMAT_VERSION };
+  if (!isObject(raw.elements)) return { ...raw, openarch: 2 };
   const elements = Object.entries(raw.elements).map(([id, e]) => [id, isObject(e) ? upgradeElementFromV1(e, `elements.${id}`, report) : e]);
-  return { ...raw, openarch: FORMAT_VERSION, elements: Object.fromEntries(elements) };
+  return { ...raw, openarch: 2, elements: Object.fromEntries(elements) };
 }
 
 const isLabels = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === "string");
@@ -243,7 +254,7 @@ function readRelationship(value: unknown, path: string, report: Report): Relatio
     return undefined;
   }
   const rel: RelationshipData = { to };
-  for (const key of ["description", "technology"] as const) {
+  for (const key of ["description", "technology", "notes"] as const) {
     const v = str(value[key], `${path}.${key}`, report);
     if (v !== undefined) rel[key] = v;
   }
@@ -274,6 +285,8 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   if (include) view.include = include;
   const exclude = strList(value.exclude, `${path}.exclude`, report);
   if (exclude) view.exclude = exclude;
+  const notes = str(value.notes, `${path}.notes`, report);
+  if (notes !== undefined) view.notes = notes;
   if (value.stickies !== undefined) {
     if (!isObject(value.stickies)) report(`${path}.stickies`, "field-type", "Must be an object keyed by sticky note ID.");
     else {
@@ -384,7 +397,13 @@ function elementText(e: ElementData, indent: string): string {
   if (present(e.notes, (v) => v !== "")) entries.push(["notes", JSON.stringify(e.notes)]);
   if (present(e.uses, (v) => v.length > 0)) {
     const rels = e.uses.map((r) =>
-      inline({ to: r.to, description: r.description || undefined, technology: r.technology || undefined, tags: r.tags && Object.keys(r.tags).length ? Object.fromEntries(tagEntries(r.tags)) : undefined }),
+      inline({
+        to: r.to,
+        description: r.description || undefined,
+        technology: r.technology || undefined,
+        tags: r.tags && Object.keys(r.tags).length ? Object.fromEntries(tagEntries(r.tags)) : undefined,
+        notes: r.notes || undefined,
+      }),
     );
     entries.push(["uses", `[\n${rels.map((r) => `${indent}    ${r}`).join(",\n")}\n${indent}  ]`]);
   }
@@ -398,6 +417,7 @@ function viewText(v: ViewData, indent: string): string {
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
   entries.push(["include", inline(v.include ?? ["*"])]);
   if (present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
+  if (present(v.notes, (n) => n !== "")) entries.push(["notes", JSON.stringify(v.notes)]);
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();
     const sticky = (s: StickyData) => inline({ text: s.text, color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)) });

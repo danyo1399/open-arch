@@ -45,7 +45,7 @@ flowchart TB
   style order_api_boundary fill:none,stroke:#444444,stroke-dasharray:5 5
 ```
 
-## Notes
+## Sticky notes
 
 > A component view looks inside one container. Components are the big building blocks of its code, such as modules or services.
 >

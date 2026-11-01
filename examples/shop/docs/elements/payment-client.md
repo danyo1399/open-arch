@@ -12,6 +12,12 @@ Wraps the payment provider's API.
 |---|---|---|
 | [Payment Provider](payment-provider.md) | Charges cards | HTTPS |
 
+### Payment Client → Payment Provider: Charges cards
+
+Sends the one-time card token the web app got from the provider, never a card number.
+
+Each charge has an idempotency key, so retrying a request can't charge a card twice.
+
 ## Used by
 
 | Element | Description | Technology |

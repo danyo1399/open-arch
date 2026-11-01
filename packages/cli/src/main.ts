@@ -67,8 +67,9 @@ Validates the workspace. Exits 1 when there are errors (or any warnings, with --
     usage: `Usage: open-arch show [id] [--file <path>] [--json]
 
 Without an id: the model as a tree, and the list of views.
-With an element id: its fields, notes, what it uses, what uses it, and the views showing it.
-With a view id: the boxes and arrows the view draws.
+With an element id: its fields, notes, what it uses and what uses it (with those
+relationships' notes), and the views showing it.
+With a view id: its description and notes, and the boxes and arrows the view draws.
 `,
     options: { ...FILE, json: b },
     run: (io, v, p) => show(io, { file: str(v.file), json: bool(v.json), id: p[0] }),
@@ -150,19 +151,22 @@ Changes an element's or view's ID everywhere it's referenced.
   ),
   "add-relationship": writer(
     `Usage: open-arch add-relationship <from> <to> [--description <text>] [--technology <text>] [--tag <name[=value]>]...
+                                 [--notes <markdown>]
 
 Adds "<from> uses <to>". Describe it from <from>'s side, e.g. "Reads and writes orders".
+  --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
 `,
-    { description: s, technology: s, tag: many },
+    { description: s, technology: s, tag: many, notes: s, "notes-file": s },
   ),
   "update-relationship": writer(
     `Usage: open-arch update-relationship <from> <to> [--index <n>] [--description <text>] [--technology <text>]
-                                    [--tag <name[=value]>]... [--remove-tag <name>]...
+                                    [--tag <name[=value]>]... [--remove-tag <name>]... [--notes <markdown>]
 
 --index picks one when <from> has several relationships to <to> (0 is the first).
+--notes takes markdown, or use --notes-file <path> (- for stdin).
 An empty value removes a field.
 `,
-    { index: s, description: s, technology: s, tag: many, "remove-tag": many },
+    { index: s, description: s, technology: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
   ),
   "remove-relationship": writer(
     `Usage: open-arch remove-relationship <from> <to> [--index <n>]
@@ -174,16 +178,21 @@ An empty value removes a field.
 
   --scope <id>           A system for context and container views, a container for component views
   --title <title>        Default: from the scope and level
-  --description <text>
+  --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
+  --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
 `,
-    { level: s, scope: s, title: s, description: s, include: s, exclude: s },
+    { level: s, scope: s, title: s, description: s, include: s, exclude: s, notes: s, "notes-file": s },
   ),
   "update-view": writer(
     `Usage: open-arch update-view <id> [--title <title>] [--description <text>] [--include <a,b>] [--exclude <a,b>]
+                            [--notes <markdown>]
+
+--notes takes markdown, or use --notes-file <path> (- for stdin).
+An empty value removes a field.
 `,
-    { title: s, description: s, include: s, exclude: s },
+    { title: s, description: s, include: s, exclude: s, notes: s, "notes-file": s },
   ),
   "remove-view": writer(`Usage: open-arch remove-view <id>\n`, {}),
   "show-in-view": writer(`Usage: open-arch show-in-view <view> <id>...\n\nShows elements in a view, removing them from its exclude list or adding them to include.\n`, {}),

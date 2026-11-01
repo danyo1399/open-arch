@@ -46,6 +46,19 @@ function relTable(ws: Workspace, rows: { other: string; rel: Relationship }[]): 
 }
 
 /**
+ * The notes of these relationships, for under the table that lists them: each under a
+ * heading that names it, as the table's rows can't hold markdown. Those without notes are left out.
+ */
+function relNotes(ws: Workspace, rows: { from: string; rel: Relationship }[]): string[] {
+  const name = (id: string) => ws.elements.get(id)?.name ?? id;
+  return rows.flatMap(({ from, rel }) => {
+    if (!rel.notes) return [];
+    const description = rel.description ? `: ${rel.description.replace(/\s*\r?\n\s*/g, " ")}` : "";
+    return ["", `### ${name(from)} → ${name(rel.to)}${description}`, "", rel.notes];
+  });
+}
+
+/**
  * The docs for a workspace. `source` names the .openarch file in the banner.
  * Paths: README.md, elements/<id>.md, views/<id>.md.
  */
@@ -87,9 +100,10 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     const scope = v.scope ? ws.elements.get(v.scope) : undefined;
     const lines = [top, "", `# ${v.title}`, "", `${v.level[0]!.toUpperCase()}${v.level.slice(1)} view${scope ? ` of ${link(scope, "views")}` : ""}.`];
     if (v.description) lines.push("", v.description);
+    if (v.notes) lines.push("", v.notes);
     lines.push("", "```mermaid", renderMermaid(cv), "```");
     // The diagram's sticky notes, as quotes in reading order.
-    if (v.stickies.length) lines.push("", "## Notes", ...v.stickies.flatMap((s) => ["", ...s.text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd())]));
+    if (v.stickies.length) lines.push("", "## Sticky notes", ...v.stickies.flatMap((s) => ["", ...s.text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd())]));
     lines.push("", "## Elements", "");
     if (cv.nodes.length) {
       lines.push("| Element | Kind | Technology | Description |", "|---|---|---|---|");
@@ -104,6 +118,8 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
         const to = ws.elements.get(e.to)!;
         lines.push(`| ${link(from, "views")} | ${link(to, "views")} | ${cell(e.description)} | ${cell(e.technology)} |`);
       }
+      // Each arrow's relationships, which can be between elements inside its boxes.
+      lines.push(...relNotes(ws, cv.edges.flatMap((e) => e.sources.map(({ element, index }) => ({ from: element, rel: ws.elements.get(element)!.uses[index]! })))));
     }
     lines.push("", `[All views and elements](../README.md)`, "");
     files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
@@ -120,8 +136,12 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     if (d.children.length) {
       lines.push("", "## Contains", "", ...d.children.map((c) => `- ${link(c, "elements")} (${kindLabel(c).toLowerCase()})${c.description ? ` – ${c.description}` : ""}`));
     }
-    if (d.uses.length) lines.push("", "## Uses", "", ...relTable(ws, d.uses.map(({ rel }) => ({ other: rel.to, rel }))));
-    if (d.usedBy.length) lines.push("", "## Used by", "", ...relTable(ws, d.usedBy.map(({ from, rel }) => ({ other: from.id, rel }))));
+    if (d.uses.length) {
+      lines.push("", "## Uses", "", ...relTable(ws, d.uses.map(({ rel }) => ({ other: rel.to, rel }))), ...relNotes(ws, d.uses.map(({ rel }) => ({ from: e.id, rel }))));
+    }
+    if (d.usedBy.length) {
+      lines.push("", "## Used by", "", ...relTable(ws, d.usedBy.map(({ from, rel }) => ({ other: from.id, rel }))), ...relNotes(ws, d.usedBy.map(({ from, rel }) => ({ from: from.id, rel }))));
+    }
     const tags = tagEntries(e.tags);
     if (tags.length) lines.push("", "## Tags", "", "| Tag | Value |", "|---|---|", ...tags.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
     if (d.views.length) {

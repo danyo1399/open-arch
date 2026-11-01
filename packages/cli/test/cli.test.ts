@@ -153,13 +153,39 @@ describe("changing", () => {
     expect(cli(dir, "add-sticky", "landscape", "start-here", "--text", "Start here.", "--color", "green", "--at", "400,-80").code).toBe(0);
     expect(JSON.parse(read(dir)).views.landscape.stickies).toEqual({ "start-here": { text: "Start here.", color: "green", at: [400, -80] } });
     expect(cli(dir, "show", "landscape").out).toContain("Sticky notes:\n  start-here (green at 400, -80):\n    Start here.\n");
-    expect(read(dir, "docs/views/landscape.md")).toContain("## Notes\n\n> Start here.\n");
+    expect(read(dir, "docs/views/landscape.md")).toContain("## Sticky notes\n\n> Start here.\n");
     expect(cli(dir, "update-sticky", "landscape", "start-here", "--at", "").code).toBe(0);
     expect(JSON.parse(read(dir)).views.landscape.stickies["start-here"]).not.toHaveProperty("at");
     expect(cli(dir, "update-sticky", "landscape", "start-here", "--at", "4").err).toContain("--at needs x,y");
     expect(cli(dir, "add-sticky", "landscape", "x").err).toContain("Pass --text");
     expect(cli(dir, "remove-sticky", "landscape", "start-here").code).toBe(0);
     expect(JSON.parse(read(dir)).views.landscape).not.toHaveProperty("stickies");
+  });
+
+  it("gives views and relationships notes, shows them, and puts them in the docs", () => {
+    const dir = example();
+    expect(cli(dir, "update-view", "shop-containers", "--notes", "Drawn for **new starters**.").code).toBe(0);
+    writeFileSync(join(dir, "notes.md"), "Over a pooled connection.\n\n- Retries twice.\n");
+    expect(cli(dir, "update-relationship", "order-repository", "orders-db", "--notes-file", "notes.md").code).toBe(0);
+    expect(cli(dir, "add-relationship", "customer", "warehouse", "--description", "Tracks parcels", "--notes", "On the courier's site.").code).toBe(0);
+    expect(cli(dir, "add-view", "parcels", "--level", "landscape", "--notes", "Where parcels go.").code).toBe(0);
+    const doc = JSON.parse(read(dir));
+    expect(doc.views["shop-containers"].notes).toBe("Drawn for **new starters**.");
+    expect(doc.views.parcels.notes).toBe("Where parcels go.");
+    expect(doc.elements["order-repository"].uses[0]).toEqual({ to: "orders-db", description: "Reads and writes orders", technology: "SQL", notes: "Over a pooled connection.\n\n- Retries twice." });
+    expect(doc.elements.customer.uses[1]).toEqual({ to: "warehouse", description: "Tracks parcels", notes: "On the courier's site." });
+
+    expect(cli(dir, "show", "shop-containers").out).toContain("  description: What runs inside the shop.\n\nNotes:\n  Drawn for **new starters**.\n\nBoxes:");
+    expect(JSON.parse(cli(dir, "show", "shop-containers", "--json").out)).toMatchObject({ description: "What runs inside the shop.", notes: "Drawn for **new starters**." });
+    expect(cli(dir, "show", "orders-db").out).toContain("<- order-repository  Reads and writes orders [SQL]\n      Over a pooled connection.\n\n      - Retries twice.\n");
+    expect(JSON.parse(cli(dir, "show", "order-repository", "--json").out).uses[0]).toMatchObject({ notes: "Over a pooled connection.\n\n- Retries twice." });
+    expect(read(dir, "docs/views/shop-containers.md")).toContain("What runs inside the shop.\n\nDrawn for **new starters**.\n");
+    expect(read(dir, "docs/elements/orders-db.md")).toContain("### Order Repository → Orders DB: Reads and writes orders\n\nOver a pooled connection.\n");
+
+    expect(cli(dir, "update-view", "shop-containers", "--notes", "").code).toBe(0);
+    expect(cli(dir, "update-relationship", "order-repository", "orders-db", "--notes", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views["shop-containers"]).not.toHaveProperty("notes");
+    expect(JSON.parse(read(dir)).elements["order-repository"].uses[0]).not.toHaveProperty("notes");
   });
 
   it("sets shapes and tags, removes them, and shows them", () => {
@@ -189,13 +215,22 @@ describe("changing", () => {
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 2', '"openarch": 1')
+      .replace('"openarch": 3', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 2, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 3, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+  });
+
+  it("reads a version 2 file, and writes it back as version 3", () => {
+    const dir = example();
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 3', '"openarch": 2'));
+    expect(cli(dir, "check").code).toBe(0);
+    expect(cli(dir, "fmt", "--check").code).toBe(1);
+    expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 3,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -228,7 +263,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 2, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 3, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);
