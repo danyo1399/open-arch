@@ -1,7 +1,8 @@
-import { applyOperations, buildWorkspace, computeView, type ComputedView, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, modelTree, type ComputedView, type OpenArchDocument, type Operation, type TreeNode } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
 import {
   arrowRelationships,
+  byName,
   followRenames,
   followsName,
   idFromName,
@@ -67,6 +68,45 @@ describe("followsName", () => {
     expect(followsName("checkout-api-v", "Checkout API")).toBe(false);
     expect(followsName("checkout", "Checkout API")).toBe(false);
     expect(followsName("element", "!!!")).toBe(false);
+  });
+});
+
+describe("byName", () => {
+  const names = (nodes: TreeNode[]): unknown[] => nodes.flatMap((n) => [n.element.name, ...(n.children.length ? [names(n.children)] : [])]);
+
+  it("puts the model tree in alphabetical order at every level, whatever the kinds and IDs", () => {
+    const site = buildWorkspace({
+      openarch: 3,
+      name: "Site",
+      elements: {
+        customer: { kind: "person", name: "Customer" },
+        whatsapp: { kind: "system", name: "WhatsApp", external: true },
+        s3: { kind: "system", name: "AWS S3 Storage", external: true },
+        cognito: { kind: "system", name: "AWS Cognito", external: true },
+        portal: { kind: "system", name: "Agent Portal" },
+        website: { kind: "system", name: "Client Website" },
+        spa: { kind: "container", name: "Browser", parent: "website" },
+        api: { kind: "container", name: "Backend", parent: "website" },
+        payments: { kind: "component", name: "Payments", parent: "api" },
+        accounts: { kind: "component", name: "accounts", parent: "api" },
+        bookings: { kind: "component", name: "Bookings", parent: "api" },
+      },
+      views: {},
+    });
+    expect(names(modelTree(site, byName))).toEqual([
+      "Agent Portal",
+      "AWS Cognito",
+      "AWS S3 Storage",
+      "Client Website",
+      ["Backend", ["accounts", "Bookings", "Payments"], "Browser"],
+      "Customer",
+      "WhatsApp",
+    ]);
+  });
+
+  it("orders elements with the same name by ID", () => {
+    expect(names(modelTree(ws, byName))).toEqual(["API", "API", "Orders DB"]);
+    expect(modelTree(ws, byName).map((n) => n.element.id)).toEqual(["api", "api-2", "db"]);
   });
 });
 

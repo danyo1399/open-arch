@@ -62,10 +62,13 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
-/** The model as a tree: people and systems at the top, their contents below. */
-export function modelTree(ws: Workspace): TreeNode[] {
-  const build = (e: ArchElement): TreeNode => ({ element: e, children: childrenOf(ws, e.id).sort(compareElements).map(build) });
+/**
+ * The model as a tree: people and systems at the top, their contents below.
+ * Each level is in `compare`'s order: by kind and then ID, unless another is given.
+ */
+export function modelTree(ws: Workspace, compare: (a: ArchElement, b: ArchElement) => number = compareElements): TreeNode[] {
+  const build = (e: ArchElement): TreeNode => ({ element: e, children: childrenOf(ws, e.id).sort(compare).map(build) });
   // Elements whose parent is missing still appear, at the top, so nothing is hidden.
-  const roots = [...ws.elements.values()].filter((e) => !e.parent || !ws.elements.has(e.parent)).sort(compareElements);
+  const roots = [...ws.elements.values()].filter((e) => !e.parent || !ws.elements.has(e.parent)).sort(compare);
   return roots.map(build);
 }

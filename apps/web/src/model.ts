@@ -31,6 +31,11 @@ export function followsName(id: string, name: string): boolean {
   return base !== "" && (id === base || (id.startsWith(`${base}-`) && /^\d+$/.test(id.slice(base.length + 1))));
 }
 
+/** Elements in alphabetical order of name, as the model tree lists them. Elements with the same name go by ID. */
+export function byName(a: ArchElement, b: ArchElement): number {
+  return a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 /**
  * Operations name a relationship by its target and which one it is among the
  * element's relationships to that target. This turns a position in `uses` into that.

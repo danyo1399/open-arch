@@ -1,6 +1,7 @@
 import { modelTree, type Diagnostic, type TreeNode, type ViewDef, type Workspace } from "@open-arch/core";
 import { useEffect, useState } from "react";
 import type { Selection } from "../canvas/Canvas.js";
+import { byName } from "../model.js";
 import { menuPoint } from "./ContextMenu.js";
 
 interface SidebarProps {
@@ -60,7 +61,7 @@ export function Sidebar(props: SidebarProps) {
         </header>
         {ws.elements.size === 0 && <p className="muted">No elements yet. Open a view and use + Add.</p>}
         <ul className="list tree">
-          {modelTree(ws).map((n) => (
+          {modelTree(ws, byName).map((n) => (
             <TreeRow key={n.element.id} node={n} depth={0} {...props} />
           ))}
         </ul>
