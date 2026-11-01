@@ -65,6 +65,8 @@ interface CanvasProps {
   edit(edit: Edit): Promise<boolean>;
   /** A right-click on an element's box or on the frame, at that point on the screen. */
   onElementMenu(id: string, at: { x: number; y: number }): void;
+  /** A right-click on an arrow or its label, at that point on the screen. */
+  onArrowMenu(from: string, to: string, at: { x: number; y: number }): void;
   /** A problem drawing the diagram, to tell the person about. */
   onError(text: string): void;
   /** Every rename this render's IDs reflect, in order. */
@@ -207,7 +209,7 @@ export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<strin
   return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onError, renames }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -570,6 +572,11 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         nodeClickDistance={4}
         paneClickDistance={4}
         onEdgeClick={(_, edge) => onSelect({ kind: "arrow", from: elementOf.get(edge.source) ?? edge.source, to: elementOf.get(edge.target) ?? edge.target })}
+        // An arrow's label is drawn apart from its line, but a right-click on it comes here too.
+        onEdgeContextMenu={(event, edge) => {
+          event.preventDefault();
+          onArrowMenu(elementOf.get(edge.source) ?? edge.source, elementOf.get(edge.target) ?? edge.target, menuPoint(event));
+        }}
         // Right-clicking the diagram's background offers what + Add does, added where it was
         // clicked. On the frame, it's the menu for the element the frame is.
         onPaneContextMenu={(event) => {

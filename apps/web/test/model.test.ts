@@ -1,10 +1,12 @@
-import { applyOperations, buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, type ComputedView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
 import {
+  arrowRelationships,
   followRenames,
   followsName,
   idFromName,
   renamedId,
+  renamedSelection,
   renamesBetween,
   renamesIn,
   sameShapes,
@@ -124,6 +126,40 @@ describe("viewAction", () => {
   });
 });
 
+describe("arrowRelationships", () => {
+  const shop = buildWorkspace({
+    openarch: 2,
+    name: "Shop",
+    elements: {
+      customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Browses" }, { to: "web" }, { to: "shop", description: "Pays" }] },
+      shop: { kind: "system", name: "Shop" },
+      web: { kind: "container", name: "Web app", parent: "shop", uses: [{ to: "mail" }] },
+      mail: { kind: "system", name: "Mail" },
+    },
+    views: { landscape: { title: "Landscape", level: "landscape" } },
+  });
+  const computed = computeView(shop, shop.views.get("landscape")!);
+  const rels = (from: string, to: string, cv: ComputedView | null = computed) => arrowRelationships(shop, cv, from, to).map((r) => ({ on: r.element.id, description: r.rel.description, ref: r.ref }));
+
+  it("lists every relationship an arrow draws, with how operations name it", () => {
+    expect(rels("customer", "shop")).toEqual([
+      { on: "customer", description: "Browses", ref: { from: "customer", to: "shop", index: 0 } },
+      // The customer's use of the web app, inside the shop, is drawn by the same arrow.
+      { on: "customer", description: undefined, ref: { from: "customer", to: "web", index: 0 } },
+      { on: "customer", description: "Pays", ref: { from: "customer", to: "shop", index: 1 } },
+    ]);
+  });
+
+  it("lists the relationships an implied arrow stands for", () => {
+    expect(rels("shop", "mail")).toEqual([{ on: "web", description: undefined, ref: { from: "web", to: "mail", index: 0 } }]);
+  });
+
+  it("lists nothing for an arrow the view doesn't draw, or a view that can't be drawn", () => {
+    expect(rels("mail", "customer")).toEqual([]);
+    expect(rels("customer", "shop", null)).toEqual([]);
+  });
+});
+
 describe("shownInProperties", () => {
   const noted = buildWorkspace({
     openarch: 2,
@@ -224,6 +260,30 @@ describe("renames", () => {
 
   it("picks the renames out of a batch, in order", () => {
     expect(renames.map((r) => `${r.id}>${r.to}`)).toEqual(["new-system>payments", "payments>billing", "orders>checkout"]);
+  });
+
+  it("follows an element, or both ends of an arrow, through them", () => {
+    const to = (id: string) => renamedId(renames, id);
+    expect(renamedSelection({ kind: "element", id: "orders" }, to)).toEqual({ kind: "element", id: "checkout" });
+    expect(renamedSelection({ kind: "arrow", from: "new-system", to: "orders" }, to)).toEqual({ kind: "arrow", from: "billing", to: "checkout" });
+    expect(renamedSelection({ kind: "arrow", from: "db", to: "orders", x: 10, y: 20 }, to)).toEqual({ kind: "arrow", from: "db", to: "checkout", x: 10, y: 20 });
+  });
+
+  it("follows the boxes in a selection of several through them, but not its notes", () => {
+    const to = (id: string) => renamedId(renames, id);
+    expect(renamedSelection({ kind: "several", elements: ["orders", "db"], stickies: ["orders"] }, to)).toEqual({ kind: "several", elements: ["checkout", "db"], stickies: ["orders"] });
+  });
+
+  it("keeps a selection none of them touch, and anything else selected, as it is", () => {
+    const to = (id: string) => renamedId(renames, id);
+    const element = { kind: "element" as const, id: "db" };
+    expect(renamedSelection(element, to)).toBe(element);
+    const arrow = { kind: "arrow" as const, from: "db", to: "web" };
+    expect(renamedSelection(arrow, to)).toBe(arrow);
+    const several = { kind: "several" as const, elements: ["db", "web"], stickies: [] };
+    expect(renamedSelection(several, to)).toBe(several);
+    expect(renamedSelection({ kind: "sticky", id: "orders" }, to)).toEqual({ kind: "sticky", id: "orders" });
+    expect(renamedSelection(null, to)).toBeNull();
   });
 
   it("follows an ID through them in order", () => {

@@ -226,8 +226,9 @@ function MenuList({
             {note}
           </p>
         )}
+        {/* By place, not label: elements can share a name, and so can items named after them. */}
         {items.map((item, index) => (
-          <Fragment key={item.label}>
+          <Fragment key={index}>
             {item.divider && <hr />}
             {"items" in item ? (
               <button

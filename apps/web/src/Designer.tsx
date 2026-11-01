@@ -5,7 +5,7 @@ import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { BrowserHost, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
-import { followRenames, relationshipRef, renamedId, renamesIn, selectShapes, shownInProperties, viewAction, type Rename } from "./model.js";
+import { arrowRelationships, followRenames, relationshipRef, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
@@ -16,6 +16,9 @@ import { Usages } from "./panels/Usages.js";
 import { useWorkspace, type Edit } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
+
+/** What a right-click menu is for, and where it opened on the screen. */
+type Menu = ({ kind: "element"; id: string } | { kind: "arrow"; from: string; to: string }) & { x: number; y: number };
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -63,7 +66,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [isNew, setIsNew] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [askOpen, setAskOpen] = useState(false);
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
   const [usagesOf, setUsagesOf] = useState<string | null>(null);
   /** Every rename applied, in order. */
   const renames = useRef<Rename[]>([]);
@@ -78,19 +81,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     renames.current.push(...applied);
     setRenamesSeen(renames.current.length);
     const to = (id: string) => renamedId(applied, id);
-    setSelection((s) =>
-      s?.kind === "element" && to(s.id) !== s.id
-        ? { ...s, id: to(s.id) }
-        : s?.kind === "arrow" && (to(s.from) !== s.from || to(s.to) !== s.to)
-          ? { ...s, from: to(s.from), to: to(s.to) }
-          : s?.kind === "several" && s.elements.some((id) => to(id) !== id)
-            ? { ...s, elements: s.elements.map(to) }
-            : s,
-    );
+    setSelection((s) => renamedSelection(s, to));
     setViewId((v) => v && to(v));
     setUsagesOf((u) => u && to(u));
     setDialog((d) => (d && "id" in d && to(d.id) !== d.id ? { ...d, id: to(d.id) } : d));
-    setMenu((m) => (m && to(m.id) !== m.id ? { ...m, id: to(m.id) } : m));
+    setMenu((m) => m && renamedSelection(m, to));
   });
   const { ws, diagnostics } = state;
   /** An ID this render shows, after any rename applied since: a press can land after one. */
@@ -158,15 +153,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
   const select = useCallback(
     (next: Selection, options?: { isNew?: boolean }) => {
-      setSelection(
-        next?.kind === "element"
-          ? { ...next, id: current(next.id) }
-          : next?.kind === "arrow"
-            ? { ...next, from: current(next.from), to: current(next.to) }
-            : next?.kind === "several"
-              ? { ...next, elements: next.elements.map(current) }
-              : next,
-      );
+      setSelection(renamedSelection(next, current));
       setIsNew(!!options?.isNew);
     },
     [current],
@@ -202,10 +189,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     setPane("diagram");
   };
 
-  // Right-clicking an element selects it too, so it's clear which one the menu is for.
+  // Right-clicking an element or an arrow selects it too, so it's clear which one the menu is for.
   const openElementMenu = (id: string, at: { x: number; y: number }) => {
     if (selection?.kind !== "element" || selection.id !== id) select({ kind: "element", id });
-    setMenu({ id: current(id), ...at });
+    setMenu({ kind: "element", id: current(id), ...at });
+  };
+  const openArrowMenu = (from: string, to: string, at: { x: number; y: number }) => {
+    if (selection?.kind !== "arrow" || selection.from !== from || selection.to !== to) select({ kind: "arrow", from, to });
+    setMenu(renamedSelection({ kind: "arrow", from, to, ...at }, current));
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -338,6 +329,22 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       { label: "Delete from model…", danger: true, onSelect: () => setDialog({ kind: "delete", id: current(id) }) },
     ];
   };
+  // What the details panel can do with an arrow. One that stands for several relationships
+  // lists them, to pick the one to remove.
+  const arrowMenu = (from: string, to: string): MenuItem[] => {
+    const name = (id: string) => ws.elements.get(id)?.name ?? id;
+    const rels = arrowRelationships(ws, computed, from, to).map(({ element, rel, ref }) => ({
+      label: `${element.name} → ${name(rel.to)}${rel.description ? `: ${rel.description}` : ""}`,
+      danger: true,
+      onSelect: () => void edit([{ op: "remove-relationship", ...ref }]).then(() => select(null)),
+    }));
+    return [
+      { label: `Select ${name(from)}`, onSelect: () => select({ kind: "element", id: from }) },
+      { label: `Select ${name(to)}`, onSelect: () => select({ kind: "element", id: to }) },
+      ...(rels.length === 1 ? [{ ...rels[0]!, label: "Remove relationship", divider: true }] : []),
+      ...(rels.length > 1 ? [{ label: "Remove relationship", divider: true, items: rels }] : []),
+    ];
+  };
   const errors = diagnostics.filter((d) => d.severity === "error").length;
   const panes: { pane: Pane; label: string; detail: string; bad?: boolean }[] = [
     { pane: "diagram", label: "Diagram", detail: view?.title ?? "No views yet" },
@@ -449,6 +456,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
               onSelect={selectOnCanvas}
               edit={edit}
               onElementMenu={openElementMenu}
+              onArrowMenu={openArrowMenu}
               onError={(text) => state.notify({ kind: "error", text })}
               renames={shownRenames}
             />
@@ -513,7 +521,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         </div>
       )}
 
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={elementMenu(menu.id)} onClose={closeMenu} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.kind === "element" ? elementMenu(menu.id) : arrowMenu(menu.from, menu.to)} onClose={closeMenu} />}
       {more && <ContextMenu x={more.x} y={more.y} items={moreItems} note={`${host.name} · ${status}`} anchor={moreButton} onClose={closeMore} />}
       {dialog?.kind === "delete" && (
         <DeleteElementDialog

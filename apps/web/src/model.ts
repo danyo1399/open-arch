@@ -75,6 +75,19 @@ export function viewAction(ws: Workspace, view: ViewDef | null, computed: Comput
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
 
+/**
+ * The relationships an arrow draws, in the order its details list them, each with the element it's
+ * on and how operations name it: none when the view doesn't draw the arrow.
+ */
+export function arrowRelationships(ws: Workspace, computed: ComputedView | null, from: string, to: string): { element: ArchElement; rel: Relationship; ref: ReturnType<typeof relationshipRef> }[] {
+  const edge = computed?.edges.find((e) => e.from === from && e.to === to);
+  return (edge?.sources ?? []).flatMap(({ element, index }) => {
+    const source = ws.elements.get(element);
+    const rel = source?.uses[index];
+    return source && rel ? [{ element: source, rel, ref: relationshipRef(source, index) }] : [];
+  });
+}
+
 export interface Usages {
   /** Relationships to the element or to something inside it, each with an arrow that draws it, if any view does. */
   relationships: { from: ArchElement; rel: Relationship; arrow?: { view: string; from: string; to: string } }[];
@@ -171,6 +184,14 @@ export function renamesIn(ops: Operation[]): Rename[] {
 /** An ID after these renames, applied in order. */
 export function renamedId(renames: Rename[], id: string): string {
   return renames.reduce((current, r) => (current === r.id ? r.to : current), id);
+}
+
+/** A selection with the element IDs in it renamed by `to`, or the same one when they don't change. Sticky notes' IDs are left as they are. */
+export function renamedSelection<S extends Selection>(selection: S, to: (id: string) => string): S {
+  if (selection?.kind === "element" && to(selection.id) !== selection.id) return { ...selection, id: to(selection.id) };
+  if (selection?.kind === "arrow" && (to(selection.from) !== selection.from || to(selection.to) !== selection.to)) return { ...selection, from: to(selection.from), to: to(selection.to) };
+  if (selection?.kind === "several" && selection.elements.some((id) => to(id) !== id)) return { ...selection, elements: selection.elements.map(to) };
+  return selection;
 }
 
 /** The renames that take these back, last first: what undoing an edit that made them does. */
