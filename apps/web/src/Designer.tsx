@@ -5,7 +5,7 @@ import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { BrowserHost, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
-import { arrowRelationships, followRenames, relationshipRef, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, type Rename } from "./model.js";
+import { arrowRelationships, followRenames, relationshipRef, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, viewList, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
@@ -13,6 +13,7 @@ import { Properties, shapesLabel } from "./panels/Properties.js";
 import { providers, type FileProvider } from "./providers.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
+import { userSettings, useViewSettings } from "./settings.js";
 import { useWorkspace, type Edit } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
@@ -72,6 +73,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const renames = useRef<Rename[]>([]);
   /** How many of them this render's IDs reflect. */
   const [renamesSeen, setRenamesSeen] = useState(0);
+  /** How the Views list is sorted, and the views pinned to its top: this person's, not the file's. */
+  const viewSettings = useViewSettings(host.key);
   // What's open follows a rename in the same render as the rename lands. A render in between
   // would show something else in its place (the view's details for a renamed element), and a
   // button being pressed there would go with it.
@@ -86,6 +89,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     setUsagesOf((u) => u && to(u));
     setDialog((d) => (d && "id" in d && to(d.id) !== d.id ? { ...d, id: to(d.id) } : d));
     setMenu((m) => m && renamedSelection(m, to));
+    attempt(() => viewSettings.followRenames(applied));
   });
   const { ws, diagnostics } = state;
   /** An ID this render shows, after any rename applied since: a press can land after one. */
@@ -117,12 +121,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const desktop = desktopBridge();
   const agent = host instanceof DesktopHost ? desktop?.agent : undefined;
 
-  // Keep a valid view open: the current one if it still exists, else the first by title.
+  // Keep a valid view open: the current one if it still exists, else the first in the Views list.
+  const { loaded: settingsLoaded, order: viewOrder, pins } = viewSettings;
   useEffect(() => {
-    if (!ws || (viewId && ws.views.has(viewId))) return;
-    const first = [...ws.views.values()].sort((a, b) => a.title.localeCompare(b.title))[0];
-    setViewId(first?.id ?? null);
-  }, [ws, viewId]);
+    if (!ws || !settingsLoaded || (viewId && ws.views.has(viewId))) return;
+    const { pinned, others } = viewList(ws.views.values(), viewOrder, pins);
+    setViewId((pinned[0] ?? others[0])?.id ?? null);
+  }, [ws, viewId, settingsLoaded, viewOrder, pins]);
 
   useEffect(() => {
     if (selection?.kind === "element" && ws && !ws.elements.has(selection.id)) setSelection(null);
@@ -267,13 +272,18 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const save = () =>
     attempt(async () => {
       if (state.text === null) return;
+      // Saved, it's kept under another key, and keeps the views pinned here.
+      const carryOn = async (next: WorkspaceHost) => {
+        await userSettings.setPins(next.key, viewSettings.pins).catch(() => undefined);
+        onHostChange(next);
+      };
       if (desktop) {
         const file = await desktop.saveAs(state.text);
-        if (file) onHostChange(new DesktopHost(desktop, file.path, file.name));
+        if (file) await carryOn(new DesktopHost(desktop, file.path, file.name));
         return;
       }
       const record = await browserLibrary.add(host.name, state.text);
-      onHostChange(new BrowserHost(browserLibrary, record.id, record.fileName));
+      await carryOn(new BrowserHost(browserLibrary, record.id, record.fileName));
     });
 
   const exportTo = (provider: FileProvider) =>
@@ -442,6 +452,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onElementMenu={openElementMenu}
         onNewView={() => setDialog({ kind: "newView" })}
         onOpenProblem={openProblem}
+        viewOrder={viewOrder}
+        onViewOrder={(order) => attempt(() => viewSettings.setOrder(order))}
+        pinnedViews={pins}
+        onPinView={(id, pinned) => attempt(() => viewSettings.setPinned(current(id), pinned))}
       />
 
       {/* Under another pane, the diagram keeps its size, so it keeps its zoom too. */}

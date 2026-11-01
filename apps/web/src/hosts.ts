@@ -13,6 +13,8 @@ import type { WorkspaceLibrary } from "./library.js";
 export interface WorkspaceHost {
   /** File name, shown in the title bar. */
   name: string;
+  /** Tells the workspace apart from others on this computer, the same each time it's opened. The designer keeps its settings for the workspace, like pinned views, by it. */
+  key: string;
   /** "file": every edit is saved to the file. "browser": every edit is saved in the browser's storage. "memory": edits stay in this tab until saved. */
   storage: "file" | "browser" | "memory";
   /** Desktop only: saving also refreshes the docs folder. */
@@ -32,6 +34,9 @@ export class MemoryHost implements WorkspaceHost {
     public name: string,
     private text: string,
   ) {}
+  get key(): string {
+    return `memory/${this.name}`;
+  }
   async load(): Promise<string> {
     return this.text;
   }
@@ -68,6 +73,9 @@ export function docsZip(ws: Workspace, fileName: string): Uint8Array {
 
 // --- In the browser's storage ------------------------------------------------------
 
+/** The key of a workspace kept in the browser, by its ID in the library. */
+export const browserKey = (id: string) => `browser/${id}`;
+
 /** A workspace kept in the browser (library.ts). Every edit is saved there. */
 export class BrowserHost implements WorkspaceHost {
   readonly storage = "browser";
@@ -77,6 +85,10 @@ export class BrowserHost implements WorkspaceHost {
     readonly id: string,
     readonly name: string,
   ) {}
+
+  get key(): string {
+    return browserKey(this.id);
+  }
 
   async load(): Promise<string> {
     const record = await this.library.get(this.id);
@@ -113,6 +125,10 @@ export class DesktopHost implements WorkspaceHost {
     readonly path: string,
     readonly name: string,
   ) {}
+
+  get key(): string {
+    return `file/${this.path}`;
+  }
 
   load(): Promise<string> {
     return this.bridge.load(this.path);

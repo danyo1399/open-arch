@@ -24,14 +24,16 @@ export interface LibraryChange {
 
 const STORE = "workspaces";
 
-function done<T>(request: IDBRequest<T>): Promise<T> {
+/** What a request gives, once it succeeds. */
+export function done<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
 
-function committed(tx: IDBTransaction): Promise<void> {
+/** Resolves once a transaction's changes are stored. */
+export function committed(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);

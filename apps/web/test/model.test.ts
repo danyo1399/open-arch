@@ -18,6 +18,7 @@ import {
   undoRenames,
   uniqueId,
   viewAction,
+  viewList,
 } from "../src/model.js";
 
 const ws = buildWorkspace({
@@ -107,6 +108,56 @@ describe("byName", () => {
   it("orders elements with the same name by ID", () => {
     expect(names(modelTree(ws, byName))).toEqual(["API", "API", "Orders DB"]);
     expect(modelTree(ws, byName).map((n) => n.element.id)).toEqual(["api", "api-2", "db"]);
+  });
+});
+
+describe("viewList", () => {
+  const site = buildWorkspace({
+    openarch: 3,
+    name: "Site",
+    elements: {
+      website: { kind: "system", name: "Client Website" },
+      backend: { kind: "container", name: "Backend", parent: "website" },
+      s3: { kind: "system", name: "AWS S3 Storage" },
+    },
+    views: {
+      "s3-context": { title: "AWS S3 Storage context", level: "context", scope: "s3" },
+      landscape: { title: "Client Website", level: "landscape" },
+      backend: { title: "backend components", level: "component", scope: "backend" },
+      containers: { title: "Client Website containers", level: "container", scope: "website" },
+      context: { title: "Client Website context", level: "context", scope: "website" },
+      "context-2": { title: "Client Website context", level: "context", scope: "website" },
+    },
+  });
+  const ids = ({ pinned, others }: ReturnType<typeof viewList>) => ({ pinned: pinned.map((v) => v.id), others: others.map((v) => v.id) });
+
+  it("sorts by title, ignoring case, and same titles by ID", () => {
+    expect(ids(viewList(site.views.values(), "name", []))).toEqual({
+      pinned: [],
+      others: ["s3-context", "backend", "landscape", "containers", "context", "context-2"],
+    });
+  });
+
+  it("sorts by level, from landscape down to component, and then by title", () => {
+    expect(ids(viewList(site.views.values(), "level", []))).toEqual({
+      pinned: [],
+      others: ["landscape", "s3-context", "context", "context-2", "containers", "backend"],
+    });
+  });
+
+  it("puts pinned views first, in the same order as the rest", () => {
+    expect(ids(viewList(site.views.values(), "name", ["landscape", "backend"]))).toEqual({
+      pinned: ["backend", "landscape"],
+      others: ["s3-context", "containers", "context", "context-2"],
+    });
+    expect(ids(viewList(site.views.values(), "level", ["landscape", "backend"]))).toEqual({
+      pinned: ["landscape", "backend"],
+      others: ["s3-context", "context", "context-2", "containers"],
+    });
+  });
+
+  it("leaves out pins of views that are gone", () => {
+    expect(ids(viewList(site.views.values(), "name", ["deleted", "landscape"])).pinned).toEqual(["landscape"]);
   });
 });
 

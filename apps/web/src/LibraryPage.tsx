@@ -1,10 +1,11 @@
 /** The web app's start page: the workspaces kept in this browser, and the ways to add one. */
 import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BrowserHost, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, browserKey, type WorkspaceHost } from "./hosts.js";
 import { importFiles, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
 import { ConfirmDialog } from "./panels/dialogs.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
+import { userSettings } from "./settings.js";
 import { StartPage } from "./Start.js";
 
 const edited = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -110,6 +111,7 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
             setRemoving(null);
             attempt(async () => {
               await library.remove(id);
+              void userSettings.forget(browserKey(id)).catch(() => undefined);
               await refresh();
             });
           }}

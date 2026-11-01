@@ -409,7 +409,17 @@ button.pane-tab.active {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 0 6px 6px;
+}
+/* How the Views list is sorted: a menu that sits quietly beside + New view. The background stays
+   the panel's, as the list it opens takes its colours. */
+.sidebar select.view-order {
+  width: auto;
+  border: none;
+  padding: 0 2px;
+  color: var(--muted);
+  cursor: pointer;
 }
 .sidebar h2 {
   margin: 0;
@@ -454,6 +464,35 @@ button.pane-tab.active {
   background: none !important;
   padding: 0;
   text-align: left;
+}
+/* Sets the pinned views apart from the rest. */
+.list-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+/* A view's pin: always there on a pinned view, and on the others under the pointer, with focus
+   in their row, or on a screen without a pointer to hover. Hidden, it leaves the title room. */
+.row .pin {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  padding: 0 2px;
+}
+.row .pin:not(.pinned) {
+  display: none;
+}
+.row:hover .pin,
+.row:focus-within .pin {
+  display: grid;
+}
+@media (hover: none) {
+  .row .pin:not(.pinned) {
+    display: grid;
+  }
+}
+.row .pin.pinned {
+  color: var(--accent);
 }
 .row-main .grow,
 .row .grow {

@@ -1,5 +1,5 @@
 /** Small questions about the model that the designer's UI asks. */
-import { computeAllViews, describeElement, isInside, type ArchElement, type ComputedView, type ElementData, type Operation, type Relationship, type Sticky, type ViewData, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeAllViews, describeElement, isInside, VIEW_LEVELS, type ArchElement, type ComputedView, type ElementData, type Operation, type Relationship, type Sticky, type ViewData, type ViewDef, type Workspace } from "@open-arch/core";
 import type { Selection } from "./canvas/Canvas.js";
 
 /** IDs the designer gives new elements before they have a name. */
@@ -34,6 +34,18 @@ export function followsName(id: string, name: string): boolean {
 /** Elements in alphabetical order of name, as the model tree lists them. Elements with the same name go by ID. */
 export function byName(a: ArchElement, b: ArchElement): number {
   return a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/** How the Views list is sorted: by title, or by level, from landscape down to component, and then by title. */
+export type ViewOrder = "name" | "level";
+
+/** The Views list: the pinned views, then the rest, each in `order`. Views with the same title go by ID. */
+export function viewList(views: Iterable<ViewDef>, order: ViewOrder, pins: readonly string[]): { pinned: ViewDef[]; others: ViewDef[] } {
+  const byTitle = (a: ViewDef, b: ViewDef) => a.title.localeCompare(b.title) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const byLevel = (a: ViewDef, b: ViewDef) => VIEW_LEVELS.indexOf(a.level) - VIEW_LEVELS.indexOf(b.level) || byTitle(a, b);
+  const sorted = [...views].sort(order === "level" ? byLevel : byTitle);
+  const pinned = new Set(pins);
+  return { pinned: sorted.filter((v) => pinned.has(v.id)), others: sorted.filter((v) => !pinned.has(v.id)) };
 }
 
 /**
