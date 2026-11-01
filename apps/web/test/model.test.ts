@@ -1,6 +1,21 @@
 import { applyOperations, buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { followRenames, followsName, idFromName, renamedId, renamesBetween, renamesIn, shownInProperties, undoRenames, uniqueId, viewAction } from "../src/model.js";
+import {
+  followRenames,
+  followsName,
+  idFromName,
+  renamedId,
+  renamesBetween,
+  renamesIn,
+  sameShapes,
+  selectedShapes,
+  selectShapes,
+  shownInProperties,
+  toggleShape,
+  undoRenames,
+  uniqueId,
+  viewAction,
+} from "../src/model.js";
 
 const ws = buildWorkspace({
   openarch: 2,
@@ -130,10 +145,72 @@ describe("shownInProperties", () => {
     expect(shownInProperties(noted, view, null)).toEqual({ kind: "view", view });
   });
 
+  it("shows several boxes and notes selected together, as long as more than one is still there", () => {
+    const two = noted.views.get("landscape")!;
+    expect(shownInProperties(noted, two, { kind: "several", elements: ["api"], stickies: ["note"] })).toEqual({
+      kind: "several",
+      view: two,
+      elements: [noted.elements.get("api")],
+      stickies: [two.stickies[0]],
+    });
+    // One left is shown on its own; none left, the view.
+    expect(shownInProperties(noted, two, { kind: "several", elements: ["api", "gone"], stickies: [] })).toEqual({ kind: "element", element: noted.elements.get("api") });
+    expect(shownInProperties(noted, two, { kind: "several", elements: ["gone"], stickies: ["gone"] })).toEqual({ kind: "view", view: two });
+  });
+
   it("shows the workspace when it's selected, or no view is open", () => {
     expect(shownInProperties(noted, view, { kind: "workspace" })).toEqual({ kind: "workspace" });
     expect(shownInProperties(noted, null, { kind: "element", id: "gone" })).toEqual({ kind: "workspace" });
     expect(shownInProperties(noted, null, null)).toEqual({ kind: "workspace" });
+  });
+});
+
+describe("selecting several boxes and notes", () => {
+  // The diagram's boxes; "shop" is the frame round them, which isn't one.
+  const boxes = new Set(["web", "db", "cart"]);
+
+  it("reads the boxes and notes a selection picks", () => {
+    expect(selectedShapes({ kind: "element", id: "web" }, boxes)).toEqual({ elements: ["web"], stickies: [] });
+    expect(selectedShapes({ kind: "sticky", id: "note" }, boxes)).toEqual({ elements: [], stickies: ["note"] });
+    expect(selectedShapes({ kind: "several", elements: ["web", "db"], stickies: ["note"] }, boxes)).toEqual({ elements: ["web", "db"], stickies: ["note"] });
+    expect(selectedShapes({ kind: "element", id: "shop" }, boxes)).toEqual({ elements: [], stickies: [] });
+    expect(selectedShapes({ kind: "arrow", from: "web", to: "db" }, boxes)).toEqual({ elements: [], stickies: [] });
+    expect(selectedShapes(null, boxes)).toEqual({ elements: [], stickies: [] });
+  });
+
+  it("leaves out elements that aren't boxes on the diagram", () => {
+    expect(selectedShapes({ kind: "several", elements: ["web", "gone"], stickies: [] }, boxes)).toEqual({ elements: ["web"], stickies: [] });
+  });
+
+  it("selects one box or note as a click would, and more than one together", () => {
+    expect(selectShapes({ elements: [], stickies: [] })).toBeNull();
+    expect(selectShapes({ elements: ["web"], stickies: [] })).toEqual({ kind: "element", id: "web" });
+    expect(selectShapes({ elements: [], stickies: ["note"] })).toEqual({ kind: "sticky", id: "note" });
+    expect(selectShapes({ elements: ["web"], stickies: ["note"] })).toEqual({ kind: "several", elements: ["web"], stickies: ["note"] });
+  });
+
+  it("adds a box or note with a Ctrl-click, and takes it out with another", () => {
+    const one = toggleShape({ kind: "element", id: "web" }, boxes, { kind: "element", id: "db" });
+    expect(one).toEqual({ kind: "several", elements: ["web", "db"], stickies: [] });
+    const three = toggleShape(one, boxes, { kind: "sticky", id: "note" });
+    expect(three).toEqual({ kind: "several", elements: ["web", "db"], stickies: ["note"] });
+    const two = toggleShape(three, boxes, { kind: "element", id: "web" });
+    expect(two).toEqual({ kind: "several", elements: ["db"], stickies: ["note"] });
+    // Down to one, it's selected on its own; down to none, nothing is.
+    expect(toggleShape(two, boxes, { kind: "sticky", id: "note" })).toEqual({ kind: "element", id: "db" });
+    expect(toggleShape({ kind: "element", id: "db" }, boxes, { kind: "element", id: "db" })).toBeNull();
+  });
+
+  it("starts afresh from an arrow, the frame or nothing", () => {
+    expect(toggleShape({ kind: "arrow", from: "web", to: "db" }, boxes, { kind: "element", id: "db" })).toEqual({ kind: "element", id: "db" });
+    expect(toggleShape({ kind: "element", id: "shop" }, boxes, { kind: "element", id: "db" })).toEqual({ kind: "element", id: "db" });
+    expect(toggleShape(null, boxes, { kind: "sticky", id: "note" })).toEqual({ kind: "sticky", id: "note" });
+  });
+
+  it("compares shapes in any order", () => {
+    expect(sameShapes({ elements: ["web", "db"], stickies: ["note"] }, { elements: ["db", "web"], stickies: ["note"] })).toBe(true);
+    expect(sameShapes({ elements: ["web"], stickies: [] }, { elements: ["web", "db"], stickies: [] })).toBe(false);
+    expect(sameShapes({ elements: ["web"], stickies: [] }, { elements: [], stickies: ["web"] })).toBe(false);
   });
 });
 

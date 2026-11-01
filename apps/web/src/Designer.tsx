@@ -5,11 +5,11 @@ import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { BrowserHost, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
-import { followRenames, relationshipRef, renamedId, renamesIn, shownInProperties, viewAction, type Rename } from "./model.js";
+import { followRenames, relationshipRef, renamedId, renamesIn, selectShapes, shownInProperties, viewAction, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
-import { Properties } from "./panels/Properties.js";
+import { Properties, shapesLabel } from "./panels/Properties.js";
 import { providers, type FileProvider } from "./providers.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
@@ -32,6 +32,7 @@ function detailsName(ws: Workspace, view: ViewDef | null, selection: Selection):
   if (shown.kind === "element") return shown.element.name;
   if (shown.kind === "arrow") return `${name(shown.from)} → ${name(shown.to)}`;
   if (shown.kind === "sticky") return "Sticky note";
+  if (shown.kind === "several") return shapesLabel(shown.elements.length, shown.stickies.length);
   return shown.kind === "view" ? "This view" : "Workspace";
 }
 
@@ -82,7 +83,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ? { ...s, id: to(s.id) }
         : s?.kind === "arrow" && (to(s.from) !== s.from || to(s.to) !== s.to)
           ? { ...s, from: to(s.from), to: to(s.to) }
-          : s,
+          : s?.kind === "several" && s.elements.some((id) => to(id) !== id)
+            ? { ...s, elements: s.elements.map(to) }
+            : s,
     );
     setViewId((v) => v && to(v));
     setUsagesOf((u) => u && to(u));
@@ -144,9 +147,26 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const inView = useMemo(() => new Set([...(computed?.nodes.map((n) => n.id) ?? []), ...(computed?.boundary ? [computed.boundary.id] : [])]), [computed]);
   const showable = useMemo(() => new Set(ws ? [...ws.elements.keys()].filter((id) => viewAction(ws, view, computed, id) === "show") : []), [ws, view, computed]);
 
+  // Boxes and notes that leave the view, or the model, leave a selection of several.
+  useEffect(() => {
+    if (selection?.kind !== "several" || !view) return;
+    const boxes = new Set(computed?.nodes.map((n) => n.id));
+    const elements = selection.elements.filter((id) => boxes.has(id));
+    const stickies = selection.stickies.filter((id) => view.stickies.some((s) => s.id === id));
+    if (elements.length < selection.elements.length || stickies.length < selection.stickies.length) setSelection(selectShapes({ elements, stickies }));
+  }, [selection, view, computed]);
+
   const select = useCallback(
     (next: Selection, options?: { isNew?: boolean }) => {
-      setSelection(next?.kind === "element" ? { ...next, id: current(next.id) } : next?.kind === "arrow" ? { ...next, from: current(next.from), to: current(next.to) } : next);
+      setSelection(
+        next?.kind === "element"
+          ? { ...next, id: current(next.id) }
+          : next?.kind === "arrow"
+            ? { ...next, from: current(next.from), to: current(next.to) }
+            : next?.kind === "several"
+              ? { ...next, elements: next.elements.map(current) }
+              : next,
+      );
       setIsNew(!!options?.isNew);
     },
     [current],
@@ -281,7 +301,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   if (!ws || state.text === null) return <div className="center muted">Loading…</div>;
 
   const mod = isMac ? "⌘" : "Ctrl+";
-  const selected = selection?.kind === "element" ? [selection.id] : selection?.kind === "arrow" ? [selection.from, selection.to] : [];
+  const selected = selection?.kind === "element" ? [selection.id] : selection?.kind === "several" ? selection.elements : selection?.kind === "arrow" ? [selection.from, selection.to] : [];
   // While Ask AI is open, the agent's edits reload the file again and again, and the panel already says what it changed.
   const message = state.message?.kind === "info" && askOpen ? null : state.message;
   const status =

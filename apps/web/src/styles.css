@@ -619,6 +619,14 @@ button.heading {
 .plain li {
   margin-bottom: 4px;
 }
+/* Text cut short to fit on one line, like a sticky note's in a list of them. */
+.one-line {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -665,6 +673,19 @@ button.heading {
   /* React Flow draws an arrow it has focused, as clicking one does, in this colour. Only a
      selected arrow changes colour (see .arrow.selected). */
   --xy-edge-stroke-selected: var(--edge);
+  /* The box dragged across the background to select boxes and notes. */
+  --xy-selection-background-color: color-mix(in srgb, var(--accent) 8%, transparent);
+  --xy-selection-border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+}
+/* Dragging the background selects (see Canvas), so it has the usual pointer, not a hand. */
+.react-flow__pane.selection {
+  cursor: default;
+}
+/* React Flow draws a box round what a drag selected, over the boxes and notes, where it would
+   take the clicks that select one of them, Ctrl-click it away, or start an arrow from it.
+   Dragging any of them moves them all without it. */
+.react-flow__nodesselection {
+  display: none;
 }
 .toolbar {
   display: flex;
@@ -993,8 +1014,6 @@ button.heading {
   border-radius: 10px;
   background: color-mix(in srgb, var(--frame) 5%, transparent);
   position: relative;
-  /* React Flow only gives nodes it can select a pointer, and it can't select the frame. */
-  cursor: pointer;
 }
 .frame.selected {
   border-color: var(--accent);
