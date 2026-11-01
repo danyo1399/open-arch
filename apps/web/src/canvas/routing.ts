@@ -4,11 +4,14 @@
  *
  * Each arrow is the cheapest path on a grid of lines just outside every box's
  * sides, through the points where arrows attach, and down the middle of the
- * gaps between boxes. Corners, crossings and shared runs add to a path's cost,
- * so a slightly longer path wins when it's tidier. So do attaching off the middle
+ * gaps between boxes. Corners, crossings, shared runs and runs close beside
+ * another arrow add to a path's cost, so a slightly longer path wins when it's
+ * tidier, and arrows spread out where there's room. So do attaching off the middle
  * of a side, and leaving a box by a side that faces away from where the arrow's
  * going. Arrows that could be straight are routed first, then the rest, each
  * shortest first, then all routed again so the early ones can make way for the rest.
+ * Two arrows that still cross are routed again, each first in turn, as either
+ * might have taken the way the other needed.
  *
  * Crossings are costed by the arms routes have at each point of the grid: a
  * route going straight through a point has two arms there along its axis, and
@@ -52,6 +55,14 @@ const OVERLAP = 3;
 /** Runs this close beside another arrow's count as running along it: they'd look like one thick line. */
 const NEAR = 10;
 /**
+ * Runs closer than this beside another arrow cost extra too, the more the closer, so
+ * arrows spread out where there's room, and so do their labels. Arrows bunched together
+ * are hard to tell apart, and leave their labels no room.
+ */
+const APART = 50;
+/** Per pixel run NEAR beside another arrow, falling to nothing at APART. */
+const CLOSE = 0.8;
+/**
  * For attaching anywhere but the middle of a side, on top of a pixel for each pixel
  * from it. Moving off the middle saves at most that much line, so an arrow doesn't
  * do it just to be shorter: only to keep straight or to save a corner.
@@ -84,6 +95,12 @@ const FRAME_GAP = 16;
 const UNDER_NOTE = 10;
 /** A step shorter than this, between two runs going the same way, is straightened out where that keeps clear of boxes. */
 const JOG = 12;
+/**
+ * How many pairs of arrows that cross are routed again, each first in turn, in one
+ * layout (see routeAround). Each pair costs four searches, which add up on a busy
+ * diagram with many crossings, where trying them all rarely helps.
+ */
+const UNTANGLES = 8;
 
 /** Directions of movement, which are also the axis of a run. */
 const H = 0;
@@ -299,9 +316,13 @@ class Grid {
   readonly notesV: Uint16Array;
   /** The grid lines each note's clear space runs between: its first and last column and row. */
   private readonly noteSpans: [number, number, number, number][];
-  /** For each row, and each column, the steps to the runs on the others closer than NEAR, which would look like the same line. */
-  private readonly besideRows: number[][];
-  private readonly besideCols: number[][];
+  /**
+   * For each row, and each column, the steps to the runs on the others closer than APART,
+   * and what each costs per pixel run beside an arrow there: as much as running along it
+   * closer than NEAR, where they'd look like the same line, and less the further apart.
+   */
+  private readonly besideRows: { steps: number[]; costs: number[] }[];
+  private readonly besideCols: { steps: number[]; costs: number[] }[];
   /** Where routed arrows attach on each side, by `Port.side`. */
   private readonly attached = new Map<string, Port[]>();
   /** The route each link has on the grid, by link ID: the grid's own record, so what's removed is always what was placed. */
@@ -336,9 +357,14 @@ class Grid {
     this.ny = this.ys.length;
     const beside = (values: number[], unit: number) =>
       values.map((v, k) => {
-        const out: number[] = [];
-        for (let m = k - 1; m >= 0 && v - values[m]! < NEAR; m--) out.push((m - k) * unit);
-        for (let m = k + 1; m < values.length && values[m]! - v < NEAR; m++) out.push((m - k) * unit);
+        const out = { steps: [] as number[], costs: [] as number[] };
+        const add = (m: number) => {
+          const d = Math.abs(values[m]! - v);
+          out.steps.push((m - k) * unit);
+          out.costs.push(d < NEAR ? OVERLAP : CLOSE * (1 - (d - NEAR) / (APART - NEAR)));
+        };
+        for (let m = k - 1; m >= 0 && v - values[m]! < APART; m--) add(m);
+        for (let m = k + 1; m < values.length && values[m]! - v < APART; m++) add(m);
         return out;
       });
     this.besideRows = beside(this.ys, this.nx);
@@ -428,11 +454,11 @@ class Grid {
   private stepCost(run: number, axis: typeof H | typeof V, length: number): number {
     const across = axis === H;
     const used = across ? this.usedH : this.usedV;
-    const near = across ? this.besideRows[Math.floor(run / this.nx)]! : this.besideCols[run % this.nx]!;
+    const { steps, costs } = across ? this.besideRows[Math.floor(run / this.nx)]! : this.besideCols[run % this.nx]!;
     let beside = 0;
-    for (const off of near) beside += used[run + off]!;
+    for (let k = 0; k < steps.length; k++) beside += costs[k]! * used[run + steps[k]!]!;
     const frame = (across ? this.alongFrameH : this.alongFrameV)[run]!;
-    return length + OVERLAP * length * (used[run]! + frame + beside);
+    return length + length * (OVERLAP * (used[run]! + frame) + beside);
   }
 
   /** What attaching at `port` costs, given the arrows already attached to its side. */
@@ -816,7 +842,8 @@ function couldBeStraight(a: Rect, b: Rect, lines: { xs: number[]; ys: number[] }
 
 /**
  * Routes for the links that have one, around the boxes and the `notes` in the way: those
- * that could be straight first, then the rest, each shortest first.
+ * that could be straight first, then the rest, each shortest first, then any two that
+ * cross again, each first in turn.
  */
 function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], frames: Rect[]): Routing {
   // Arrows attach to a box only at its own anchors, and at lines across where it
@@ -854,16 +881,49 @@ function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], fra
   const straight = new Set(links.filter((l) => couldBeStraight(rects.get(l.from)!, rects.get(l.to)!, across.get(l.id)!, rects.values())));
   const order = [...links.filter((l) => straight.has(l)), ...links.filter((l) => !straight.has(l))];
 
+  /** The cheapest route for `link`, given the routes on the grid now. */
+  const routeLink = (link: Link): Route | undefined => {
+    const [from, to, leaves, goals] = [rects.get(link.from)!, rects.get(link.to)!, starts.get(link.id)!, ports.get(link.to)!];
+    const [lines, under] = [across.get(link.id)!, notesOn.get(link.id)!];
+    // With no way round the notes in its way, a link goes under as little of them as it can rather
+    // than have no route at all: straight across a narrow gap, or else paying for each pixel under one.
+    const blockedByNotes = () => (under.length < everyNote.length ? acrossGap(grid, from, to, leaves, goals, lines, everyNote) ?? routeOne(grid, leaves, goals, from, to, under, true) : undefined);
+    return acrossGap(grid, from, to, leaves, goals, lines, under) ?? routeOne(grid, leaves, goals, from, to, under) ?? blockedByNotes();
+  };
   for (let pass = 0; pass < 2; pass++) {
     for (const link of order) {
       grid.remove(link.id);
-      const [from, to, leaves, goals] = [rects.get(link.from)!, rects.get(link.to)!, starts.get(link.id)!, ports.get(link.to)!];
-      const [lines, under] = [across.get(link.id)!, notesOn.get(link.id)!];
-      // With no way round the notes in its way, a link goes under as little of them as it can rather
-      // than have no route at all: straight across a narrow gap, or else paying for each pixel under one.
-      const blockedByNotes = () => (under.length < everyNote.length ? acrossGap(grid, from, to, leaves, goals, lines, everyNote) ?? routeOne(grid, leaves, goals, from, to, under, true) : undefined);
-      const route = acrossGap(grid, from, to, leaves, goals, lines, under) ?? routeOne(grid, leaves, goals, from, to, under) ?? blockedByNotes();
+      const route = routeLink(link);
       if (route) grid.place(link.id, route);
+    }
+  }
+
+  // Each link is routed around the others as they are, so two can end up crossing where, routed
+  // the other way round, neither would: the first took the way the second needed. So each pair that
+  // crosses is routed again, each first in turn, and kept whichever way the two cost least together.
+  let tries = UNTANGLES;
+  for (const [k, a] of order.entries()) {
+    for (const b of order.slice(k + 1)) {
+      if (tries <= 0) break;
+      const [routeA, routeB] = [grid.routes.get(a.id), grid.routes.get(b.id)];
+      if (!routeA || !routeB || !cross(routeA.points, routeB.points)) continue;
+      tries--;
+      grid.remove(a.id);
+      grid.remove(b.id);
+      // The two as they are, costed the way the search would: whichever is placed second pays for what's between them.
+      let best = { cost: grid.costOf(routeA.cells, routeA.ports), routes: [[a, routeA] as const, [b, routeB] as const] };
+      grid.place(a.id, routeA);
+      best.cost += grid.costOf(routeB.cells, routeB.ports);
+      grid.remove(a.id);
+      for (const [first, second] of [[b, a], [a, b]] as const) {
+        const one = routeLink(first);
+        if (!one) continue;
+        grid.place(first.id, one);
+        const two = routeLink(second);
+        grid.remove(first.id);
+        if (two && one.cost + two.cost < best.cost) best = { cost: one.cost + two.cost, routes: [[first, one], [second, two]] };
+      }
+      for (const [link, route] of best.routes) grid.place(link.id, route);
     }
   }
   return { grid, ports, starts, routes: grid.routes };
@@ -1232,31 +1292,48 @@ export function layoutArrows<S extends Size>(
   return { routes: pointsOf(boxes, links, routes), labels: new Map([...labels].map(([id, p]) => [id, { ...(p.spot.size as S), ...p.spot.at }])) };
 }
 
+type Run = readonly [Readonly<Point>, Readonly<Point>];
+
+/** A route's horizontal runs, or its vertical ones. */
+function runsOf(points: readonly Readonly<Point>[], horizontal: boolean): Run[] {
+  return points.slice(1).flatMap((b, k) => {
+    const a = points[k]!;
+    return (horizontal ? a.y === b.y && a.x !== b.x : a.x === b.x && a.y !== b.y) ? [[a, b] as const] : [];
+  });
+}
+
+/** Where horizontal run `[a, b]` crosses vertical run `[c, d]`, if it does: not where they only meet at an end or a corner. */
+function crossingOf([a, b]: Run, [c, d]: Run): Point | undefined {
+  const [x, y] = [c.x, a.y];
+  return x > Math.min(a.x, b.x) && x < Math.max(a.x, b.x) && y > Math.min(c.y, d.y) && y < Math.max(c.y, d.y) ? { x, y } : undefined;
+}
+
+/** Whether two routes cross. */
+function cross(a: readonly Readonly<Point>[], b: readonly Readonly<Point>[]): boolean {
+  const meet = (across: Run[], down: Run[]) => across.some((h) => down.some((v) => crossingOf(h, v)));
+  return meet(runsOf(a, true), runsOf(b, false)) || meet(runsOf(b, true), runsOf(a, false));
+}
+
 /**
  * Where each route crosses another, by link ID: the points where one of its
  * horizontal runs crosses another route's vertical run, nearest its start first.
  * The horizontal one is the one drawn hopping over the other.
  */
 export function crossings(routes: ReadonlyMap<string, readonly Readonly<Point>[]>): Map<string, Point[]> {
-  const runs = (points: readonly Readonly<Point>[], horizontal: boolean) =>
-    points.slice(1).flatMap((b, k) => {
-      const a = points[k]!;
-      return (horizontal ? a.y === b.y && a.x !== b.x : a.x === b.x && a.y !== b.y) ? [[a, b] as const] : [];
-    });
-  const vertical = [...routes].map(([id, points]) => ({ id, runs: runs(points, false) }));
+  const vertical = [...routes].map(([id, points]) => ({ id, runs: runsOf(points, false) }));
   const out = new Map<string, Point[]>();
   for (const [id, points] of routes) {
     const found: Point[] = [];
-    for (const [a, b] of runs(points, true)) {
+    for (const run of runsOf(points, true)) {
       const here: Point[] = [];
       for (const other of vertical) {
         if (other.id === id) continue;
-        for (const [c, d] of other.runs) {
-          const [x, y] = [c.x, a.y];
-          if (x > Math.min(a.x, b.x) && x < Math.max(a.x, b.x) && y > Math.min(c.y, d.y) && y < Math.max(c.y, d.y)) here.push({ x, y });
+        for (const down of other.runs) {
+          const at = crossingOf(run, down);
+          if (at) here.push(at);
         }
       }
-      found.push(...here.sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x)));
+      found.push(...here.sort((p, q) => Math.abs(p.x - run[0].x) - Math.abs(q.x - run[0].x)));
     }
     if (found.length) out.set(id, found);
   }

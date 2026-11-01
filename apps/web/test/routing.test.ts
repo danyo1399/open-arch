@@ -42,6 +42,26 @@ function crossingCount(routes: (readonly Point[])[]) {
   return count;
 }
 
+/** Runs of different routes that go the same way closer together than `apart`, alongside each other, but not on the same line. */
+function beside(routes: (readonly Point[])[], apart: number) {
+  const out: string[] = [];
+  const overlap = (a: number, b: number, c: number, d: number) => Math.min(Math.max(a, b), Math.max(c, d)) - Math.max(Math.min(a, b), Math.min(c, d));
+  routes.forEach((route, k) => {
+    for (const other of routes.slice(k + 1)) {
+      for (const [p, q] of segments(route)) {
+        for (const [r, t] of segments(other)) {
+          if (
+            (p.x === q.x && r.x === t.x && p.x !== r.x && Math.abs(p.x - r.x) < apart && overlap(p.y, q.y, r.y, t.y) > 0) ||
+            (p.y === q.y && r.y === t.y && p.y !== r.y && Math.abs(p.y - r.y) < apart && overlap(p.x, q.x, r.x, t.x) > 0)
+          )
+            out.push(`${JSON.stringify([p, q])} beside ${JSON.stringify([r, t])}`);
+        }
+      }
+    }
+  });
+  return out;
+}
+
 function check(boxes: Map<string, Box>, links: Link[], frames: Box[] = []) {
   const routes = routeLinks(boxes, links, frames);
   for (const l of links) {
@@ -157,14 +177,17 @@ describe("routeLinks", () => {
   });
 
   it("spreads arrows out along a side whose middle another arrow has", () => {
-    // From the tour's context view: support's arrow is straight, into the middle of p's left
-    // side, though r's is shorter and routed first would have taken it. r's and m's attach
-    // either side of it.
+    // From the tour's context view, with boxes close above and below p, so all three arrows
+    // have to share its left side. support's arrow is straight, into the middle of that side,
+    // though r's is shorter and routed first would have taken it. r's and m's attach either
+    // side of it.
     const boxes = new Map([
       ["r", { x: 0, y: 0, w: 220, h: 103 }],
       ["p", { x: 320, y: 260, w: 220, h: 114 }],
       ["m", { x: 0, y: 520, w: 220, h: 100 }],
       ["support", { x: -440, y: 260, w: 220, h: 100 }],
+      ["above", { x: 320, y: 120, w: 220, h: 100 }],
+      ["below", { x: 320, y: 414, w: 220, h: 100 }],
     ]);
     const routes = check(boxes, [link("r", "p"), link("support", "p"), link("p", "m")]);
     expect(routes.get("support->p"), "support goes straight across").toHaveLength(2);
@@ -305,20 +328,40 @@ describe("routeLinks", () => {
       ["d", at(595, 213)],
     ]);
     const links = [link("a", "c"), link("b", "c"), link("d", "a")];
-    const routes = [...check(boxes, links).values()];
-    routes.forEach((route, k) => {
-      for (const other of routes.slice(k + 1)) {
-        for (const [p, q] of segments(route)) {
-          for (const [r, t] of segments(other)) {
-            const overlap = (a: number, b: number, c: number, d: number) => Math.min(Math.max(a, b), Math.max(c, d)) - Math.max(Math.min(a, b), Math.min(c, d));
-            const beside =
-              (p.x === q.x && r.x === t.x && p.x !== r.x && Math.abs(p.x - r.x) < 10 && overlap(p.y, q.y, r.y, t.y) > 0) ||
-              (p.y === q.y && r.y === t.y && p.y !== r.y && Math.abs(p.y - r.y) < 10 && overlap(p.x, q.x, r.x, t.x) > 0);
-            expect(beside, `${JSON.stringify([p, q])} beside ${JSON.stringify([r, t])}`).toBe(false);
-          }
-        }
-      }
-    });
+    expect(beside([...check(boxes, links).values()], 10)).toEqual([]);
+  });
+
+  it("keeps arrows apart where there's room, rather than running them close beside each other", () => {
+    // From a diagram where both of b's arrows left its left side 25px apart and ran side
+    // by side for 270px, with their labels crowded together. b->a goes over the top instead.
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 220, h: 100 }],
+      ["b", { x: 700, y: 200, w: 220, h: 100 }],
+      ["c", { x: 320, y: 520, w: 220, h: 100 }],
+    ]);
+    const routes = check(boxes, [link("b", "a"), link("b", "c")]);
+    expect(beside([...routes.values()], 50)).toEqual([]);
+    expect(routes.get("b->a")![0]!.y, "leaves b's top").toBe(200);
+    expect(routes.get("b->a")!.at(-1)!.x, "enters a's right side").toBe(220);
+  });
+
+  it("routes two crossing arrows again the other way round, where then neither crosses", () => {
+    // From the tour's containers view. customer-app's arrow, routed first, takes the left side of
+    // api that support's needs, so support's crosses it to reach api's top. Routed the other way
+    // round, support's goes into api's left side and customer-app's into its top.
+    const boxes = new Map([
+      ["customer", { x: 0, y: 0, w: 220, h: 103 }],
+      ["payments", { x: -460, y: 480, w: 220, h: 100 }],
+      ["support", { x: -460, y: 240, w: 220, h: 100 }],
+      ["courier-app", { x: 840, y: 240, w: 220, h: 117 }],
+      ["customer-app", { x: 0, y: 240, w: 220, h: 117 }],
+      ["api", { x: 210, y: 480, w: 220, h: 100 }],
+    ]);
+    const links = [link("courier-app", "api"), link("customer", "customer-app"), link("customer-app", "api"), link("api", "payments"), link("support", "api")];
+    const routes = check(boxes, links);
+    expect(crossingCount([...routes.values()])).toBe(0);
+    expect(routes.get("support->api")!.at(-1)!.x, "support's enters api's left side").toBe(210);
+    expect(routes.get("customer-app->api")!.at(-1)!.y, "customer-app's enters api's top").toBe(480);
   });
 
   it("goes around a note in the way", () => {
