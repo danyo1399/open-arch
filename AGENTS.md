@@ -30,14 +30,14 @@ How agents (and people) build features and fix bugs in this repo. What open-arch
 2. If the file format changes, raise `FORMAT_VERSION` and upgrade older files as they're read, as `document.ts` does for version 1, so existing files keep opening. The next save writes the new version.
 3. Add tests beside the existing ones (`packages/*/test`, `apps/*/test`, Vitest).
 4. For a change you can see, run the designer and check it in the browser.
-5. Run the [checks](#checks), then [review and merge](#review-and-merge).
+5. Run the [checks](#checks), then [review and merge](#review-and-merge): run `pnpm land` yourself.
 
 ## Fixing a bug
 
 1. Reproduce it. Where the code is testable (core, the CLI, the designer's model, layout and routing), write a test that fails because of the bug. For a bug that only shows in the UI, reproduce it in the designer.
 2. Find the cause, not just the place it shows up. Look for the same mistake on the other paths: the CLI, the designer, `show`, the docs and Mermaid often each handle the same data.
 3. Fix it, and keep the test.
-4. Run the [checks](#checks), then [review and merge](#review-and-merge).
+4. Run the [checks](#checks), then [review and merge](#review-and-merge): run `pnpm land` yourself.
 
 ## Checks
 
@@ -60,7 +60,9 @@ Done means: the checks pass, new behaviour has tests, everything that describes 
 
 ## Review and merge
 
-`pnpm land` takes a branch from finished to merged. Commit your work, then, in the branch's worktree:
+`pnpm land` takes a branch from finished to merged. Once a feature or fix is finished and there's nothing left to do, run it yourself: don't hand the command to the person you're working with, or wait for them to ask. If something is still open, such as a question for them or a choice that's theirs to make, settle it first. Then tell them what landed.
+
+Commit your work, then, in the branch's worktree:
 
 ```bash
 pnpm land --task "<what you were asked to do, in a sentence or two>"
