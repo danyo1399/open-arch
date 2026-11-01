@@ -5,8 +5,10 @@
  * Each arrow is the cheapest path on a grid of lines just outside every box's
  * sides, through the points where arrows attach, and down the middle of the
  * gaps between boxes. Corners, crossings and shared runs add to a path's cost,
- * so a slightly longer path wins when it's tidier. Arrows are routed shortest
- * first, then all routed again so the early ones can make way for the rest.
+ * so a slightly longer path wins when it's tidier. So do attaching off the middle
+ * of a side, and leaving a box by a side that faces away from where the arrow's
+ * going. Arrows that could be straight are routed first, then the rest, each
+ * shortest first, then all routed again so the early ones can make way for the rest.
  *
  * Crossings are costed by the arms routes have at each point of the grid: a
  * route going straight through a point has two arms there along its axis, and
@@ -42,14 +44,36 @@ const CORNER_INSET = 0.2;
 const PORT_SPACING = 24;
 
 // Costs, in pixels of line length.
-const BEND = 40;
-const CROSSING = 120;
+/** A corner. It's more than attaching off the middle of a side costs, so an arrow does that to save one. */
+const BEND = 100;
+const CROSSING = 300;
 /** Per pixel run alongside another arrow. */
 const OVERLAP = 3;
 /** Runs this close beside another arrow's count as running along it: they'd look like one thick line. */
 const NEAR = 10;
-/** Per pixel an attachment point is from the middle of its side. */
-const OFF_CENTRE = 0.2;
+/**
+ * For attaching anywhere but the middle of a side, on top of a pixel for each pixel
+ * from it. Moving off the middle saves at most that much line, so an arrow doesn't
+ * do it just to be shorter: only to keep straight or to save a corner.
+ */
+const OFF_MIDDLE = 10;
+/**
+ * Per pixel from the middle of a side, instead, where another arrow already attaches at
+ * the middle, so arrows sharing a side spread out along it. Two arrows that could each
+ * have the middle of a side to themselves don't pull each other off it, as neither is there.
+ */
+const BESIDE_MIDDLE = 0.2;
+/**
+ * For leaving a box by a side square to the way the arrow's going, and twice this by
+ * the side facing away (see `leaving`).
+ */
+const TURNED_AWAY = 20;
+/**
+ * For leaving a box by its left or right side: automatic layout runs top to bottom,
+ * so where the two ways are otherwise even, as for a box diagonally across, an arrow
+ * leaves by the top or bottom.
+ */
+const SIDEWAYS = 1;
 const SHARED_PORT = 200;
 /** Runs closer than this to a boundary frame's side cost as much as running along another arrow. There's a lane this far outside each side. */
 const FRAME_GAP = 16;
@@ -88,7 +112,10 @@ interface Port {
   stub: Readonly<Point>;
   /** Axis of the run between `at` and `stub`. */
   axis: typeof H | typeof V;
-  cost: number;
+  /** How far it is from the middle of its side. */
+  offset: number;
+  /** What leaving by this side costs an arrow heading another way (see `leaving`): none where the port isn't an arrow's start. */
+  away: number;
 }
 
 /** A route, which isn't changed once made: its ports and points are shared with other routes and with the grid. */
@@ -154,15 +181,29 @@ function samePort(a: Port, b: Port): boolean {
   return a.side === b.side && a.pos === b.pos;
 }
 
-/** Where an arrow attaches at `pos` along one side of box `id`. */
-function portAt(id: string, r: Rect, edge: Side, pos: number): Port {
+/** Where an arrow attaches at `pos` along one side of box `id`, for an arrow that pays `away` to leave by that side. */
+function portAt(id: string, r: Rect, edge: Side, pos: number, away = 0): Port {
   const o = inflate(r);
   if (edge === "top" || edge === "bottom") {
     const [y, out] = edge === "top" ? [r.top, o.top] : [r.bottom, o.bottom];
-    return { id, edge, side: `${id}:${edge}`, pos, at: { x: pos, y }, stub: { x: pos, y: out }, axis: V, cost: OFF_CENTRE * Math.abs(pos - (r.left + r.right) / 2) };
+    return { id, edge, side: `${id}:${edge}`, pos, at: { x: pos, y }, stub: { x: pos, y: out }, axis: V, offset: Math.abs(pos - (r.left + r.right) / 2), away };
   }
   const [x, out] = edge === "left" ? [r.left, o.left] : [r.right, o.right];
-  return { id, edge, side: `${id}:${edge}`, pos, at: { x, y: pos }, stub: { x: out, y: pos }, axis: H, cost: OFF_CENTRE * Math.abs(pos - (r.top + r.bottom) / 2) };
+  return { id, edge, side: `${id}:${edge}`, pos, at: { x, y: pos }, stub: { x: out, y: pos }, axis: H, offset: Math.abs(pos - (r.top + r.bottom) / 2), away };
+}
+
+/**
+ * Box `from`'s `ports`, for an arrow leaving it for box `to`: each costs more the more
+ * its side faces away from the way the arrow's going, from the middle of one box to the
+ * middle of the other. So an arrow heads off toward where it's going: out of the top of
+ * a box when its target is mostly above, rather than out of a side and turning up. The
+ * left and right sides cost SIDEWAYS more.
+ */
+function leaving(ports: Port[], from: Rect, to: Rect): Port[] {
+  const [dx, dy] = [(to.left + to.right - from.left - from.right) / 2, (to.top + to.bottom - from.top - from.bottom) / 2];
+  const length = Math.hypot(dx, dy) || 1;
+  const toward: Record<Side, number> = { top: -dy, bottom: dy, left: -dx, right: dx };
+  return ports.map((p) => ({ ...p, away: TURNED_AWAY * (1 - toward[p.edge] / length) + (p.axis === H ? SIDEWAYS : 0) }));
 }
 
 /** Sorted grid lines: the given ones, plus one down the middle of each gap between a box's far side and the next box's near side. */
@@ -394,11 +435,20 @@ class Grid {
     return length + OVERLAP * length * (used[run]! + frame + beside);
   }
 
-  /** What attaching at `port` costs, given the arrows already attached beside it. */
+  /** What attaching at `port` costs, given the arrows already attached to its side. */
   portCost(port: Port) {
-    let cost = port.cost;
-    for (const other of this.attached.get(port.side) ?? []) cost += SHARED_PORT * Math.max(0, 1 - Math.abs(other.pos - port.pos) / PORT_SPACING);
+    const others = this.attached.get(port.side) ?? [];
+    const taken = others.some((other) => other.offset < PORT_SPACING);
+    // A side's middle is a whole pixel, so on a side an odd number of pixels long it's half a pixel off.
+    const middle = port.offset < 1;
+    let cost = port.away + (middle ? 0 : taken ? BESIDE_MIDDLE * port.offset : port.offset + OFF_MIDDLE);
+    for (const other of others) cost += SHARED_PORT * Math.max(0, 1 - Math.abs(other.pos - port.pos) / PORT_SPACING);
     return cost;
+  }
+
+  /** Whether another arrow already attaches closer to `port` than PORT_SPACING. */
+  crowds(port: Port): boolean {
+    return (this.attached.get(port.side) ?? []).some((other) => Math.abs(other.pos - port.pos) < PORT_SPACING);
   }
 
   /**
@@ -624,7 +674,7 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect, under: reado
   // The port an end attaches at once it's moved to `at` along its side.
   const movedTo = (port: Port, r: Rect, at: Point): Port => {
     if (at.x === port.at.x && at.y === port.at.y) return port;
-    return portAt(port.id, r, port.edge, port.axis === V ? at.x : at.y);
+    return portAt(port.id, r, port.edge, port.axis === V ? at.x : at.y, port.away);
   };
   let best = route;
   for (let k = 1; k + 2 < best.points.length; k++) {
@@ -693,6 +743,8 @@ interface Routing {
   grid: Grid;
   /** Where arrows can attach to each box. */
   ports: Map<string, Port[]>;
+  /** Where each link can leave its source, by link ID: its source's ports, costed for where it's going (see `leaving`). */
+  starts: Map<string, Port[]>;
   /** Each link's route, as on the grid (see Grid.place). */
   routes: ReadonlyMap<string, Route>;
 }
@@ -732,7 +784,7 @@ function acrossGap(grid: Grid, from: Rect, to: Rect, starts: Port[], goals: Port
       const start = starts.find((p) => p.edge === sides[0] && p.pos === line);
       const end = goals.find((p) => p.edge === sides[1] && p.pos === line);
       // A line another arrow already attaches beside would draw the two as one, so leave this one to go round.
-      if (!start || !end || grid.portCost(start) > start.cost || grid.portCost(end) > end.cost) continue;
+      if (!start || !end || grid.crowds(start) || grid.crowds(end)) continue;
       const points = [start.at, end.at];
       if (grid.rects.some((r, k) => r !== from && r !== to && runsThrough(points, grid.clears[k]!))) continue;
       if (grid.noteClears.some((c, k) => !under.includes(k) && runsThrough(points, c))) continue;
@@ -747,7 +799,25 @@ function acrossGap(grid: Grid, from: Rect, to: Rect, starts: Port[], goals: Port
   return best;
 }
 
-/** Routes for the links that have one, around the boxes and the `notes` in the way, shortest first. */
+/**
+ * Whether a link between boxes `a` and `b` could be a straight line, along one of `lines` (the
+ * ones across where they face each other), without going through another of `rects`' clear space.
+ */
+function couldBeStraight(a: Rect, b: Rect, lines: { xs: number[]; ys: number[] }, rects: Iterable<Rect>): boolean {
+  const others = [...rects].filter((r) => r !== a && r !== b).map(inflate);
+  const clear = (points: Point[]) => !others.some((c) => runsThrough(points, c));
+  const [above, below] = a.top <= b.top ? [a, b] : [b, a];
+  const [left, right] = a.left <= b.left ? [a, b] : [b, a];
+  return (
+    (above.bottom <= below.top && lines.xs.some((x) => clear([{ x, y: above.bottom }, { x, y: below.top }]))) ||
+    (left.right <= right.left && lines.ys.some((y) => clear([{ x: left.right, y }, { x: right.left, y }])))
+  );
+}
+
+/**
+ * Routes for the links that have one, around the boxes and the `notes` in the way: those
+ * that could be straight first, then the rest, each shortest first.
+ */
 function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], frames: Rect[]): Routing {
   // Arrows attach to a box only at its own anchors, and at lines across where it
   // faces a box it's linked to, one for each arrow between the two, so those arrows
@@ -775,22 +845,28 @@ function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], fra
   }
   const grid = new Grid([...rects.values()], frames, aligned, notes);
   const ports = new Map([...rects].map(([id, r]) => [id, grid.portsOf(id, r, at.get(id)!)]));
+  const starts = new Map(links.map((l) => [l.id, leaving(ports.get(l.from)!, rects.get(l.from)!, rects.get(l.to)!)]));
   const everyNote = notes.map((_, k) => k);
   const notesOn = new Map(links.map((l) => [l.id, grid.notesOn(rects.get(l.from)!, rects.get(l.to)!)]));
 
+  // A straight line is the one good way for a link that could be straight, so it goes first,
+  // before a link that could go round takes the place where the straight one attaches.
+  const straight = new Set(links.filter((l) => couldBeStraight(rects.get(l.from)!, rects.get(l.to)!, across.get(l.id)!, rects.values())));
+  const order = [...links.filter((l) => straight.has(l)), ...links.filter((l) => !straight.has(l))];
+
   for (let pass = 0; pass < 2; pass++) {
-    for (const link of links) {
+    for (const link of order) {
       grid.remove(link.id);
-      const [from, to, starts, goals] = [rects.get(link.from)!, rects.get(link.to)!, ports.get(link.from)!, ports.get(link.to)!];
+      const [from, to, leaves, goals] = [rects.get(link.from)!, rects.get(link.to)!, starts.get(link.id)!, ports.get(link.to)!];
       const [lines, under] = [across.get(link.id)!, notesOn.get(link.id)!];
       // With no way round the notes in its way, a link goes under as little of them as it can rather
       // than have no route at all: straight across a narrow gap, or else paying for each pixel under one.
-      const blockedByNotes = () => (under.length < everyNote.length ? acrossGap(grid, from, to, starts, goals, lines, everyNote) ?? routeOne(grid, starts, goals, from, to, under, true) : undefined);
-      const route = acrossGap(grid, from, to, starts, goals, lines, under) ?? routeOne(grid, starts, goals, from, to, under) ?? blockedByNotes();
+      const blockedByNotes = () => (under.length < everyNote.length ? acrossGap(grid, from, to, leaves, goals, lines, everyNote) ?? routeOne(grid, leaves, goals, from, to, under, true) : undefined);
+      const route = acrossGap(grid, from, to, leaves, goals, lines, under) ?? routeOne(grid, leaves, goals, from, to, under) ?? blockedByNotes();
       if (route) grid.place(link.id, route);
     }
   }
-  return { grid, ports, routes: grid.routes };
+  return { grid, ports, starts, routes: grid.routes };
 }
 
 /**
@@ -1088,7 +1164,7 @@ export function layoutArrows<S extends Size>(
   sizes: Map<string, S[]>,
   { frames = [], notes = [], keepClear = [] }: { frames?: Box[]; notes?: Box[]; keepClear?: Box[] } = {},
 ): { routes: Map<string, readonly Readonly<Point>[]>; labels: Map<string, Point & S> } {
-  const { grid, ports, routes, rects, routable, clear } = routeAll(boxes, links, frames, notes);
+  const { grid, ports, starts, routes, rects, routable, clear } = routeAll(boxes, links, frames, notes);
   const scene = sceneOf(pointsOf(boxes, links, routes), [...boxes.values(), ...notes, ...keepClear]);
   const placed = placeAll(sizes, scene);
   // The grid only goes around notes some route was in the way of, so other routes have to be checked against the rest, as routeAll does.
@@ -1102,7 +1178,7 @@ export function layoutArrows<S extends Size>(
   // The other ways a link could go, leaving its source or entering its target by each side,
   // that could be short enough: out to a stub, across to the other box's clear space and in.
   const optionsFor = (link: Link) => {
-    const [from, to, source, target] = [ports.get(link.from)!, ports.get(link.to)!, rects.get(link.from)!, rects.get(link.to)!];
+    const [from, to, source, target] = [starts.get(link.id)!, ports.get(link.to)!, rects.get(link.from)!, rects.get(link.to)!];
     const longest = routeLength(routes.get(link.id)!.points) * DETOUR;
     const [sourceClear, targetClear] = [inflate(source), inflate(target)];
     const reach = (list: Port[], space: Rect) => 2 * MARGIN + Math.min(...list.map((p) => distanceTo(p.stub.x, p.stub.y, space)));

@@ -116,6 +116,66 @@ describe("routeLinks", () => {
     }
   });
 
+  it("attaches at the middle of a side, rather than nearer a corner to save a little line", () => {
+    // b is up and to the left of a: a->b would be a little shorter into b's right side near its bottom corner.
+    const up = new Map([
+      ["a", { x: 428, y: 297, w: 220, h: 99 }],
+      ["b", { x: 260, y: 43, w: 220, h: 99 }],
+    ]);
+    expect(check(up, [link("a", "b")]).get("a->b")).toEqual([
+      { x: 538, y: 297 },
+      { x: 538, y: 93 },
+      { x: 480, y: 93 },
+    ]);
+    // d is down and to the left of c: c->d would be a little shorter down from near c's left corner.
+    const down = new Map([
+      ["c", at(300, 0)],
+      ["d", at(0, 300)],
+    ]);
+    expect(check(down, [link("c", "d")]).get("c->d")).toEqual([
+      { x: 410, y: 120 },
+      { x: 410, y: 360 },
+      { x: 220, y: 360 },
+    ]);
+  });
+
+  it("leaves a box by the side that faces where the arrow's going", () => {
+    // From a container view: each agent's arrows leave by its top for the computer above and by
+    // its bottom for the API below, from the middle, not out of a side and turning up or down.
+    const boxes = new Map([
+      ["computer", { x: 260, y: 43, w: 220, h: 99 }],
+      ["windows", { x: 80, y: 304, w: 220, h: 99 }],
+      ["mac", { x: 428, y: 297, w: 220, h: 99 }],
+      ["api", { x: 206, y: 623, w: 220, h: 99 }],
+    ]);
+    const links = [link("windows", "computer"), link("mac", "computer"), link("windows", "api"), link("mac", "api")];
+    const routes = check(boxes, links, [{ x: 41, y: 241, w: 647, h: 520 }]);
+    expect(routes.get("windows->computer")![0], "windows leaves by the middle of its top").toEqual({ x: 190, y: 304 });
+    expect(routes.get("mac->computer")![0], "mac leaves by the middle of its top").toEqual({ x: 538, y: 297 });
+    expect(routes.get("mac->api")![0], "mac leaves by the middle of its bottom").toEqual({ x: 538, y: 396 });
+    expect(routes.get("windows->api"), "windows goes straight down to the api").toHaveLength(2);
+  });
+
+  it("spreads arrows out along a side whose middle another arrow has", () => {
+    // From the tour's context view: support's arrow is straight, into the middle of p's left
+    // side, though r's is shorter and routed first would have taken it. r's and m's attach
+    // either side of it.
+    const boxes = new Map([
+      ["r", { x: 0, y: 0, w: 220, h: 103 }],
+      ["p", { x: 320, y: 260, w: 220, h: 114 }],
+      ["m", { x: 0, y: 520, w: 220, h: 100 }],
+      ["support", { x: -440, y: 260, w: 220, h: 100 }],
+    ]);
+    const routes = check(boxes, [link("r", "p"), link("support", "p"), link("p", "m")]);
+    expect(routes.get("support->p"), "support goes straight across").toHaveLength(2);
+    const ys = [routes.get("r->p")!.at(-1)!, routes.get("support->p")!.at(-1)!, routes.get("p->m")![0]!].map((p) => {
+      expect(p.x, "attaches to p's left side").toBe(320);
+      return p.y;
+    });
+    expect(ys[0]).toBeLessThan(ys[1]!);
+    expect(ys[1]).toBeLessThan(ys[2]!);
+  });
+
   it("attaches where a route already lines up, rather than jogging to the middle of a side", () => {
     // b is shifted right of a, so a->b can drop straight down off-centre.
     const boxes = new Map([
@@ -575,14 +635,14 @@ describe("layoutArrows", () => {
   it("takes a route with room for its label over one that squeezes it in", () => {
     // From the containers view: a leaves its right side for c's top, so its label
     // has to share the gap above c with b's. Leaving a's bottom for c's left side
-    // costs nothing more, and its label has the space below a to itself.
+    // costs a little more, and its label has the space below a to itself.
     const boxes = new Map([
-      ["a", { x: 46, y: 28, w: 220, h: 103 }],
-      ["b", { x: 441, y: 52, w: 220, h: 103 }],
-      ["c", { x: 320, y: 260, w: 220, h: 113 }],
+      ["a", { x: 20, y: 28, w: 220, h: 103 }],
+      ["b", { x: 440, y: 52, w: 220, h: 103 }],
+      ["c", { x: 320, y: 220, w: 220, h: 113 }],
     ]);
     const links = [link("a", "c"), link("b", "c")];
-    expect(routeLinks(boxes, links).get("a->c")![0]!.x).toBe(266);
+    expect(routeLinks(boxes, links).get("a->c")![0]!.x).toBe(240);
     const { routes, labels } = layoutArrows(boxes, links, labelled(links));
     const a = routes.get("a->c")!;
     expect(a[0]!.y, "leaves a's bottom").toBe(131);
@@ -620,11 +680,12 @@ describe("layoutArrows", () => {
     // As above, plus pairs of boxes 30px apart whose labels are squeezed between them:
     // any other route between them would be far too long, so they don't take a turn.
     const boxes = new Map([
-      ["a", { x: 46, y: 28, w: 220, h: 103 }],
-      ["b", { x: 441, y: 52, w: 220, h: 103 }],
-      ["c", { x: 320, y: 260, w: 220, h: 113 }],
+      ["a", { x: 20, y: 28, w: 220, h: 103 }],
+      ["b", { x: 440, y: 52, w: 220, h: 103 }],
+      ["c", { x: 320, y: 220, w: 220, h: 113 }],
     ]);
     const links = [link("a", "c"), link("b", "c")];
+    expect(routeLinks(boxes, links).get("a->c")![0]!.x, "leaves a's right side, before its label is placed").toBe(240);
     for (let k = 0; k < 10; k++) {
       boxes.set(`p${k}`, { x: 1000 + 300 * k, y: 0, w: 220, h: 120 });
       boxes.set(`q${k}`, { x: 1000 + 300 * k, y: 150, w: 220, h: 120 });
