@@ -35,6 +35,12 @@ function renameOps(ws: Workspace, id: string, oldName: string, newName: string, 
   return next === id ? [update] : [update, { op: "rename", id, to: next }];
 }
 
+/** "3 boxes", "2 sticky notes", or "2 boxes and 1 sticky note". */
+export function shapesLabel(boxes: number, notes: number): string {
+  const parts = [boxes > 0 && `${boxes} ${boxes === 1 ? "box" : "boxes"}`, notes > 0 && `${notes} sticky ${notes === 1 ? "note" : "notes"}`];
+  return parts.filter(Boolean).join(" and ");
+}
+
 function idHint(follows: boolean): string {
   return follows ? "Changes with the name." : "Doesn't match the name, so it stays put when you rename. Edit it to match and it follows the name again.";
 }
@@ -45,6 +51,7 @@ export function Properties(props: PropertiesProps) {
   if (shown.kind === "element") body = <ElementProperties {...props} element={shown.element} />;
   else if (shown.kind === "arrow") body = <ArrowProperties {...props} from={shown.from} to={shown.to} />;
   else if (shown.kind === "sticky") body = <StickyProperties {...props} view={shown.view} sticky={shown.sticky} />;
+  else if (shown.kind === "several") body = <SeveralProperties {...props} elements={shown.elements} stickies={shown.stickies} />;
   else if (shown.kind === "view") body = <ViewProperties {...props} view={shown.view} />;
   else body = <WorkspaceProperties {...props} />;
   return (
@@ -245,6 +252,48 @@ function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { 
   );
 }
 
+function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">{shapesLabel(elements.length, stickies.length)}</span>
+      </header>
+      <p className="muted small">Drag any of them to move them all together. Ctrl-click (⌘-click on a Mac) or Shift-click a box or note to add it or take it out.</p>
+      {elements.length > 0 && (
+        <>
+          <h3>Boxes</h3>
+          <ul className="plain">
+            {[...elements]
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((e) => (
+                <li key={e.id}>
+                  <button className="link" onClick={() => onSelect({ kind: "element", id: e.id })}>
+                    {e.name}
+                  </button>{" "}
+                  <span className="muted small">[{kindLabel(e)}]</span>
+                </li>
+              ))}
+          </ul>
+        </>
+      )}
+      {stickies.length > 0 && (
+        <>
+          <h3>Sticky notes</h3>
+          <ul className="plain">
+            {stickies.map((s) => (
+              <li key={s.id}>
+                <button className="link one-line" onClick={() => onSelect({ kind: "sticky", id: s.id })} title={s.text}>
+                  {s.text.trim().split("\n")[0]}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
 function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: PropertiesProps & { view: ViewDef }) {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const retitle = (title: string) => {
@@ -284,6 +333,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
         <dd>{computed?.nodes.length ?? 0}</dd>
       </dl>
       <p className="muted small">Select a box, arrow or sticky note to edit it. Drag boxes and notes to arrange them; their positions are saved with the view.</p>
+      <p className="muted small">With a mouse, drag across the background to select several and move them together, or Ctrl-click (⌘-click on a Mac) each one. Scroll to move round the diagram, and Ctrl-scroll (⌘-scroll on a Mac) to zoom.</p>
       <div className="actions">
         <button onClick={() => onSelect({ kind: "workspace" })}>Workspace settings</button>
         <button className="danger" onClick={() => onDeleteView(view.id)}>

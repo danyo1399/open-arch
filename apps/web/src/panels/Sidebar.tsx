@@ -98,7 +98,7 @@ export function Sidebar(props: SidebarProps) {
 
 function TreeRow({ node, depth, ...props }: { node: TreeNode; depth: number } & SidebarProps) {
   const e = node.element;
-  const selected = props.selection?.kind === "element" && props.selection.id === e.id;
+  const selected = props.selection?.kind === "element" ? props.selection.id === e.id : props.selection?.kind === "several" && props.selection.elements.includes(e.id);
   return (
     <>
       <li>

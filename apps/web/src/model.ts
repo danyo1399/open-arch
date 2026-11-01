@@ -100,16 +100,59 @@ export function findUsages(ws: Workspace, id: string, preferView?: string): Usag
   };
 }
 
+/** Boxes and sticky notes on a view's diagram: the IDs of the elements the boxes are for, and of the notes. */
+export interface Shapes {
+  elements: string[];
+  stickies: string[];
+}
+
+/** The boxes and notes a selection picks, of the diagram's `boxes`: the frame round a view isn't one of them. */
+export function selectedShapes(selection: Selection, boxes: ReadonlySet<string>): Shapes {
+  if (selection?.kind === "several") return { elements: selection.elements.filter((id) => boxes.has(id)), stickies: selection.stickies };
+  if (selection?.kind === "element" && boxes.has(selection.id)) return { elements: [selection.id], stickies: [] };
+  if (selection?.kind === "sticky") return { elements: [], stickies: [selection.id] };
+  return { elements: [], stickies: [] };
+}
+
+/** Selecting these boxes and notes: one on its own is selected as it would be by a click, and none is nothing. */
+export function selectShapes({ elements, stickies }: Shapes): Selection {
+  if (elements.length + stickies.length > 1) return { kind: "several", elements, stickies };
+  if (elements.length === 1) return { kind: "element", id: elements[0]! };
+  if (stickies.length === 1) return { kind: "sticky", id: stickies[0]! };
+  return null;
+}
+
+/** Whether two lists of shapes have the same boxes and notes, in any order. */
+export function sameShapes(a: Shapes, b: Shapes): boolean {
+  const same = (x: string[], y: string[]) => x.length === y.length && x.every((id) => y.includes(id));
+  return same(a.elements, b.elements) && same(a.stickies, b.stickies);
+}
+
+/** The selection with a box or note added, or taken out when it's in already, as a Ctrl-click does. */
+export function toggleShape(selection: Selection, boxes: ReadonlySet<string>, shape: { kind: "element" | "sticky"; id: string }): Selection {
+  const { elements, stickies } = selectedShapes(selection, boxes);
+  const toggle = (ids: string[]) => (ids.includes(shape.id) ? ids.filter((id) => id !== shape.id) : [...ids, shape.id]);
+  return selectShapes(shape.kind === "element" ? { elements: toggle(elements), stickies } : { elements, stickies: toggle(stickies) });
+}
+
 /** What the details panel shows. */
 export type Shown =
   | { kind: "element"; element: ArchElement }
   | { kind: "arrow"; from: string; to: string }
   | { kind: "sticky"; view: ViewDef; sticky: Sticky }
+  | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
 
 /** What the panel shows: the selection while it's still there, else the open view, or the workspace when none is open. */
 export function shownInProperties(ws: Workspace, view: ViewDef | null, selection: Selection): Shown {
+  if (selection?.kind === "several") {
+    const elements = selection.elements.flatMap((id) => ws.elements.get(id) ?? []);
+    const stickies = selection.stickies.flatMap((id) => view?.stickies.find((s) => s.id === id) ?? []);
+    if (view && elements.length + stickies.length > 1) return { kind: "several", view, elements, stickies };
+    // What's left of it, if only one is.
+    return shownInProperties(ws, view, selectShapes({ elements: elements.map((e) => e.id), stickies: stickies.map((s) => s.id) }));
+  }
   const element = selection?.kind === "element" ? ws.elements.get(selection.id) : undefined;
   if (element) return { kind: "element", element };
   if (selection?.kind === "arrow") return selection;

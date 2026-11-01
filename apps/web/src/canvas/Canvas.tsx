@@ -1,4 +1,4 @@
-import { computeView, diagnosticTarget, KIND_RANK, kindLabel, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Position, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeView, diagnosticTarget, KIND_RANK, kindLabel, scopeProblems, type ArchElement, type Diagnostic, type ElementKind, type Operation, type Position, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -12,9 +12,9 @@ import {
   type Connection,
   type NodeChange,
 } from "@xyflow/react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { uniqueId, type Rename } from "../model.js";
+import { sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
 import { ContextMenu, menuPoint, type MenuAction } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
@@ -22,7 +22,14 @@ import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNod
 import { edgeTypes, measureLabelSizes, type ArrowEdge } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 
-export type Selection = { kind: "element"; id: string } | { kind: "arrow"; from: string; to: string } | { kind: "sticky"; id: string } | { kind: "workspace" } | null;
+/** What's selected. `several` is two or more boxes and sticky notes on the open view, which move together. */
+export type Selection =
+  | { kind: "element"; id: string }
+  | { kind: "arrow"; from: string; to: string }
+  | { kind: "sticky"; id: string }
+  | { kind: "several"; elements: string[]; stickies: string[] }
+  | { kind: "workspace" }
+  | null;
 
 type FlowNode = ElementFlowNode | FrameFlowNode | StickyFlowNode;
 
@@ -43,6 +50,11 @@ export const SELECTED_LIFT = 1000;
 export const STICKY_Z = SELECTED_LIFT + 1;
 /** Any touch screen, as in styles.css, where sticky notes are drawn bigger. */
 const TOUCH = "(any-pointer: coarse)";
+
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+/** Held while clicking a box or note, these add it to the selection or take it out: Ctrl (⌘ on a Mac), or Shift. */
+const MULTI_KEYS = isMac ? ["Meta", "Shift"] : ["Control", "Shift"];
+const addsToSelection = (e: MouseEvent) => e.shiftKey || (isMac ? e.metaKey : e.ctrlKey);
 
 interface CanvasProps {
   ws: Workspace;
@@ -85,6 +97,30 @@ function newStickyId(view: ViewDef): string {
   for (let i = 2; ; i++) if (!taken.has(`note-${i}`)) return `note-${i}`;
 }
 
+/**
+ * The frame, when this point on the diagram is inside it. The frame takes no pointer events, so a
+ * drag that starts on it draws a selection box, or pans on a touch screen, as on the background
+ * around it. A click or right-click on it lands on the background, and this tells them apart.
+ */
+export function frameAt(nodes: FlowNode[], at: Point): FrameFlowNode | undefined {
+  const frame = nodes.find((n): n is FrameFlowNode => n.type === "frame");
+  if (!frame) return undefined;
+  const { x, y } = frame.position;
+  return at.x >= x && at.x <= x + frame.data.width && at.y >= y && at.y <= y + frame.data.height ? frame : undefined;
+}
+
+/**
+ * The edit that keeps boxes and notes where they were dragged to, as one step for Undo. `layout`
+ * is every box's position as shown, when boxes were dragged: that fixes boxes placed automatically
+ * in place too. A note keeps its own position, so moving only notes leaves the boxes as they are.
+ */
+export function moveOps(view: string, layout: Record<string, Position> | null, notes: Record<string, [number, number]>): Operation[] {
+  return [
+    ...(layout ? [{ op: "set-layout" as const, view, positions: layout }] : []),
+    ...Object.entries(notes).map(([id, at]) => ({ op: "update-sticky" as const, view, id, at })),
+  ];
+}
+
 /** The nodes with a frame round the boxes inside the boundary. `selected` sets its highlight; left out, the frame keeps the one it had. */
 export function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined, selected?: boolean): FlowNode[] {
   const elements = nodes.filter((n): n is ElementFlowNode => n.type === "element");
@@ -121,10 +157,12 @@ export function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined, 
     height: bottom - top,
     draggable: false,
     connectable: false,
-    // Clicking it still selects it (see selectNode). React Flow lifts a node it has selected
+    // Clicking it still selects it (see frameAt). React Flow lifts a node it has selected
     // above the others, and the frame would then cover the boxes inside it and take their clicks.
+    // A selection box doesn't pick it either.
     selectable: false,
     zIndex: -1,
+    style: { pointerEvents: "none" },
   };
   return [frame, ...rest];
 }
@@ -190,6 +228,10 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   }, [ids, renames]);
   /** Each box's element's ID, by its node ID. */
   const elementOf = useMemo(() => new Map([...nodeIdOf].map(([element, node]) => [node, element])), [nodeIdOf]);
+  /** The elements drawn as boxes. */
+  const boxes = useMemo(() => new Set(ids), [ids]);
+  /** The boxes and notes selected. */
+  const picked = useMemo(() => selectedShapes(selection, boxes), [selection, boxes]);
   const graphKey = `${view.id}|${ids.join(",")}|${cv?.edges.map((e) => `${e.from}>${e.to}`).join(",") ?? ""}`;
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
@@ -253,7 +295,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           type: "element",
           position: positions[element.id]!,
           data: { element, problems: problemCounts.get(element.id) ?? 0 },
-          selected: selection?.kind === "element" && selection.id === element.id,
+          selected: picked.elements.includes(element.id),
           measured: previous.find((p) => p.id === nodeIdOf.get(element.id))?.measured,
         })),
         cv.boundary,
@@ -265,14 +307,14 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           type: "sticky",
           position: stickyAt[sticky.id]!,
           data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text) },
-          selected: selection?.kind === "sticky" && selection.id === sticky.id,
+          selected: picked.stickies.includes(sticky.id),
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,
           zIndex: STICKY_Z,
         }),
       ),
     ]);
-  }, [cv, nodeIdOf, positions, problemCounts, selection, view.stickies, stickySize, editing, finishEditing]);
+  }, [cv, nodeIdOf, positions, problemCounts, selection, picked, view.stickies, stickySize, editing, finishEditing]);
 
   /**
    * The ID of the element a node is for, as this render has it. React Flow has the nodes from an
@@ -381,8 +423,13 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     };
   }, [rf]);
 
+  /** What the selection box being drawn has picked so far, by node ID. */
+  const boxed = useRef<Set<string> | null>(null);
+
   const onNodesChange = useCallback(
     (changes: NodeChange<FlowNode>[]) => {
+      const picking = boxed.current;
+      if (picking) for (const c of changes) if (c.type === "select") picking[c.selected ? "add" : "delete"](c.id);
       // Boxes being measured: fit the frame around them on the next frame, not inside
       // React Flow's resize callback, which would make the browser report a resize loop.
       const measuring = changes.every((c) => c.type === "dimensions");
@@ -399,22 +446,46 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     return out;
   }, [elementOfNode]);
 
-  const selectNode = (node: FlowNode) => {
-    if (node.type === "sticky") {
-      if (selection?.kind !== "sticky" || selection.id !== node.data.sticky.id) onSelect({ kind: "sticky", id: node.data.sticky.id });
-      return;
-    }
-    const id = elementOfNode(node);
-    if (selection?.kind !== "element" || selection.id !== id) onSelect({ kind: "element", id });
+  /** The boxes and notes these nodes draw. */
+  const shapesOf = (nodes: FlowNode[]): Shapes => ({
+    elements: nodes.flatMap((n) => (n.type === "element" ? [elementOfNode(n)] : [])),
+    stickies: nodes.flatMap((n) => (n.type === "sticky" ? [n.data.sticky.id] : [])),
+  });
+
+  /** Selects these boxes and notes. Selecting the ones selected already would redraw them for nothing, mid-drag. */
+  const pick = (shapes: Shapes) => {
+    if (shapes.elements.length + shapes.stickies.length === 0) onSelect(null);
+    else if (!sameShapes(shapes, picked)) onSelect(selectShapes(shapes));
+  };
+
+  /** A click on a box or note selects it, or with Ctrl (⌘ on a Mac) or Shift held, adds it to the selection or takes it out. */
+  const clickNode = (event: MouseEvent, node: FlowNode) => {
+    if (node.type === "frame") return;
+    const shape = node.type === "sticky" ? { kind: "sticky" as const, id: node.data.sticky.id } : { kind: "element" as const, id: elementOfNode(node) };
+    if (addsToSelection(event)) onSelect(toggleShape(selection, boxes, shape));
+    else pick(shapesOf([node]));
+  };
+
+  /**
+   * A click on the background selects nothing, or the frame when it's inside it. This isn't React
+   * Flow's onPaneClick, which a tap on a touch screen never reaches while a drag selects.
+   */
+  const clickPane = (event: MouseEvent) => {
+    if (!(event.target instanceof Element) || !event.target.classList.contains("react-flow__pane")) return;
+    setMenuOpen(false);
+    const frame = frameAt(nodesRef.current, rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+    onSelect(frame ? { kind: "element", id: elementOfNode(frame) } : null);
   };
 
   const onNodeDragStop = useCallback(
-    (_: unknown, node: FlowNode) => {
-      // A note keeps its own position; moving it doesn't fix the boxes in place.
-      if (node.type === "sticky") void edit([{ op: "update-sticky", view: view.id, id: node.data.sticky.id, at: [Math.round(node.position.x), Math.round(node.position.y)] }]);
-      else void edit([{ op: "set-layout", view: view.id, positions: currentLayout() }]);
+    (_: unknown, _node: FlowNode, dragged: FlowNode[]) => {
+      const at = (n: FlowNode): [number, number] => [Math.round(n.position.x), Math.round(n.position.y)];
+      const movedBoxes = dragged.filter((n): n is ElementFlowNode => n.type === "element");
+      const movedNotes = dragged.filter((n): n is StickyFlowNode => n.type === "sticky");
+      const layout = movedBoxes.length ? { ...currentLayout(), ...Object.fromEntries(movedBoxes.map((n) => [elementOfNode(n), at(n)])) } : null;
+      void edit(moveOps(view.id, layout, Object.fromEntries(movedNotes.map((n) => [n.data.sticky.id, at(n)]))));
     },
-    [currentLayout, edit, view.id],
+    [currentLayout, edit, view.id, elementOfNode],
   );
 
   // Pressing a box saves a name being typed in the details, and the rename that follows can land
@@ -475,7 +546,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   }
 
   return (
-    <div className="canvas" ref={wrapper}>
+    <div className="canvas" ref={wrapper} onClick={clickPane}>
       <ReactFlow<FlowNode, ArrowEdge>
         nodes={nodes}
         edges={edges}
@@ -485,35 +556,52 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         isValidConnection={(c) => c.source !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
-        onNodeClick={(_, node) => selectNode(node)}
+        onNodeClick={clickNode}
         onNodeContextMenu={(event, node) => {
-          if (node.type !== "element" && node.type !== "frame") return;
+          if (node.type !== "element") return;
           event.preventDefault();
           onElementMenu(elementOfNode(node), menuPoint(event));
         }}
-        // Dragging a box swallows its click, so select it when the drag starts; otherwise the
-        // layout saved on drop redraws the boxes with the old selection.
-        onNodeDragStart={(_, node) => selectNode(node)}
+        // Dragging swallows the click, so select what's dragged when the drag starts: the box or
+        // note, or all those selected with it, which move together. Otherwise the layout saved on
+        // drop redraws them with the old selection.
+        onNodeDragStart={(_, _node, dragged) => pick(shapesOf(dragged))}
         // A click that wobbles a few pixels is still a click, not nothing.
         nodeClickDistance={4}
+        paneClickDistance={4}
         onEdgeClick={(_, edge) => onSelect({ kind: "arrow", from: elementOf.get(edge.source) ?? edge.source, to: elementOf.get(edge.target) ?? edge.target })}
-        onPaneClick={() => {
-          setMenuOpen(false);
-          onSelect(null);
-        }}
-        // Right-clicking the diagram's background offers what + Add does, added where it was clicked.
+        // Right-clicking the diagram's background offers what + Add does, added where it was
+        // clicked. On the frame, it's the menu for the element the frame is.
         onPaneContextMenu={(event) => {
           event.preventDefault();
           setMenuOpen(false);
           const point = { x: event.clientX, y: event.clientY };
-          setPaneMenu({ ...point, at: rf.screenToFlowPosition(point) });
+          const at = rf.screenToFlowPosition(point);
+          const frame = frameAt(nodesRef.current, at);
+          if (frame) onElementMenu(elementOfNode(frame), point);
+          else setPaneMenu({ ...point, at });
+        }}
+        // With a mouse, dragging the background draws a box, and selects the boxes and notes
+        // inside it, as in most diagram editors. So the scroll wheel pans, as do Space and drag
+        // and the middle button, and Ctrl (⌘ on a Mac) with the wheel, or a pinch, zooms.
+        // A drag on a touch screen still pans.
+        selectionOnDrag
+        panOnDrag={[1]}
+        panOnScroll
+        onSelectionStart={() => {
+          boxed.current = new Set();
+        }}
+        onSelectionEnd={() => {
+          const ids = boxed.current;
+          boxed.current = null;
+          if (ids) pick(shapesOf(nodesRef.current.filter((n) => ids.has(n.id))));
         }}
         connectionMode={ConnectionMode.Loose}
         // The arrow being drawn stays over everything, as React Flow means it to, even a selected note.
         connectionLineContainerStyle={{ zIndex: STICKY_Z + SELECTED_LIFT + 1 }}
         deleteKeyCode={null}
         selectionKeyCode={null}
-        multiSelectionKeyCode={null}
+        multiSelectionKeyCode={MULTI_KEYS}
         minZoom={0.1}
         colorMode="system"
         proOptions={{ hideAttribution: true }}
