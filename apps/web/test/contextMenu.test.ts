@@ -28,6 +28,28 @@ describe("placeMenu", () => {
   it("moves a submenu by the bottom of the screen up, still beside its list", () => {
     expect(placeMenu({ x: 500, y: 700, before: 340 }, size, screen)).toEqual({ x: 500, y: 646 });
   });
+
+  describe("on a phone with a notch and a home indicator", () => {
+    const insets = { top: 47, right: 44, bottom: 34, left: 44 };
+
+    it("opens a menu at the point when it fits clear of them", () => {
+      expect(placeMenu({ x: 300, y: 200 }, size, screen, insets)).toEqual({ x: 300, y: 200 });
+    });
+
+    it("keeps a menu by the bottom above the home indicator", () => {
+      expect(placeMenu({ x: 300, y: 780 }, size, screen, insets)).toEqual({ x: 300, y: 612 });
+    });
+
+    it("keeps a menu by the sides or the top clear of the notch", () => {
+      expect(placeMenu({ x: 950, y: 0 }, size, screen, insets)).toEqual({ x: 752, y: 51 });
+      expect(placeMenu({ x: 10, y: 300 }, size, screen, insets)).toEqual({ x: 48, y: 300 });
+    });
+
+    it("opens a submenu on the left of its list when the notch leaves no room on the right", () => {
+      // 200 wide at 760 would fit the screen, but not clear of the notch on the right.
+      expect(placeMenu({ x: 760, y: 300, before: 600 }, size, screen, insets)).toEqual({ x: 400, y: 300 });
+    });
+  });
 });
 
 describe("ContextMenu", () => {

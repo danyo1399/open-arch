@@ -39,15 +39,34 @@ interface Size {
   height: number;
 }
 
+/** How much of each edge of the screen a phone keeps for itself: the notch, the status bar, the home indicator. */
+export interface Insets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/** The screen's safe-area insets, from the --safe-* properties in styles.css. None where the browser has none. */
+function safeArea(): Insets {
+  const style = getComputedStyle(document.documentElement);
+  const inset = (side: keyof Insets) => parseFloat(style.getPropertyValue(`--safe-${side}`)) || 0;
+  return { top: inset("top"), right: inset("right"), bottom: inset("bottom"), left: inset("left") };
+}
+
 /**
  * Where a menu's list of this size goes on a screen this size: at x, y if it fits there. A
  * submenu that would run off the right goes on the other side of its list instead, with its
- * right edge at `before`. Whatever still doesn't fit is moved onto the screen.
+ * right edge at `before`. Whatever still doesn't fit is moved onto the screen, clear of the
+ * parts a phone keeps for itself.
  */
-export function placeMenu(at: { x: number; y: number; before?: number }, size: Size, screen: Size): { x: number; y: number } {
-  const fit = (start: number, length: number, room: number) => Math.max(MARGIN, Math.min(start, room - length - MARGIN));
-  const x = at.before !== undefined && at.x + size.width > screen.width - MARGIN ? at.before - size.width : at.x;
-  return { x: fit(x, size.width, screen.width), y: fit(at.y, size.height, screen.height) };
+export function placeMenu(at: { x: number; y: number; before?: number }, size: Size, screen: Size, insets: Insets = NO_INSETS): { x: number; y: number } {
+  const fit = (start: number, length: number, from: number, to: number) => Math.max(from + MARGIN, Math.min(start, to - length - MARGIN));
+  const right = screen.width - insets.right;
+  const x = at.before !== undefined && at.x + size.width > right - MARGIN ? at.before - size.width : at.x;
+  return { x: fit(x, size.width, insets.left, right), y: fit(at.y, size.height, insets.top, screen.height - insets.bottom) };
 }
 
 /**
@@ -155,7 +174,7 @@ function MenuList({
   // Keep it on screen, before it's painted.
   useLayoutEffect(() => {
     const r = ref.current!.getBoundingClientRect();
-    setAt(placeMenu({ x, y, before }, r, { width: window.innerWidth, height: window.innerHeight }));
+    setAt(placeMenu({ x, y, before }, r, { width: window.innerWidth, height: window.innerHeight }, safeArea()));
     if (focus) ref.current!.querySelector("button")?.focus();
   }, [x, y, before, focus]);
 
