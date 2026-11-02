@@ -314,8 +314,12 @@ function StepForm({ ws, view, onAdd, onClose }: { ws: Workspace; view: string; o
               targets.map(option)
             )}
           </select>
-        ) : (
+        ) : reply ? (
           <span className="muted small">Nothing uses this element, so it has nothing to reply to. Add a relationship to it first.</span>
+        ) : elements.length > 1 ? (
+          <span className="muted small">Every other element is inside this one, or contains it, so no relationship can join them.</span>
+        ) : (
+          <span className="muted small">The model has no other element to call. Add one first.</span>
         )}
       </label>
       {adds && (
