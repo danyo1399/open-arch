@@ -9,6 +9,11 @@ const link = (from: string, to: string): Link => ({ id: `${from}->${to}`, from, 
 
 const segments = (points: readonly Point[]) => points.slice(1).map((b, k) => [points[k]!, b] as const);
 
+type Label = Point & { w: number; h: number };
+/** How far apart two labels, centred where they're placed, are: corner to corner where neither is level with the other. */
+const gapBetween = (a: Label, b: Label) =>
+  Math.hypot(Math.max(0, Math.abs(a.x - b.x) - (a.w + b.w) / 2), Math.max(0, Math.abs(a.y - b.y) - (a.h + b.h) / 2));
+
 /** Whether a horizontal or vertical run passes through the inside of a box. */
 function cuts([a, b]: readonly [Point, Point], box: Box) {
   const [x0, x1] = [Math.min(a.x, b.x), Math.max(a.x, b.x)];
@@ -670,6 +675,29 @@ describe("placeLabels", () => {
     const labels = placeLabels(routes, new Map([["a", size], ["b", size]]), []);
     expect(Math.abs(labels.get("a")!.y - labels.get("b")!.y)).toBeGreaterThanOrEqual(size.h);
   });
+
+  it("spreads labels on parallel routes apart, rather than stopping as soon as they're clear", () => {
+    // Three routes 60px apart, too close for their labels to sit side by side.
+    const label = { w: 108, h: 37 };
+    const routes = new Map(["a", "b", "c"].map((id, k) => [id, route.map((p) => ({ ...p, x: 60 * k }))]));
+    const labels = placeLabels(routes, new Map([...routes.keys()].map((id) => [id, label])), []);
+    const [a, b, c] = ["a", "b", "c"].map((id) => ({ ...labels.get(id)!, ...label }));
+    expect(gapBetween(a!, b!)).toBeGreaterThanOrEqual(20);
+    expect(gapBetween(b!, c!)).toBeGreaterThanOrEqual(20);
+  });
+
+  it("draws a label narrower where it would cover an arrow, even with room further along", () => {
+    // q runs beside r for most of the way, and p beside its middle. Drawn as wide as
+    // it can be, r's label covers q wherever it's near the middle, and p too in the
+    // middle, and has room only near r's ends. Narrower, it fits in the middle.
+    const routes = new Map([
+      ["r", [{ x: 0, y: 0 }, { x: 0, y: 800 }]],
+      ["q", [{ x: 60, y: 100 }, { x: 60, y: 700 }]],
+      ["p", [{ x: -80, y: 380 }, { x: -80, y: 420 }]],
+    ]);
+    const at = placeLabels(routes, new Map([["r", [{ w: 186, h: 51 }, { w: 104, h: 51 }]]]), []).get("r");
+    expect(at).toEqual({ x: 0, y: 400 });
+  });
 });
 
 describe("layoutArrows", () => {
@@ -735,6 +763,53 @@ describe("layoutArrows", () => {
       links.push(link(`p${k}`, `q${k}`));
     }
     expect(layoutArrows(boxes, links, labelled(links)).routes.get("a->c")![0]!.y, "leaves a's bottom").toBe(131);
+  });
+
+  it("spreads out the labels of arrows leaving a box close together", () => {
+    // Roughly a reported diagram: the arrows from Client Website (web) to AWS S3 (s3),
+    // Simple Payments (sp) and OZOW (ozow) run down side by side about 65px apart, so
+    // their labels are stacked. They were stacked 7px apart, and s3's label covered
+    // the arrow to sp.
+    const boxes = new Map([
+      ["top", { x: 289, y: -159, w: 220, h: 101 }],
+      ["topRight", { x: 565, y: -85, w: 216, h: 98 }],
+      ["web", { x: 289, y: 55, w: 220, h: 101 }],
+      ["peach", { x: 775, y: 158, w: 216, h: 98 }],
+      ["ozow", { x: 775, y: 298, w: 216, h: 98 }],
+      ["ga", { x: 779, y: 455, w: 216, h: 98 }],
+      ["s3", { x: 18, y: 507, w: 216, h: 95 }],
+      ["sp", { x: 420, y: 586, w: 215, h: 98 }],
+      ["leftA", { x: -318, y: 85, w: 220, h: 98 }],
+      ["leftB", { x: -318, y: 265, w: 220, h: 98 }],
+      ["leftC", { x: -318, y: 594, w: 220, h: 98 }],
+    ]);
+    const links = [
+      link("top", "web"),
+      link("leftA", "web"),
+      link("web", "peach"),
+      link("web", "ozow"),
+      link("web", "ga"),
+      link("web", "s3"),
+      link("web", "sp"),
+      link("leftB", "s3"),
+      link("leftC", "sp"),
+    ];
+    const sizes = new Map(links.map((l) => [l.id, [{ w: 120, h: 37 }]]));
+    for (const id of ["web->peach", "web->ozow", "web->sp"]) sizes.set(id, [{ w: 108, h: 37 }]);
+    sizes.set("web->ga", [{ w: 135, h: 37 }]);
+    // "downloads files, manages uploads" on two lines, or on three.
+    sizes.set("web->s3", [
+      { w: 186, h: 51 },
+      { w: 104, h: 51 },
+    ]);
+    const { routes, labels } = layoutArrows(boxes, links, sizes);
+    const [s3, sp, ozow] = ["web->s3", "web->sp", "web->ozow"].map((id) => labels.get(id)!);
+    expect(gapBetween(s3!, sp!), "s3 and sp").toBeGreaterThanOrEqual(20);
+    expect(gapBetween(sp!, ozow!), "sp and ozow").toBeGreaterThanOrEqual(20);
+    expect(gapBetween(s3!, ozow!), "s3 and ozow").toBeGreaterThanOrEqual(20);
+    expect(s3!.w, "s3's label is drawn narrower").toBe(104);
+    const s3Box = { x: s3!.x - s3!.w / 2, y: s3!.y - s3!.h / 2, w: s3!.w, h: s3!.h };
+    for (const s of segments(routes.get("web->sp")!)) expect(cuts(s, s3Box), "s3's label covers the arrow to sp").toBe(false);
   });
 
   it("keeps a straight arrow between boxes too close for its label", () => {

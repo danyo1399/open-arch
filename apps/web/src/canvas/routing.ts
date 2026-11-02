@@ -1071,6 +1071,13 @@ function along(points: readonly Readonly<Point>[], s: number): Point {
 const LABEL_STEP = 10;
 /** Labels keep this far from boxes and from each other where they can. */
 const LABEL_GAP = 6;
+/**
+ * Labels closer together than this cost extra too, the more the closer, so labels
+ * spread out where there's room, rather than stopping as soon as they're clear of
+ * each other. Labels stacked just clear of each other are hard to tell apart.
+ * It's left out while routes are chosen (see layoutArrows).
+ */
+const LABEL_APART = 24;
 /** Roughly the space an arrowhead takes up, back from the end of its route. */
 const HEAD = 8;
 // Costs of a spot for a label, in pixels along the route from its middle.
@@ -1080,6 +1087,8 @@ const COVERS_LABEL = 2;
 /** Per pixel of another arrow the label hides, and for the whole of an arrowhead. */
 const COVERS_ARROW = 3;
 const COVERS_HEAD = 400;
+/** Per pixel closer than LABEL_APART to another label. */
+const CLOSE_LABEL = 2;
 /** Per pixel narrower than its widest a label is drawn. */
 const NARROWER = 1;
 /** A label whose best spot covers this much or less has room enough where it is. */
@@ -1135,12 +1144,14 @@ function setRoute(scene: Scene, id: string, points: readonly Readonly<Point>[]):
 
 /**
  * The spots along a route its label could go, each costed by what it covers apart
- * from other labels. `sizes` are the sizes the label can be, widest first: the
- * narrower ones are tried only where the widest can't find room.
+ * from other labels. `sizes` are the sizes the label can be, widest first: a
+ * narrower one is tried only where the best spot at the wider ones has no room, as
+ * where it covers another arrow, even if there's room further along the route.
  */
 function spotsAlong(id: string, points: readonly Readonly<Point>[], sizes: Size[], scene: Scene): Spot[] {
   const total = routeLength(points);
   const spots: Spot[] = [];
+  let best: Spot | undefined;
   // Only what's near the route can be covered by its label.
   const [w, h] = [Math.max(...sizes.map((s) => s.w)), Math.max(...sizes.map((s) => s.h))];
   const b = bounds(points);
@@ -1149,48 +1160,72 @@ function spotsAlong(id: string, points: readonly Readonly<Point>[], sizes: Size[
   const routes = [...scene.routes].filter(([other, r]) => other !== id && meet(r.bounds, reach)).map(([, r]) => r);
   const heads = [...scene.heads.values()].filter((o) => meet(o, reach));
   for (const size of sizes) {
-    if (spots.length && spots.some((s) => s.cost - s.off <= ROOMY)) break;
+    if (best && best.cost - best.off - NARROWER * (sizes[0]!.w - best.size.w) <= ROOMY) break;
+    const narrower = NARROWER * (sizes[0]!.w - size.w);
     for (let off = 0; off <= total / 2; off += LABEL_STEP) {
       for (const s of off ? [total / 2 - off, total / 2 + off] : [total / 2]) {
         const at = along(points, s);
         const box = { x: at.x - size.w / 2, y: at.y - size.h / 2, w: size.w, h: size.h };
-        let cost = off + NARROWER * (sizes[0]!.w - size.w);
+        let cost = off + narrower;
         for (const o of obstacles) cost += COVERS_BOX * covers(box, o);
         for (const route of routes) if (meet(route.bounds, box)) cost += COVERS_ARROW * lengthInside(route.points, box);
         for (const head of heads) cost += (COVERS_HEAD * overlap(box, head)) / (HEAD * HEAD);
-        spots.push({ at, size, box, off, cost });
+        const spot = { at, size, box, off, cost };
+        spots.push(spot);
+        if (!best || cost < best.cost) best = spot;
       }
     }
   }
   return spots;
 }
 
-/** The cheapest of `spots`, given the other labels' boxes (with their gap), and what it costs. */
-function cheapest(spots: Spot[], others: Box[]): { spot: Spot; cost: number } {
+/** How far apart two boxes are, corner to corner where neither is level with the other: none where they overlap or touch. */
+function gapBetween(a: Box, b: Box): number {
+  const dx = Math.max(0, b.x - (a.x + a.w), a.x - (b.x + b.w));
+  const dy = Math.max(0, b.y - (a.y + a.h), a.y - (b.y + b.h));
+  return Math.hypot(dx, dy);
+}
+
+/**
+ * The cheapest of `spots`, given the other labels' boxes, and what it costs. Being
+ * closer than LABEL_APART to them costs only where `spread` says so.
+ */
+function cheapest(spots: Spot[], others: Box[], spread: boolean): { spot: Spot; cost: number } {
+  const clear = others.map(padded);
   let best = { spot: spots[0]!, cost: Infinity };
   for (const spot of spots) {
     if (spot.cost >= best.cost) continue;
-    const cost = spot.cost + COVERS_LABEL * others.reduce((sum, o) => sum + covers(spot.box, o), 0);
+    let cost = spot.cost;
+    others.forEach((o, k) => {
+      cost += COVERS_LABEL * covers(spot.box, clear[k]!);
+      if (spread) cost += CLOSE_LABEL * Math.max(0, LABEL_APART - gapBetween(spot.box, o));
+    });
     if (cost < best.cost) best = { spot, cost };
   }
   return best;
 }
 
-/** Places every label, as placeLabels describes, with what each spot costs. */
-function placeAll(sizes: Map<string, Size[]>, scene: Scene): Map<string, { spot: Spot; cost: number }> {
-  const labels: { id: string; total: number; spots: Spot[] }[] = [];
+/** Each label's spots (see spotsAlong), by link ID, in the order they're placed. */
+type Candidates = { id: string; spots: Spot[] }[];
+
+function candidates(sizes: Map<string, Size[]>, scene: Scene): Candidates {
+  const labels: (Candidates[number] & { total: number })[] = [];
   for (const [id, { points }] of scene.routes) {
     const size = sizes.get(id);
     if (size?.length && points.length >= 2) labels.push({ id, total: routeLength(points), spots: spotsAlong(id, points, size, scene) });
   }
-  // Shortest routes first, as they have the fewest spots to choose from, then each
-  // again with all the others placed, so the first ones can make way for the rest.
-  labels.sort((a, b) => a.total - b.total || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // Shortest routes first, as they have the fewest spots to choose from.
+  return labels.sort((a, b) => a.total - b.total || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** Places every label, as placeLabels describes, with what each spot costs. They're kept apart from each other only where `spread` says so. */
+function placeAll(labels: Candidates, spread: boolean): Map<string, { spot: Spot; cost: number }> {
+  // Each label in turn, then each again with all the others placed, so the first ones can make way for the rest.
   const placed = new Map<string, { spot: Spot; cost: number }>();
   for (let pass = 0; pass < 2; pass++) {
     for (const { id, spots } of labels) {
       placed.delete(id);
-      placed.set(id, cheapest(spots, [...placed.values()].map((p) => padded(p.spot.box))));
+      placed.set(id, cheapest(spots, [...placed.values()].map((p) => p.spot.box), spread));
     }
   }
   return placed;
@@ -1199,13 +1234,14 @@ function placeAll(sizes: Map<string, Size[]>, scene: Scene): Map<string, { spot:
 /**
  * Where to centre each route's label: on the route, as near its middle as it
  * can be without covering `obstacles`, other labels, or other arrows and their
- * arrowheads. A label that can't help covering something covers as little of
- * it as it can. `sizes` holds each label's size, or the sizes it can be drawn
+ * arrowheads, and kept apart from other labels where there's room. A label that
+ * can't help covering something covers as little of it as it can, drawn narrower
+ * where that helps. `sizes` holds each label's size, or the sizes it can be drawn
  * at, widest first, by link ID.
  */
 export function placeLabels(routes: ReadonlyMap<string, readonly Readonly<Point>[]>, sizes: Map<string, Size | Size[]>, obstacles: Box[]): Map<string, Point> {
   const options = new Map([...sizes].map(([id, s]) => [id, Array.isArray(s) ? s : [s]]));
-  return new Map([...placeAll(options, sceneOf(routes, obstacles))].map(([id, p]) => [id, p.spot.at]));
+  return new Map([...placeAll(candidates(options, sceneOf(routes, obstacles)), true)].map(([id, p]) => [id, p.spot.at]));
 }
 
 /**
@@ -1214,7 +1250,9 @@ export function placeLabels(routes: ReadonlyMap<string, readonly Readonly<Point>
  * arrows whose labels can't find room (up to REROUTES of them, the most crowded
  * first) are offered other routes, leaving their source and entering their target by
  * each side, and take one where it and its label cost less together, such as a
- * route with an extra corner whose label then sits in the clear.
+ * route with an extra corner whose label then sits in the clear. Labels are kept
+ * apart from each other only once the routes are settled, so spreading them out
+ * never changes the way an arrow goes.
  * `sizes` holds the sizes each label can be drawn at, widest first; each label
  * comes back with the size it's drawn at.
  */
@@ -1226,7 +1264,8 @@ export function layoutArrows<S extends Size>(
 ): { routes: Map<string, readonly Readonly<Point>[]>; labels: Map<string, Point & S> } {
   const { grid, ports, starts, routes, rects, routable, clear } = routeAll(boxes, links, frames, notes);
   const scene = sceneOf(pointsOf(boxes, links, routes), [...boxes.values(), ...notes, ...keepClear]);
-  const placed = placeAll(sizes, scene);
+  const first = candidates(sizes, scene);
+  const placed = placeAll(first, false);
   // The grid only goes around notes some route was in the way of, so other routes have to be checked against the rest, as routeAll does.
   const clearSpaces = clear.map((n) => [n, inflate(n)] as const);
   const underNote = (r: Route, a: Rect, b: Rect) => clearSpaces.some(([n, c]) => !onEnds(n, a, b) && runsThrough(r.points, c));
@@ -1259,13 +1298,14 @@ export function layoutArrows<S extends Size>(
   let moved = false;
   for (const { link, options, longest, source, target } of crowded) {
     const [size, route] = [sizes.get(link.id)!, routes.get(link.id)!];
-    const others = [...placed].filter(([id]) => id !== link.id).map(([, p]) => padded(p.spot.box));
+    const others = [...placed].filter(([id]) => id !== link.id).map(([, p]) => p.spot.box);
+    const clear = others.map(padded);
     // A route's cost, plus its label's, plus what other labels hide of it.
     const total = (r: Route) => {
       setRoute(scene, link.id, r.points);
-      const best = cheapest(spotsAlong(link.id, r.points, size, scene), others);
+      const best = cheapest(spotsAlong(link.id, r.points, size, scene), others, false);
       const head = scene.heads.get(link.id)!;
-      const hidden = others.reduce((sum, o) => sum + COVERS_ARROW * lengthInside(r.points, o) + (COVERS_HEAD * overlap(head, o)) / (HEAD * HEAD), 0);
+      const hidden = clear.reduce((sum, o) => sum + COVERS_ARROW * lengthInside(r.points, o) + (COVERS_HEAD * overlap(head, o)) / (HEAD * HEAD), 0);
       return { route: r, label: best, cost: r.cost + best.cost + hidden };
     };
     grid.remove(link.id);
@@ -1287,8 +1327,8 @@ export function layoutArrows<S extends Size>(
     placed.set(link.id, best.label);
   }
 
-  // Every label again if any route changed, now they're settled. The scene already has the routes as they ended up.
-  const labels = moved ? placeAll(sizes, scene) : placed;
+  // Every label again, now the routes are settled, and spread apart where there's room. The scene already has the routes as they ended up.
+  const labels = placeAll(moved ? candidates(sizes, scene) : first, true);
   return { routes: pointsOf(boxes, links, routes), labels: new Map([...labels].map(([id, p]) => [id, { ...(p.spot.size as S), ...p.spot.at }])) };
 }
 
