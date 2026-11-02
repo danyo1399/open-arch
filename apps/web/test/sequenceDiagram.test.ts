@@ -157,4 +157,9 @@ describe("+ Add step", () => {
     await click(checkbox(host, "It's a reply to an earlier call"));
     expect(host.querySelector(".step-form")!.textContent).toContain("Nothing uses this element, so it has nothing to reply to.");
   });
+
+  it("says to add an element when the model has no other to call", async () => {
+    const { host } = await open({ ...shop, elements: { shop: { kind: "system", name: "Shop" } }, views: { order: { title: "Order", level: "sequence" } } });
+    expect(host.querySelector(".step-form")!.textContent).toContain("The model has no other element to call. Add one first.");
+  });
 });

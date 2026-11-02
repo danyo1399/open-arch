@@ -45,6 +45,22 @@ export async function press(target: Element): Promise<void> {
   }
 }
 
+/** Types text into a box, replacing what's there, as a person would. */
+export async function type(input: HTMLInputElement, text: string): Promise<void> {
+  await act(async () => {
+    // Through the page's own setter, so React sees the value change.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+/** Presses a key on an element. */
+export async function key(target: Element, name: string): Promise<void> {
+  await act(async () => {
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true }));
+  });
+}
+
 /** Picks an option in a select, as a person would. */
 export async function choose(select: HTMLSelectElement, value: string): Promise<void> {
   await act(async () => {
