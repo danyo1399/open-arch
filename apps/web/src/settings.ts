@@ -1,6 +1,7 @@
 /**
  * The designer's settings for the person using it: how the Views list is sorted,
- * and which views they pinned to the top of it in each workspace. They're kept in
+ * which views they pinned to the top of it in each workspace, and whether they
+ * turned down the web app's offer to install it. They're kept in
  * IndexedDB, in the desktop app too, not in the .openarch file, so everyone who
  * opens a workspace has their own.
  */
@@ -10,6 +11,7 @@ import { renamedId, type Rename, type ViewOrder } from "./model.js";
 
 const STORE = "settings";
 const VIEW_ORDER = "view-order";
+const INSTALL_PROMPT = "install-prompt";
 /** Where a workspace's pins are kept. `workspace` is its host's key. */
 const pinsKey = (workspace: string) => `pinned-views/${workspace}`;
 
@@ -96,6 +98,15 @@ export class Settings {
   /** Gives a workspace these pins, like an example the moment it's saved in the browser, which keeps it under another key. */
   async setPins(workspace: string, pins: string[]): Promise<void> {
     await this.update<string[]>(pinsKey(workspace), () => (pins.length ? pins : undefined));
+  }
+
+  /** Whether Not now was chosen on the offer to install the web app. */
+  async installPromptDismissed(): Promise<boolean> {
+    return (await this.get<string>(INSTALL_PROMPT)) === "dismissed";
+  }
+
+  async dismissInstallPrompt(): Promise<void> {
+    await this.update<string>(INSTALL_PROMPT, () => "dismissed");
   }
 
   /** Removes what's kept for a workspace that's gone. */

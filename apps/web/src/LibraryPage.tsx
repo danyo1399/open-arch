@@ -2,6 +2,7 @@
 import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrowserHost, browserKey, type WorkspaceHost } from "./hosts.js";
+import { InstallPrompt } from "./InstallPrompt.js";
 import { importFiles, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
 import { ConfirmDialog } from "./panels/dialogs.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
@@ -64,6 +65,7 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
         </>
       }
     >
+      <InstallPrompt />
       <section className="library" aria-label="Your workspaces">
         <h2>Your workspaces</h2>
         {notice && (

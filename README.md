@@ -34,7 +34,7 @@ One UI, two ways to run it.
 
 The web app's workspaces are only in that browser, on that device, and clearing the site's data deletes them, so export a copy of anything you want to keep. The URL names the open workspace, so reloading the page reopens it. Import and export go through a `FileProvider` ([`apps/web/src/providers.ts`](apps/web/src/providers.ts)): files on this device are the only one so far, and cloud storage such as Dropbox or iCloud Drive can be added as another.
 
-The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere, including GitHub Pages. Served over HTTPS (or from localhost), it has a service worker that caches the build, so it can be installed and opened offline; opening it online always loads the latest build. The app icons in `apps/web/public` are rendered from `apps/web/icons` by `sh icons/render.sh`.
+The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere, including GitHub Pages. Served over HTTPS (or from localhost), it has a service worker that caches the build, so it can be installed and opened offline; opening it online always loads the latest build. Where the browser can install it, the start page offers to: **Install** opens the browser's own dialog in Chrome, Edge and other Chromium browsers, and on an iPhone or iPad, or in Safari on a Mac, it says where the browser's command is. **Not now** hides the offer in that browser for good. The app icons in `apps/web/public` are rendered from `apps/web/icons` by `sh icons/render.sh`.
 
 ### Moving round the diagram
 

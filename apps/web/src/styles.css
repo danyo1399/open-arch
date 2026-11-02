@@ -1640,6 +1640,29 @@ button.heading {
   outline-offset: 4px;
 }
 
+/* --- The offer to install the web app (web start page) --------------------- */
+
+.install-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 22px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+.install-prompt p {
+  flex: 1 1 260px;
+  margin: 0;
+  line-height: 1.45;
+}
+.install-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* --- Workspaces kept in the browser (web start page) ----------------------- */
 
 .library {

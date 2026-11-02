@@ -3,6 +3,10 @@ import "./styles.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
+import { installOffer } from "./install.js";
+
+// Before the first render: the browser can offer to install the app as soon as the page loads.
+installOffer.listen(window);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
