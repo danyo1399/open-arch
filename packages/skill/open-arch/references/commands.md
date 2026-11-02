@@ -32,7 +32,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 
 | Command | Options |
 |---|---|
-| `add-element <id>` | `--kind <person\|system\|container\|component>` (required), `--parent <id>`, `--name`, `--description`, `--technology`, `--external`, `--shape <box\|database\|queue\|web-browser\|mobile-app\|folder>`, `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
+| `add-element <id>` | `--kind <person\|system\|container\|component>` (required), `--parent <id>`, `--name`, `--description`, `--technology`, `--external`, `--shape <box\|database\|queue\|folder\|document\|web-browser\|mobile-app\|desktop-app\|terminal\|server\|email\|scheduled-job>`, `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
 | `update-element <id>` | `--name`, `--parent`, `--description`, `--technology`, `--external` / `--internal`, `--shape` (`--shape ""` makes it a box again), `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-element <id>` | Also removes what's inside it, views scoped to them, and every reference |
 | `rename <old-id> <new-id>` | Works for elements and views; updates every reference |

@@ -1,4 +1,4 @@
-import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type NewElements, type Operation, type Step, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, SHAPE_LABELS, STICKY_COLORS, type ArchElement, type ComputedView, type NewElements, type Operation, type Step, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, viewAction } from "../model.js";
@@ -93,7 +93,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           <select value={element.shape} onChange={(e) => set({ shape: e.target.value === "box" ? null : e.target.value })}>
             {ELEMENT_SHAPES.map((shape) => (
               <option key={shape} value={shape}>
-                {shape[0]!.toUpperCase() + shape.slice(1).replace("-", " ")}
+                {SHAPE_LABELS[shape]}
               </option>
             ))}
           </select>

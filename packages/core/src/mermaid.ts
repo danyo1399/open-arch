@@ -55,7 +55,7 @@ function nodeLine(e: ArchElement): string {
   const id = mermaidId(e.id);
   const label = nodeLabel(e);
   if (e.kind === "person") return `${id}([${label}])`;
-  // The nearest of Mermaid's shapes; it has none for a browser or a folder.
+  // The nearest of Mermaid's shapes. The rest, like a browser, a folder or an envelope, are boxes.
   switch (e.shape) {
     case "database":
       return `${id}[(${label})]`;

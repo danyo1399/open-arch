@@ -115,8 +115,9 @@ In updates, null removes a field.
   --description <text>   One sentence, shown in the box
   --technology <text>    e.g. Node.js, PostgreSQL
   --external             A person or system outside your organisation
-  --shape <shape>        How the box is drawn: box (the default), database, queue, web-browser,
-                         mobile-app or folder. People are always drawn as a person
+  --shape <shape>        How the box is drawn: box (the default), database, queue, folder,
+                         document, web-browser, mobile-app, desktop-app, terminal, server,
+                         email or scheduled-job. People are always drawn as a person
   --tag <name[=value]>   Repeat for more, e.g. --tag owner=payments --tag pii
   --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
 `,
@@ -129,7 +130,8 @@ Changes only the fields given. An empty value removes a field, e.g. --technology
   --name, --description, --technology, --notes, --notes-file
   --parent <id>          Move it into another system (or container, for a component)
   --external, --internal Mark a person or system as outside your organisation, or not
-  --shape <shape>        box, database, queue, web-browser, mobile-app or folder
+  --shape <shape>        box, database, queue, folder, document, web-browser, mobile-app,
+                         desktop-app, terminal, server, email or scheduled-job
   --tag <name[=value]>   Add a tag or change its value; repeat for more. Without a value
                          (--tag pii or --tag pii=) it's a plain label, not a removal
   --remove-tag <name>    Remove a tag; repeat for more

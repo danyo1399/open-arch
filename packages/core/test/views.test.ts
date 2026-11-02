@@ -72,6 +72,15 @@ describe("renderMermaid", () => {
     expect(text).toContain('web_app("Web App<br/>[Container: React]")');
     expect(text).toContain('customer(["Customer<br/>[Person]"])');
   });
+
+  it("draws shapes Mermaid has nothing near as boxes", () => {
+    const doc = shop();
+    doc.elements.api!.shape = "email";
+    doc.elements["web-app"]!.shape = "desktop-app";
+    const text = renderMermaid(view(ws(doc), "shop-containers"));
+    expect(text).toContain('api["API<br/>[Container: Node.js]"]');
+    expect(text).toContain('web_app["Web App<br/>[Container: React]"]');
+  });
 });
 
 describe("describeElement", () => {

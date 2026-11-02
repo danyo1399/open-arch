@@ -113,6 +113,16 @@ describe("exportDocs", () => {
     expect(page("elements/db.md")).toContain("**Container** · drawn as a database · inside [Shop](shop.md)");
   });
 
+  it("names each shape in words, with a or an", () => {
+    const doc = shop();
+    doc.elements.api!.shape = "email";
+    doc.elements.db!.shape = "scheduled-job";
+    const files = exportDocs(buildWorkspace(doc), "shop.openarch");
+    const text = (path: string) => files.find((f) => f.path === path)!.content;
+    expect(text("elements/api.md")).toContain("**Container** · Node.js · drawn as an email · inside [Shop](shop.md)");
+    expect(text("elements/db.md")).toContain("**Container** · drawn as a scheduled job · inside [Shop](shop.md)");
+  });
+
   it("adds a Tags column to relationship tables when a relationship has tags", () => {
     const doc = shop();
     doc.elements.controller!.uses![0]!.tags = { protocol: "postgres", sync: "" };

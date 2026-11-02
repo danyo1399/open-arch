@@ -31,10 +31,11 @@ describe("elements", () => {
   it("sets and clears shapes, and refuses unknown ones and shapes for people", () => {
     let doc = apply(shop(), { op: "update-element", id: "api", shape: "queue" });
     expect(doc.elements.api!.shape).toBe("queue");
+    expect(apply(doc, { op: "update-element", id: "api", shape: "email" }).elements.api!.shape).toBe("email");
     doc = apply(doc, { op: "update-element", id: "api", shape: "box" }, { op: "update-element", id: "db", shape: null });
     expect(doc.elements.api).not.toHaveProperty("shape");
     expect(doc.elements.db).not.toHaveProperty("shape");
-    expect(fails(shop(), { op: "update-element", id: "api", shape: "databse" as never })).toBe('Unknown shape "databse". Did you mean "database"? Use one of: box, database, queue, web-browser, mobile-app, folder.');
+    expect(fails(shop(), { op: "update-element", id: "api", shape: "databse" as never })).toBe('Unknown shape "databse". Did you mean "database"? Use one of: box, database, queue, folder, document, web-browser, mobile-app, desktop-app, terminal, server, email, scheduled-job.');
     expect(fails(shop(), { op: "add-element", id: "bot", kind: "person", shape: "folder" })).toMatch(/People are always drawn as a person/);
     expect(apply(shop(), { op: "add-element", id: "x", kind: "system", shape: "box" }).elements.x).toEqual({ kind: "system", name: "X" });
   });

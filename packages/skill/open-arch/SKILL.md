@@ -23,7 +23,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 - **Add an element:**
   `open-arch add-element checkout-api --kind container --parent shop --name "Checkout API" --technology Node.js --description "Validates carts and takes payment."`
   Containers need a system as `--parent`; components need a container. People and systems are top-level; add `--external` for ones outside your organisation. Longer documentation goes in `--notes` (markdown).
-  Give databases, queues, web apps, mobile apps and file stores a `--shape`: `database`, `queue`, `web-browser`, `mobile-app` or `folder`. Facts like the owner or repository go in tags: `--tag owner=payments` (repeatable).
+  Give databases, queues, file stores, documents, web, mobile and desktop apps, command-line tools, servers, email servers and scheduled jobs a `--shape`: `database`, `queue`, `folder`, `document`, `web-browser`, `mobile-app`, `desktop-app`, `terminal`, `server`, `email` or `scheduled-job`. Facts like the owner or repository go in tags: `--tag owner=payments` (repeatable).
 - **Add a relationship** ("from uses to"):
   `open-arch add-relationship checkout-api orders-db --description "Reads and writes orders" --technology SQL`
   Describe it from the user's side as a short verb phrase. Put it on the most detailed element that's true: if a component makes the call, use the component; views at higher levels show it on the container or system automatically. Longer documentation, such as how retries or authentication work, goes in `--notes` (markdown).

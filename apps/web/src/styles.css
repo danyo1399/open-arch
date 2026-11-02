@@ -1171,6 +1171,107 @@ button.heading {
   border-radius: 6px 6px 0 0;
   background: inherit;
 }
+/* A page with its top right corner folded down. The corner above the fold is the canvas. */
+.c4-shape-document {
+  border-top-right-radius: 0;
+  padding-top: 24px;
+}
+.c4-shape-document::before {
+  top: 0;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  border-bottom-left-radius: 4px;
+  background: linear-gradient(to bottom left, var(--canvas) 50%, color-mix(in srgb, currentColor 35%, transparent) 50%);
+}
+/* A screen with a chin. The stand sits just below it, so the box keeps its rectangle for arrows. */
+.c4-shape-desktop-app {
+  border-radius: 4px;
+  padding-bottom: 22px;
+}
+.c4-shape-desktop-app::before {
+  inset: auto 0 0;
+  height: 10px;
+  border-top: 1px solid currentColor;
+  opacity: 0.35;
+}
+.c4-shape-desktop-app::after {
+  top: 100%;
+  left: 50%;
+  translate: -50% 0;
+  width: 64px;
+  height: 12px;
+  clip-path: polygon(40% 0, 60% 0, 60% 55%, 100% 55%, 100% 100%, 0 100%, 0 55%, 40% 55%);
+  background: inherit;
+}
+.c4-shape-terminal {
+  border-radius: 4px;
+  padding-top: 30px;
+}
+.c4-shape-terminal::before {
+  inset: 0 0 auto;
+  height: 18px;
+  border-bottom: 1px solid currentColor;
+  opacity: 0.45;
+}
+/* .c4 too, to outweigh the empty content every shape starts with. */
+.c4.c4-shape-terminal::after {
+  content: ">_";
+  top: 2px;
+  left: 9px;
+  font: 700 11px/14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  opacity: 0.7;
+}
+/* A drive bay with a light, across the top. */
+.c4-shape-server {
+  border-radius: 4px;
+  padding-top: 32px;
+}
+.c4-shape-server::before {
+  inset: 8px 10px auto;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  background: radial-gradient(circle at calc(100% - 8px) 50%, currentColor 2px, transparent 2.5px);
+  opacity: 0.4;
+}
+/* An envelope: the flap's two edges meet in the middle, above the name. */
+.c4-shape-email {
+  border-radius: 4px;
+  padding-top: 34px;
+}
+.c4-shape-email::before {
+  inset: 0 0 auto;
+  height: 26px;
+  background:
+    linear-gradient(to top right, transparent calc(50% - 1px), currentColor calc(50% - 1px), currentColor calc(50% + 1px), transparent calc(50% + 1px)) left / 50% 100% no-repeat,
+    linear-gradient(to top left, transparent calc(50% - 1px), currentColor calc(50% - 1px), currentColor calc(50% + 1px), transparent calc(50% + 1px)) right / 50% 100% no-repeat;
+  opacity: 0.4;
+}
+/* A clock above the name. */
+.c4-shape-scheduled-job {
+  padding-top: 34px;
+}
+.c4-shape-scheduled-job::before,
+.c4-shape-scheduled-job::after {
+  top: 7px;
+  left: 50%;
+  translate: -50% 0;
+  width: 20px;
+  height: 20px;
+  opacity: 0.55;
+}
+.c4-shape-scheduled-job::before {
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+/* The hands, from the middle up to twelve and across to three. */
+.c4-shape-scheduled-job::after {
+  background:
+    linear-gradient(currentColor, currentColor) 9px 4px / 2px 7px no-repeat,
+    linear-gradient(currentColor, currentColor) 9px 9px / 6px 2px no-repeat;
+}
 .c4-name {
   font-weight: 650;
   font-size: 14px;

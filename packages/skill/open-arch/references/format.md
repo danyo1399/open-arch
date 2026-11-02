@@ -89,11 +89,17 @@ IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elem
 | `box` | A box (the default) | Anything else |
 | `database` | A cylinder | Databases |
 | `queue` | A pipe | Message queues and event streams |
+| `folder` | A folder | File stores and buckets |
+| `document` | A page with a folded corner | Documents, reports, spreadsheets and other files people read |
 | `web-browser` | A browser window | Web apps and single-page apps |
 | `mobile-app` | A phone | Mobile apps |
-| `folder` | A folder | File stores and buckets |
+| `desktop-app` | A screen on a stand | Desktop apps |
+| `terminal` | A terminal window | Command-line tools and scripts |
+| `server` | A box with a drive bay | Servers, virtual machines and other hosts |
+| `email` | An envelope | Email servers, mailboxes and email services |
+| `scheduled-job` | A box with a clock | Scheduled jobs and batch jobs |
 
-Mermaid has no browser or folder, so the generated docs draw those as boxes, a queue as a box with double sides and a mobile app with rounded corners.
+Mermaid has only some of these, so the generated docs draw a database as a cylinder, a queue as a box with double sides, a mobile app with rounded corners, and the rest as boxes.
 
 ### Choosing a kind
 

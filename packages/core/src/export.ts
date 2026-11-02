@@ -6,7 +6,7 @@
 import { renderMermaid } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
-import type { ArchElement, Relationship } from "./types.js";
+import { SHAPE_LABELS, type ArchElement, type Relationship } from "./types.js";
 import type { Workspace } from "./workspace.js";
 
 export interface ExportedFile {
@@ -148,7 +148,8 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
   // Elements
   for (const e of ws.elements.values()) {
     const d = describeElement(ws, e.id)!;
-    const shape = e.shape === "box" ? undefined : `drawn as a ${e.shape.replace("-", " ")}`;
+    const label = SHAPE_LABELS[e.shape].toLowerCase();
+    const shape = e.shape === "box" ? undefined : `drawn as ${/^[aeiou]/.test(label) ? "an" : "a"} ${label}`;
     const facts = [`**${kindLabel(e)}**`, e.technology, shape, d.parent ? `inside ${link(d.parent, "elements")}` : undefined].filter(Boolean);
     const lines = [top, "", `# ${e.name}`, "", facts.join(" · ")];
     if (e.description) lines.push("", e.description);

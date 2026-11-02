@@ -9,8 +9,37 @@ export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
 export type StickyColor = (typeof STICKY_COLORS)[number];
 
 /** How a box is drawn. People are always drawn as a person. */
-export const ELEMENT_SHAPES = ["box", "database", "queue", "web-browser", "mobile-app", "folder"] as const;
+export const ELEMENT_SHAPES = [
+  "box",
+  "database",
+  "queue",
+  "folder",
+  "document",
+  "web-browser",
+  "mobile-app",
+  "desktop-app",
+  "terminal",
+  "server",
+  "email",
+  "scheduled-job",
+] as const;
 export type ElementShape = (typeof ELEMENT_SHAPES)[number];
+
+/** Each shape's name, as the designer lists it. */
+export const SHAPE_LABELS: Record<ElementShape, string> = {
+  box: "Box",
+  database: "Database",
+  queue: "Queue",
+  folder: "Folder",
+  document: "Document",
+  "web-browser": "Web browser",
+  "mobile-app": "Mobile app",
+  "desktop-app": "Desktop app",
+  terminal: "Terminal",
+  server: "Server",
+  email: "Email",
+  "scheduled-job": "Scheduled job",
+};
 
 /** Name/value pairs. A tag can have an empty value, which makes it a plain label. */
 export type Tags = Record<string, string>;
