@@ -200,6 +200,12 @@ code {
   grid-template-columns: 260px minmax(0, 1fr) 320px;
   grid-template-rows: 46px minmax(0, 1fr);
   height: 100%;
+  /* The page reaches the screen's edges (viewport-fit=cover in index.html), so on a phone it
+     keeps clear of the status bar, the notch and the home indicator. The panel colour fills
+     the space they take. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  background: var(--panel);
 }
 
 .topbar {
@@ -287,6 +293,8 @@ code {
 .app.narrow {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 46px minmax(0, 1fr) auto;
+  /* The tabs reach under the home indicator, with their own padding to keep clear of it. */
+  padding-bottom: 0;
 }
 .app.narrow > .sidebar,
 .app.narrow > .main,
@@ -337,14 +345,14 @@ button.square {
   max-height: 45%;
 }
 .app.narrow .toast {
-  bottom: 72px;
+  bottom: calc(72px + env(safe-area-inset-bottom));
 }
 
 .panes {
   grid-row: 3;
   display: flex;
   gap: 4px;
-  padding: 6px 8px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   background: var(--panel);
   border-top: 1px solid var(--border);
 }
@@ -1451,7 +1459,7 @@ button.heading {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -1500,7 +1508,8 @@ button.heading {
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 24px 16px;
+  padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
 }
 .start-card {
   width: min(560px, 100%);
