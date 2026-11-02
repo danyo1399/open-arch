@@ -1,6 +1,6 @@
 import { applyOperations, buildWorkspace, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { moveOps } from "../src/canvas/Canvas.js";
+import { connectOps, moveOps } from "../src/canvas/Canvas.js";
 
 describe("moveOps", () => {
   const ws = buildWorkspace({
@@ -24,5 +24,26 @@ describe("moveOps", () => {
 
   it("leaves the boxes as they are when only notes moved", () => {
     expect(moveOps("landscape", null, { a: [600, 0] })).toEqual([{ op: "update-sticky", view: "landscape", id: "a", at: [600, 0] }]);
+  });
+});
+
+describe("connectOps", () => {
+  // No saved layout: the boxes were placed automatically.
+  const ws = buildWorkspace({
+    openarch: 5,
+    name: "Shop",
+    elements: { web: { kind: "system", name: "Web" }, db: { kind: "system", name: "DB" } },
+    views: { landscape: { title: "Landscape", level: "landscape" } },
+  });
+
+  it("adds the relationship and keeps every box where it's shown, as one edit", () => {
+    const ops = connectOps("landscape", "web", "db", { web: [12, 40], db: [320, 40] });
+    expect(ops).toEqual([
+      { op: "add-relationship", from: "web", to: "db" },
+      { op: "set-layout", view: "landscape", positions: { web: [12, 40], db: [320, 40] } },
+    ]);
+    const after = loadWorkspace(serializeDocument(applyOperations(ws.doc, ops).doc));
+    expect(after.elements.get("web")!.uses.map((r) => r.to)).toEqual(["db"]);
+    expect(after.views.get("landscape")!.layout).toEqual({ web: [12, 40], db: [320, 40] });
   });
 });
