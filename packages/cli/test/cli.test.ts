@@ -232,7 +232,18 @@ describe("changing", () => {
     expect(cli(dir, "show", "warehouse").out).toContain("  <-> checkout-controller  Reserves stock [gRPC] (both ways)");
     expect(cli(dir, "show", "shop-context").out).toContain("  shop <-> warehouse");
     expect(read(dir, "docs/views/shop-context.md")).toContain("  shop <-->|");
+    expect(cli(dir, "show", "shop-containers").out).toContain("(via checkout-controller <-> warehouse)");
+    expect(cli(dir, "show", "checkout-api").out).toContain("Its contents use:\n  checkout-controller <-> warehouse   Reserves stock [gRPC] (both ways)\n");
+    expect(JSON.parse(cli(dir, "show", "checkout-api", "--json").out).contentsUse[0]).toMatchObject({ from: "checkout-controller", to: "warehouse", bidirectional: true });
+    expect(cli(dir, "update-relationship", "web-app", "checkout-controller", "--bidirectional").code).toBe(0);
+    expect(cli(dir, "show", "checkout-api").out).toContain("Its contents are used by:\n  web-app <-> checkout-controller  Places orders [HTTPS/JSON] (both ways)\n");
+    expect(JSON.parse(cli(dir, "show", "checkout-api", "--json").out).contentsUsedBy[0]).toMatchObject({ from: "web-app", to: "checkout-controller", bidirectional: true });
+    expect(cli(dir, "add-view", "ordering", "--level", "sequence").code).toBe(0);
+    expect(cli(dir, "add-step", "ordering", "web-app", "checkout-api").code).toBe(0);
+    expect(cli(dir, "show", "ordering").out).toContain("(via web-app <-> checkout-controller)");
     expect(cli(dir, "add-step", "place-order", "warehouse", "checkout-controller", "--description", "Stock reserved").code).toBe(0);
+    // A step back along a relationship that goes both ways is direct: it needs no "via".
+    expect(cli(dir, "show", "place-order").out).toMatch(/warehouse -> checkout-controller +Stock reserved \[gRPC\]\n/);
     expect(cli(dir, "update-relationship", "checkout-controller", "warehouse", "--bidirectional", "--one-way")).toMatchObject({ code: 2, err: expect.stringContaining("not both") });
     expect(cli(dir, "update-relationship", "checkout-controller", "warehouse", "--one-way").code).toBe(0);
     expect(cli(dir, "check").out).toContain("step-relationship-missing");

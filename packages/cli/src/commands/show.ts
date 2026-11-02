@@ -45,8 +45,8 @@ export function show(io: Io, opts: ShowOptions): number {
       children: d.children.map((c) => c.id),
       uses: d.uses.map(({ rel, target }) => ({ to: rel.to, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes, known: !!target })),
       usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes })),
-      contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, description: rel.description, technology: rel.technology, notes: rel.notes })),
-      contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, description: rel.description, technology: rel.technology, notes: rel.notes })),
+      contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
+      contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
       views: d.views.map(({ view, as }) => ({ id: view.id, as })),
     };
     const lines = [`${element.id}: ${element.name}`];
@@ -67,10 +67,10 @@ export function show(io: Io, opts: ShowOptions): number {
     if (d.usedBy.length === 0) lines.push("  (nothing)");
     lines.push(...relTable(d.usedBy.map(({ from, rel }) => [rel, `  ${rel.bidirectional ? "<->" : "<-"} ${from.id}`, relLabel(rel)])));
     if (d.contentsUse.length) {
-      lines.push("", "Its contents use:", ...relTable(d.contentsUse.map(({ from, rel }) => [rel, `  ${from.id} -> ${rel.to}`, relLabel(rel)])));
+      lines.push("", "Its contents use:", ...relTable(d.contentsUse.map(({ from, rel }) => [rel, `  ${arrow(from.id, rel)}`, relLabel(rel)])));
     }
     if (d.contentsUsedBy.length) {
-      lines.push("", "Its contents are used by:", ...relTable(d.contentsUsedBy.map(({ from, rel }) => [rel, `  ${from.id} -> ${rel.to}`, relLabel(rel)])));
+      lines.push("", "Its contents are used by:", ...relTable(d.contentsUsedBy.map(({ from, rel }) => [rel, `  ${arrow(from.id, rel)}`, relLabel(rel)])));
     }
     lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => (v.as === "frame" ? `${v.view.id} (as the frame)` : v.view.id)).join(", ")}` : "  (none)");
     print(json, lines.join("\n") + "\n");
@@ -115,7 +115,7 @@ export function show(io: Io, opts: ShowOptions): number {
         ? table(
             cv.edges.map((e) => [
               `  ${e.from} ${e.bidirectional ? "<->" : "->"} ${e.to}`,
-              relLabel(e) + (e.implied ? `  (via ${e.sources.map((s) => `${s.element} -> ${ws.elements.get(s.element)!.uses[s.index]!.to}`).join(", ")})` : ""),
+              relLabel(e) + (e.implied ? `  (via ${e.sources.map((s) => arrow(s.element, ws.elements.get(s.element)!.uses[s.index]!)).join(", ")})` : ""),
             ]),
           )
         : ["  (none)"]),
@@ -162,9 +162,12 @@ function sequenceText(ws: Workspace, cv: ComputedView): string {
   const view = cv.view;
   const via = (s: ComputedView["steps"][number]) => {
     if (s.sources.length === 0) return "  (no relationship!)";
-    const rels = s.sources.map(({ element, index }) => `${element} -> ${ws.elements.get(element)!.uses[index]!.to}`);
-    const direct = rels.length === 1 && rels[0] === (s.reply ? `${s.to} -> ${s.from}` : `${s.from} -> ${s.to}`);
-    return direct ? "" : `  (via ${rels.join(", ")})`;
+    const rels = s.sources.map(({ element, index }) => ({ from: element, rel: ws.elements.get(element)!.uses[index]! }));
+    // One relationship joining exactly the step's two elements needs no "via". A step can only go
+    // along one the right way, so which end is which doesn't matter.
+    const ends = new Set([s.from, s.to]);
+    const direct = rels.length === 1 && ends.has(rels[0]!.from) && ends.has(rels[0]!.rel.to);
+    return direct ? "" : `  (via ${rels.map((r) => arrow(r.from, r.rel)).join(", ")})`;
   };
   const lines = [
     `${view.id}: ${view.title}`,
@@ -227,6 +230,11 @@ function summary(e: ArchElement) {
 
 function row(e: ArchElement): string[] {
   return [`  ${e.id}`, e.external ? `${e.kind} (external)` : e.kind, e.technology ? `${e.name} [${e.technology}]` : e.name];
+}
+
+/** A relationship as "from -> to", or "from <-> to" when it goes both ways. */
+function arrow(from: string, rel: Relationship): string {
+  return `${from} ${rel.bidirectional ? "<->" : "->"} ${rel.to}`;
 }
 
 function relLabel(r: { description?: string; technology?: string; tags?: Tags; bidirectional?: boolean }): string {
