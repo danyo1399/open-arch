@@ -161,6 +161,18 @@ export function moveOps(view: string, layout: Record<string, Position> | null, n
   ];
 }
 
+/**
+ * The edit that draws a new arrow: the relationship, and every box's position as shown, as one
+ * step for Undo. Without the positions, a view with boxes placed automatically would be laid out
+ * again, as its arrows changed, and its boxes would jump.
+ */
+export function connectOps(view: string, from: string, to: string, layout: Record<string, Position>): Operation[] {
+  return [
+    { op: "add-relationship", from, to },
+    { op: "set-layout", view, positions: layout },
+  ];
+}
+
 /** The box at this point on the diagram, if there is one: the one drawn on top, where boxes overlap. The frame isn't a box. */
 export function boxAt(nodes: FlowNode[], at: Point): ElementFlowNode | undefined {
   return nodes.findLast((n): n is ElementFlowNode => {
@@ -621,9 +633,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   const onConnect = useCallback(
     (c: Connection) => {
       const [from, to] = [elementOf.get(c.source) ?? c.source, elementOf.get(c.target) ?? c.target];
-      void edit([{ op: "add-relationship", from, to }]).then((ok) => ok && onSelect({ kind: "arrow", from, to }));
+      void edit(connectOps(view.id, from, to, currentLayout())).then((ok) => ok && onSelect({ kind: "arrow", from, to }));
     },
-    [edit, onSelect, elementOf],
+    [edit, onSelect, elementOf, view.id, currentLayout],
   );
 
   /** Where on the diagram something added goes: at a point, or else in the middle of the canvas. */
