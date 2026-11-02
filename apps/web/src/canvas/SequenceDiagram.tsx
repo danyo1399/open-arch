@@ -3,13 +3,13 @@
  * numbered arrows, top to bottom. Drag from one lifeline to another to add a step, or use
  * + Add step. Nothing is placed by hand, so nothing here saves positions.
  */
-import { kindLabel, type ComputedView, type Workspace } from "@open-arch/core";
+import { isInside, kindLabel, type ComputedView, type Operation, type Workspace } from "@open-arch/core";
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { byName } from "../model.js";
-import { menuPoint } from "../panels/ContextMenu.js";
+import { ContextMenu, menuPoint } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import type { Selection } from "./Canvas.js";
-import { drawnStep, dropNumber, lifelineAt, SEQ, sequenceLayout, stepTargets } from "./sequenceLayout.js";
+import { dropNumber, lifelineAt, SEQ, sequenceLayout, stepChoices, stepTargets, type StepChoice } from "./sequenceLayout.js";
 
 interface SequenceProps {
   ws: Workspace;
@@ -39,6 +39,8 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
   /** A step being drawn from a lifeline: where it started, and where the pointer is. */
   const [drawing, setDrawing] = useState<{ from: string; start: { x: number; y: number }; at: { x: number; y: number }; moved: boolean } | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  /** The ways to add a step drawn where the model has no relationship for a call: where it was dropped on the screen, and its number. */
+  const [choosing, setChoosing] = useState<{ x: number; y: number; choices: StepChoice[]; number: number } | null>(null);
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
 
   const point = (e: { clientX: number; clientY: number }) => {
@@ -46,8 +48,9 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
-  const addStep = (from: string, to: string, reply: boolean, number?: number) =>
-    void edit([{ op: "add-step", view: view.id, from, to, reply: reply || undefined, step: number }]).then((ok) => {
+  /** Adds a step, numbered `number` or after the last, with any change to the model it needs, in one edit. */
+  const addStep = (ops: Operation[], number?: number) =>
+    void edit(ops).then((ok) => {
       if (ok) onSelect({ kind: "step", number: number ?? cv.steps.length + 1 });
     });
 
@@ -71,12 +74,15 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
     const at = point(e);
     const to = lifelineAt(layout, at.x);
     if (!to || to === drawing.from) return;
-    const step = drawnStep(ws, drawing.from, to);
-    if (!step) {
-      onError(`The model has no relationship between ${name(drawing.from)} and ${name(to)}, or anything inside them. Add one in a diagram that shows them both, then add the step.`);
+    const number = dropNumber(layout, at.y);
+    const choices = stepChoices(ws, view.id, drawing.from, to, number);
+    if (choices.length === 0) {
+      onError(`${name(drawing.from)} and ${name(to)} contain one another, so no relationship can join them, and no step either.`);
       return;
     }
-    addStep(drawing.from, to, step.reply, dropNumber(layout, at.y));
+    // A call the model already has goes straight in. Otherwise, say what adding it would do.
+    if (choices.length === 1 && !choices[0]!.changesModel) addStep(choices[0]!.ops, number);
+    else setChoosing({ x: e.clientX, y: e.clientY, choices, number });
   };
 
   const addNote = () => {
@@ -113,9 +119,10 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
           {formOpen && (
             <StepForm
               ws={ws}
-              onAdd={(from, to, reply) => {
+              view={view.id}
+              onAdd={(ops) => {
                 setFormOpen(false);
-                addStep(from, to, reply);
+                addStep(ops);
               }}
               onClose={() => setFormOpen(false)}
             />
@@ -235,6 +242,15 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
             </div>
           )}
         </div>
+        {choosing && (
+          <ContextMenu
+            x={choosing.x}
+            y={choosing.y}
+            note={choosing.choices[0]!.changesModel ? "The model has no relationship for this call yet." : undefined}
+            items={choosing.choices.map((c) => ({ label: c.label, onSelect: () => addStep(c.ops, choosing.number) }))}
+            onClose={() => setChoosing(null)}
+          />
+        )}
         {cv.steps.length === 0 && (
           <div className="empty-hint">
             This view has no steps yet. Use <strong>+ Add step</strong> to add the first one.
@@ -245,24 +261,40 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
   );
 }
 
-/** + Add step's form: who acts, and which element it calls or answers, of those the model connects it to. */
-function StepForm({ ws, onAdd, onClose }: { ws: Workspace; onAdd(from: string, to: string, reply: boolean): void; onClose(): void }) {
+/**
+ * + Add step's form: who acts, and which element it calls or answers. The elements the model
+ * connects it to come first; calling another adds a relationship to it, one way or both.
+ */
+function StepForm({ ws, view, onAdd, onClose }: { ws: Workspace; view: string; onAdd(ops: Operation[]): void; onClose(): void }) {
   const elements = useMemo(() => [...ws.elements.values()].sort(byName), [ws]);
   const [from, setFrom] = useState(elements[0]?.id ?? "");
   const [reply, setReply] = useState(false);
+  const [bothWays, setBothWays] = useState(false);
   const targets = useMemo(() => (from ? stepTargets(ws, from, reply) : []), [ws, from, reply]);
+  // A call can go to an element it isn't connected to yet, by adding a relationship; a reply can't.
+  const others = useMemo(
+    () => (from && !reply ? elements.filter((e) => e.id !== from && !targets.includes(e) && !isInside(ws, from, e.id) && !isInside(ws, e.id, from)) : []),
+    [ws, elements, from, reply, targets],
+  );
   const [to, setTo] = useState("");
-  const toId = targets.some((t) => t.id === to) ? to : targets[0]?.id;
+  const toId = [...targets, ...others].some((t) => t.id === to) ? to : (targets[0] ?? others[0])?.id;
+  const adds = !!toId && !targets.some((t) => t.id === toId);
+  const option = (e: { id: string; name: string } & Parameters<typeof kindLabel>[0]) => (
+    <option key={e.id} value={e.id}>
+      {e.name} [{kindLabel(e)}]
+    </option>
+  );
+  const add = () => {
+    if (!toId) return;
+    const step: Operation = { op: "add-step", view, from, to: toId, reply: reply || undefined };
+    onAdd(adds ? [{ op: "add-relationship", from, to: toId, bidirectional: bothWays || undefined }, step] : [step]);
+  };
   return (
     <div className="menu-items step-form" role="dialog" aria-label="Add a step" onKeyDown={(e) => e.key === "Escape" && onClose()}>
       <label className="field">
         <span className="field-label">From</span>
         <select value={from} onChange={(e) => setFrom(e.target.value)} autoFocus>
-          {elements.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name} [{kindLabel(e)}]
-            </option>
-          ))}
+          {elements.map(option)}
         </select>
       </label>
       <label className="check">
@@ -271,26 +303,31 @@ function StepForm({ ws, onAdd, onClose }: { ws: Workspace; onAdd(from: string, t
       </label>
       <label className="field">
         <span className="field-label">{reply ? "Replies to" : "Calls"}</span>
-        {targets.length ? (
+        {toId ? (
           <select value={toId} onChange={(e) => setTo(e.target.value)}>
-            {targets.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name} [{kindLabel(e)}]
-              </option>
-            ))}
+            {others.length > 0 ? (
+              <>
+                {targets.length > 0 && <optgroup label="Connected in the model">{targets.map(option)}</optgroup>}
+                <optgroup label="Not connected yet: adds a relationship">{others.map(option)}</optgroup>
+              </>
+            ) : (
+              targets.map(option)
+            )}
           </select>
         ) : (
-          <span className="muted small">
-            {reply
-              ? "Nothing uses this element, so it has nothing to reply to. Add a relationship to it first."
-              : "This element uses nothing. Add a relationship from it, or from something inside it, first."}
-          </span>
+          <span className="muted small">Nothing uses this element, so it has nothing to reply to. Add a relationship to it first.</span>
         )}
       </label>
+      {adds && (
+        <label className="check">
+          <input type="checkbox" checked={bothWays} onChange={(e) => setBothWays(e.target.checked)} />
+          The new relationship goes both ways
+        </label>
+      )}
       <div className="step-form-actions">
         <button onClick={onClose}>Cancel</button>
-        <button className="primary" disabled={!from || !toId} onClick={() => toId && onAdd(from, toId, reply)}>
-          Add step
+        <button className="primary" disabled={!from || !toId} onClick={add}>
+          {adds ? "Add relationship and step" : "Add step"}
         </button>
       </div>
     </div>

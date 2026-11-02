@@ -5,6 +5,7 @@ import {
   byName,
   followRenames,
   followsName,
+  isArrow,
   idFromName,
   renamedId,
   renamedSelection,
@@ -22,7 +23,7 @@ import {
 } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 4,
+  openarch: 5,
   name: "Shop",
   elements: {
     api: { kind: "system", name: "API" },
@@ -77,7 +78,7 @@ describe("byName", () => {
 
   it("puts the model tree in alphabetical order at every level, whatever the kinds and IDs", () => {
     const site = buildWorkspace({
-      openarch: 4,
+      openarch: 5,
       name: "Site",
       elements: {
         customer: { kind: "person", name: "Customer" },
@@ -113,7 +114,7 @@ describe("byName", () => {
 
 describe("viewList", () => {
   const site = buildWorkspace({
-    openarch: 4,
+    openarch: 5,
     name: "Site",
     elements: {
       website: { kind: "system", name: "Client Website" },
@@ -163,7 +164,7 @@ describe("viewList", () => {
 
 describe("viewAction", () => {
   const shop = buildWorkspace({
-    openarch: 4,
+    openarch: 5,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }] },
@@ -219,7 +220,7 @@ describe("viewAction", () => {
 
 describe("arrowRelationships", () => {
   const shop = buildWorkspace({
-    openarch: 4,
+    openarch: 5,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Browses" }, { to: "web" }, { to: "shop", description: "Pays" }] },
@@ -253,7 +254,7 @@ describe("arrowRelationships", () => {
 
 describe("shownInProperties", () => {
   const noted = buildWorkspace({
-    openarch: 4,
+    openarch: 5,
     name: "Shop",
     elements: { api: { kind: "system", name: "API" } },
     views: { landscape: { title: "Landscape", level: "landscape", stickies: { note: { text: "Read me" } } } },
@@ -447,7 +448,7 @@ describe("renames", () => {
 
 describe("renamesBetween", () => {
   const shop: OpenArchDocument = {
-    openarch: 4,
+    openarch: 5,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },
@@ -500,5 +501,14 @@ describe("renamesBetween", () => {
     expect(between([{ op: "remove-element", id: "api-3" }, { op: "rename", id: "api-2", to: "orders" }])).toEqual([]);
     // api is placed in a view, and api-2 isn't, like the new one.
     expect(between([{ op: "remove-element", id: "api" }, { op: "rename", id: "api-2", to: "orders" }])).toEqual(["api-2>orders"]);
+  });
+});
+
+describe("isArrow", () => {
+  it("finds an arrow by its ends, and one that goes both ways from either end", () => {
+    expect(isArrow({ from: "a", to: "b", bidirectional: false }, "a", "b")).toBe(true);
+    expect(isArrow({ from: "a", to: "b", bidirectional: false }, "b", "a")).toBe(false);
+    expect(isArrow({ from: "a", to: "b", bidirectional: true }, "b", "a")).toBe(true);
+    expect(isArrow({ from: "a", to: "b", bidirectional: true }, "a", "c")).toBe(false);
   });
 });

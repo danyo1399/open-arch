@@ -18,7 +18,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 4;
+export const FORMAT_VERSION = 5;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -54,6 +54,8 @@ export interface ElementData {
 
 export interface RelationshipData {
   to: string;
+  /** True when it goes both ways: `to` uses the element too. Drawn with an arrowhead at each end. */
+  bidirectional?: boolean;
   description?: string;
   technology?: string;
   tags?: Tags;
@@ -109,6 +111,7 @@ export interface StickyData {
 
 export interface Relationship {
   to: string;
+  bidirectional: boolean;
   description?: string;
   technology?: string;
   tags: Tags;

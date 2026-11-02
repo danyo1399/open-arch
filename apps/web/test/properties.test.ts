@@ -6,7 +6,7 @@ import type { Selection } from "../src/canvas/Canvas.js";
 import { Properties } from "../src/panels/Properties.js";
 
 const doc: OpenArchDocument = {
-  openarch: 4,
+  openarch: 5,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things", notes: "Pays by **card**." }] },

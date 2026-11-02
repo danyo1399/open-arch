@@ -221,6 +221,25 @@ describe("changing", () => {
     expect(cli(dir, "update-view", "shop-containers", "--new-elements", "some").err).toContain('Unknown new-elements setting "some". Use show or hide.');
   });
 
+  it("makes a relationship go both ways, shows it, and lets steps go along it either way", () => {
+    const dir = example();
+    expect(cli(dir, "add-relationship", "warehouse", "checkout-controller").code).toBe(0);
+    expect(cli(dir, "remove-relationship", "warehouse", "checkout-controller").code).toBe(0);
+    expect(cli(dir, "add-step", "place-order", "warehouse", "checkout-controller").err).toContain('or make the one from "checkout-controller" to "warehouse" go both ways');
+    expect(cli(dir, "update-relationship", "checkout-controller", "warehouse", "--bidirectional").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements["checkout-controller"].uses[2]).toEqual({ to: "warehouse", bidirectional: true, description: "Reserves stock", technology: "gRPC" });
+    expect(cli(dir, "show", "checkout-controller").out).toContain("  <-> warehouse        Reserves stock [gRPC] (both ways)");
+    expect(cli(dir, "show", "warehouse").out).toContain("  <-> checkout-controller  Reserves stock [gRPC] (both ways)");
+    expect(cli(dir, "show", "shop-context").out).toContain("  shop <-> warehouse");
+    expect(read(dir, "docs/views/shop-context.md")).toContain("  shop <-->|");
+    expect(cli(dir, "add-step", "place-order", "warehouse", "checkout-controller", "--description", "Stock reserved").code).toBe(0);
+    expect(cli(dir, "update-relationship", "checkout-controller", "warehouse", "--bidirectional", "--one-way")).toMatchObject({ code: 2, err: expect.stringContaining("not both") });
+    expect(cli(dir, "update-relationship", "checkout-controller", "warehouse", "--one-way").code).toBe(0);
+    expect(cli(dir, "check").out).toContain("step-relationship-missing");
+    expect(cli(dir, "add-relationship", "customer", "shop", "--bidirectional", "--description", "Chats with").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements.customer.uses[1]).toEqual({ to: "shop", bidirectional: true, description: "Chats with" });
+  });
+
   it("gives views and relationships notes, shows them, and puts them in the docs", () => {
     const dir = example();
     expect(cli(dir, "update-view", "shop-containers", "--notes", "Drawn for **new starters**.").code).toBe(0);
@@ -274,22 +293,22 @@ describe("changing", () => {
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 4', '"openarch": 1')
+      .replace('"openarch": 5', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 4, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 5, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3])("reads a version %i file, and writes it back as version 4", (version) => {
+  it.each([2, 3, 4])("reads a version %i file, and writes it back as version 5", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 4', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 5', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 4,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 5,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -322,7 +341,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 4, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 5, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

@@ -36,8 +36,8 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `update-element <id>` | `--name`, `--parent`, `--description`, `--technology`, `--external` / `--internal`, `--shape` (`--shape ""` makes it a box again), `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-element <id>` | Also removes what's inside it, views scoped to them, and every reference |
 | `rename <old-id> <new-id>` | Works for elements and views; updates every reference |
-| `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
-| `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
+| `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--bidirectional` (`<to>` uses `<from>` too), `--notes <markdown>` or `--notes-file <path\|->` |
+| `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--bidirectional` / `--one-way`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
 | `add-view <id>` | `--level <landscape\|context\|container\|component\|sequence>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. A sequence view takes no scope, include or exclude |
 | `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--new-elements <show\|hide>`, `--notes`, `--notes-file`. `--new-elements hide` lists the view's boxes in include, so elements added later stay out; `show` puts `*` back, excluding what it would add. Either keeps the boxes the view has now |
@@ -57,7 +57,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 
 `--index` picks one relationship when an element has several to the same target: 0 is the first. Without it, the command says how many there are and what each describes.
 
-A step is named by its number in its sequence view, as `show <view>` prints it: 1 is the first. A step from A to B needs a relationship in the model from A, or something inside A, to B, or something inside B. A reply goes back along one from B to A. If there's none, the command refuses the step: add the relationship first.
+A step is named by its number in its sequence view, as `show <view>` prints it: 1 is the first. A step from A to B needs a relationship in the model from A, or something inside A, to B, or something inside B, or one between them that goes both ways. A reply goes back along one from B to A. If there's none, the command refuses the step: add the relationship first.
 
 ## Operations for `apply`
 
@@ -71,8 +71,8 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `update-element` | **id**, name, parent, description, technology, external, shape, tags (merged into the old ones; a `null` value removes that tag), notes |
 | `remove-element` | **id** |
 | `rename` | **id**, **to** |
-| `add-relationship` | **from**, **to**, description, technology, tags, notes |
-| `update-relationship` | **from**, **to**, index, newFrom, newTo (the elements it moves to), description, technology, tags (merged, like an element's), notes |
+| `add-relationship` | **from**, **to**, bidirectional, description, technology, tags, notes |
+| `update-relationship` | **from**, **to**, index, newFrom, newTo (the elements it moves to), bidirectional (`false` makes it one-way), description, technology, tags (merged, like an element's), notes |
 | `remove-relationship` | **from**, **to**, index |
 | `add-view` | **id**, **level**, scope, title, description, include, exclude, notes |
 | `update-view` | **id**, title, description, include, exclude, newElements (`"show"` or `"hide"`, not with include or exclude), notes |

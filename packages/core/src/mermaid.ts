@@ -88,7 +88,7 @@ export function renderMermaid(cv: ComputedView): string {
   for (const edge of cv.edges) {
     const parts = [edge.description, edge.technology ? `[${edge.technology}]` : undefined].filter(Boolean) as string[];
     const label = parts.length ? `|"${parts.map(escape).join("<br/>")}"|` : "";
-    lines.push(`  ${mermaidId(edge.from)} -->${label} ${mermaidId(edge.to)}`);
+    lines.push(`  ${mermaidId(edge.from)} ${edge.bidirectional ? "<-->" : "-->"}${label} ${mermaidId(edge.to)}`);
   }
 
   if (cv.nodes.length) {

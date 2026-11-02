@@ -93,12 +93,22 @@ export function viewAction(ws: Workspace, view: ViewDef | null, computed: Comput
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
 
+/** Whether an arrow is the one between these boxes: one that goes both ways is, from either end. */
+export function isArrow(edge: { from: string; to: string; bidirectional: boolean }, from: string, to: string): boolean {
+  return (edge.from === from && edge.to === to) || (edge.bidirectional && edge.from === to && edge.to === from);
+}
+
+/** The arrow between these boxes, if the view draws one. */
+export function findArrow(computed: ComputedView | null, from: string, to: string) {
+  return computed?.edges.find((e) => isArrow(e, from, to));
+}
+
 /**
  * The relationships an arrow draws, in the order its details list them, each with the element it's
  * on and how operations name it: none when the view doesn't draw the arrow.
  */
 export function arrowRelationships(ws: Workspace, computed: ComputedView | null, from: string, to: string): { element: ArchElement; rel: Relationship; ref: ReturnType<typeof relationshipRef> }[] {
-  const edge = computed?.edges.find((e) => e.from === from && e.to === to);
+  const edge = findArrow(computed, from, to);
   return (edge?.sources ?? []).flatMap(({ element, index }) => {
     const source = ws.elements.get(element);
     const rel = source?.uses[index];

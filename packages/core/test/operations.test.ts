@@ -104,7 +104,7 @@ describe("relationships", () => {
     doc = apply(doc, { op: "update-relationship", from: "api", to: "db", notes: null });
     expect(doc.elements.api!.uses).toEqual([{ to: "db", description: "Reads stock" }]);
     expect(apply(doc, { op: "update-relationship", from: "api", to: "db", notes: " " }).elements.api!.uses).toEqual([{ to: "db", description: "Reads stock" }]);
-    expect(fails(doc, { op: "update-relationship", from: "api", to: "db" })).toBe("Say what to change: newFrom, newTo, description, technology, tags or notes.");
+    expect(fails(doc, { op: "update-relationship", from: "api", to: "db" })).toBe("Say what to change: newFrom, newTo, bidirectional, description, technology, tags or notes.");
   });
 
   it("merges a relationship's tags", () => {

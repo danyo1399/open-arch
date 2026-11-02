@@ -44,8 +44,8 @@ export type Operation =
   | { op: "update-element"; id: string; name?: string; parent?: string; description?: string | null; technology?: string | null; external?: boolean; shape?: ElementShape | null; tags?: TagChanges; notes?: string | null }
   | { op: "remove-element"; id: string }
   | { op: "rename"; id: string; to: string }
-  | { op: "add-relationship"; from: string; to: string; description?: string; technology?: string; tags?: Tags; notes?: string }
-  | { op: "update-relationship"; from: string; to: string; index?: number; newFrom?: string; newTo?: string; description?: string | null; technology?: string | null; tags?: TagChanges; notes?: string | null }
+  | { op: "add-relationship"; from: string; to: string; bidirectional?: boolean; description?: string; technology?: string; tags?: Tags; notes?: string }
+  | { op: "update-relationship"; from: string; to: string; index?: number; newFrom?: string; newTo?: string; bidirectional?: boolean; description?: string | null; technology?: string | null; tags?: TagChanges; notes?: string | null }
   | { op: "remove-relationship"; from: string; to: string; index?: number }
   | { op: "add-view"; id: string; level: ViewLevel; scope?: string; title?: string; description?: string; include?: string[]; exclude?: string[]; notes?: string }
   | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[]; newElements?: NewElements; notes?: string | null }
@@ -88,10 +88,10 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   },
   "remove-element": { required: ["id"], fields: { id: "string" } },
   rename: { required: ["id", "to"], fields: { id: "string", to: "string" } },
-  "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", description: "string", technology: "string", tags: "tags", notes: "string" } },
+  "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", bidirectional: "boolean", description: "string", technology: "string", tags: "tags", notes: "string" } },
   "update-relationship": {
     required: ["from", "to"],
-    fields: { from: "string", to: "string", index: "index", newFrom: "string", newTo: "string", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
+    fields: { from: "string", to: "string", index: "index", newFrom: "string", newTo: "string", bidirectional: "boolean", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
   },
   "remove-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", index: "index" } },
   "add-view": {
@@ -421,7 +421,7 @@ function addRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "ad
   }
   from.uses = [
     ...(from.uses ?? []),
-    clean<RelationshipData>({ to: op.to, description, technology: op.technology?.trim(), tags: changeTags(undefined, op.tags ?? {}), notes: op.notes?.trim() }),
+    clean<RelationshipData>({ to: op.to, bidirectional: op.bidirectional || undefined, description, technology: op.technology?.trim(), tags: changeTags(undefined, op.tags ?? {}), notes: op.notes?.trim() }),
   ];
   return `added relationship ${op.from} -> ${op.to}`;
 }
@@ -431,11 +431,21 @@ function addRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "ad
  * at the end, and `newTo` points it at another element. It keeps its description, technology, tags and notes.
  */
 function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "update-relationship" }>): string {
-  if (op.newFrom === undefined && op.newTo === undefined && op.description === undefined && op.technology === undefined && op.tags === undefined && op.notes === undefined) {
-    throw new OpError("Say what to change: newFrom, newTo, description, technology, tags or notes.");
+  if (
+    op.newFrom === undefined &&
+    op.newTo === undefined &&
+    op.bidirectional === undefined &&
+    op.description === undefined &&
+    op.technology === undefined &&
+    op.tags === undefined &&
+    op.notes === undefined
+  ) {
+    throw new OpError("Say what to change: newFrom, newTo, bidirectional, description, technology, tags or notes.");
   }
   const { element, position } = findRelationship(doc, op.from, op.to, op.index);
   const rel = element.uses![position]!;
+  if (op.bidirectional === true) rel.bidirectional = true;
+  else if (op.bidirectional === false) delete rel.bidirectional;
   for (const key of ["description", "technology", "notes"] as const) {
     const value = op[key];
     if (value === undefined) continue;
@@ -687,8 +697,10 @@ function checkStep(doc: OpenArchDocument, step: StepData): void {
   }
   if (stepRelationships(ws, step.from, step.to, step.reply).length) return;
   const [caller, callee] = step.reply ? [step.to, step.from] : [step.from, step.to];
+  // A relationship the other way can be made to go both ways instead.
+  const back = doc.elements[callee]!.uses?.some((r) => r.to === caller);
   throw new OpError(
-    `The model has no relationship from "${caller}" to "${callee}"${step.reply ? " for this reply to go back along" : ""}. Add one first with add-relationship ${caller} ${callee}, or with one between elements inside them.`,
+    `The model has no relationship from "${caller}" to "${callee}"${step.reply ? " for this reply to go back along" : ""}. Add one first with add-relationship ${caller} ${callee}${back ? `, or make the one from "${callee}" to "${caller}" go both ways` : ", or with one between elements inside them"}.`,
   );
 }
 

@@ -1,6 +1,7 @@
 import {
   computeView,
   diagnosticTarget,
+  isInside,
   KIND_RANK,
   kindLabel,
   scopeProblems,
@@ -31,7 +32,7 @@ import {
 } from "@xyflow/react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
+import { isArrow, relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
 import { ContextMenu, menuPoint, type MenuAction } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
@@ -171,18 +172,22 @@ export function boxAt(nodes: FlowNode[], at: Point): ElementFlowNode | undefined
 
 /**
  * The edit that moves an arrow's start or end to another box: each relationship the arrow stands
- * for then starts or ends at that box's element, and keeps the element at its other end. An
- * operation names a relationship by its place among the ones from its element to the same target,
- * and moving one takes it out of them, so each names its place among the ones still left.
+ * for then starts or ends at that box's element, and keeps the element at its other end. An arrow
+ * that goes both ways can stand for relationships in either direction, and each moves whichever
+ * of its own ends is at that end of the arrow. An operation names a relationship by its place
+ * among the ones from its element to the same target, and moving one takes it out of them, so
+ * each names its place among the ones still left.
  */
 export function reconnectOps(ws: Workspace, edge: ViewEdge, end: ArrowEnd, box: string): Operation[] {
   const moved = new Map<string, number>();
+  const at = end === "from" ? edge.from : edge.to;
   return edge.sources.map(({ element, index }) => {
     const ref = relationshipRef(ws.elements.get(element)!, index);
     const key = `${ref.from}\u0000${ref.to}`;
     const before = moved.get(key) ?? 0;
     moved.set(key, before + 1);
-    return { op: "update-relationship", ...ref, index: ref.index - before, ...(end === "from" ? { newFrom: box } : { newTo: box }) };
+    const starts = element === at || isInside(ws, element, at);
+    return { op: "update-relationship", ...ref, index: ref.index - before, ...(starts ? { newFrom: box } : { newTo: box }) };
   });
 }
 
@@ -468,8 +473,10 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           type: "arrow",
           source: nodeIdOf.get(e.from) ?? e.from,
           target: nodeIdOf.get(e.to) ?? e.to,
-          selected: selection?.kind === "arrow" && selection.from === e.from && selection.to === e.to,
+          selected: selection?.kind === "arrow" && isArrow(e, selection.from, selection.to),
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
+          // React Flow turns a start marker round, so it points back at the box it starts from.
+          ...(e.bidirectional && { markerStart: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" } }),
           data: {
             edge: e,
             points: routes.get(id) ?? [],

@@ -32,6 +32,11 @@ function link(e: ArchElement, from: "root" | "elements" | "views"): string {
   return `[${e.name}](${href})`;
 }
 
+/** A relationship's description for a table, saying when it goes both ways. */
+function described(r: { description?: string; bidirectional: boolean }): string {
+  return [cell(r.description), r.bidirectional ? "(both ways)" : ""].filter(Boolean).join(" ");
+}
+
 /** Relationships to or from an element, with a Tags column when any of them has tags. */
 function relTable(ws: Workspace, rows: { other: string; rel: Relationship }[]): string[] {
   const tagged = rows.some(({ rel }) => Object.keys(rel.tags).length > 0);
@@ -40,7 +45,7 @@ function relTable(ws: Workspace, rows: { other: string; rel: Relationship }[]): 
     ...head,
     ...rows.map(({ other, rel }) => {
       const target = ws.elements.get(other);
-      return `| ${target ? link(target, "elements") : cell(other)} | ${cell(rel.description)} | ${cell(rel.technology)} |${tagged ? ` ${cell(tagText(rel.tags))} |` : ""}`;
+      return `| ${target ? link(target, "elements") : cell(other)} | ${described(rel)} | ${cell(rel.technology)} |${tagged ? ` ${cell(tagText(rel.tags))} |` : ""}`;
     }),
   ];
 }
@@ -54,7 +59,7 @@ function relNotes(ws: Workspace, rows: { from: string; rel: Relationship }[]): s
   return rows.flatMap(({ from, rel }) => {
     if (!rel.notes) return [];
     const description = rel.description ? `: ${rel.description.replace(/\s*\r?\n\s*/g, " ")}` : "";
-    return ["", `### ${name(from)} → ${name(rel.to)}${description}`, "", rel.notes];
+    return ["", `### ${name(from)} ${rel.bidirectional ? "↔" : "→"} ${name(rel.to)}${description}`, "", rel.notes];
   });
 }
 
@@ -131,7 +136,7 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
       for (const e of cv.edges) {
         const from = ws.elements.get(e.from)!;
         const to = ws.elements.get(e.to)!;
-        lines.push(`| ${link(from, "views")} | ${link(to, "views")} | ${cell(e.description)} | ${cell(e.technology)} |`);
+        lines.push(`| ${link(from, "views")} | ${link(to, "views")} | ${described(e)} | ${cell(e.technology)} |`);
       }
       // Each arrow's relationships, which can be between elements inside its boxes.
       lines.push(...relNotes(ws, cv.edges.flatMap((e) => e.sources.map(({ element, index }) => ({ from: element, rel: ws.elements.get(element)!.uses[index]! })))));

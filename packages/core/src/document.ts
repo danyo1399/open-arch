@@ -53,7 +53,7 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "tags", "notes", "uses"];
-const RELATIONSHIP_KEYS = ["to", "description", "technology", "tags", "notes"];
+const RELATIONSHIP_KEYS = ["to", "bidirectional", "description", "technology", "tags", "notes"];
 const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "stickies", "layout"];
 /** Fields a sequence view doesn't take: its participants and their places come from its steps. */
 const NOT_ON_SEQUENCE = ["include", "exclude", "layout"];
@@ -108,7 +108,7 @@ function readDocument(input: unknown, report: Report): OpenArchDocument {
       "version-unsupported",
       raw.openarch === undefined
         ? `Missing "openarch": ${FORMAT_VERSION}.`
-        : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades versions 1 to 3.`,
+        : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades versions 1 to 4.`,
     );
   }
   const name = str(raw.name, "name", report);
@@ -151,6 +151,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 2) out = { ...out, openarch: 3 };
   // Version 4 added sequence views, so a version 3 file means the same in it.
   if (out.openarch === 3) out = { ...out, openarch: 4 };
+  // Version 5 added relationships that go both ways, so a version 4 file means the same in it.
+  if (out.openarch === 4) out = { ...out, openarch: 5 };
   return out;
 }
 
@@ -260,6 +262,10 @@ function readRelationship(value: unknown, path: string, report: Report): Relatio
     return undefined;
   }
   const rel: RelationshipData = { to };
+  if (value.bidirectional !== undefined) {
+    if (typeof value.bidirectional !== "boolean") report(`${path}.bidirectional`, "field-type", "Must be true or false.");
+    else if (value.bidirectional) rel.bidirectional = true;
+  }
   for (const key of ["description", "technology", "notes"] as const) {
     const v = str(value[key], `${path}.${key}`, report);
     if (v !== undefined) rel[key] = v;
@@ -449,6 +455,7 @@ function elementText(e: ElementData, indent: string): string {
     const rels = e.uses.map((r) =>
       inline({
         to: r.to,
+        bidirectional: r.bidirectional || undefined,
         description: r.description || undefined,
         technology: r.technology || undefined,
         tags: r.tags && Object.keys(r.tags).length ? Object.fromEntries(tagEntries(r.tags)) : undefined,

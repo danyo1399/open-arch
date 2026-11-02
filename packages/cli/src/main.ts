@@ -153,25 +153,29 @@ Changes an element's or view's ID everywhere it's referenced.
   ),
   "add-relationship": writer(
     `Usage: open-arch add-relationship <from> <to> [--description <text>] [--technology <text>] [--tag <name[=value]>]...
-                                 [--notes <markdown>]
+                                 [--bidirectional] [--notes <markdown>]
 
 Adds "<from> uses <to>". Describe it from <from>'s side, e.g. "Reads and writes orders".
+  --bidirectional        It goes both ways: <to> uses <from> too, e.g. "Syncs customers with".
+                         Drawn with an arrowhead at each end. When each way is described
+                         differently, add two relationships instead
   --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
 `,
-    { description: s, technology: s, tag: many, notes: s, "notes-file": s },
+    { description: s, technology: s, tag: many, bidirectional: b, notes: s, "notes-file": s },
   ),
   "update-relationship": writer(
     `Usage: open-arch update-relationship <from> <to> [--index <n>] [--new-from <id>] [--new-to <id>]
-                                    [--description <text>] [--technology <text>]
+                                    [--bidirectional | --one-way] [--description <text>] [--technology <text>]
                                     [--tag <name[=value]>]... [--remove-tag <name>]... [--notes <markdown>]
 
 --index picks one when <from> has several relationships to <to> (0 is the first).
 --new-from and --new-to move it to another element at either end. It keeps its
 description, technology, tags and notes.
+--bidirectional makes it go both ways, and --one-way only from <from> to <to>.
 --notes takes markdown, or use --notes-file <path> (- for stdin).
 An empty value removes a field.
 `,
-    { index: s, "new-from": s, "new-to": s, description: s, technology: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
+    { index: s, "new-from": s, "new-to": s, bidirectional: b, "one-way": b, description: s, technology: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
   ),
   "remove-relationship": writer(
     `Usage: open-arch remove-relationship <from> <to> [--index <n>]

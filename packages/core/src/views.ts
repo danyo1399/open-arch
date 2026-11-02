@@ -15,6 +15,11 @@ export interface ViewEdge {
   technology?: string;
   /** False when a model relationship joins exactly these two boxes. */
   implied: boolean;
+  /**
+   * True when a relationship it stands for goes both ways. It's drawn with an arrowhead at each
+   * end, and stands for every relationship between its two boxes, in either direction.
+   */
+  bidirectional: boolean;
   /** The model relationships drawn as this edge: source element ID and index in its `uses`. */
   sources: RelationshipSource[];
 }
@@ -129,13 +134,13 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   const innerIds = new Set(inner.map((e) => e.id));
 
   // Every model relationship, lifted to the boxes of this view.
-  const lifted: { from: string; to: string; element: string; index: number }[] = [];
+  const lifted: { from: string; to: string; element: string; index: number; both: boolean }[] = [];
   for (const element of ws.elements.values()) {
     element.uses.forEach((rel, index) => {
       if (!ws.elements.has(rel.to)) return;
       const from = rep(element.id);
       const to = rep(rel.to);
-      if (from && to && from !== to) lifted.push({ from, to, element: element.id, index });
+      if (from && to && from !== to) lifted.push({ from, to, element: element.id, index, both: rel.bidirectional });
     });
   }
 
@@ -180,15 +185,21 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
 
   const nodes = [...shown].map((id) => ws.elements.get(id)!).sort(compareElements);
 
+  // Two boxes joined by a relationship that goes both ways get one arrow, with a head at each end,
+  // for every relationship between them: a second arrow would only say part of it again.
+  const pair = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
+  const bothWays = new Set(lifted.filter((l) => l.both).map((l) => pair(l.from, l.to)));
   const groups = new Map<string, typeof lifted>();
   for (const l of lifted) {
     if (!shown.has(l.from) || !shown.has(l.to)) continue;
-    const key = `${l.from}\u0000${l.to}`;
+    const key = bothWays.has(pair(l.from, l.to)) ? `both\u0000${pair(l.from, l.to)}` : `${l.from}\u0000${l.to}`;
     groups.set(key, [...(groups.get(key) ?? []), l]);
   }
   const edges: ViewEdge[] = [...groups.values()].map((group) => {
-    const { from, to } = group[0]!;
-    const direct = group.filter((g) => g.element === from && ws.elements.get(g.element)!.uses[g.index]!.to === to);
+    // It points the way its first relationship that goes both ways does.
+    const { from, to } = group.find((g) => g.both) ?? group[0]!;
+    const joins = (g: (typeof group)[number], a: string, b: string) => g.element === a && ws.elements.get(g.element)!.uses[g.index]!.to === b;
+    const direct = group.filter((g) => joins(g, from, to) || joins(g, to, from));
     const labelled = direct.length ? direct : group;
     const rels = labelled.map((g) => ws.elements.get(g.element)!.uses[g.index]!);
     return {
@@ -197,6 +208,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
       description: joinLabels(rels.map((r) => r.description), "; "),
       technology: joinLabels(rels.map((r) => r.technology), ", "),
       implied: direct.length === 0,
+      bidirectional: group.some((g) => g.both),
       sources: group.map((g) => ({ element: g.element, index: g.index })),
     };
   });
@@ -214,8 +226,8 @@ function within(ws: Workspace, id: string, ancestor: string): boolean {
 /**
  * The model relationships a step from `from` to `to` goes along: for a call, those from `from`
  * or something inside it to `to` or something inside it; for a reply, those the other way.
- * Relationships between exactly these two elements come first. None join an element and
- * something it's inside.
+ * A relationship that goes both ways counts in either direction. Relationships between exactly
+ * these two elements come first. None join an element and something it's inside.
  */
 export function stepRelationships(ws: Workspace, from: string, to: string, reply = false): RelationshipSource[] {
   const [caller, callee] = reply ? [to, from] : [from, to];
@@ -225,10 +237,13 @@ export function stepRelationships(ws: Workspace, from: string, to: string, reply
   const direct: RelationshipSource[] = [];
   const nested: RelationshipSource[] = [];
   for (const element of ws.elements.values()) {
-    if (!within(ws, element.id, caller)) continue;
     element.uses.forEach((rel, index) => {
-      if (!ws.elements.has(rel.to) || !within(ws, rel.to, callee)) return;
-      (element.id === caller && rel.to === callee ? direct : nested).push({ element: element.id, index });
+      if (!ws.elements.has(rel.to)) return;
+      const forward = within(ws, element.id, caller) && within(ws, rel.to, callee);
+      const back = rel.bidirectional && within(ws, element.id, callee) && within(ws, rel.to, caller);
+      if (!forward && !back) return;
+      const exact = forward ? element.id === caller && rel.to === callee : element.id === callee && rel.to === caller;
+      (exact ? direct : nested).push({ element: element.id, index });
     });
   }
   return [...direct, ...nested];
@@ -263,7 +278,11 @@ function computeSequence(ws: Workspace, view: ViewDef): ComputedView {
       });
     }
     // A call is labelled with what its relationships say, when it says nothing itself; a reply isn't.
-    const rels = step.reply ? [] : sources.filter((s) => s.element === step.from && ws.elements.get(s.element)!.uses[s.index]!.to === step.to);
+    const exactly = (s: RelationshipSource) => {
+      const to = ws.elements.get(s.element)!.uses[s.index]!.to;
+      return (s.element === step.from && to === step.to) || (s.element === step.to && to === step.from);
+    };
+    const rels = step.reply ? [] : sources.filter(exactly);
     const labelled = (rels.length ? rels : step.reply ? [] : sources).map((s) => ws.elements.get(s.element)!.uses[s.index]!);
     steps.push({
       ...step,

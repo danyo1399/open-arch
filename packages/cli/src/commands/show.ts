@@ -43,8 +43,8 @@ export function show(io: Io, opts: ShowOptions): number {
       tags: element.tags,
       notes: element.notes,
       children: d.children.map((c) => c.id),
-      uses: d.uses.map(({ rel, target }) => ({ to: rel.to, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes, known: !!target })),
-      usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes })),
+      uses: d.uses.map(({ rel, target }) => ({ to: rel.to, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes, known: !!target })),
+      usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes })),
       contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, description: rel.description, technology: rel.technology, notes: rel.notes })),
       contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, description: rel.description, technology: rel.technology, notes: rel.notes })),
       views: d.views.map(({ view, as }) => ({ id: view.id, as })),
@@ -62,10 +62,10 @@ export function show(io: Io, opts: ShowOptions): number {
     if (d.children.length) lines.push("", "Contains:", ...table(d.children.map(row)));
     lines.push("", "Uses:");
     if (d.uses.length === 0) lines.push("  (nothing)");
-    lines.push(...relTable(d.uses.map(({ rel, target }) => [rel, `  -> ${rel.to}`, relLabel(rel) + (target ? "" : "  (not an element!)")])));
+    lines.push(...relTable(d.uses.map(({ rel, target }) => [rel, `  ${rel.bidirectional ? "<->" : "->"} ${rel.to}`, relLabel(rel) + (target ? "" : "  (not an element!)")])));
     lines.push("", "Used by:");
     if (d.usedBy.length === 0) lines.push("  (nothing)");
-    lines.push(...relTable(d.usedBy.map(({ from, rel }) => [rel, `  <- ${from.id}`, relLabel(rel)])));
+    lines.push(...relTable(d.usedBy.map(({ from, rel }) => [rel, `  ${rel.bidirectional ? "<->" : "<-"} ${from.id}`, relLabel(rel)])));
     if (d.contentsUse.length) {
       lines.push("", "Its contents use:", ...relTable(d.contentsUse.map(({ from, rel }) => [rel, `  ${from.id} -> ${rel.to}`, relLabel(rel)])));
     }
@@ -96,7 +96,7 @@ export function show(io: Io, opts: ShowOptions): number {
       notes: view.notes,
       frame: cv.boundary?.id,
       boxes: cv.nodes.map(summary),
-      arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
+      arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, bidirectional: e.bidirectional || undefined, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
       stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
     };
     const scope = cv.boundary ?? (view.scope ? ws.elements.get(view.scope) : undefined);
@@ -114,7 +114,7 @@ export function show(io: Io, opts: ShowOptions): number {
       ...(cv.edges.length
         ? table(
             cv.edges.map((e) => [
-              `  ${e.from} -> ${e.to}`,
+              `  ${e.from} ${e.bidirectional ? "<->" : "->"} ${e.to}`,
               relLabel(e) + (e.implied ? `  (via ${e.sources.map((s) => `${s.element} -> ${ws.elements.get(s.element)!.uses[s.index]!.to}`).join(", ")})` : ""),
             ]),
           )
@@ -229,9 +229,9 @@ function row(e: ArchElement): string[] {
   return [`  ${e.id}`, e.external ? `${e.kind} (external)` : e.kind, e.technology ? `${e.name} [${e.technology}]` : e.name];
 }
 
-function relLabel(r: { description?: string; technology?: string; tags?: Tags }): string {
+function relLabel(r: { description?: string; technology?: string; tags?: Tags; bidirectional?: boolean }): string {
   const tags = r.tags && tagText(r.tags);
-  return [r.description ?? "(no description)", r.technology ? `[${r.technology}]` : "", tags ? `(tags: ${tags})` : ""].filter(Boolean).join(" ");
+  return [r.description ?? "(no description)", r.technology ? `[${r.technology}]` : "", r.bidirectional ? "(both ways)" : "", tags ? `(tags: ${tags})` : ""].filter(Boolean).join(" ");
 }
 
 /** Multi-line text, each line indented. */

@@ -31,6 +31,7 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
       notes: e.notes || undefined,
       uses: (e.uses ?? []).map((r, index) => ({
         to: r.to,
+        bidirectional: r.bidirectional ?? false,
         description: r.description || undefined,
         technology: r.technology || undefined,
         tags: r.tags ?? {},

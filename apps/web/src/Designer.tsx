@@ -1,4 +1,4 @@
-import { computeView, diagnosticTarget, scopeProblems, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeView, diagnosticTarget, scopeProblems, type ComputedView, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
@@ -6,7 +6,7 @@ import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { BrowserHost, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
-import { arrowRelationships, followRenames, relationshipRef, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, viewList, type Rename } from "./model.js";
+import { arrowRelationships, findArrow, followRenames, relationshipRef, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, viewList, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
@@ -31,11 +31,11 @@ const NARROW = "(max-width: 640px), (max-height: 500px) and (max-width: 1000px)"
 type Pane = "diagram" | "browse" | "details";
 
 /** What the details panel shows, in a few words. */
-function detailsName(ws: Workspace, view: ViewDef | null, selection: Selection): string {
+function detailsName(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, selection: Selection): string {
   const shown = shownInProperties(ws, view, selection);
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   if (shown.kind === "element") return shown.element.name;
-  if (shown.kind === "arrow") return `${name(shown.from)} → ${name(shown.to)}`;
+  if (shown.kind === "arrow") return `${name(shown.from)} ${findArrow(computed, shown.from, shown.to)?.bidirectional ? "↔" : "→"} ${name(shown.to)}`;
   if (shown.kind === "sticky") return "Sticky note";
   if (shown.kind === "step") return `Step ${shown.step.number}`;
   if (shown.kind === "several") return shapesLabel(shown.elements.length, shown.stickies.length);
@@ -228,11 +228,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     // A step is one line of a sequence, and Undo brings it back, so it goes without asking too.
     if (selection?.kind === "step" && view) void edit([{ op: "remove-step", view: view.id, step: selection.number }]).then(() => select(null));
     if (selection?.kind === "arrow" && computed && ws) {
-      const edge = computed.edges.find((e) => e.from === selection.from && e.to === selection.to);
+      const edge = findArrow(computed, selection.from, selection.to);
       if (!edge || edge.implied) return;
       // Remove the direct relationships this arrow draws, last first so earlier ones keep their place.
+      // One that goes both ways draws them in either direction.
+      const joins = (s: { element: string; index: number }, a: string, b: string) => s.element === a && ws.elements.get(s.element)?.uses[s.index]?.to === b;
       const ops: Operation[] = edge.sources
-        .filter((s) => s.element === selection.from && ws.elements.get(s.element)?.uses[s.index]?.to === selection.to)
+        .filter((s) => joins(s, edge.from, edge.to) || (edge.bidirectional && joins(s, edge.to, edge.from)))
         .sort((a, b) => b.index - a.index)
         .map((s) => ({ op: "remove-relationship", ...relationshipRef(ws.elements.get(s.element)!, s.index) }));
       void edit(ops).then(() => select(null));
@@ -369,7 +371,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       detail: errors ? plural(errors, "error") : diagnostics.length ? plural(diagnostics.length, "warning") : plural(ws.elements.size, "element"),
       bad: errors > 0,
     },
-    { pane: "details", label: "Details", detail: detailsName(ws, view, selection) },
+    { pane: "details", label: "Details", detail: detailsName(ws, view, computed, selection) },
   ];
 
   return (

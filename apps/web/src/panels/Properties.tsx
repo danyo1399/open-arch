@@ -1,7 +1,7 @@
 import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type NewElements, type Operation, type Step, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { byName, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, viewAction } from "../model.js";
+import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, viewAction } from "../model.js";
 import type { Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
 
@@ -132,10 +132,11 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           return (
             <li key={`${rel.to}-${i}`}>
               <button className="link" onClick={() => onSelect({ kind: "element", id: rel.to })}>
-                → {target?.name ?? rel.to}
+                {rel.bidirectional ? "↔" : "→"} {target?.name ?? rel.to}
               </button>
               <Field label="Description" value={rel.description ?? ""} placeholder="e.g. Reads and writes orders" onCommit={(description) => void edit([{ op: "update-relationship", ...ref, description: description || null }])} />
               <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit([{ op: "update-relationship", ...ref, technology: technology || null }])} />
+              <BothWays checked={rel.bidirectional} onChange={(bidirectional) => void edit([{ op: "update-relationship", ...ref, bidirectional }])} />
               <button className="link danger" onClick={() => void edit([{ op: "remove-relationship", ...ref }])}>
                 Remove relationship
               </button>
@@ -153,7 +154,10 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
                 <button className="link" onClick={() => onSelect({ kind: "element", id: from.id })}>
                   {from.name}
                 </button>{" "}
-                <span className="muted small">{rel.description ?? ""}</span>
+                <span className="muted small">
+                  {rel.description ?? ""}
+                  {rel.bidirectional ? " (both ways)" : ""}
+                </span>
               </li>
             ))}
           </ul>
@@ -171,8 +175,18 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
   );
 }
 
+/** Whether a relationship goes both ways. */
+function BothWays({ checked, onChange }: { checked: boolean; onChange(bidirectional: boolean): void }) {
+  return (
+    <label className="check" title="The other element uses this one too. Drawn with an arrowhead at each end.">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      Goes both ways
+    </label>
+  );
+}
+
 function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesProps & { from: string; to: string }) {
-  const edge = computed?.edges.find((e) => e.from === from && e.to === to);
+  const edge = findArrow(computed, from, to);
   if (!edge) return <p className="muted">This arrow is no longer in the view.</p>;
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   return (
@@ -184,7 +198,7 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
         <button className="link" onClick={() => onSelect({ kind: "element", id: from })}>
           {name(from)}
         </button>{" "}
-        →{" "}
+        {edge.bidirectional ? "↔" : "→"}{" "}
         <button className="link" onClick={() => onSelect({ kind: "element", id: to })}>
           {name(to)}
         </button>
@@ -201,9 +215,9 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
           const ref = relationshipRef(source, index);
           return (
             <li key={`${element}-${index}`}>
-              {edge.implied && (
+              {(edge.implied || edge.bidirectional) && (
                 <span className="small">
-                  {name(element)} → {name(rel.to)}
+                  {name(element)} {rel.bidirectional ? "↔" : "→"} {name(rel.to)}
                 </span>
               )}
               <Field
@@ -222,6 +236,7 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
                 placeholder="Longer documentation, in markdown"
                 onCommit={(notes) => void edit([{ op: "update-relationship", ...ref, notes: notes || null }])}
               />
+              <BothWays checked={rel.bidirectional} onChange={(bidirectional) => void edit([{ op: "update-relationship", ...ref, bidirectional }])} />
               <div className="field">
                 <span className="field-label">Tags</span>
                 <TagsEditor tags={rel.tags} onChange={(tags) => void edit([{ op: "update-relationship", ...ref, tags }])} />
@@ -329,13 +344,28 @@ function StepProperties({ ws, view, computed, step, edit, onSelect }: Properties
                 <button className="link" onClick={() => onSelect({ kind: "element", id: element })}>
                   {name(element)}
                 </button>{" "}
-                → {name(rel.to)} <span className="muted small">{rel.description ?? ""}</span>
+                {rel.bidirectional ? "↔" : "→"} {name(rel.to)} <span className="muted small">{rel.description ?? ""}</span>
               </li>
             );
           })}
         </ul>
       ) : (
-        <p className="error small">The model has no relationship for this step. Add one in a diagram that shows both elements, or change the step.</p>
+        <>
+          <p className="error small">The model has no relationship for this step to go along.</p>
+          {ws.elements.has(step.from) && ws.elements.has(step.to) && (
+            <div className="actions">
+              {/* A reply goes back along a relationship from the element it answers. */}
+              {[false, true].map((both) => {
+                const [from, to] = step.reply ? [step.to, step.from] : [step.from, step.to];
+                return (
+                  <button key={String(both)} onClick={() => void edit([{ op: "add-relationship", from, to, bidirectional: both || undefined }])}>
+                    {both ? `Add ${name(from)} ↔ ${name(to)}` : `Add ${name(from)} → ${name(to)}`}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
       <div className="actions">
         <button disabled={step.number === 1} onClick={() => move(step.number - 1)}>

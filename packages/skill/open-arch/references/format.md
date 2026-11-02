@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 4)
+# The open-arch workspace (format version 5)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers and components, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 4,
+  "openarch": 5,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -63,7 +63,7 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1, 2 and 3 files too, and write them back as version 4. Version 3 is the same, but without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1, 2, 3 and 4 files too, and write them back as version 5. Version 4 is the same, but without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view.
 
@@ -80,7 +80,7 @@ IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elem
 | `shape` | How the box is drawn (see below); without it, a box. Not used on people, who are always drawn as a person |
 | `tags` | Free-form facts as names and string values, e.g. `{ "owner": "payments", "repository": "github.com/example/orders" }`. A tag with the value `""` is a plain label |
 | `notes` | Longer documentation, as markdown |
-| `uses` | Relationships from this element: `to` (an element ID), `description` (a short verb phrase, shown on the arrow), `technology`, `tags` (like an element's) and `notes` (longer documentation, as markdown) |
+| `uses` | Relationships from this element: `to` (an element ID), `bidirectional` (`true` when `to` uses this element too), `description` (a short verb phrase, shown on the arrow), `technology`, `tags` (like an element's) and `notes` (longer documentation, as markdown) |
 
 ### Shapes
 
@@ -105,6 +105,8 @@ Mermaid has no browser or folder, so the generated docs draw those as boxes, a q
 ### Relationships
 
 A relationship can't join an element to its own parent, child or anything nested in it. Put each relationship on the most detailed element it's true for. Views at higher levels show it on the enclosing container or system ("implied relationships"), so don't repeat it on the parent.
+
+When two elements call each other, either add a relationship each way, each with its own description, or give one relationship `"bidirectional": true` when one description fits both ways ("Syncs customers with"). A relationship that goes both ways is drawn with an arrowhead at each end. Where one joins two boxes, the view draws one such arrow for every relationship between them, in either direction, rather than an arrow each way.
 
 ## Views
 
@@ -138,7 +140,7 @@ A `sequence` view isn't a level of detail: it shows what happens, in order, like
 | `technology` | e.g. `JSON/HTTPS`. Without it, a call shows its relationship's technology |
 | `reply` | `true` for an answer to an earlier call, drawn as a dashed arrow |
 
-Steps go along the model's relationships: a call from A to B needs a relationship from A, or something inside A, to B, or something inside B, and a reply from B to A goes back along one of those. Elements at any level of detail can be in the same sequence: a person, a container and a component. Commands refuse a step the model has no relationship for, and `check` warns when one loses its relationship, for example when the relationship is removed. Removing an element removes its steps.
+Steps go along the model's relationships: a call from A to B needs a relationship from A, or something inside A, to B, or something inside B, or one between them that goes both ways, and a reply from B to A goes back along one of those. Elements at any level of detail can be in the same sequence: a person, a container and a component. Commands refuse a step the model has no relationship for, and `check` warns when one loses its relationship, for example when the relationship is removed. Removing an element removes its steps.
 
 Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside them.
 
@@ -161,7 +163,7 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `4` (or `1`, `2` or `3`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `5` (or `1` to `4`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
 | `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence view, or `steps` on another view |
 | `field-type` | error | A field has the wrong type |

@@ -285,14 +285,14 @@ function EndGrips({ data }: { data: ArrowData }) {
   );
 }
 
-export function RoutedEdge({ id, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {
+export function RoutedEdge({ id, markerStart, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {
   if (!data || data.points.length < 2) return null;
   const { edge, points, label, moving } = data;
 
   return (
     <>
       {!moving && (
-        <BaseEdge id={id} path={pathThrough(points, data.crossings)} markerEnd={markerEnd} className={`arrow${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`} interactionWidth={18} />
+        <BaseEdge id={id} path={pathThrough(points, data.crossings)} markerStart={markerStart} markerEnd={markerEnd} className={`arrow${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`} interactionWidth={18} />
       )}
       {selected && <EndGrips data={data} />}
       {label && !moving && (

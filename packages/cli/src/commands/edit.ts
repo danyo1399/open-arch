@@ -177,11 +177,21 @@ export const BUILDERS: Record<string, Builder> = {
   "add-relationship": (io, v, p, usage) => {
     const [from, to] = need(p, ["<from>", "<to>"], usage);
     return [
-      { op: "add-relationship", from: from!, to: to!, description: text(v.description), technology: text(v.technology), tags: tags(v) as Tags | undefined, notes: notes(io, v) ?? undefined },
+      {
+        op: "add-relationship",
+        from: from!,
+        to: to!,
+        bidirectional: v.bidirectional === true || undefined,
+        description: text(v.description),
+        technology: text(v.technology),
+        tags: tags(v) as Tags | undefined,
+        notes: notes(io, v) ?? undefined,
+      },
     ];
   },
   "update-relationship": (io, v, p, usage) => {
     const [from, to] = need(p, ["<from>", "<to>"], usage);
+    if (v.bidirectional === true && v["one-way"] === true) throw new CliError("Pass --bidirectional or --one-way, not both.", 2);
     return [
       {
         op: "update-relationship",
@@ -190,6 +200,7 @@ export const BUILDERS: Record<string, Builder> = {
         index: index(v.index),
         newFrom: text(v["new-from"]),
         newTo: text(v["new-to"]),
+        bidirectional: v.bidirectional === true ? true : v["one-way"] === true ? false : undefined,
         description: clearable(v.description),
         technology: clearable(v.technology),
         tags: tags(v),

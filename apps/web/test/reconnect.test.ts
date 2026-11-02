@@ -34,7 +34,7 @@ describe("boxAt", () => {
 describe("reconnectOps", () => {
   // The controller inside the API calls the DB twice, so the shop's container view draws one arrow, API → DB, for both.
   const doc: OpenArchDocument = {
-    openarch: 4,
+    openarch: 5,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },
@@ -101,5 +101,33 @@ describe("reconnectOps", () => {
     const has = structuredClone(doc);
     has.elements.web!.uses!.push({ to: "db", description: "Reads reports" });
     expect(() => applyOperations(has, reconnectOps(buildWorkspace(has), arrow("containers", "api", "db"), "from", "web"))).toThrow('"web" already has this relationship to "db".');
+  });
+});
+
+describe("reconnectOps for an arrow that goes both ways", () => {
+  // The web app and the API call each other: one relationship goes both ways, and one goes back.
+  const doc: OpenArchDocument = {
+    openarch: 5,
+    name: "Shop",
+    elements: {
+      shop: { kind: "system", name: "Shop" },
+      web: { kind: "container", name: "Web", parent: "shop", uses: [{ to: "api", bidirectional: true, description: "Syncs carts with" }] },
+      api: { kind: "container", name: "API", parent: "shop", uses: [{ to: "web", description: "Pushes prices to" }] },
+      admin: { kind: "container", name: "Admin", parent: "shop" },
+    },
+    views: { containers: { title: "Containers", level: "container", scope: "shop" } },
+  };
+  const ws = buildWorkspace(doc);
+  const edge = computeView(ws, ws.views.get("containers")!).edges.find((e) => e.bidirectional)!;
+
+  it("moves each relationship's own end at that end of the arrow", () => {
+    expect(edge).toMatchObject({ from: "web", to: "api" });
+    expect(reconnectOps(ws, edge, "from", "admin")).toEqual([
+      { op: "update-relationship", from: "web", to: "api", index: 0, newFrom: "admin" },
+      { op: "update-relationship", from: "api", to: "web", index: 0, newTo: "admin" },
+    ]);
+    const moved = applyOperations(doc, reconnectOps(ws, edge, "to", "admin")).doc;
+    expect(moved.elements.web!.uses).toEqual([{ to: "admin", bidirectional: true, description: "Syncs carts with" }]);
+    expect(moved.elements.admin!.uses).toEqual([{ to: "web", description: "Pushes prices to" }]);
   });
 });

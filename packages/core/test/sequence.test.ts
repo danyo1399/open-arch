@@ -63,7 +63,7 @@ describe("sequence views in the file", () => {
   it("reports fields a sequence view doesn't take, steps on other views, and malformed steps", () => {
     const result = parseDocument(
       JSON.stringify({
-        openarch: 4,
+        openarch: 5,
         name: "X",
         elements: {},
         views: {
@@ -165,7 +165,9 @@ describe("step operations", () => {
     expect(fails(base(), { op: "add-step", view: "place-order", from: "db", to: "api" })).toBe(
       'The model has no relationship from "db" to "api". Add one first with add-relationship db api, or with one between elements inside them.',
     );
-    expect(fails(base(), { op: "add-step", view: "place-order", from: "web-app", to: "customer", reply: false })).toMatch(/no relationship from "web-app" to "customer"\./);
+    expect(fails(base(), { op: "add-step", view: "place-order", from: "web-app", to: "customer", reply: false })).toBe(
+      'The model has no relationship from "web-app" to "customer". Add one first with add-relationship web-app customer, or make the one from "customer" to "web-app" go both ways.',
+    );
     expect(fails(base(), { op: "add-step", view: "place-order", from: "customer", to: "web-app", reply: true })).toMatch(/no relationship from "web-app" to "customer" for this reply/);
     expect(fails(base(), { op: "add-step", view: "place-order", from: "api", to: "api" })).toBe("A step can't go from an element to itself.");
     // The web app uses a component inside the API, which is inside the shop, but the web app is in the shop too.

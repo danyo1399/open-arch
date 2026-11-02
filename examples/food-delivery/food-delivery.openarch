@@ -1,5 +1,5 @@
 {
-  "openarch": 4,
+  "openarch": 5,
   "name": "Food Delivery",
   "description": "A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 5 in order: each zooms in one step, and its sticky notes explain what you're looking at.",
   "export": { "docs": "docs" },

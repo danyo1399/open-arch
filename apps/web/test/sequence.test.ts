@@ -1,12 +1,12 @@
 import { applyOperations, buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { drawnStep, dropNumber, lifelineAt, SEQ, sequenceLayout, stepTargets } from "../src/canvas/sequenceLayout.js";
+import { dropNumber, lifelineAt, SEQ, sequenceLayout, stepChoices, stepTargets } from "../src/canvas/sequenceLayout.js";
 import { followRenames, renamesBetween, shownInProperties, viewAction } from "../src/model.js";
 
 /** A shop whose web app calls an API, which has a controller inside it that uses a database. */
 function shop(): OpenArchDocument {
   return {
-    openarch: 4,
+    openarch: 5,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web-app", description: "Buys things" }] },
@@ -83,11 +83,34 @@ describe("adding steps", () => {
     expect(stepTargets(ws, "customer", true)).toEqual([]);
   });
 
-  it("makes a step drawn back along a relationship a reply, and refuses one the model can't back", () => {
-    expect(drawnStep(ws, "web-app", "api")).toEqual({ reply: false });
-    expect(drawnStep(ws, "db", "api")).toEqual({ reply: true });
-    expect(drawnStep(ws, "customer", "db")).toBeUndefined();
-    expect(drawnStep(ws, "api", "api")).toBeUndefined();
+  it("adds a call the model has straight away", () => {
+    expect(stepChoices(ws, "order", "web-app", "api", 2)).toEqual([{ label: "Call API", ops: [{ op: "add-step", view: "order", from: "web-app", to: "api", step: 2 }], changesModel: false }]);
+  });
+
+  it("offers a reply, or a call that adds a relationship, when the model only has one the other way", () => {
+    expect(stepChoices(ws, "order", "db", "api").map((c) => [c.label, c.ops.map((op) => op.op)])).toEqual([
+      ["Reply to API", ["add-step"]],
+      ["Call API, adding a relationship from DB to API", ["add-relationship", "add-step"]],
+      ["Call API, adding a relationship both ways", ["add-relationship", "add-step"]],
+    ]);
+    // The customer uses the web app directly, so that relationship can go both ways instead.
+    const choices = stepChoices(ws, "order", "web-app", "customer");
+    expect(choices.map((c) => c.label)).toEqual(["Reply to Customer", "Call Customer, making Customer → Web App go both ways", "Call Customer, adding a relationship from Web App to Customer"]);
+    const doc = applyOperations(shop(), choices[1]!.ops).doc;
+    expect(doc.elements.customer!.uses).toEqual([{ to: "web-app", bidirectional: true, description: "Buys things" }]);
+    expect(doc.views.order!.steps![4]).toEqual({ from: "web-app", to: "customer" });
+  });
+
+  it("offers a relationship one way or both ways when the model has none, and nothing between nested elements", () => {
+    const choices = stepChoices(ws, "order", "customer", "db");
+    expect(choices.map((c) => c.ops[0])).toEqual([
+      { op: "add-relationship", from: "customer", to: "db" },
+      { op: "add-relationship", from: "customer", to: "db", bidirectional: true },
+    ]);
+    expect(applyOperations(shop(), choices[1]!.ops).doc.views.order!.steps).toHaveLength(5);
+    expect(stepChoices(ws, "order", "api", "api")).toEqual([]);
+    expect(stepChoices(ws, "order", "web-app", "shop")).toEqual([]);
+    expect(stepChoices(ws, "order", "controller", "api")).toEqual([]);
   });
 });
 
