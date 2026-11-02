@@ -194,12 +194,16 @@ scope, include or exclude.
   ),
   "update-view": writer(
     `Usage: open-arch update-view <id> [--title <title>] [--description <text>] [--include <a,b>] [--exclude <a,b>]
-                            [--notes <markdown>]
+                            [--new-elements <show|hide>] [--notes <markdown>]
 
+--new-elements says whether elements added to the model later appear in this view.
+show puts * back in include, so they appear on their own. hide lists the view's boxes in
+include, so it shows only those until you add more with show-in-view. Either way, the view
+keeps the boxes it shows now.
 --notes takes markdown, or use --notes-file <path> (- for stdin).
 An empty value removes a field.
 `,
-    { title: s, description: s, include: s, exclude: s, notes: s, "notes-file": s },
+    { title: s, description: s, include: s, exclude: s, "new-elements": s, notes: s, "notes-file": s },
   ),
   "remove-view": writer(`Usage: open-arch remove-view <id>\n`, {}),
   "show-in-view": writer(`Usage: open-arch show-in-view <view> <id>...\n\nShows elements in a view, removing them from its exclude list or adding them to include.\n`, {}),

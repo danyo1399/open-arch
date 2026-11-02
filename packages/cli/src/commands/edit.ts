@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { applyOperations, buildWorkspace, OpError, parseOperations, type Operation, type TagChanges, type Tags } from "@open-arch/core";
+import { applyOperations, buildWorkspace, OpError, parseOperations, type NewElements, type Operation, type TagChanges, type Tags } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { formatDiagnostic } from "./check.js";
@@ -221,7 +221,7 @@ export const BUILDERS: Record<string, Builder> = {
   },
   "update-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
-    return [{ op: "update-view", id: id!, title: text(v.title), description: clearable(v.description), include: list(v.include), exclude: list(v.exclude), notes: notes(io, v) }];
+    return [{ op: "update-view", id: id!, title: text(v.title), description: clearable(v.description), include: list(v.include), exclude: list(v.exclude), newElements: text(v["new-elements"]) as NewElements | undefined, notes: notes(io, v) }];
   },
   "remove-view": (_io, _v, p, usage) => [{ op: "remove-view", id: need(p, ["<id>"], usage)[0]! }],
   "show-in-view": (_io, _v, p, usage) => {

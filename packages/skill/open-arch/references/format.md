@@ -114,7 +114,7 @@ A relationship can't join an element to its own parent, child or anything nested
 | `description` | One sentence, shown under the title on the diagram |
 | `level` | `landscape`, `context`, `container`, `component` or `sequence` |
 | `scope` | A system for context and container views, a container for component views, none for landscape and sequence |
-| `include` | IDs to show, or `"*"` for the default selection. Not used on sequence views |
+| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence views |
 | `exclude` | IDs to hide. Not used on sequence views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
 | `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside the diagram) |

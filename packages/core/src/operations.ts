@@ -30,6 +30,12 @@ import {
 import { computeView, scopeProblems, stepRelationships } from "./views.js";
 import { buildWorkspace } from "./workspace.js";
 
+/**
+ * Whether a view shows elements added to the model later: "show" keeps `*` in its include list,
+ * "hide" lists its boxes one by one.
+ */
+export type NewElements = "show" | "hide";
+
 /** Changes to tags: a value sets a tag (an empty one makes it a plain label) and null removes it. */
 export type TagChanges = Record<string, string | null>;
 
@@ -42,7 +48,7 @@ export type Operation =
   | { op: "update-relationship"; from: string; to: string; index?: number; newFrom?: string; newTo?: string; description?: string | null; technology?: string | null; tags?: TagChanges; notes?: string | null }
   | { op: "remove-relationship"; from: string; to: string; index?: number }
   | { op: "add-view"; id: string; level: ViewLevel; scope?: string; title?: string; description?: string; include?: string[]; exclude?: string[]; notes?: string }
-  | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[]; notes?: string | null }
+  | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[]; newElements?: NewElements; notes?: string | null }
   | { op: "remove-view"; id: string }
   | { op: "show-in-view"; view: string; id: string }
   | { op: "hide-in-view"; view: string; id: string }
@@ -92,7 +98,10 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
     required: ["id", "level"],
     fields: { id: "string", level: "string", scope: "string", title: "string", description: "string", include: "strings", exclude: "strings", notes: "string" },
   },
-  "update-view": { required: ["id"], fields: { id: "string", title: "string", description: "nullable-string", include: "strings", exclude: "strings", notes: "nullable-string" } },
+  "update-view": {
+    required: ["id"],
+    fields: { id: "string", title: "string", description: "nullable-string", include: "strings", exclude: "strings", newElements: "string", notes: "nullable-string" },
+  },
   "remove-view": { required: ["id"], fields: { id: "string" } },
   "show-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "hide-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
@@ -485,8 +494,14 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
   const view = requireView(doc, op.id);
-  if (op.title === undefined && op.description === undefined && op.include === undefined && op.exclude === undefined && op.notes === undefined) {
-    throw new OpError("Say what to change: title, description, include, exclude or notes.");
+  if (op.title === undefined && op.description === undefined && op.include === undefined && op.exclude === undefined && op.newElements === undefined && op.notes === undefined) {
+    throw new OpError("Say what to change: title, description, include, exclude, new elements or notes.");
+  }
+  if (op.newElements !== undefined) {
+    if (op.newElements !== "show" && op.newElements !== "hide") throw new OpError(`Unknown new-elements setting "${op.newElements}". Use show or hide.`);
+    if (op.include !== undefined || op.exclude !== undefined) {
+      throw new OpError("Change new elements, or include and exclude, but not both at once: new elements works out the lists from what the view shows now.");
+    }
   }
   if (op.title !== undefined) {
     if (!op.title.trim()) throw new OpError("The title can't be empty.");
@@ -498,7 +513,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
     if (value === null || !value.trim()) delete view[key];
     else view[key] = value.trim();
   }
-  if (view.level === "sequence" && (op.include !== undefined || op.exclude !== undefined)) throw new OpError(SEQUENCE_PARTICIPANTS);
+  if (view.level === "sequence" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(SEQUENCE_PARTICIPANTS);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -508,7 +523,33 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
     if (op.exclude.length) view.exclude = [...op.exclude];
     else delete view.exclude;
   }
+  if (op.newElements !== undefined) setNewElements(doc, op.id, op.newElements);
   return `updated view ${op.id}`;
+}
+
+/**
+ * Switches whether a view shows elements added later, keeping the boxes it shows now. With
+ * "hide", its include list becomes those boxes. With "show", it gets `*` back, an exclude list
+ * of what `*` would add, and include entries for boxes `*` doesn't cover.
+ */
+function setNewElements(doc: OpenArchDocument, viewId: string, mode: NewElements) {
+  const ws = buildWorkspace(doc);
+  const def = ws.views.get(viewId)!;
+  if (def.include.includes("*") === (mode === "show")) return;
+  const problems = scopeProblems(ws, def);
+  if (problems.length) throw new OpError(`${problems[0]!.message} Fix the view's scope first.`);
+  const boxes = computeView(ws, def).nodes.map((n) => n.id);
+  const view = doc.views[viewId]!;
+  if (mode === "hide") {
+    view.include = boxes;
+    delete view.exclude;
+    return;
+  }
+  const everything = computeView(ws, { ...def, include: ["*"], exclude: [] }).nodes.map((n) => n.id);
+  view.include = ["*", ...boxes.filter((id) => !everything.includes(id))];
+  const exclude = everything.filter((id) => !boxes.includes(id));
+  if (exclude.length) view.exclude = exclude;
+  else delete view.exclude;
 }
 
 function shows(doc: OpenArchDocument, viewId: string, id: string): boolean {

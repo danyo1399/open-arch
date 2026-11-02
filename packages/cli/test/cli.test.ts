@@ -208,6 +208,19 @@ describe("changing", () => {
     expect(cli(dir, "add-step", "landscape", "customer", "shop").err).toContain("Only sequence views have steps");
   });
 
+  it("keeps elements added later out of a view, or lets them in", () => {
+    const dir = example();
+    expect(cli(dir, "update-view", "shop-containers", "--new-elements", "hide").code).toBe(0);
+    expect(JSON.parse(read(dir)).views["shop-containers"].include).not.toContain("*");
+    expect(cli(dir, "add-element", "cache", "--kind", "container", "--parent", "shop").code).toBe(0);
+    expect(cli(dir, "show", "shop-containers").out).toContain("  new elements: hidden until shown with show-in-view\n");
+    expect(cli(dir, "show", "shop-containers").out).not.toContain("cache");
+    expect(JSON.parse(cli(dir, "show", "shop-containers", "--json").out).newElements).toBe("hide");
+    expect(cli(dir, "update-view", "shop-containers", "--new-elements", "show").code).toBe(0);
+    expect(JSON.parse(read(dir)).views["shop-containers"]).toMatchObject({ include: ["*"], exclude: ["cache"] });
+    expect(cli(dir, "update-view", "shop-containers", "--new-elements", "some").err).toContain('Unknown new-elements setting "some". Use show or hide.');
+  });
+
   it("gives views and relationships notes, shows them, and puts them in the docs", () => {
     const dir = example();
     expect(cli(dir, "update-view", "shop-containers", "--notes", "Drawn for **new starters**.").code).toBe(0);
@@ -221,7 +234,7 @@ describe("changing", () => {
     expect(doc.elements["order-repository"].uses[0]).toEqual({ to: "orders-db", description: "Reads and writes orders", technology: "SQL", notes: "Over a pooled connection.\n\n- Retries twice." });
     expect(doc.elements.customer.uses[1]).toEqual({ to: "warehouse", description: "Tracks parcels", notes: "On the courier's site." });
 
-    expect(cli(dir, "show", "shop-containers").out).toContain("  description: What runs inside the shop.\n\nNotes:\n  Drawn for **new starters**.\n\nBoxes:");
+    expect(cli(dir, "show", "shop-containers").out).toContain("  description:  What runs inside the shop.\n  new elements: shown here on their own\n\nNotes:\n  Drawn for **new starters**.\n\nBoxes:");
     expect(JSON.parse(cli(dir, "show", "shop-containers", "--json").out)).toMatchObject({ description: "What runs inside the shop.", notes: "Drawn for **new starters**." });
     expect(cli(dir, "show", "orders-db").out).toContain("<- order-repository  Reads and writes orders [SQL]\n      Over a pooled connection.\n\n      - Retries twice.\n");
     expect(JSON.parse(cli(dir, "show", "order-repository", "--json").out).uses[0]).toMatchObject({ notes: "Over a pooled connection.\n\n- Retries twice." });

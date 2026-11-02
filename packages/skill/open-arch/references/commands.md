@@ -40,7 +40,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
 | `add-view <id>` | `--level <landscape\|context\|container\|component\|sequence>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. A sequence view takes no scope, include or exclude |
-| `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--notes`, `--notes-file` |
+| `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--new-elements <show\|hide>`, `--notes`, `--notes-file`. `--new-elements hide` lists the view's boxes in include, so elements added later stay out; `show` puts `*` back, excluding what it would add. Either keeps the boxes the view has now |
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
 | `hide-in-view <view> <id>...` | Removes them from include, or adds them to exclude; the model is unchanged |
@@ -75,7 +75,7 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `update-relationship` | **from**, **to**, index, newFrom, newTo (the elements it moves to), description, technology, tags (merged, like an element's), notes |
 | `remove-relationship` | **from**, **to**, index |
 | `add-view` | **id**, **level**, scope, title, description, include, exclude, notes |
-| `update-view` | **id**, title, description, include, exclude, notes |
+| `update-view` | **id**, title, description, include, exclude, newElements (`"show"` or `"hide"`, not with include or exclude), notes |
 | `remove-view` | **id** |
 | `show-in-view` | **view**, **id** |
 | `hide-in-view` | **view**, **id** |

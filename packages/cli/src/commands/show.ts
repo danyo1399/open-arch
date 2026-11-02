@@ -8,9 +8,11 @@ import {
   tagText,
   type ArchElement,
   type ComputedView,
+  type NewElements,
   type Relationship,
   type Tags,
   type TreeNode,
+  type ViewDef,
   type Workspace,
 } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
@@ -90,6 +92,7 @@ export function show(io: Io, opts: ShowOptions): number {
       description: view.description,
       level: view.level,
       scope: view.scope,
+      newElements: newElements(view),
       notes: view.notes,
       frame: cv.boundary?.id,
       boxes: cv.nodes.map(summary),
@@ -99,8 +102,9 @@ export function show(io: Io, opts: ShowOptions): number {
     const scope = cv.boundary ?? (view.scope ? ws.elements.get(view.scope) : undefined);
     const lines = [
       `${view.id}: ${view.title}`,
-      `  level:       ${view.level}${scope ? ` view of ${scope.id} (${scope.name})` : ""}`,
-      ...(view.description ? [`  description: ${view.description}`] : []),
+      `  level:        ${view.level}${scope ? ` view of ${scope.id} (${scope.name})` : ""}`,
+      ...(view.description ? [`  description:  ${view.description}`] : []),
+      `  new elements: ${newElements(view) === "show" ? "shown here on their own" : "hidden until shown with show-in-view"}`,
       ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
       "",
       "Boxes:",
@@ -126,6 +130,9 @@ export function show(io: Io, opts: ShowOptions): number {
   const near = suggest(opts.id, [...ws.elements.keys(), ...ws.views.keys()]);
   throw new CliError(`No element or view has the ID "${opts.id}".${near ? ` Did you mean "${near}"?` : ""} Run \`open-arch show\` to list them.`);
 }
+
+/** Whether elements added to the model later appear in a view of boxes: they do while its include list has `*`. */
+const newElements = (view: ViewDef): NewElements => (view.include.includes("*") ? "show" : "hide");
 
 function sequenceJson(cv: ComputedView) {
   const view = cv.view;
@@ -161,8 +168,8 @@ function sequenceText(ws: Workspace, cv: ComputedView): string {
   };
   const lines = [
     `${view.id}: ${view.title}`,
-    "  level:       sequence view",
-    ...(view.description ? [`  description: ${view.description}`] : []),
+    "  level:        sequence view",
+    ...(view.description ? [`  description:  ${view.description}`] : []),
     ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
     "",
     "Participants:",

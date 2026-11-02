@@ -42,6 +42,10 @@ With a mouse, drag across the diagram's background to select the boxes and stick
 
 Drag from the dot under a box to another box to add a relationship. To move one, select its arrow and drag the dot at either end to another box: the relationship keeps its description, technology, tags and notes. An arrow that stands for several relationships moves them all.
 
+### What a view shows
+
+A new view shows everything in its scope, and elements added to the model later turn up in it on their own. To keep one view to the boxes you chose, select its background and set **New elements** to **Show only when added here**. It keeps the boxes it has now, and nothing new appears in it unless you add it on that diagram or choose **Show in this view**. Set it back to **Show here automatically** for a view that should always show everything, such as an overview. Either way, **Hide from this view** takes a box out of just that view.
+
 ### Sequence views
 
 A sequence view shows what happens, in order: a lifeline for each element in it, and each step as a numbered arrow from one to another. Make one with **+ New view** and the **Sequence** level. Drag from one lifeline to another to add a step where you drop it, or use **+ Add step** to pick any element and one it uses. A step has to go along a relationship in the model, from the element or something inside it. Drag back the other way and the step is a reply, drawn dashed. Select a step to describe it, move it up or down, or delete it. A call without a description shows its relationship's.

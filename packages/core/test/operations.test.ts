@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyOperations, OpError, parseOperations, serializeDocument, type OpenArchDocument } from "../src/index.js";
+import { applyOperations, buildWorkspace, computeView, OpError, parseOperations, serializeDocument, type OpenArchDocument } from "../src/index.js";
 import { apply, rules, shop } from "./helpers.js";
 
 const fails = (doc: OpenArchDocument, ...ops: Parameters<typeof applyOperations>[1]) => {
@@ -202,7 +202,7 @@ describe("views", () => {
     expect(doc.views["web-components"]!.notes).toBe("Only the storefront.");
     doc = apply(doc, { op: "update-view", id: "web-components", description: null, notes: "" });
     expect(doc.views["web-components"]).toEqual({ title: "Web App components", level: "component", scope: "web-app", include: ["*"] });
-    expect(fails(doc, { op: "update-view", id: "web-components" })).toBe("Say what to change: title, description, include, exclude or notes.");
+    expect(fails(doc, { op: "update-view", id: "web-components" })).toBe("Say what to change: title, description, include, exclude, new elements or notes.");
   });
 
   it("hides and shows elements, and refuses ones the view can't draw", () => {
@@ -212,6 +212,49 @@ describe("views", () => {
     expect(doc.views["shop-containers"]!.exclude).toBeUndefined();
     expect(fails(shop(), { op: "show-in-view", view: "shop-containers", id: "controller" })).toMatch(/can't draw "controller"/);
     expect(fails(shop(), { op: "hide-in-view", view: "landscape", id: "api" })).toMatch(/isn't a box/);
+  });
+
+  it("stops showing new elements in a view, and shows them again, keeping the view's boxes", () => {
+    const boxes = (doc: OpenArchDocument, view: string) => computeView(buildWorkspace(doc), buildWorkspace(doc).views.get(view)!).nodes.map((n) => n.id).sort();
+    let doc = apply(shop(), { op: "hide-in-view", view: "shop-containers", id: "customer" });
+    const before = boxes(doc, "shop-containers");
+    doc = apply(doc, { op: "update-view", id: "shop-containers", newElements: "hide" });
+    expect([...doc.views["shop-containers"]!.include!].sort()).toEqual(before);
+    expect(doc.views["shop-containers"]!.exclude).toBeUndefined();
+    expect(boxes(doc, "shop-containers")).toEqual(before);
+
+    // A container added later stays out of this view, until it's shown here.
+    doc = apply(doc, { op: "add-element", id: "cache", kind: "container", parent: "shop" });
+    expect(boxes(doc, "shop-containers")).toEqual(before);
+    doc = apply(doc, { op: "show-in-view", view: "shop-containers", id: "cache" });
+    expect(boxes(doc, "shop-containers")).toEqual([...before, "cache"].sort());
+    doc = apply(doc, { op: "hide-in-view", view: "shop-containers", id: "cache" });
+    expect(boxes(doc, "shop-containers")).toEqual(before);
+
+    // Back to showing new elements: what * would add is excluded, so the boxes stay the same.
+    doc = apply(doc, { op: "update-view", id: "shop-containers", newElements: "show" });
+    expect(doc.views["shop-containers"]!.include).toEqual(["*"]);
+    expect([...doc.views["shop-containers"]!.exclude!].sort()).toEqual(["cache", "customer"]);
+    expect(boxes(doc, "shop-containers")).toEqual(before);
+    doc = apply(doc, { op: "add-element", id: "queue", kind: "container", parent: "shop" });
+    expect(boxes(doc, "shop-containers")).toContain("queue");
+  });
+
+  it("keeps boxes * doesn't cover when a view shows new elements again", () => {
+    let doc = apply(shop(), { op: "add-element", id: "crm", kind: "system" }, { op: "update-view", id: "shop-context", include: ["shop", "crm"] });
+    doc = apply(doc, { op: "update-view", id: "shop-context", newElements: "show" });
+    expect(doc.views["shop-context"]!.include).toEqual(["*", "crm"]);
+    expect([...doc.views["shop-context"]!.exclude!].sort()).toEqual(["customer", "payments"]);
+    // Asking for the setting a view already has changes nothing.
+    expect(apply(doc, { op: "update-view", id: "shop-context", newElements: "show" }).views["shop-context"]).toEqual(doc.views["shop-context"]);
+  });
+
+  it("refuses a new-elements setting it can't use", () => {
+    expect(fails(shop(), { op: "update-view", id: "shop-containers", newElements: "never" as never })).toBe('Unknown new-elements setting "never". Use show or hide.');
+    expect(fails(shop(), { op: "update-view", id: "shop-containers", newElements: "hide", include: ["api"] })).toMatch(/but not both/);
+    const seq = apply(shop(), { op: "add-view", id: "order", level: "sequence" });
+    expect(fails(seq, { op: "update-view", id: "order", newElements: "hide" })).toMatch(/takes no include or exclude/);
+    expect(parseOperations({ op: "update-view", id: "shop-containers", newElements: "hide" })).toEqual([{ op: "update-view", id: "shop-containers", newElements: "hide" }]);
   });
 
   it("saves positions, rounded, and drops positions of elements that leave the view", () => {

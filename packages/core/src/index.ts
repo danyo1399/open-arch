@@ -2,7 +2,7 @@ export * from "./types.js";
 export { parseDocument, serializeDocument, emptyDocument, elementOrder, type ParseResult } from "./document.js";
 export { buildWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 export { checkWorkspace, errorCount } from "./check.js";
-export { applyOperations, parseOperations, pruneLayouts, OpError, OPERATION_NAMES, type Operation, type OperationName, type ApplyResult, type TagChanges } from "./operations.js";
+export { applyOperations, parseOperations, pruneLayouts, OpError, OPERATION_NAMES, type Operation, type OperationName, type ApplyResult, type NewElements, type TagChanges } from "./operations.js";
 export { exportDocs, GENERATED_MARKER, type ExportedFile } from "./export.js";
 export { computeView, scopeProblems, stepRelationships, SCOPE_KIND, type ComputedView, type ComputedStep, type RelationshipSource, type ViewEdge } from "./views.js";
 export { renderMermaid, mermaidId } from "./mermaid.js";

@@ -1,4 +1,4 @@
-import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type Operation, type Step, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, STICKY_COLORS, type ArchElement, type ComputedView, type NewElements, type Operation, type Step, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import { byName, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, viewAction } from "../model.js";
@@ -426,6 +426,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
         placeholder="Longer documentation, in markdown"
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
       />
+      {view.level !== "sequence" && <NewElementsField view={view} edit={edit} />}
       {view.level === "sequence" ? (
         <>
           <dl className="facts">
@@ -453,6 +454,27 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
   );
 }
 
+/** Whether elements added to the model later appear in this view. */
+function NewElementsField({ view, edit }: { view: ViewDef; edit: PropertiesProps["edit"] }) {
+  const mode = view.include.includes("*") ? "show" : "hide";
+  return (
+    <>
+      <label className="field">
+        <span className="field-label">New elements</span>
+        <select value={mode} onChange={(e) => void edit([{ op: "update-view", id: view.id, newElements: e.target.value as NewElements }])}>
+          <option value="show">Show here automatically</option>
+          <option value="hide">Show only when added here</option>
+        </select>
+      </label>
+      <p className="muted small">
+        {mode === "show"
+          ? "Elements added to the model later appear in this view on their own. Hide the ones you don't want."
+          : "This view shows only the boxes it has now. Elements added to the model later stay out of it, unless you add them on this diagram or choose Show in this view."}
+      </p>
+    </>
+  );
+}
+
 /** What a diagram of boxes shows, and how to arrange it. */
 function BoxViewFacts({ ws, view, computed, scope }: { ws: Workspace; view: ViewDef; computed: ComputedView | null; scope?: ArchElement }) {
   return (
@@ -467,7 +489,7 @@ function BoxViewFacts({ ws, view, computed, scope }: { ws: Workspace; view: View
           </>
         )}
         <dt>Shows</dt>
-        <dd>{view.include.join(", ") || "nothing"}</dd>
+        <dd>{view.include.map((id) => ws.elements.get(id)?.name ?? id).join(", ") || "nothing"}</dd>
         {view.exclude.length > 0 && (
           <>
             <dt>Hides</dt>
