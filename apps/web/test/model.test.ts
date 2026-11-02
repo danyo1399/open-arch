@@ -1,7 +1,9 @@
 import { applyOperations, buildWorkspace, computeView, modelTree, type ComputedView, type OpenArchDocument, type Operation, type TreeNode } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
 import {
+  arrowDeleteOps,
   arrowRelationships,
+  arrowRemovals,
   byName,
   followRenames,
   followsName,
@@ -249,6 +251,78 @@ describe("arrowRelationships", () => {
   it("lists nothing for an arrow the view doesn't draw, or a view that can't be drawn", () => {
     expect(rels("mail", "customer")).toEqual([]);
     expect(rels("customer", "shop", null)).toEqual([]);
+  });
+});
+
+describe("arrowRemovals", () => {
+  const ws = buildWorkspace({
+    openarch: 5,
+    name: "Shop",
+    elements: {
+      customer: { kind: "person", name: "Customer", uses: [{ to: "web" }, { to: "web" }] },
+      shop: { kind: "system", name: "Shop", uses: [{ to: "payments", technology: "HTTPS" }, { to: "payments", technology: "AMQP" }, { to: "payments", description: "Refunds", technology: "HTTPS" }] },
+      web: { kind: "container", name: "Web App", parent: "shop", uses: [{ to: "controller", bidirectional: true }] },
+      api: { kind: "container", name: "Checkout API", parent: "shop" },
+      controller: { kind: "component", name: "Checkout Controller", parent: "api" },
+      payments: { kind: "system", name: "Payments" },
+    },
+    views: { landscape: { title: "Landscape", level: "landscape" }, containers: { title: "Containers", level: "container", scope: "shop" } },
+  });
+  const removals = (view: string, from: string, to: string) => arrowRemovals(ws, computeView(ws, ws.views.get(view)!), from, to);
+
+  it("tells relationships with no description apart by their technology", () => {
+    expect(removals("landscape", "shop", "payments").map((r) => r.label)).toEqual(["Shop → Payments: HTTPS", "Shop → Payments: AMQP", "Shop → Payments: Refunds [HTTPS]"]);
+  });
+
+  it("numbers relationships that would still read the same", () => {
+    expect(removals("containers", "customer", "web").map((r) => r.label)).toEqual(["Customer → Web App (1)", "Customer → Web App (2)"]);
+  });
+
+  it("names the relationship an implied arrow stands for, on what's inside the boxes", () => {
+    expect(removals("containers", "web", "api")).toEqual([
+      { ends: "Web App ↔ Checkout Controller", label: "Web App ↔ Checkout Controller", ops: [{ op: "remove-relationship", from: "web", to: "controller", index: 0 }] },
+    ]);
+  });
+
+  it("removes the one it names", () => {
+    const second = removals("containers", "customer", "web")[1]!;
+    expect(second.ops).toEqual([{ op: "remove-relationship", from: "customer", to: "web", index: 1 }]);
+  });
+});
+
+describe("arrowDeleteOps", () => {
+  const ws = buildWorkspace({
+    openarch: 5,
+    name: "Shop",
+    elements: {
+      site: { kind: "system", name: "Site", uses: [{ to: "cms", bidirectional: true, description: "Syncs pages with" }, { to: "cms", description: "Reads pages" }] },
+      cms: { kind: "system", name: "CMS", uses: [{ to: "site", description: "Sends webhooks to" }, { to: "mail" }] },
+      mail: { kind: "system", name: "Mail" },
+      shop: { kind: "system", name: "Shop" },
+      web: { kind: "container", name: "Web", parent: "shop", uses: [{ to: "mail" }] },
+    },
+    views: { landscape: { title: "Landscape", level: "landscape" } },
+  });
+  const computed = computeView(ws, ws.views.get("landscape")!);
+
+  it("removes every relationship a two-way arrow stands for, in either direction, last first", () => {
+    const ops = arrowDeleteOps(ws, computed, "site", "cms");
+    expect(ops).toEqual([
+      { op: "remove-relationship", from: "site", to: "cms", index: 1 },
+      { op: "remove-relationship", from: "site", to: "cms", index: 0 },
+      { op: "remove-relationship", from: "cms", to: "site", index: 0 },
+    ]);
+    // It's found from either end, and it leaves the relationships to other elements.
+    expect(arrowDeleteOps(ws, computed, "cms", "site")).toEqual(ops);
+    const after = buildWorkspace(applyOperations(ws.doc, ops).doc);
+    expect(after.elements.get("site")!.uses).toEqual([]);
+    expect(after.elements.get("cms")!.uses.map((r) => r.to)).toEqual(["mail"]);
+  });
+
+  it("removes nothing for an implied arrow, or one the view doesn't draw", () => {
+    expect(arrowDeleteOps(ws, computed, "shop", "mail")).toEqual([]);
+    expect(arrowDeleteOps(ws, computed, "mail", "site")).toEqual([]);
+    expect(arrowDeleteOps(ws, null, "site", "cms")).toEqual([]);
   });
 });
 

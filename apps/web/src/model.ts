@@ -116,6 +116,54 @@ export function arrowRelationships(ws: Workspace, computed: ComputedView | null,
   });
 }
 
+/** A relationship drawn by an arrow, as its right-click menu names it, and the edit that removes it. */
+export interface ArrowRemoval {
+  /** "From → To", or "From ↔ To" when it goes both ways. */
+  ends: string;
+  /** `ends`, then its description and technology, numbered when that alone would read the same as another. */
+  label: string;
+  ops: Operation[];
+}
+
+/**
+ * What an arrow's right-click menu can remove: each relationship it draws, in the order its
+ * details list them. Each label says which relationship it removes: its technology tells apart
+ * ones with the same description, or none, and a number those that would still read the same.
+ */
+export function arrowRemovals(ws: Workspace, computed: ComputedView | null, from: string, to: string): ArrowRemoval[] {
+  const name = (id: string) => ws.elements.get(id)?.name ?? id;
+  const items = arrowRelationships(ws, computed, from, to).map(({ element, rel, ref }) => {
+    const ends = `${element.name} ${rel.bidirectional ? "↔" : "→"} ${name(rel.to)}`;
+    const detail = rel.description && rel.technology ? `${rel.description} [${rel.technology}]` : (rel.description ?? rel.technology);
+    return { ends, label: detail ? `${ends}: ${detail}` : ends, ops: [{ op: "remove-relationship", ...ref } as Operation] };
+  });
+  const count = new Map<string, number>();
+  for (const item of items) count.set(item.label, (count.get(item.label) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    if (count.get(item.label)! < 2) return item;
+    const n = (seen.get(item.label) ?? 0) + 1;
+    seen.set(item.label, n);
+    return { ...item, label: `${item.label} (${n})` };
+  });
+}
+
+/**
+ * What deleting a selected arrow removes: the relationships that join exactly its two boxes, in
+ * either direction when it goes both ways. None for an implied arrow, whose relationships are on
+ * what's inside the boxes, or one the view doesn't draw. The last go first, so earlier ones keep
+ * their place.
+ */
+export function arrowDeleteOps(ws: Workspace, computed: ComputedView | null, from: string, to: string): Operation[] {
+  const edge = findArrow(computed, from, to);
+  if (!edge || edge.implied) return [];
+  const joins = (s: { element: string; index: number }, a: string, b: string) => s.element === a && ws.elements.get(s.element)?.uses[s.index]?.to === b;
+  return edge.sources
+    .filter((s) => joins(s, edge.from, edge.to) || (edge.bidirectional && joins(s, edge.to, edge.from)))
+    .sort((a, b) => b.index - a.index)
+    .map((s) => ({ op: "remove-relationship", ...relationshipRef(ws.elements.get(s.element)!, s.index) }));
+}
+
 export interface Usages {
   /** Relationships to the element or to something inside it, each with an arrow that draws it, if any view does. */
   relationships: { from: ArchElement; rel: Relationship; arrow?: { view: string; from: string; to: string } }[];

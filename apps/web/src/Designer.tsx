@@ -6,7 +6,7 @@ import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { BrowserHost, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
-import { arrowRelationships, findArrow, followRenames, relationshipRef, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, viewList, type Rename } from "./model.js";
+import { arrowDeleteOps, arrowRemovals, findArrow, followRenames, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, viewList, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
@@ -227,17 +227,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "sticky" && view) void edit([{ op: "remove-sticky", view: view.id, id: selection.id }]).then(() => select(null));
     // A step is one line of a sequence, and Undo brings it back, so it goes without asking too.
     if (selection?.kind === "step" && view) void edit([{ op: "remove-step", view: view.id, step: selection.number }]).then(() => select(null));
-    if (selection?.kind === "arrow" && computed && ws) {
-      const edge = findArrow(computed, selection.from, selection.to);
-      if (!edge || edge.implied) return;
-      // Remove the direct relationships this arrow draws, last first so earlier ones keep their place.
-      // One that goes both ways draws them in either direction.
-      const joins = (s: { element: string; index: number }, a: string, b: string) => s.element === a && ws.elements.get(s.element)?.uses[s.index]?.to === b;
-      const ops: Operation[] = edge.sources
-        .filter((s) => joins(s, edge.from, edge.to) || (edge.bidirectional && joins(s, edge.to, edge.from)))
-        .sort((a, b) => b.index - a.index)
-        .map((s) => ({ op: "remove-relationship", ...relationshipRef(ws.elements.get(s.element)!, s.index) }));
-      void edit(ops).then(() => select(null));
+    if (selection?.kind === "arrow" && ws) {
+      const ops = arrowDeleteOps(ws, computed, selection.from, selection.to);
+      if (ops.length) void edit(ops).then(() => select(null));
     }
   }, [selection, computed, edit, select, current, ws, view]);
 
@@ -347,19 +339,20 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     ];
   };
   // What the details panel can do with an arrow. One that stands for several relationships
-  // lists them, to pick the one to remove.
+  // lists them, to pick the one to remove. An implied arrow's one relationship is on something
+  // inside a box, so its item names it; a direct arrow's one relationship is the arrow.
   const arrowMenu = (from: string, to: string): MenuItem[] => {
     const name = (id: string) => ws.elements.get(id)?.name ?? id;
-    const rels = arrowRelationships(ws, computed, from, to).map(({ element, rel, ref }) => ({
-      label: `${element.name} → ${name(rel.to)}${rel.description ? `: ${rel.description}` : ""}`,
-      danger: true,
-      onSelect: () => void edit([{ op: "remove-relationship", ...ref }]).then(() => select(null)),
-    }));
+    const removals = arrowRemovals(ws, computed, from, to);
+    const remove = (ops: Operation[]) => () => void edit(ops).then(() => select(null));
+    const implied = !!findArrow(computed, from, to)?.implied;
     return [
       { label: `Select ${name(from)}`, onSelect: () => select({ kind: "element", id: from }) },
       { label: `Select ${name(to)}`, onSelect: () => select({ kind: "element", id: to }) },
-      ...(rels.length === 1 ? [{ ...rels[0]!, label: "Remove relationship", divider: true }] : []),
-      ...(rels.length > 1 ? [{ label: "Remove relationship", divider: true, items: rels }] : []),
+      ...(removals.length === 1
+        ? [{ label: implied ? `Remove ${removals[0]!.ends}` : "Remove relationship", danger: true, divider: true, onSelect: remove(removals[0]!.ops) }]
+        : []),
+      ...(removals.length > 1 ? [{ label: "Remove relationship", divider: true, items: removals.map((r) => ({ label: r.label, danger: true, onSelect: remove(r.ops) })) }] : []),
     ];
   };
   const errors = diagnostics.filter((d) => d.severity === "error").length;
