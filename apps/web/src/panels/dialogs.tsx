@@ -79,16 +79,19 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
   const [scope, setScope] = useState<string>("");
   const scopeId = scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
+  // A sequence has no scope to name it after, so it needs a title.
   const defaultTitle =
     level === "sequence"
-      ? "New sequence"
+      ? undefined
       : scopeName
         ? `${scopeName} ${level === "context" ? "context" : level === "container" ? "containers" : "components"}`
         : "System landscape";
   const [title, setTitle] = useState("");
+  const finalTitle = title.trim() || defaultTitle;
+  const canCreate = !!finalTitle && (!scopeKind || !!scopeId);
 
   const create = () => {
-    const finalTitle = title.trim() || defaultTitle;
+    if (!finalTitle || !canCreate) return;
     const id = uniqueId(ws, idFromName(finalTitle) || "view");
     onCreate({ op: "add-view", id, level, scope: scopeId, title: finalTitle }, id);
   };
@@ -100,7 +103,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       actions={
         <>
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={create} disabled={!!scopeKind && !scopeId}>
+          <button className="primary" onClick={create} disabled={!canCreate}>
             Create view
           </button>
         </>
@@ -134,9 +137,9 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       <label className="field">
         <span className="field-label">Title</span>
-        <input value={title} placeholder={level === "sequence" ? "e.g. Placing an order" : defaultTitle} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+        <input value={title} placeholder={defaultTitle ?? "e.g. Placing an order"} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
-      {level === "sequence" && <p className="muted small">A sequence shows what happens, step by step: who calls whom, and who answers. Each step goes along a relationship in the model.</p>}
+      {level === "sequence" && <p className="muted small">Give it a title. A sequence shows what happens, step by step: who calls whom, and who answers. Each step goes along a relationship in the model.</p>}
     </Modal>
   );
 }
