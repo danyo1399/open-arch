@@ -33,7 +33,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 - **Move an element** to another parent: `open-arch update-element <id> --parent <new-parent>`.
 - **Rename an ID:** `open-arch rename <old-id> <new-id>` updates every reference. To change only the display name, use `update-element <id> --name "..."`.
 - **Remove:** `open-arch remove-element <id>` also removes what's inside it, views scoped to them, and every reference. `remove-relationship <from> <to>` and `remove-view <id>` remove one thing.
-- **Add a diagram:** `open-arch add-view <id> --level <landscape|context|container|component> --scope <id>`. Context and container views take a system as scope; component views take a container; landscape views take none. Give it a one-sentence `--description`, and `--notes` (markdown) for longer documentation about the diagram.
+- **Add a diagram:** `open-arch add-view <id> --level <landscape|context|container|component|sequence> --scope <id>`. Context and container views take a system as scope; component views take a container; landscape and sequence views take none. Give it a one-sentence `--description`, and `--notes` (markdown) for longer documentation about the diagram.
 - **Show what happens in order** (a sequence diagram): `open-arch add-view place-order --level sequence --title "Placing an order"`, then a step for each call, in order:
   `open-arch add-step place-order customer web-app --description "Places an order"`
   `open-arch add-step place-order checkout-api web-app --reply --description "Order number"`
