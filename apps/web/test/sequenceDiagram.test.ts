@@ -143,4 +143,18 @@ describe("+ Add step", () => {
     await click(button(host, "Add step"));
     expect(edits).toEqual([[{ op: "add-step", view: "order", from: "web-app", to: "customer", reply: true }]]);
   });
+
+  it("says why there's nothing to call when every other element is inside it, or contains it", async () => {
+    const { host } = await open({
+      ...shop,
+      elements: { shop: { kind: "system", name: "Shop" }, "web-app": { kind: "container", name: "Web App", parent: "shop" } },
+      views: { order: { title: "Order", level: "sequence" } },
+    });
+    await choose(select(host, "From"), "shop");
+    expect(host.querySelector(".step-form")!.textContent).toContain("Every other element is inside this one, or contains it, so no relationship can join them.");
+    expect(button(host, "Add step").disabled).toBe(true);
+    // A reply has nothing to answer either, for another reason.
+    await click(checkbox(host, "It's a reply to an earlier call"));
+    expect(host.querySelector(".step-form")!.textContent).toContain("Nothing uses this element, so it has nothing to reply to.");
+  });
 });
