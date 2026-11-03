@@ -5,7 +5,7 @@ export { checkWorkspace, errorCount } from "./check.js";
 export { applyOperations, parseOperations, pruneLayouts, OpError, OPERATION_NAMES, type Operation, type OperationName, type ApplyResult, type NewElements, type TagChanges } from "./operations.js";
 export { exportDocs, GENERATED_MARKER, type ExportedFile } from "./export.js";
 export { computeView, scopeProblems, stepRelationships, SCOPE_KIND, type ComputedView, type ComputedStep, type RelationshipSource, type ViewEdge } from "./views.js";
-export { renderMermaid, mermaidId } from "./mermaid.js";
+export { renderMermaid, mermaidId, viewMarkdown } from "./mermaid.js";
 export { lineage, topLevel, isInside, childrenOf, kindLabel, tagEntries, tagText, PARENT_KIND, KIND_RANK } from "./model.js";
 export { describeElement, computeAllViews, modelTree, type ElementDescription, type TreeNode } from "./query.js";
 export { suggest } from "./suggest.js";

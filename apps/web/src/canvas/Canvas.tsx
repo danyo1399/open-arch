@@ -33,7 +33,7 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { isArrow, relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
-import { ContextMenu, menuPoint, type MenuAction } from "../panels/ContextMenu.js";
+import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
@@ -109,6 +109,8 @@ interface CanvasProps {
   onError(text: string): void;
   /** Every rename this render's IDs reflect, in order. */
   renames: Rename[];
+  /** The toolbar's Export menu: ways to take the diagram elsewhere. */
+  exportItems: MenuItem[];
 }
 
 /** Element kinds that can be added to a view at its level, and the parent each gets. */
@@ -289,7 +291,7 @@ export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<strin
   return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames, exportItems }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -802,6 +804,11 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
               </div>
             )}
           </div>
+          {exportItems.length > 0 && (
+            <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid">
+              Export
+            </MenuButton>
+          )}
         </Panel>
       </ReactFlow>
       {ready && ids.length === 0 && (

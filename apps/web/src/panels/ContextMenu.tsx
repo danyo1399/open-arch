@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 interface MenuEntry {
   label: string;
@@ -121,6 +122,64 @@ export function ContextMenu({
     <div ref={ref} className="context-menu-lists">
       <MenuList x={x} y={y} items={items} note={note} focus onClose={close} />
     </div>
+  );
+}
+
+/**
+ * A button that opens a menu under it, and closes it again. The menu starts at the button's left
+ * edge, or at its right edge for a button at the right of the screen, and is moved onto the
+ * screen from there. It's drawn on the page itself, so a panel it's in can't cut it off or cover it.
+ */
+export function MenuButton({
+  items,
+  note,
+  from = "left",
+  className,
+  title,
+  label,
+  children,
+}: {
+  items: MenuItem[];
+  note?: string;
+  from?: "left" | "right";
+  className?: string;
+  title?: string;
+  /** The button's name for assistive tech, when its text doesn't say. */
+  label?: string;
+  children: ReactNode;
+}) {
+  const button = useRef<HTMLButtonElement>(null);
+  const closedByPress = useRef(false);
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const close = useCallback(() => setAt(null), []);
+  return (
+    <>
+      <button
+        ref={button}
+        className={className}
+        title={title}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={!!at}
+        // A press closes the menu straight away: a long press, or one that slides off or
+        // just past the button, has no click to follow, or one that would open it again.
+        onPointerDown={() => {
+          closedByPress.current = !!at;
+          setAt(null);
+        }}
+        onClick={(e) => {
+          const closed = closedByPress.current;
+          closedByPress.current = false;
+          // A click from the keyboard or assistive tech (detail 0) had no press to close it.
+          if (closed && e.detail !== 0) return;
+          const r = e.currentTarget.getBoundingClientRect();
+          setAt((open) => (open ? null : { x: from === "right" ? r.right : r.left, y: r.bottom + 4 }));
+        }}
+      >
+        {children}
+      </button>
+      {at && createPortal(<ContextMenu x={at.x} y={at.y} items={items} note={note} anchor={button} onClose={close} />, document.body)}
+    </>
   );
 }
 

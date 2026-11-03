@@ -127,3 +127,16 @@ function renderSequence(cv: ComputedView): string {
   }
   return lines.join("\n");
 }
+
+/**
+ * One view on its own as a markdown file: its title, its description and its Mermaid diagram.
+ * Unlike the view's page in the generated docs, it links to nothing, so it reads the same
+ * wherever it's put.
+ */
+export function viewMarkdown(cv: ComputedView): string {
+  const v = cv.view;
+  const lines = [`# ${v.title}`];
+  if (v.description) lines.push("", v.description);
+  lines.push("", "```mermaid", renderMermaid(cv), "```", "");
+  return lines.join("\n");
+}

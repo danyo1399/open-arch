@@ -52,6 +52,10 @@ A new view shows everything in its scope, and elements added to the model later 
 
 A sequence view shows what happens, in order: a lifeline for each element in it, and each step as a numbered arrow from one to another. Make one with **+ New view** and the **Sequence** level, and give it a title. Drag from one lifeline to another to add a step where you drop it, or use **+ Add step** to pick any element and one it uses. A step has to go along a relationship in the model, from the element or something inside it, or one that goes both ways. When there isn't one, dropping the step offers to add it, one way or both ways, or to make a relationship the other way go both ways. Or the step can be a reply back along that relationship, drawn dashed. **+ Add step** can add the relationship too. Select a step to describe it, move it up or down, or delete it. A call without a description shows its relationship's.
 
+### Exporting one view
+
+**Export**, on the diagram's toolbar, takes the open view somewhere else as Mermaid. **Copy as Mermaid** puts the diagram's Mermaid text on the clipboard, to paste into a `mermaid` code block in markdown or into a Mermaid editor. **Save as Markdown…** saves a markdown file named after the view's ID, with the view's title, its description and the diagram. Unlike the pages in the generated docs, it links to no other page, so it reads the same wherever you put it. On a phone, both are under **Export this view** in the top bar's menu.
+
 ### The Views and Model lists
 
 The Model list has every element in alphabetical order, with the contents of each system and container below it, in alphabetical order too. The menu beside **+ New view** sorts the Views list by name, or by level from landscape down to component, with sequence views last. To keep a view at the top of the list, select the pin by its name; select it again to unpin the view. The designer opens the first view in the list. The order and the pins are yours: they're kept in the browser's storage on this computer, in the desktop app too, not in the .openarch file.

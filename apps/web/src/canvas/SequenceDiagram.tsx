@@ -6,7 +6,7 @@
 import { isInside, kindLabel, type ComputedView, type Operation, type Workspace } from "@open-arch/core";
 import { useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { byName } from "../model.js";
-import { ContextMenu, menuPoint } from "../panels/ContextMenu.js";
+import { ContextMenu, MenuButton, menuPoint, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import type { Selection } from "./Canvas.js";
 import { dropNumber, lifelineAt, SEQ, sequenceLayout, stepChoices, stepTargets, type StepChoice } from "./sequenceLayout.js";
@@ -21,6 +21,8 @@ interface SequenceProps {
   onElementMenu(id: string, at: { x: number; y: number }): void;
   /** A step that can't be drawn, to tell the person about. */
   onError(text: string): void;
+  /** The toolbar's Export menu: ways to take the diagram elsewhere. */
+  exportItems: MenuItem[];
 }
 
 /** A press that moves less than this is a click, not a drag. */
@@ -32,7 +34,7 @@ function newStickyId(ids: string[]): string {
   for (let i = 2; ; i++) if (!ids.includes(`note-${i}`)) return `note-${i}`;
 }
 
-export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, onElementMenu, onError }: SequenceProps) {
+export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, onElementMenu, onError, exportItems }: SequenceProps) {
   const view = cv.view;
   const layout = useMemo(() => sequenceLayout(cv), [cv]);
   const surface = useRef<HTMLDivElement>(null);
@@ -129,6 +131,9 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
           )}
         </div>
         <button onClick={addNote}>Add note</button>
+        <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid">
+          Export
+        </MenuButton>
       </div>
 
       <div className="sequence-scroll" onClick={clickBackground}>

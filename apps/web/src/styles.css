@@ -781,6 +781,10 @@ button.heading {
   flex-shrink: 0;
   position: static;
 }
+/* A phone has no room for it beside + Add: the top bar's More menu has it instead. */
+.app.narrow .export-button {
+  display: none;
+}
 .toolbar-title {
   display: flex;
   flex-direction: column;

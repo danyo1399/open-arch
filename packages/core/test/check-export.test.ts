@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkspace, checkWorkspace, exportDocs, GENERATED_MARKER } from "../src/index.js";
+import { buildWorkspace, checkWorkspace, computeView, exportDocs, GENERATED_MARKER, renderMermaid, viewMarkdown } from "../src/index.js";
 import { rules, shop } from "./helpers.js";
 
 describe("checkWorkspace", () => {
@@ -129,5 +129,22 @@ describe("exportDocs", () => {
     const text = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "elements/db.md")!.content;
     expect(text).toContain("| Element | Description | Technology | Tags |\n|---|---|---|---|\n| [Controller](controller.md) | Stores orders | SQL | protocol=postgres, sync |");
     expect(page("elements/db.md")).toContain("| Element | Description | Technology |\n|---|---|---|\n");
+  });
+});
+
+describe("viewMarkdown", () => {
+  it("writes one view's title, description and diagram, with no links to other pages", () => {
+    const doc = shop();
+    doc.views["shop-containers"]!.description = "What the shop is made of.";
+    const ws = buildWorkspace(doc);
+    const cv = computeView(ws, ws.views.get("shop-containers")!);
+    expect(viewMarkdown(cv)).toBe(["# Shop containers", "", "What the shop is made of.", "", "```mermaid", renderMermaid(cv), "```", ""].join("\n"));
+    expect(viewMarkdown(cv)).not.toContain("](");
+  });
+
+  it("leaves out a missing description", () => {
+    const ws = buildWorkspace(shop());
+    const cv = computeView(ws, ws.views.get("landscape")!);
+    expect(viewMarkdown(cv).startsWith("# Landscape\n\n```mermaid\nflowchart TB\n")).toBe(true);
   });
 });

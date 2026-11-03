@@ -37,6 +37,7 @@ function diagram(model: OpenArchDocument = shop, view = "order", selection: Sele
   const ws = buildWorkspace(model);
   const edits: Operation[][] = [];
   const selected: Selection[] = [];
+  const exported: string[] = [];
   const host = mount(
     createElement(SequenceDiagram, {
       ws,
@@ -49,9 +50,13 @@ function diagram(model: OpenArchDocument = shop, view = "order", selection: Sele
       },
       onElementMenu() {},
       onError() {},
+      exportItems: [
+        { label: "Copy as Mermaid", onSelect: () => void exported.push("copy") },
+        { label: "Save as Markdown…", onSelect: () => void exported.push("save") },
+      ],
     }),
   );
-  return { host, edits, selected };
+  return { host, edits, selected, exported };
 }
 
 /** A select's options, by group: the group's label, or "" for options in none. */
@@ -65,6 +70,16 @@ function options(el: HTMLSelectElement): Record<string, string[]> {
 }
 
 describe("SequenceDiagram", () => {
+  it("offers the diagram as Mermaid from the toolbar's Export menu", async () => {
+    const { host, exported } = diagram();
+    await click(button(host, "Export"));
+    const items = () => [...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')];
+    expect(items().map((b) => b.textContent)).toEqual(["Copy as Mermaid", "Save as Markdown…"]);
+    await click(items()[0]!);
+    expect(exported).toEqual(["copy"]);
+    expect(items()).toEqual([]);
+  });
+
   it("draws a heading for each element in its steps, and each step, numbered", () => {
     const { host } = diagram();
     expect([...host.querySelectorAll(".sequence-head .c4-name")].map((h) => h.textContent)).toEqual(["Customer", "Web App", "API"]);

@@ -53,17 +53,27 @@ interface SavePicker {
   showSaveFilePicker(options: object): Promise<{ createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }> }>;
 }
 
-/** Chrome and Edge ask where to save; other browsers download the file. */
-async function saveLocalFile(name: string, text: string): Promise<boolean> {
+/** What kind of file is saved: for the save dialog's list of types, and for a download. */
+export interface FileType {
+  description: string;
+  mime: string;
+  extension: string;
+}
+
+const WORKSPACE_FILE: FileType = { description: "open-arch workspace", mime: "application/json", extension: FILE_EXTENSION };
+export const MARKDOWN_FILE: FileType = { description: "Markdown", mime: "text/markdown", extension: ".md" };
+
+/** Chrome and Edge ask where to save; other browsers download the file. Resolves to false when the user cancels. */
+export async function saveTextFile(name: string, text: string, type: FileType): Promise<boolean> {
   if (!("showSaveFilePicker" in window)) {
-    download(name, text, "application/json");
+    download(name, text, type.mime);
     return true;
   }
   try {
     const handle = await (window as unknown as SavePicker).showSaveFilePicker({
       id: "open-arch",
       suggestedName: name,
-      types: [{ description: "open-arch workspace", accept: { "application/json": [FILE_EXTENSION] } }],
+      types: [{ description: type.description, accept: { [type.mime]: [type.extension] } }],
     });
     const writable = await handle.createWritable();
     await writable.write(text);
@@ -80,7 +90,7 @@ export const deviceFiles: FileProvider = {
   importLabel: "Import file…",
   exportLabel: "Export file…",
   pick: pickLocalFiles,
-  save: saveLocalFile,
+  save: (name, text) => saveTextFile(name, text, WORKSPACE_FILE),
 };
 
 /** Every provider, in the order the buttons appear. */

@@ -63,6 +63,25 @@ export function download(name: string, data: BlobPart, type: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/**
+ * Puts text on the clipboard. Browsers only allow the clipboard on a secure page (HTTPS or
+ * localhost); elsewhere, such as the dev server opened from another device, the older copy
+ * command still works.
+ */
+export async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  if (!copied) throw new Error("Couldn't copy: this browser didn't allow the clipboard.");
+}
+
 /** The generated markdown docs as a zip, with everything in one folder. */
 export function docsZip(ws: Workspace, fileName: string): Uint8Array {
   const folder = `${fileName.replace(/\.openarch$/, "")}-docs`;

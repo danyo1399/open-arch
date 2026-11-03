@@ -1,17 +1,17 @@
-import { computeView, diagnosticTarget, scopeProblems, type ComputedView, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { computeView, diagnosticTarget, renderMermaid, scopeProblems, viewMarkdown, type ComputedView, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
-import { BrowserHost, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, copyText, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
 import { arrowDeleteOps, arrowRemovals, findArrow, followRenames, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, viewList, type Rename } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
-import { ContextMenu, type MenuItem } from "./panels/ContextMenu.js";
+import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
 import { Properties, shapesLabel } from "./panels/Properties.js";
-import { providers, type FileProvider } from "./providers.js";
+import { MARKDOWN_FILE, providers, saveTextFile, type FileProvider } from "./providers.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
 import { userSettings, useViewSettings } from "./settings.js";
@@ -117,9 +117,6 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     const focused = document.activeElement;
     setPane(focused?.matches("input, textarea, select") && focused.closest(".properties") ? "details" : "diagram");
   }
-  const [more, setMore] = useState<{ x: number; y: number } | null>(null);
-  const moreButton = useRef<HTMLButtonElement>(null);
-  const moreClosedByPress = useRef(false);
   const desktop = desktopBridge();
   const agent = host instanceof DesktopHost ? desktop?.agent : undefined;
 
@@ -190,7 +187,6 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     },
     [select],
   );
-  const closeMore = useCallback(() => setMore(null), []);
   /** The usages panel is drawn over the diagram. */
   const findUsages = (id: string) => {
     setUsagesOf(current(id));
@@ -320,10 +316,24 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     // The panel is drawn over the diagram; hiding it leaves the pane as it is.
     if (!askOpen) setPane("diagram");
   };
-  // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu.
+  // The open diagram, as Mermaid to paste elsewhere or as a markdown file of its own.
+  const exportItems = (cv: ComputedView): MenuItem[] => [
+    {
+      label: "Copy as Mermaid",
+      onSelect: () =>
+        attempt(async () => {
+          await copyText(renderMermaid(cv));
+          state.notify({ kind: "info", text: `Copied “${cv.view.title}” as Mermaid. Paste it into a mermaid code block in markdown, or a Mermaid editor.` });
+        }),
+    },
+    { label: "Save as Markdown…", onSelect: () => attempt(async () => void (await saveTextFile(`${cv.view.id}.md`, viewMarkdown(cv), MARKDOWN_FILE))) },
+  ];
+  // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu. The diagram's
+  // toolbar has no room for its Export menu there either, so that's in this menu too.
   const moreItems: MenuItem[] = [
     ...(desktop ? [] : providers.map((provider) => ({ label: provider.exportLabel, onSelect: () => exportTo(provider) }))),
     ...(host.syncsDocs ? [] : [{ label: "Export docs", onSelect: exportDocs }]),
+    ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
     ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
     { label: "Close", onSelect: onClose },
@@ -410,30 +420,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           {narrow ? <Icon d={REDO_ICON} /> : "Redo"}
         </button>
         {narrow ? (
-          <button
-            ref={moreButton}
-            className="square"
-            title="More"
-            aria-label="More"
-            aria-haspopup="menu"
-            aria-expanded={!!more}
-            // A press closes the menu straight away: a long press, or one that slides off or
-            // just past the button, has no click to follow, or one that would open it again.
-            onPointerDown={() => {
-              moreClosedByPress.current = !!more;
-              setMore(null);
-            }}
-            onClick={(e) => {
-              const closed = moreClosedByPress.current;
-              moreClosedByPress.current = false;
-              // A click from the keyboard or assistive tech (detail 0) had no press to close it.
-              if (closed && e.detail !== 0) return;
-              const r = e.currentTarget.getBoundingClientRect();
-              setMore((m) => (m ? null : { x: r.right, y: r.bottom + 4 }));
-            }}
-          >
+          <MenuButton items={moreItems} note={`${host.name} · ${status}`} from="right" className="square" title="More" label="More">
             <Icon d={MORE_ICON} stroke={3} />
-          </button>
+          </MenuButton>
         ) : (
           <button onClick={onClose}>Close</button>
         )}
@@ -471,6 +460,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
               edit={edit}
               onElementMenu={openElementMenu}
               onError={(text) => state.notify({ kind: "error", text })}
+              exportItems={exportItems(computed)}
             />
           ) : (
             <div className="canvas-message">This view can't be drawn: {view && scopeProblems(ws, view)[0]?.message}</div>
@@ -488,6 +478,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
               onArrowMenu={openArrowMenu}
               onError={(text) => state.notify({ kind: "error", text })}
               renames={shownRenames}
+              exportItems={computed ? exportItems(computed) : []}
             />
           </ReactFlowProvider>
         ) : (
@@ -551,7 +542,6 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       )}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.kind === "element" ? elementMenu(menu.id) : arrowMenu(menu.from, menu.to)} onClose={closeMenu} />}
-      {more && <ContextMenu x={more.x} y={more.y} items={moreItems} note={`${host.name} · ${status}`} anchor={moreButton} onClose={closeMore} />}
       {dialog?.kind === "delete" && (
         <DeleteElementDialog
           ws={ws}
