@@ -7,6 +7,8 @@ An architecture model (C4) that people and AI agents can both read and change sa
 - **Docs are generated:** markdown pages with Mermaid diagrams (an index, a page per element and per view) are generated from the model for people to read, on GitHub or anywhere else.
 - **Changes are checked:** people change the model in the designer and agents change it with `open-arch` commands. Both go through the same validated operations, so a change that would break the model is refused and nothing is saved.
 
+Try the designer in your browser at <https://danyo1399.github.io/open-arch/>, with nothing to install.
+
 See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.openarch) and the [docs generated from it](examples/shop/docs/README.md), including a [sequence view](examples/shop/docs/views/place-order.md) of an order being placed. New to architecture diagrams? [`examples/food-delivery`](examples/food-delivery) is a guided tour of the C4 model: five views of a made-up food delivery business that zoom in one step at a time, with sticky notes explaining what each one shows ([docs](examples/food-delivery/docs/README.md)). The designer opens it with **Take the tour**. The [skill](packages/skill/open-arch/SKILL.md) explains the commands and the [format reference](packages/skill/open-arch/references/format.md) the file.
 
 ## Packages
@@ -34,7 +36,7 @@ One UI, two ways to run it.
 
 The web app's workspaces are only in that browser, on that device, and clearing the site's data deletes them, so export a copy of anything you want to keep. The URL names the open workspace, so reloading the page reopens it. Import and export go through a `FileProvider` ([`apps/web/src/providers.ts`](apps/web/src/providers.ts)): files on this device are the only one so far, and cloud storage such as Dropbox or iCloud Drive can be added as another.
 
-The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere, including GitHub Pages. Served over HTTPS (or from localhost), it has a service worker that caches the build, so it can be installed and opened offline; opening it online always loads the latest build. Where the browser can install it, the start page offers to: **Install** opens the browser's own dialog in Chrome, Edge and other Chromium browsers, and on an iPhone or iPad, or in Safari on a Mac, it says where the browser's command is. **Not now** hides the offer in that browser for good. The app icons in `apps/web/public` are rendered from `apps/web/icons` by `sh icons/render.sh`.
+The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere. The [Pages workflow](.github/workflows/pages.yml) publishes it to GitHub Pages, at <https://danyo1399.github.io/open-arch/>, each time `main` changes. Served over HTTPS (or from localhost), it has a service worker that caches the build, so it can be installed and opened offline; opening it online always loads the latest build. Where the browser can install it, the start page offers to: **Install** opens the browser's own dialog in Chrome, Edge and other Chromium browsers, and on an iPhone or iPad, or in Safari on a Mac, it says where the browser's command is. **Not now** hides the offer in that browser for good. The app icons in `apps/web/public` are rendered from `apps/web/icons` by `sh icons/render.sh`.
 
 ### Moving round the diagram
 
