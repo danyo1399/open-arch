@@ -811,6 +811,15 @@ button.heading {
   -webkit-line-clamp: 2;
   line-clamp: 2;
 }
+/* A phone keeps the toolbar to one line, the title and + Add, so it covers less of the diagram.
+   The Diagram tab names the view too, and Details shows its level and description. */
+.app.narrow .toolbar {
+  gap: 10px;
+  padding: 4px 4px 4px 10px;
+}
+.app.narrow .toolbar-title > :not(strong) {
+  display: none;
+}
 .menu {
   position: relative;
 }
