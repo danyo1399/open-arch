@@ -50,7 +50,7 @@ function pickLocalFiles(): Promise<PickedFile[]> {
 }
 
 interface SavePicker {
-  showSaveFilePicker(options: object): Promise<{ createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }> }>;
+  showSaveFilePicker(options: object): Promise<{ createWritable(): Promise<{ write(data: string | Blob): Promise<void>; close(): Promise<void> }> }>;
 }
 
 /** What kind of file is saved: for the save dialog's list of types, and for a download. */
@@ -62,27 +62,37 @@ export interface FileType {
 
 const WORKSPACE_FILE: FileType = { description: "open-arch workspace", mime: "application/json", extension: FILE_EXTENSION };
 export const MARKDOWN_FILE: FileType = { description: "Markdown", mime: "text/markdown", extension: ".md" };
+export const PNG_FILE: FileType = { description: "PNG image", mime: "image/png", extension: ".png" };
+export const SVG_FILE: FileType = { description: "SVG image", mime: "image/svg+xml", extension: ".svg" };
+export const PDF_FILE: FileType = { description: "PDF", mime: "application/pdf", extension: ".pdf" };
 
-/** Chrome and Edge ask where to save; other browsers download the file. Resolves to false when the user cancels. */
-export async function saveTextFile(name: string, text: string, type: FileType): Promise<boolean> {
+/**
+ * Chrome and Edge ask where to save; other browsers download the file. Resolves to false when the
+ * user cancels. Content that takes a while to make, like a picture, is made after they choose
+ * where it goes: the browser only opens the dialog straight after a click.
+ */
+export async function saveFile(name: string, content: string | (() => Promise<Blob>), type: FileType): Promise<boolean> {
+  const make = () => (typeof content === "string" ? Promise.resolve(content) : content());
   if (!("showSaveFilePicker" in window)) {
-    download(name, text, type.mime);
+    download(name, await make(), type.mime);
     return true;
   }
+  let handle;
   try {
-    const handle = await (window as unknown as SavePicker).showSaveFilePicker({
+    handle = await (window as unknown as SavePicker).showSaveFilePicker({
       id: "open-arch",
       suggestedName: name,
       types: [{ description: type.description, accept: { [type.mime]: [type.extension] } }],
     });
-    const writable = await handle.createWritable();
-    await writable.write(text);
-    await writable.close();
-    return true;
   } catch (error) {
     if ((error as Error).name === "AbortError") return false;
     throw error;
   }
+  const data = await make();
+  const writable = await handle.createWritable();
+  await writable.write(data);
+  await writable.close();
+  return true;
 }
 
 export const deviceFiles: FileProvider = {
@@ -90,7 +100,7 @@ export const deviceFiles: FileProvider = {
   importLabel: "Import file…",
   exportLabel: "Export file…",
   pick: pickLocalFiles,
-  save: (name, text) => saveTextFile(name, text, WORKSPACE_FILE),
+  save: (name, text) => saveFile(name, text, WORKSPACE_FILE),
 };
 
 /** Every provider, in the order the buttons appear. */

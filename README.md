@@ -54,7 +54,11 @@ A sequence view shows what happens, in order: a lifeline for each element in it,
 
 ### Exporting one view
 
-**Export**, on the diagram's toolbar, takes the open view somewhere else as Mermaid. **Copy as Mermaid** puts the diagram's Mermaid text on the clipboard, to paste into a `mermaid` code block in markdown or into a Mermaid editor. **Save as Markdown…** saves a markdown file named after the view's ID, with the view's title, its description and the diagram. Unlike the pages in the generated docs, it links to no other page, so it reads the same wherever you put it. On a phone, both are under **Export this view** in the top bar's menu.
+**Export**, on the diagram's toolbar, takes the open view somewhere else, in a file named after the view's ID. On a phone, it's under **Export this view** in the top bar's menu.
+
+- **Copy as Mermaid** puts the diagram's Mermaid text on the clipboard, to paste into a `mermaid` code block in markdown or into a Mermaid editor.
+- **Save as Markdown…** saves a markdown file with the view's title, its description and the diagram in Mermaid. Unlike the pages in the generated docs, it links to no other page, so it reads the same wherever you put it.
+- **Save as PNG…**, **Save as SVG…** and **Save as PDF…** save a picture of the diagram as the designer draws it: all of it, not just the part on the screen, without the selection, and in light colours on white even in dark mode, to suit a document or a slide. The PNG and the PDF are drawn at twice the screen's resolution, so they stay sharp in print. The SVG draws the boxes as web page content inside the SVG, which browsers show but some drawing programs can't edit. The PDF is one page the size of the diagram, holding the PNG picture, so its text can't be selected.
 
 ### The Views and Model lists
 

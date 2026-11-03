@@ -98,6 +98,23 @@ app.on("browser-window-created", (_e, win) => {
       check(docsPage("elements/web-app.md").includes("# Storefront"), "the CLI refreshes the docs too");
       await screenshot(win, "2-reloaded.png");
 
+      // Export the view as a picture. The app asks where to save as Chrome does; the test stands
+      // in for the dialog, which would wait for a person, and keeps what's written.
+      check(await page(`typeof window.showSaveFilePicker === "function"`), "asks where to save a picture");
+      const saveAs = (label) => page(`(async () => {
+        let written;
+        window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async (data) => { written = data; }, close: async () => {} }) });
+        [...document.querySelectorAll(".toolbar button")].find((b) => b.textContent.trim() === "Export").click();
+        await new Promise((r) => setTimeout(r, 100));
+        [...document.querySelectorAll('.context-menu [role="menuitem"]')].find((b) => b.textContent === ${JSON.stringify(label)}).click();
+        for (let i = 0; i < 100 && !written; i++) await new Promise((r) => setTimeout(r, 100));
+        return written ? [...new Uint8Array(await written.arrayBuffer()).slice(0, 8)].join(",") + "/" + written.size : "nothing written";
+      })()`);
+      const png = await saveAs("Save as PNG…");
+      check(png.startsWith("137,80,78,71,13,10,26,10/") && Number(png.split("/")[1]) > 10_000, `saves the view as a PNG (${png})`);
+      const pdf = await saveAs("Save as PDF…");
+      check(pdf.startsWith("37,80,68,70,45,49,46,52/"), `saves the view as a PDF (${pdf})`);
+
       // Ask AI: send a request, approve what the agent asks to do, then undo its change.
       const click = (selector, label) => page(`(() => {
         const button = [...document.querySelectorAll(${JSON.stringify(selector)})].find((b) => b.textContent.trim() === ${JSON.stringify(label)});

@@ -11,7 +11,8 @@ import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
 import { Properties, shapesLabel } from "./panels/Properties.js";
-import { MARKDOWN_FILE, providers, saveTextFile, type FileProvider } from "./providers.js";
+import { MARKDOWN_FILE, PDF_FILE, PNG_FILE, providers, saveFile, SVG_FILE, type FileProvider, type FileType } from "./providers.js";
+import { diagramImage, nextPaint, type ImageFormat } from "./image.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
 import { userSettings, useViewSettings } from "./settings.js";
@@ -73,6 +74,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [usagesOf, setUsagesOf] = useState<string | null>(null);
   /** Every rename applied, in order. */
   const renames = useRef<Rename[]>([]);
+  const mainRef = useRef<HTMLElement>(null);
   /** How many of them this render's IDs reflect. */
   const [renamesSeen, setRenamesSeen] = useState(0);
   /** How the Views list is sorted, and the views pinned to its top: this person's, not the file's. */
@@ -316,6 +318,26 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     // The panel is drawn over the diagram; hiding it leaves the pane as it is.
     if (!askOpen) setPane("diagram");
   };
+  // The open diagram as a picture of the whole of it, drawn with nothing selected, so the
+  // picture has no highlights or grips. What was selected is selected again after.
+  const saveImage = (cv: ComputedView, format: ImageFormat, type: FileType) =>
+    attempt(async () => {
+      const was = selection;
+      await saveFile(
+        `${cv.view.id}${type.extension}`,
+        async () => {
+          setPane("diagram");
+          setSelection(null);
+          await nextPaint();
+          try {
+            return await diagramImage(mainRef.current!, format, cv.view.title);
+          } finally {
+            setSelection(was);
+          }
+        },
+        type,
+      );
+    });
   // The open diagram, as Mermaid to paste elsewhere or as a markdown file of its own.
   const exportItems = (cv: ComputedView): MenuItem[] => [
     {
@@ -326,7 +348,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           state.notify({ kind: "info", text: `Copied “${cv.view.title}” as Mermaid. Paste it into a mermaid code block in markdown, or a Mermaid editor.` });
         }),
     },
-    { label: "Save as Markdown…", onSelect: () => attempt(async () => void (await saveTextFile(`${cv.view.id}.md`, viewMarkdown(cv), MARKDOWN_FILE))) },
+    { label: "Save as Markdown…", onSelect: () => attempt(async () => void (await saveFile(`${cv.view.id}.md`, viewMarkdown(cv), MARKDOWN_FILE))) },
+    { label: "Save as PNG…", divider: true, onSelect: () => saveImage(cv, "png", PNG_FILE) },
+    { label: "Save as SVG…", onSelect: () => saveImage(cv, "svg", SVG_FILE) },
+    { label: "Save as PDF…", onSelect: () => saveImage(cv, "pdf", PDF_FILE) },
   ];
   // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu. The diagram's
   // toolbar has no room for its Export menu there either, so that's in this menu too.
@@ -448,7 +473,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       />
 
       {/* Under another pane, the diagram keeps its size, so it keeps its zoom too. */}
-      <main className="main" inert={narrow && pane !== "diagram"}>
+      <main ref={mainRef} className="main" inert={narrow && pane !== "diagram"}>
         {view?.level === "sequence" ? (
           computed ? (
             <SequenceDiagram

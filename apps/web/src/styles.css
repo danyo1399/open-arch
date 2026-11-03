@@ -1,4 +1,6 @@
-:root {
+/* The light colours. A diagram being saved as a picture has them too, whatever the theme. */
+:root,
+.light-colors {
   --bg: #f4f6f8;
   --panel: #ffffff;
   --text: #1d2330;
@@ -24,10 +26,17 @@
   --sticky-blue: #cfe5ff;
   --sticky-green: #d3f2c6;
   --sticky-text: #2b2718;
+}
+
+:root {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
+}
+/* Text takes its colour from the page, so it needs the light one here too. */
+.light-colors {
+  color: var(--text);
 }
 
 @media (prefers-color-scheme: dark) {
