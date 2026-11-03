@@ -805,7 +805,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
             )}
           </div>
           {exportItems.length > 0 && (
-            <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid">
+            <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
               Export
             </MenuButton>
           )}

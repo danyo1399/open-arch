@@ -114,6 +114,9 @@ app.on("browser-window-created", (_e, win) => {
       check(png.startsWith("137,80,78,71,13,10,26,10/") && Number(png.split("/")[1]) > 10_000, `saves the view as a PNG (${png})`);
       const pdf = await saveAs("Save as PDF…");
       check(pdf.startsWith("37,80,68,70,45,49,46,52/"), `saves the view as a PDF (${pdf})`);
+      const svg = await saveAs("Save as SVG…");
+      // "<svg xmln", as bytes.
+      check(svg.startsWith("60,115,118,103,32,120,109,108/"), `saves the view as an SVG (${svg})`);
 
       // Ask AI: send a request, approve what the agent asks to do, then undo its change.
       const click = (selector, label) => page(`(() => {

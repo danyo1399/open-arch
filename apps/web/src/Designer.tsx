@@ -319,10 +319,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (!askOpen) setPane("diagram");
   };
   // The open diagram as a picture of the whole of it, drawn with nothing selected, so the
-  // picture has no highlights or grips. What was selected is selected again after.
+  // picture has no highlights or grips. On a phone it's drawn on the Diagram pane, as another
+  // pane hides it. What was selected, and the pane that was showing, come back after.
   const saveImage = (cv: ComputedView, format: ImageFormat, type: FileType) =>
     attempt(async () => {
-      const was = selection;
+      const was = { selection, pane };
       await saveFile(
         `${cv.view.id}${type.extension}`,
         async () => {
@@ -332,13 +333,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           try {
             return await diagramImage(mainRef.current!, format, cv.view.title);
           } finally {
-            setSelection(was);
+            setSelection(was.selection);
+            setPane(was.pane);
           }
         },
         type,
       );
     });
-  // The open diagram, as Mermaid to paste elsewhere or as a markdown file of its own.
+  // The open diagram taken elsewhere: as Mermaid to paste, as a markdown file of its own, or as a picture.
   const exportItems = (cv: ComputedView): MenuItem[] => [
     {
       label: "Copy as Mermaid",

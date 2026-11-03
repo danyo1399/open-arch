@@ -131,7 +131,7 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
           )}
         </div>
         <button onClick={addNote}>Add note</button>
-        <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid">
+        <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
           Export
         </MenuButton>
       </div>
