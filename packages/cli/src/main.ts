@@ -70,7 +70,8 @@ Without an id: the model as a tree, and the list of views.
 With an element id: its fields, notes, what it uses and what uses it (with those
 relationships' notes), and the views showing it.
 With a view id: its description and notes, and the boxes and arrows the view draws, or for
-a sequence view, its steps in order.
+a sequence view, its steps in order. A class's members, and a relationship's kind when it
+isn't an association, are shown too.
 `,
     options: { ...FILE, json: b },
     run: (io, v, p) => show(io, { file: str(v.file), json: bool(v.json), id: p[0] }),
@@ -108,35 +109,44 @@ In updates, null removes a field.
     {},
   ),
   "add-element": writer(
-    `Usage: open-arch add-element <id> --kind <person|system|container|component> [options]
+    `Usage: open-arch add-element <id> --kind <person|system|container|component|class> [options]
 
-  --parent <id>          Containers need a system; components need a container
+  --parent <id>          Containers need a system, components a container, classes a component
   --name <name>          Display name (default: from the id)
   --description <text>   One sentence, shown in the box
   --technology <text>    e.g. Node.js, PostgreSQL
   --external             A person or system outside your organisation
   --shape <shape>        How the box is drawn: box (the default), database, queue, folder,
                          document, web-browser, mobile-app, desktop-app, terminal, server,
-                         email or scheduled-job. People are always drawn as a person
+                         email or scheduled-job. People are always drawn as a person, and
+                         classes as a class
+  --stereotype <text>    Classes only: what sort of class it is, e.g. interface, abstract
+                         or enum. Drawn as «interface»
+  --member <text>        Classes only: an attribute or method, in UML's notation, like
+                         --member "+id: OrderId" --member "+total(): Money". Repeat for more
   --tag <name[=value]>   Repeat for more, e.g. --tag owner=payments --tag pii
   --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
 `,
-    { kind: s, parent: s, name: s, description: s, technology: s, external: b, shape: s, tag: many, notes: s, "notes-file": s },
+    { kind: s, parent: s, name: s, description: s, technology: s, external: b, shape: s, stereotype: s, member: many, tag: many, notes: s, "notes-file": s },
   ),
   "update-element": writer(
     `Usage: open-arch update-element <id> [options]
 
 Changes only the fields given. An empty value removes a field, e.g. --technology "".
   --name, --description, --technology, --notes, --notes-file
-  --parent <id>          Move it into another system (or container, for a component)
+  --parent <id>          Move it into another system (or container, for a component, or
+                         component, for a class)
   --external, --internal Mark a person or system as outside your organisation, or not
   --shape <shape>        box, database, queue, folder, document, web-browser, mobile-app,
                          desktop-app, terminal, server, email or scheduled-job
+  --stereotype <text>    Classes only, e.g. interface
+  --member <text>        Classes only: replaces its members with these; repeat for more.
+                         --member "" removes them all
   --tag <name[=value]>   Add a tag or change its value; repeat for more. Without a value
                          (--tag pii or --tag pii=) it's a plain label, not a removal
   --remove-tag <name>    Remove a tag; repeat for more
 `,
-    { name: s, parent: s, description: s, technology: s, external: b, internal: b, shape: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
+    { name: s, parent: s, description: s, technology: s, external: b, internal: b, shape: s, stereotype: s, member: many, tag: many, "remove-tag": many, notes: s, "notes-file": s },
   ),
   "remove-element": writer(
     `Usage: open-arch remove-element <id>
@@ -155,29 +165,37 @@ Changes an element's or view's ID everywhere it's referenced.
   ),
   "add-relationship": writer(
     `Usage: open-arch add-relationship <from> <to> [--description <text>] [--technology <text>] [--tag <name[=value]>]...
-                                 [--bidirectional] [--notes <markdown>]
+                                 [--kind <kind>] [--bidirectional] [--notes <markdown>]
 
 Adds "<from> uses <to>". Describe it from <from>'s side, e.g. "Reads and writes orders".
+  --kind <kind>          Between two classes, what it means in UML, for class views:
+                         association (the default: <from> uses <to>), dependency (depends
+                         on), inheritance (extends), realization (implements), composition
+                         (is made of) or aggregation (holds). <from> is the subclass, or
+                         the whole that holds the part
   --bidirectional        It goes both ways: <to> uses <from> too, e.g. "Syncs customers with".
                          Drawn with an arrowhead at each end. When each way is described
-                         differently, add two relationships instead
+                         differently, add two relationships instead. Only for associations
   --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
 `,
-    { description: s, technology: s, tag: many, bidirectional: b, notes: s, "notes-file": s },
+    { description: s, technology: s, tag: many, kind: s, bidirectional: b, notes: s, "notes-file": s },
   ),
   "update-relationship": writer(
     `Usage: open-arch update-relationship <from> <to> [--index <n>] [--new-from <id>] [--new-to <id>]
-                                    [--bidirectional | --one-way] [--description <text>] [--technology <text>]
-                                    [--tag <name[=value]>]... [--remove-tag <name>]... [--notes <markdown>]
+                                    [--kind <kind>] [--bidirectional | --one-way] [--description <text>]
+                                    [--technology <text>] [--tag <name[=value]>]... [--remove-tag <name>]...
+                                    [--notes <markdown>]
 
 --index picks one when <from> has several relationships to <to> (0 is the first).
 --new-from and --new-to move it to another element at either end. It keeps its
 description, technology, tags and notes.
+--kind changes what it means between two classes: association, dependency, inheritance,
+realization, composition or aggregation (see add-relationship).
 --bidirectional makes it go both ways, and --one-way only from <from> to <to>.
 --notes takes markdown, or use --notes-file <path> (- for stdin).
 An empty value removes a field.
 `,
-    { index: s, "new-from": s, "new-to": s, bidirectional: b, "one-way": b, description: s, technology: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
+    { index: s, "new-from": s, "new-to": s, kind: s, bidirectional: b, "one-way": b, description: s, technology: s, tag: many, "remove-tag": many, notes: s, "notes-file": s },
   ),
   "remove-relationship": writer(
     `Usage: open-arch remove-relationship <from> <to> [--index <n>]
@@ -185,11 +203,13 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component|sequence> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence> [options]
 
+A class view shows a component's classes, with their members, as a UML class diagram.
 A sequence view shows steps between elements, in order: add them with add-step. It takes no
 scope, include or exclude.
-  --scope <id>           A system for context and container views, a container for component views
+  --scope <id>           A system for context and container views, a container for component
+                         views, a component for class views
   --title <title>        Default: from the scope and level, or for a sequence view, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)

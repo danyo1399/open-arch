@@ -9,6 +9,7 @@ import {
   ELEMENT_SHAPES,
   FORMAT_VERSION,
   ID_PATTERN,
+  RELATIONSHIP_KINDS,
   STICKY_COLORS,
   VIEW_LEVELS,
   type Diagnostic,
@@ -17,6 +18,7 @@ import {
   type OpenArchDocument,
   type Position,
   type RelationshipData,
+  type RelationshipKind,
   type StepData,
   type StickyData,
   type Tags,
@@ -52,8 +54,8 @@ export function parseDocument(text: string): ParseResult {
 type Report = (path: string, rule: string, message: string, fix?: string) => void;
 
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
-const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "tags", "notes", "uses"];
-const RELATIONSHIP_KEYS = ["to", "bidirectional", "description", "technology", "tags", "notes"];
+const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "tags", "notes", "members", "uses"];
+const RELATIONSHIP_KEYS = ["to", "kind", "bidirectional", "description", "technology", "tags", "notes"];
 const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "stickies", "layout"];
 /** Fields a sequence view doesn't take: its participants and their places come from its steps. */
 const NOT_ON_SEQUENCE = ["include", "exclude", "layout"];
@@ -108,7 +110,7 @@ function readDocument(input: unknown, report: Report): OpenArchDocument {
       "version-unsupported",
       raw.openarch === undefined
         ? `Missing "openarch": ${FORMAT_VERSION}.`
-        : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades versions 1 to 4.`,
+        : `Unsupported format version ${JSON.stringify(raw.openarch)}; this tool reads version ${FORMAT_VERSION}, and upgrades versions 1 to ${FORMAT_VERSION - 1}.`,
     );
   }
   const name = str(raw.name, "name", report);
@@ -153,6 +155,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 3) out = { ...out, openarch: 4 };
   // Version 5 added relationships that go both ways, so a version 4 file means the same in it.
   if (out.openarch === 4) out = { ...out, openarch: 5 };
+  // Version 6 added classes, class views and kinds of relationship, so a version 5 file means the same in it.
+  if (out.openarch === 5) out = { ...out, openarch: 6 };
   return out;
 }
 
@@ -223,10 +227,12 @@ function readElement(id: string, value: unknown, path: string, report: Report): 
   const element: ElementData = { kind: value.kind as ElementData["kind"], name: name?.trim() ? name : id };
   const parent = str(value.parent, `${path}.parent`, report);
   if (parent !== undefined) element.parent = parent;
-  for (const key of ["description", "technology", "notes"] as const) {
+  for (const key of ["description", "technology", "stereotype", "notes"] as const) {
     const v = str(value[key], `${path}.${key}`, report);
     if (v !== undefined) element[key] = v;
   }
+  const members = strList(value.members, `${path}.members`, report);
+  if (members) element.members = members;
   if (value.external !== undefined) {
     if (typeof value.external === "boolean") element.external = value.external;
     else report(`${path}.external`, "field-type", "Must be true or false.");
@@ -262,6 +268,11 @@ function readRelationship(value: unknown, path: string, report: Report): Relatio
     return undefined;
   }
   const rel: RelationshipData = { to };
+  if (value.kind !== undefined) {
+    if ((RELATIONSHIP_KINDS as readonly unknown[]).includes(value.kind)) {
+      if (value.kind !== "association") rel.kind = value.kind as RelationshipKind;
+    } else report(`${path}.kind`, "relationship-kind-invalid", `\`kind\` must be one of: ${RELATIONSHIP_KINDS.join(", ")}.`);
+  }
   if (value.bidirectional !== undefined) {
     if (typeof value.bidirectional !== "boolean") report(`${path}.bidirectional`, "field-type", "Must be true or false.");
     else if (value.bidirectional) rel.bidirectional = true;
@@ -447,14 +458,17 @@ function elementText(e: ElementData, indent: string): string {
   if (present(e.technology, (v) => v !== "")) entries.push(["technology", JSON.stringify(e.technology)]);
   if (e.external) entries.push(["external", "true"]);
   if (present(e.shape, (v) => v !== "box")) entries.push(["shape", JSON.stringify(e.shape)]);
+  if (present(e.stereotype, (v) => v !== "")) entries.push(["stereotype", JSON.stringify(e.stereotype)]);
   if (present(e.tags, (v) => Object.keys(v).length > 0)) {
     entries.push(["tags", block(tagEntries(e.tags).map(([k, v]) => [k, JSON.stringify(v)]), `${indent}  `)]);
   }
   if (present(e.notes, (v) => v !== "")) entries.push(["notes", JSON.stringify(e.notes)]);
+  if (present(e.members, (v) => v.length > 0)) entries.push(["members", `[\n${e.members.map((m) => `${indent}    ${JSON.stringify(m)}`).join(",\n")}\n${indent}  ]`]);
   if (present(e.uses, (v) => v.length > 0)) {
     const rels = e.uses.map((r) =>
       inline({
         to: r.to,
+        kind: r.kind && r.kind !== "association" ? r.kind : undefined,
         bidirectional: r.bidirectional || undefined,
         description: r.description || undefined,
         technology: r.technology || undefined,

@@ -20,6 +20,8 @@
   --system: #1168bd;
   --container: #438dd5;
   --component: #85bbf0;
+  --class: #f4f9ff;
+  --class-line: #5d82a8;
   --external: #8b8f97;
   --sticky-yellow: #fff1a1;
   --sticky-pink: #ffd3de;
@@ -565,6 +567,10 @@ button.pane-tab.active {
 .dot-component {
   background: var(--component);
 }
+.dot-class {
+  background: var(--class);
+  box-shadow: inset 0 0 0 1px var(--class-line);
+}
 .dot-external {
   background: var(--external);
 }
@@ -643,6 +649,11 @@ button.heading {
 .badge-component {
   background: var(--component);
   color: #0b1f33;
+}
+.badge-class {
+  background: var(--class);
+  color: #0b1f33;
+  box-shadow: inset 0 0 0 1px var(--class-line);
 }
 .badge-external {
   background: var(--external);
@@ -1144,6 +1155,32 @@ button.heading {
 .c4-external {
   background: var(--external);
 }
+/* A class, as UML draws one: a name compartment, then attributes, then methods. */
+.c4-class {
+  background: var(--class);
+  color: #0b1f33;
+  border: 1.5px solid var(--class-line);
+  border-radius: 2px;
+  padding: 0;
+  min-height: 0;
+}
+.class-head {
+  padding: 8px 10px;
+}
+.class-stereotype {
+  font-size: 11px;
+  opacity: 0.85;
+}
+.class-members {
+  border-top: 1px solid var(--class-line);
+  padding: 4px 8px;
+  min-height: 12px;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 /* Shapes. Arrows end on the box's rectangle, so each shape fills it. Rims and frames are
    drawn in the text colour, faintly, so they work on every kind's fill. */
 .c4[class*="c4-shape-"]::before,
@@ -1506,7 +1543,7 @@ button.heading {
   stroke: var(--edge);
   stroke-width: 1.5;
 }
-.react-flow__edge-path.arrow.implied {
+.react-flow__edge-path.arrow.dashed {
   stroke-dasharray: 6 4;
 }
 .react-flow__edge-path.arrow.selected {
@@ -1514,6 +1551,27 @@ button.heading {
   --xy-edge-stroke-selected: var(--accent);
   stroke: var(--accent);
   stroke-width: 2.5;
+}
+/* UML arrow ends, on a class view's arrows (see UmlMarker). */
+.uml-marker {
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.uml-marker.selected {
+  stroke: var(--accent);
+}
+.uml-hollow {
+  fill: var(--canvas);
+}
+.uml-filled {
+  fill: var(--edge);
+}
+.uml-filled.selected {
+  fill: var(--accent);
+}
+.uml-open {
+  fill: none;
 }
 .arrow-label {
   position: absolute;

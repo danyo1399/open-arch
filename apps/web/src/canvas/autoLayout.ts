@@ -33,8 +33,15 @@ const loadElk = loadOnce(() => import("elkjs/lib/elk.bundled.js").then(({ defaul
  * can't be loaded: offline, or when the app was updated after the page was opened, since each
  * update gives the file a new name and the old one is gone.
  */
+/** A box to lay out: whether it's inside the frame, and how tall it is, when that isn't NODE_H, as for a class with members. */
+export interface LayoutNode {
+  id: string;
+  inside: boolean;
+  height?: number;
+}
+
 export async function layOut(
-  nodes: { id: string; inside: boolean }[],
+  nodes: LayoutNode[],
   edges: { from: string; to: string }[],
   layout = elkLayout,
 ): Promise<{ positions: Record<string, Point>; failed: boolean }> {
@@ -64,12 +71,14 @@ export function gridLayout(nodes: { id: string; inside: boolean }[]): Record<str
   return out;
 }
 
-export async function elkLayout(nodes: { id: string; inside: boolean }[], edges: { from: string; to: string }[]): Promise<Record<string, Point>> {
-  const box = (id: string): ElkNode => ({ id, width: NODE_W, height: NODE_H });
+export async function elkLayout(nodes: LayoutNode[], edges: { from: string; to: string }[]): Promise<Record<string, Point>> {
+  const box = (n: LayoutNode): ElkNode => ({ id: n.id, width: NODE_W, height: n.height ?? NODE_H });
   const inside = nodes.filter((n) => n.inside);
-  const children: ElkNode[] = nodes.filter((n) => !n.inside).map((n) => box(n.id));
+  const children: ElkNode[] = nodes.filter((n) => !n.inside).map(box);
+  // The spaces between boxes, which ELK takes from each box's parent: the frame needs them too.
+  const spacing = { "elk.spacing.nodeNode": "70", "elk.layered.spacing.nodeNodeBetweenLayers": "110", "elk.spacing.componentComponent": "90" };
   if (inside.length) {
-    children.push({ id: "__frame", layoutOptions: { "elk.padding": "[top=50,left=40,bottom=50,right=40]" }, children: inside.map((n) => box(n.id)) });
+    children.push({ id: "__frame", layoutOptions: { "elk.padding": "[top=50,left=40,bottom=50,right=40]", ...spacing }, children: inside.map(box) });
   }
   const result = await (await loadElk()).layout({
     id: "root",
@@ -77,9 +86,7 @@ export async function elkLayout(nodes: { id: string; inside: boolean }[], edges:
       "elk.algorithm": "layered",
       "elk.direction": "DOWN",
       "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-      "elk.spacing.nodeNode": "70",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "110",
-      "elk.spacing.componentComponent": "90",
+      ...spacing,
     },
     children,
     edges: edges.map((e, i) => ({ id: `e${i}`, sources: [e.from], targets: [e.to] })),

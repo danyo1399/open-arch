@@ -6,6 +6,13 @@
 
 Reads and writes orders.
 
+## Contains
+
+- [Order](order.md) (class)
+- [OrderLine](order-line.md) (class)
+- [Orders](orders.md) (class) – What the rest of the API needs from a store of orders.
+- [PostgresOrders](postgres-orders.md) (class) – Keeps orders in the Orders DB.
+
 ## Uses
 
 | Element | Description | Technology |
@@ -21,6 +28,7 @@ Reads and writes orders.
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)
+- [Order Repository classes](../views/order-repository-classes.md) (as the frame)
 - [Placing an order](../views/place-order.md)
 
 [All views and elements](../README.md)

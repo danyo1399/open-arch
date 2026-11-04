@@ -6,13 +6,18 @@
 import type { Workspace } from "./workspace.js";
 import { childrenOf, compareElements, lineage, PARENT_KIND, topLevel } from "./model.js";
 import { suggest } from "./suggest.js";
-import type { ArchElement, Diagnostic, Step, ViewDef, ViewLevel } from "./types.js";
+import { RELATIONSHIP_KINDS, type ArchElement, type Diagnostic, type RelationshipKind, type Step, type ViewDef, type ViewLevel } from "./types.js";
 
 export interface ViewEdge {
   from: string;
   to: string;
   description?: string;
   technology?: string;
+  /**
+   * What its relationships mean. On a class view, relationships of different kinds between the
+   * same two boxes are different arrows. Elsewhere, every arrow is an association.
+   */
+  kind: RelationshipKind;
   /** False when a model relationship joins exactly these two boxes. */
   implied: boolean;
   /**
@@ -41,7 +46,7 @@ export interface ComputedStep extends Step {
 
 export interface ComputedView {
   view: ViewDef;
-  /** The system (container view) or container (component view) drawn as a frame. */
+  /** The system (container view), container (component view) or component (class view) drawn as a frame. */
   boundary?: ArchElement;
   /** Boxes, in display order. A sequence view's are its participants, in the order they first appear in its steps. */
   nodes: ArchElement[];
@@ -54,11 +59,12 @@ export interface ComputedView {
 }
 
 /** The kind a view's scope must have, or undefined when the level takes no scope. */
-export const SCOPE_KIND: Record<ViewLevel, "system" | "container" | undefined> = {
+export const SCOPE_KIND: Record<ViewLevel, "system" | "container" | "component" | undefined> = {
   landscape: undefined,
   context: "system",
   container: "system",
   component: "container",
+  class: "component",
   sequence: undefined,
 };
 
@@ -86,11 +92,12 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
 
 /**
  * Maps any element to the box that represents it in this view, or null when
- * it is the view's boundary and so has no box.
+ * it is the view's boundary, or holds it, and so has no box.
  */
 function representative(ws: Workspace, view: ViewDef): (id: string) => string | null {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const scopeSystem = scope ? topLevel(ws, scope.id) : undefined;
+  const scopeContainer = scope?.kind === "component" && scope.parent ? ws.elements.get(scope.parent) : undefined;
   return (id) => {
     const chain = lineage(ws, id);
     const top = chain[chain.length - 1];
@@ -106,6 +113,15 @@ function representative(ws: Workspace, view: ViewDef): (id: string) => string | 
       case "component":
         if (!scope || !scopeSystem) return top.id;
         if (chain.some((e) => e.id === scope.id)) return childOf(scope.id);
+        if (chain.some((e) => e.id === scopeSystem.id)) return childOf(scopeSystem.id);
+        return top.id;
+      case "class":
+        // A class anywhere is drawn as itself. Anything else is drawn as in a component view of
+        // the scope's container.
+        if (!scope || !scopeSystem) return top.id;
+        if (chain.some((e) => e.id === scope.id)) return childOf(scope.id);
+        if (chain[0]!.kind === "class") return chain[0]!.id;
+        if (scopeContainer && chain.some((e) => e.id === scopeContainer.id)) return childOf(scopeContainer.id);
         if (chain.some((e) => e.id === scopeSystem.id)) return childOf(scopeSystem.id);
         return top.id;
       case "sequence":
@@ -133,14 +149,15 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
           : [];
   const innerIds = new Set(inner.map((e) => e.id));
 
-  // Every model relationship, lifted to the boxes of this view.
-  const lifted: { from: string; to: string; element: string; index: number; both: boolean }[] = [];
+  // Every model relationship, lifted to the boxes of this view. Only a class view tells kinds apart.
+  const classes = view.level === "class";
+  const lifted: { from: string; to: string; element: string; index: number; both: boolean; kind: RelationshipKind }[] = [];
   for (const element of ws.elements.values()) {
     element.uses.forEach((rel, index) => {
       if (!ws.elements.has(rel.to)) return;
       const from = rep(element.id);
       const to = rep(rel.to);
-      if (from && to && from !== to) lifted.push({ from, to, element: element.id, index, both: rel.bidirectional });
+      if (from && to && from !== to) lifted.push({ from, to, element: element.id, index, both: rel.bidirectional, kind: classes ? rel.kind : "association" });
     });
   }
 
@@ -186,13 +203,15 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   const nodes = [...shown].map((id) => ws.elements.get(id)!).sort(compareElements);
 
   // Two boxes joined by a relationship that goes both ways get one arrow, with a head at each end,
-  // for every relationship between them: a second arrow would only say part of it again.
+  // for every relationship of its kind between them: a second arrow would only say part of it again.
+  // Only associations go both ways.
   const pair = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
   const bothWays = new Set(lifted.filter((l) => l.both).map((l) => pair(l.from, l.to)));
   const groups = new Map<string, typeof lifted>();
   for (const l of lifted) {
     if (!shown.has(l.from) || !shown.has(l.to)) continue;
-    const key = bothWays.has(pair(l.from, l.to)) ? `both\u0000${pair(l.from, l.to)}` : `${l.from}\u0000${l.to}`;
+    const both = l.kind === "association" && bothWays.has(pair(l.from, l.to));
+    const key = `${l.kind}\u0000${both ? `both\u0000${pair(l.from, l.to)}` : `${l.from}\u0000${l.to}`}`;
     groups.set(key, [...(groups.get(key) ?? []), l]);
   }
   const edges: ViewEdge[] = [...groups.values()].map((group) => {
@@ -207,14 +226,16 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
       to,
       description: joinLabels(rels.map((r) => r.description), "; "),
       technology: joinLabels(rels.map((r) => r.technology), ", "),
+      kind: group[0]!.kind,
       implied: direct.length === 0,
       bidirectional: group.some((g) => g.both),
       sources: group.map((g) => ({ element: g.element, index: g.index })),
     };
   });
-  edges.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0));
+  const kindRank = (e: ViewEdge) => RELATIONSHIP_KINDS.indexOf(e.kind);
+  edges.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : kindRank(a) - kindRank(b)));
 
-  const boundary = view.level === "container" || view.level === "component" ? scope : undefined;
+  const boundary = view.level === "container" || view.level === "component" || view.level === "class" ? scope : undefined;
   return { view, boundary, nodes, edges, steps: [], diagnostics };
 }
 

@@ -42,7 +42,7 @@ export function Usages({ ws, id, viewId, onGo, onClose }: UsagesProps) {
                 <li key={`${from.id}-${rel.index}`}>
                   <button
                     className="row usage"
-                    onClick={() => (arrow ? onGo(arrow.view, { kind: "arrow", from: arrow.from, to: arrow.to }) : onGo(null, { kind: "element", id: from.id }))}
+                    onClick={() => (arrow ? onGo(arrow.view, { kind: "arrow", from: arrow.from, to: arrow.to, ...(arrow.relation && { relation: arrow.relation }) }) : onGo(null, { kind: "element", id: from.id }))}
                   >
                     <span className={`dot dot-${from.external ? "external" : from.kind}`} />
                     <span className="grow">

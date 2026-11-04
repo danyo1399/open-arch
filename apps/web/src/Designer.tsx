@@ -1,4 +1,16 @@
-import { computeView, diagnosticTarget, renderMermaid, scopeProblems, viewMarkdown, type ComputedView, type Diagnostic, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import {
+  computeView,
+  diagnosticTarget,
+  renderMermaid,
+  scopeProblems,
+  viewMarkdown,
+  type ComputedView,
+  type Diagnostic,
+  type Operation,
+  type RelationshipKind,
+  type ViewDef,
+  type Workspace,
+} from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
@@ -21,7 +33,7 @@ import { useWorkspace, type Edit } from "./state.js";
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
 
 /** What a right-click menu is for, and where it opened on the screen. */
-type Menu = ({ kind: "element"; id: string } | { kind: "arrow"; from: string; to: string }) & { x: number; y: number };
+type Menu = ({ kind: "element"; id: string } | { kind: "arrow"; from: string; to: string; relation?: RelationshipKind }) & { x: number; y: number };
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -36,7 +48,7 @@ function detailsName(ws: Workspace, view: ViewDef | null, computed: ComputedView
   const shown = shownInProperties(ws, view, selection);
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   if (shown.kind === "element") return shown.element.name;
-  if (shown.kind === "arrow") return `${name(shown.from)} ${findArrow(computed, shown.from, shown.to)?.bidirectional ? "↔" : "→"} ${name(shown.to)}`;
+  if (shown.kind === "arrow") return `${name(shown.from)} ${findArrow(computed, shown.from, shown.to, shown.relation)?.bidirectional ? "↔" : "→"} ${name(shown.to)}`;
   if (shown.kind === "sticky") return "Sticky note";
   if (shown.kind === "step") return `Step ${shown.step.number}`;
   if (shown.kind === "several") return shapesLabel(shown.elements.length, shown.stickies.length);
@@ -200,9 +212,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind !== "element" || selection.id !== id) select({ kind: "element", id });
     setMenu({ kind: "element", id: current(id), ...at });
   };
-  const openArrowMenu = (from: string, to: string, at: { x: number; y: number }) => {
-    if (selection?.kind !== "arrow" || selection.from !== from || selection.to !== to) select({ kind: "arrow", from, to });
-    setMenu(renamedSelection({ kind: "arrow", from, to, ...at }, current));
+  const openArrowMenu = (from: string, to: string, relation: RelationshipKind | undefined, at: { x: number; y: number }) => {
+    const kind = relation ? { relation } : {};
+    if (selection?.kind !== "arrow" || selection.from !== from || selection.to !== to || selection.relation !== relation) select({ kind: "arrow", from, to, ...kind });
+    setMenu(renamedSelection({ kind: "arrow", from, to, ...kind, ...at }, current));
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -226,7 +239,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     // A step is one line of a sequence, and Undo brings it back, so it goes without asking too.
     if (selection?.kind === "step" && view) void edit([{ op: "remove-step", view: view.id, step: selection.number }]).then(() => select(null));
     if (selection?.kind === "arrow" && ws) {
-      const ops = arrowDeleteOps(ws, computed, selection.from, selection.to);
+      const ops = arrowDeleteOps(ws, computed, selection.from, selection.to, selection.relation);
       if (ops.length) void edit(ops).then(() => select(null));
     }
   }, [selection, computed, edit, select, current, ws, view]);
@@ -378,11 +391,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   // What the details panel can do with an arrow. One that stands for several relationships
   // lists them, to pick the one to remove. An implied arrow's one relationship is on something
   // inside a box, so its item names it; a direct arrow's one relationship is the arrow.
-  const arrowMenu = (from: string, to: string): MenuItem[] => {
+  const arrowMenu = (from: string, to: string, relation?: RelationshipKind): MenuItem[] => {
     const name = (id: string) => ws.elements.get(id)?.name ?? id;
-    const removals = arrowRemovals(ws, computed, from, to);
+    const removals = arrowRemovals(ws, computed, from, to, relation);
     const remove = (ops: Operation[]) => () => void edit(ops).then(() => select(null));
-    const implied = !!findArrow(computed, from, to)?.implied;
+    const implied = !!findArrow(computed, from, to, relation)?.implied;
     return [
       { label: `Select ${name(from)}`, onSelect: () => select({ kind: "element", id: from }) },
       { label: `Select ${name(to)}`, onSelect: () => select({ kind: "element", id: to }) },
@@ -568,7 +581,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         </div>
       )}
 
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.kind === "element" ? elementMenu(menu.id) : arrowMenu(menu.from, menu.to)} onClose={closeMenu} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.kind === "element" ? elementMenu(menu.id) : arrowMenu(menu.from, menu.to, menu.relation)} onClose={closeMenu} />}
       {dialog?.kind === "delete" && (
         <DeleteElementDialog
           ws={ws}

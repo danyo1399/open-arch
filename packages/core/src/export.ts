@@ -6,7 +6,7 @@
 import { renderMermaid } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
-import { SHAPE_LABELS, type ArchElement, type Relationship } from "./types.js";
+import { SHAPE_LABELS, type ArchElement, type Relationship, type RelationshipKind } from "./types.js";
 import type { Workspace } from "./workspace.js";
 
 export interface ExportedFile {
@@ -32,9 +32,9 @@ function link(e: ArchElement, from: "root" | "elements" | "views"): string {
   return `[${e.name}](${href})`;
 }
 
-/** A relationship's description for a table, saying when it goes both ways. */
-function described(r: { description?: string; bidirectional: boolean }): string {
-  return [cell(r.description), r.bidirectional ? "(both ways)" : ""].filter(Boolean).join(" ");
+/** A relationship's description for a table, saying what kind it is, when it isn't an association, and when it goes both ways. */
+function described(r: { description?: string; bidirectional: boolean; kind: RelationshipKind }): string {
+  return [r.kind === "association" ? "" : `(${r.kind})`, cell(r.description), r.bidirectional ? "(both ways)" : ""].filter(Boolean).join(" ");
 }
 
 /** Relationships to or from an element, with a Tags column when any of them has tags. */
@@ -150,10 +150,16 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     const d = describeElement(ws, e.id)!;
     const label = SHAPE_LABELS[e.shape].toLowerCase();
     const shape = e.shape === "box" ? undefined : `drawn as ${/^[aeiou]/.test(label) ? "an" : "a"} ${label}`;
-    const facts = [`**${kindLabel(e)}**`, e.technology, shape, d.parent ? `inside ${link(d.parent, "elements")}` : undefined].filter(Boolean);
+    const stereotype = e.stereotype ? `«${e.stereotype}»` : undefined;
+    const facts = [`**${kindLabel(e)}**`, stereotype, e.technology, shape, d.parent ? `inside ${link(d.parent, "elements")}` : undefined].filter(Boolean);
     const lines = [top, "", `# ${e.name}`, "", facts.join(" · ")];
     if (e.description) lines.push("", e.description);
     if (e.notes) lines.push("", e.notes);
+    // In a code block, as members are code, with a fence longer than any run of backticks in them.
+    if (e.members.length) {
+      const fence = "`".repeat(Math.max(3, ...e.members.map((m) => Math.max(0, ...(m.match(/`+/g) ?? []).map((run) => run.length + 1)))));
+      lines.push("", "## Members", "", `${fence}text`, ...e.members, fence);
+    }
     if (d.children.length) {
       lines.push("", "## Contains", "", ...d.children.map((c) => `- ${link(c, "elements")} (${kindLabel(c).toLowerCase()})${c.description ? ` – ${c.description}` : ""}`));
     }

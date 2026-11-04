@@ -1,7 +1,7 @@
 import type { Workspace } from "./workspace.js";
 import type { ArchElement, ElementKind, Tags } from "./types.js";
 
-export const KIND_RANK: Record<ElementKind, number> = { person: 0, system: 1, container: 2, component: 3 };
+export const KIND_RANK: Record<ElementKind, number> = { person: 0, system: 1, container: 2, component: 3, class: 4 };
 
 /** The kind a parent must have, or undefined when the kind is top-level. */
 export const PARENT_KIND: Record<ElementKind, ElementKind | undefined> = {
@@ -9,6 +9,7 @@ export const PARENT_KIND: Record<ElementKind, ElementKind | undefined> = {
   system: undefined,
   container: "system",
   component: "container",
+  class: "component",
 };
 
 /** The element followed by its ancestors, nearest first. Stops at unknown parents and cycles. */

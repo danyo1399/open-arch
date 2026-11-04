@@ -7,7 +7,7 @@ import { deletePlan, relationshipRef, uniqueId } from "../src/model.js";
 describe("hosts", () => {
   it("bundles a clean example", async () => {
     const ws = loadWorkspace(await exampleHost().load());
-    expect(ws.elements.size).toBe(10);
+    expect(ws.elements.size).toBe(14);
     expect(checkWorkspace(ws)).toEqual([]);
   });
 
@@ -39,7 +39,7 @@ describe("hosts", () => {
 
 describe("model helpers", () => {
   const ws = buildWorkspace({
-    openarch: 5,
+    openarch: 6,
     name: "T",
     elements: {
       shop: { kind: "system", name: "Shop" },

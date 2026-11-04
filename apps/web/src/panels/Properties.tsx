@@ -1,4 +1,23 @@
-import { describeElement, ELEMENT_SHAPES, kindLabel, PARENT_KIND, SHAPE_LABELS, STICKY_COLORS, type ArchElement, type ComputedView, type NewElements, type Operation, type Step, type Sticky, type ViewDef, type Workspace } from "@open-arch/core";
+import {
+  describeElement,
+  ELEMENT_SHAPES,
+  kindLabel,
+  PARENT_KIND,
+  RELATIONSHIP_KIND_LABELS,
+  RELATIONSHIP_KINDS,
+  SHAPE_LABELS,
+  STICKY_COLORS,
+  type ArchElement,
+  type ComputedView,
+  type NewElements,
+  type Operation,
+  type Relationship,
+  type RelationshipKind,
+  type Step,
+  type Sticky,
+  type ViewDef,
+  type Workspace,
+} from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, viewAction } from "../model.js";
@@ -49,7 +68,7 @@ export function Properties(props: PropertiesProps) {
   const shown = shownInProperties(props.ws, props.view, props.selection);
   let body;
   if (shown.kind === "element") body = <ElementProperties {...props} element={shown.element} />;
-  else if (shown.kind === "arrow") body = <ArrowProperties {...props} from={shown.from} to={shown.to} />;
+  else if (shown.kind === "arrow") body = <ArrowProperties {...props} from={shown.from} to={shown.to} relation={shown.relation} />;
   else if (shown.kind === "sticky") body = <StickyProperties {...props} view={shown.view} sticky={shown.sticky} />;
   else if (shown.kind === "step") body = <StepProperties {...props} view={shown.view} step={shown.step} />;
   else if (shown.kind === "several") body = <SeveralProperties {...props} elements={shown.elements} stickies={shown.stickies} />;
@@ -86,8 +105,22 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
       <Field label="Name" value={element.name} onCommit={rename} autoFocus={isNew} />
       <Field label="ID" value={element.id} onCommit={changeId} hint={idHint(followsName(element.id, element.name))} />
       <Field label="Description" value={element.description ?? ""} onCommit={(description) => set({ description: description || null })} multiline placeholder="One sentence, shown in the box" />
+      {element.kind === "class" && (
+        <>
+          <Field label="Stereotype" value={element.stereotype ?? ""} onCommit={(stereotype) => set({ stereotype: stereotype || null })} placeholder="e.g. interface, abstract or enum" />
+          <Field
+            label="Members"
+            value={element.members.join("\n")}
+            onCommit={(text) => set({ members: text.trim() ? text.split("\n") : null })}
+            multiline
+            rows={6}
+            placeholder={"One per line, e.g.\n+id: OrderId\n+total(): Money"}
+            hint="Attributes and methods, in UML's notation: + public, - private, # protected. A line with brackets is a method."
+          />
+        </>
+      )}
       {element.kind !== "person" && <Field label="Technology" value={element.technology ?? ""} onCommit={(technology) => set({ technology: technology || null })} placeholder="e.g. Node.js, PostgreSQL" />}
-      {element.kind !== "person" && (
+      {element.kind !== "person" && element.kind !== "class" && (
         <label className="field">
           <span className="field-label">Shape</span>
           <select value={element.shape} onChange={(e) => set({ shape: e.target.value === "box" ? null : e.target.value })}>
@@ -136,7 +169,8 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
               </button>
               <Field label="Description" value={rel.description ?? ""} placeholder="e.g. Reads and writes orders" onCommit={(description) => void edit([{ op: "update-relationship", ...ref, description: description || null }])} />
               <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit([{ op: "update-relationship", ...ref, technology: technology || null }])} />
-              <BothWays checked={rel.bidirectional} onChange={(bidirectional) => void edit([{ op: "update-relationship", ...ref, bidirectional }])} />
+              {hasKind(ws, element.id, rel) && <KindField kind={rel.kind} onChange={(kind) => void edit([kindOp(ref, rel, kind)])} />}
+              {rel.kind === "association" && <BothWays checked={rel.bidirectional} onChange={(bidirectional) => void edit([{ op: "update-relationship", ...ref, bidirectional }])} />}
               <button className="link danger" onClick={() => void edit([{ op: "remove-relationship", ...ref }])}>
                 Remove relationship
               </button>
@@ -175,6 +209,32 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
   );
 }
 
+/** Whether a relationship can have a kind other than association: when it joins two classes, or already has one. */
+function hasKind(ws: Workspace, from: string, rel: Relationship): boolean {
+  return rel.kind !== "association" || (ws.elements.get(from)?.kind === "class" && ws.elements.get(rel.to)?.kind === "class");
+}
+
+/** The edit that gives a relationship another kind. Only an association goes both ways, so another kind makes it one way. */
+function kindOp(ref: ReturnType<typeof relationshipRef>, rel: Relationship, kind: RelationshipKind): Operation {
+  return { op: "update-relationship", ...ref, kind, ...(kind !== "association" && rel.bidirectional && { bidirectional: false }) };
+}
+
+/** What a relationship between two classes means, in UML's terms. */
+function KindField({ kind, onChange }: { kind: RelationshipKind; onChange(kind: RelationshipKind): void }) {
+  return (
+    <label className="field">
+      <span className="field-label">Kind</span>
+      <select value={kind} onChange={(e) => onChange(e.target.value as RelationshipKind)}>
+        {RELATIONSHIP_KINDS.map((k) => (
+          <option key={k} value={k}>
+            {RELATIONSHIP_KIND_LABELS[k]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 /** Whether a relationship goes both ways. */
 function BothWays({ checked, onChange }: { checked: boolean; onChange(bidirectional: boolean): void }) {
   return (
@@ -185,8 +245,8 @@ function BothWays({ checked, onChange }: { checked: boolean; onChange(bidirectio
   );
 }
 
-function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesProps & { from: string; to: string }) {
-  const edge = findArrow(computed, from, to);
+function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect }: PropertiesProps & { from: string; to: string; relation?: RelationshipKind }) {
+  const edge = findArrow(computed, from, to, relation);
   if (!edge) return <p className="muted">This arrow is no longer in the view.</p>;
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   return (
@@ -203,6 +263,7 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
           {name(to)}
         </button>
       </p>
+      {edge.kind !== "association" && <p className="small">{RELATIONSHIP_KIND_LABELS[edge.kind]}</p>}
       {edge.implied && <p className="muted small">This arrow stands for relationships between elements inside these boxes. Edit them here or on those elements.</p>}
       <p className="muted small">
         Drag the dot at either end of the arrow to another box to move that end there.{edge.sources.length > 1 && " Every relationship the arrow stands for moves with it."}
@@ -236,7 +297,14 @@ function ArrowProperties({ ws, computed, from, to, edit, onSelect }: PropertiesP
                 placeholder="Longer documentation, in markdown"
                 onCommit={(notes) => void edit([{ op: "update-relationship", ...ref, notes: notes || null }])}
               />
-              <BothWays checked={rel.bidirectional} onChange={(bidirectional) => void edit([{ op: "update-relationship", ...ref, bidirectional }])} />
+              {hasKind(ws, element, rel) && (
+                <KindField
+                  kind={rel.kind}
+                  // On a class view, a relationship of another kind is another arrow: keep it selected.
+                  onChange={(kind) => void edit([kindOp(ref, rel, kind)]).then((ok) => ok && onSelect({ kind: "arrow", from: element, to: rel.to, ...(kind !== "association" && { relation: kind }) }))}
+                />
+              )}
+              {rel.kind === "association" && <BothWays checked={rel.bidirectional} onChange={(bidirectional) => void edit([{ op: "update-relationship", ...ref, bidirectional }])} />}
               <div className="field">
                 <span className="field-label">Tags</span>
                 <TagsEditor tags={rel.tags} onChange={(tags) => void edit([{ op: "update-relationship", ...ref, tags }])} />

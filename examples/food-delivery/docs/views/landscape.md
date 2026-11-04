@@ -40,7 +40,7 @@ flowchart TB
 
 > Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.
 >
-> Open views 1 to 5 under Views, in order. Each one zooms in a step.
+> Open views 1 to 6 under Views, in order. Views 1 to 5 each zoom in a step, down to the code.
 
 > This is a landscape view: every person and system in the model, and how they connect. It's the map of the whole business.
 >

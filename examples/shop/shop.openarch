@@ -1,5 +1,5 @@
 {
-  "openarch": 5,
+  "openarch": 6,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -56,6 +56,59 @@
         { "to": "orders-db", "description": "Reads and writes orders", "technology": "SQL" }
       ]
     },
+    "order": {
+      "kind": "class",
+      "name": "Order",
+      "parent": "order-repository",
+      "stereotype": "entity",
+      "members": [
+        "+id: OrderId",
+        "+customerId: string",
+        "+placedAt: Date",
+        "+total(): Money"
+      ],
+      "uses": [
+        { "to": "order-line", "kind": "composition", "description": "Lists what was bought in" }
+      ]
+    },
+    "order-line": {
+      "kind": "class",
+      "name": "OrderLine",
+      "parent": "order-repository",
+      "members": [
+        "+sku: string",
+        "+quantity: number",
+        "+price: Money"
+      ]
+    },
+    "orders": {
+      "kind": "class",
+      "name": "Orders",
+      "parent": "order-repository",
+      "description": "What the rest of the API needs from a store of orders.",
+      "stereotype": "interface",
+      "members": [
+        "+save(order: Order): void",
+        "+find(id: OrderId): Order"
+      ],
+      "uses": [
+        { "to": "order", "kind": "dependency", "description": "Saves and finds" }
+      ]
+    },
+    "postgres-orders": {
+      "kind": "class",
+      "name": "PostgresOrders",
+      "parent": "order-repository",
+      "description": "Keeps orders in the Orders DB.",
+      "members": [
+        "-pool: Pool",
+        "+save(order: Order): void",
+        "+find(id: OrderId): Order"
+      ],
+      "uses": [
+        { "to": "orders", "kind": "realization" }
+      ]
+    },
     "payment-client": {
       "kind": "component",
       "name": "Payment Client",
@@ -106,6 +159,19 @@
       "description": "Every person and system, and how they connect.",
       "level": "landscape",
       "include": ["*"]
+    },
+    "order-repository-classes": {
+      "title": "Order Repository classes",
+      "description": "The classes that store orders, and how they fit together.",
+      "level": "class",
+      "scope": "order-repository",
+      "include": ["*"],
+      "layout": {
+        "order": [50, 560],
+        "order-line": [50, 800],
+        "orders": [50, 300],
+        "postgres-orders": [50, 60]
+      }
     },
     "place-order": {
       "title": "Placing an order",

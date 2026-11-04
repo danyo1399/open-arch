@@ -10,6 +10,7 @@ import {
   type ElementKind,
   type Operation,
   type Position,
+  type RelationshipKind,
   type Sticky,
   type ViewDef,
   type ViewEdge,
@@ -32,18 +33,19 @@ import {
 } from "@xyflow/react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { isArrow, relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
+import { arrowRelation, isArrow, relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { classHeight, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 
 /** What's selected. `several` is two or more boxes and sticky notes on the open view, which move together. */
 export type Selection =
   | { kind: "element"; id: string }
-  | { kind: "arrow"; from: string; to: string }
+  /** `relation`, on a class view, is the kind of relationship the arrow draws, when it isn't an association. */
+  | { kind: "arrow"; from: string; to: string; relation?: RelationshipKind }
   | { kind: "sticky"; id: string }
   /** A sequence view's step, by its number: 1 is the first. */
   | { kind: "step"; number: number }
@@ -56,7 +58,8 @@ type FlowNode = ElementFlowNode | FrameFlowNode | StickyFlowNode;
 const FRAME_ID = "__frame";
 /** Sticky note IDs are only unique within their view, so their nodes get a prefix no element ID has. */
 const stickyNodeId = (id: string) => `sticky:${id}`;
-const arrowId = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
+/** An arrow's ID: its ends, and its kind when it isn't an association, as a class view can draw an arrow of each kind between two boxes. */
+const arrowId = (e: { from: string; to: string; kind: RelationshipKind }) => `${e.from}->${e.to}${e.kind === "association" ? "" : `:${e.kind}`}`;
 const FRAME_PAD = { x: 40, top: 56, bottom: 40 };
 /** How a view's diagram is fitted to the canvas. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
@@ -104,7 +107,7 @@ interface CanvasProps {
   /** A right-click on an element's box or on the frame, at that point on the screen. */
   onElementMenu(id: string, at: { x: number; y: number }): void;
   /** A right-click on an arrow or its label, at that point on the screen. */
-  onArrowMenu(from: string, to: string, at: { x: number; y: number }): void;
+  onArrowMenu(from: string, to: string, relation: RelationshipKind | undefined, at: { x: number; y: number }): void;
   /** A problem drawing the diagram, to tell the person about. */
   onError(text: string): void;
   /** Every rename this render's IDs reflect, in order. */
@@ -126,6 +129,14 @@ export function addableKinds(ws: Workspace, view: ViewDef): { kind: ElementKind;
     return [
       { kind: "component", parent: scope.id, label: `Component in ${scope.name}` },
       ...(system ? [{ kind: "container" as const, parent: system.id, label: `Container in ${system.name}` }] : []),
+      ...top,
+    ];
+  }
+  if (view.level === "class" && scope) {
+    const container = scope.parent ? ws.elements.get(scope.parent) : undefined;
+    return [
+      { kind: "class", parent: scope.id, label: `Class in ${scope.name}` },
+      ...(container ? [{ kind: "component" as const, parent: container.id, label: `Component in ${container.name}` }] : []),
       ...top,
     ];
   }
@@ -325,7 +336,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     let cancelled = false;
     const boundary = cv.boundary?.id;
     void layOut(
-      cv.nodes.map((n) => ({ id: n.id, inside: !!boundary && n.parent === boundary })),
+      cv.nodes.map((n) => ({ id: n.id, inside: !!boundary && n.parent === boundary, height: n.kind === "class" ? classHeight(n) : undefined })),
       cv.edges,
     ).then(({ positions, failed }) => {
       if (cancelled) return;
@@ -472,7 +483,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       if (!box) return;
       const id = elementOfNode(box);
       void edit([...reconnectOps(ws, edge, end, id), { op: "set-layout", view: view.id, positions: currentLayout() }]).then(
-        (ok) => ok && onSelect({ kind: "arrow", from: end === "from" ? id : edge.from, to: end === "to" ? id : edge.to }),
+        (ok) => ok && onSelect({ kind: "arrow", from: end === "from" ? id : edge.from, to: end === "to" ? id : edge.to, ...arrowRelation(edge) }),
       );
     },
     [dropBox, elementOfNode, edit, ws, view.id, currentLayout, onSelect],
@@ -487,7 +498,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           type: "arrow",
           source: nodeIdOf.get(e.from) ?? e.from,
           target: nodeIdOf.get(e.to) ?? e.to,
-          selected: selection?.kind === "arrow" && isArrow(e, selection.from, selection.to),
+          selected: selection?.kind === "arrow" && isArrow(e, selection.from, selection.to, selection.relation),
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
           // React Flow turns a start marker round, so it points back at the box it starts from.
           ...(e.bidirectional && { markerStart: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" } }),
@@ -496,7 +507,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
             points: routes.get(id) ?? [],
             label: labels.get(id),
             crossings: crossed.get(id) ?? [],
-            onSelect: () => onSelect({ kind: "arrow", from: e.from, to: e.to }),
+            onSelect: () => onSelect({ kind: "arrow", from: e.from, to: e.to, ...arrowRelation(e) }),
             onEndDrag: (end, at) => setMoving({ edge: e, end, at }),
             onEndDrop: (end, at) => dropEnd(e, end, at),
             moving: movingArrow === id ? movingEnd : undefined,
@@ -710,11 +721,13 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         // A click that wobbles a few pixels is still a click, not nothing.
         nodeClickDistance={4}
         paneClickDistance={4}
-        onEdgeClick={(_, edge) => onSelect({ kind: "arrow", from: elementOf.get(edge.source) ?? edge.source, to: elementOf.get(edge.target) ?? edge.target })}
+        onEdgeClick={(_, edge) =>
+          onSelect({ kind: "arrow", from: elementOf.get(edge.source) ?? edge.source, to: elementOf.get(edge.target) ?? edge.target, ...(edge.data && arrowRelation(edge.data.edge)) })
+        }
         // An arrow's label is drawn apart from its line, but a right-click on it comes here too.
         onEdgeContextMenu={(event, edge) => {
           event.preventDefault();
-          onArrowMenu(elementOf.get(edge.source) ?? edge.source, elementOf.get(edge.target) ?? edge.target, menuPoint(event));
+          onArrowMenu(elementOf.get(edge.source) ?? edge.source, elementOf.get(edge.target) ?? edge.target, edge.data?.edge.kind === "association" ? undefined : edge.data?.edge.kind, menuPoint(event));
         }}
         // Right-clicking the diagram's background offers what + Add does, added where it was
         // clicked. On the frame, it's the menu for the element the frame is.

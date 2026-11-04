@@ -40,9 +40,15 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
   if (el.external && wantedParent) {
     out.push({ severity: "warning", rule: "external-ignored", message: "Only people and systems can be external.", path: at("external"), fix: "Remove external." });
   }
-  // The workspace draws people as people, so look at what the file says.
-  if (el.kind === "person" && (ws.doc.elements[el.id]?.shape ?? "box") !== "box") {
-    out.push({ severity: "warning", rule: "shape-ignored", message: "People are always drawn as a person.", path: at("shape"), fix: "Remove shape." });
+  // The workspace draws people as people and classes as classes, so look at what the file says.
+  const data = ws.doc.elements[el.id];
+  if ((el.kind === "person" || el.kind === "class") && (data?.shape ?? "box") !== "box") {
+    const message = el.kind === "person" ? "People are always drawn as a person." : "Classes are always drawn as a class.";
+    out.push({ severity: "warning", rule: "shape-ignored", message, path: at("shape"), fix: "Remove shape." });
+  }
+  if (el.kind !== "class") {
+    if (data?.members?.length) out.push({ severity: "warning", rule: "members-ignored", message: "Only classes have members.", path: at("members"), fix: "Remove members." });
+    if (data?.stereotype) out.push({ severity: "warning", rule: "stereotype-ignored", message: "Only classes have a stereotype.", path: at("stereotype"), fix: "Remove stereotype." });
   }
 
   const seen = new Set<string>();
@@ -74,10 +80,23 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
       });
       return;
     }
-    if (!rel.description) {
+    if (rel.kind !== "association" && (el.kind !== "class" || target.kind !== "class")) {
+      out.push({
+        severity: "error",
+        rule: "relationship-kind-classes",
+        message: `Only relationships between classes can be of the kind "${rel.kind}", and "${el.kind === "class" ? target.id : el.id}" is a ${el.kind === "class" ? target.kind : el.kind}.`,
+        path: `${path}.kind`,
+        fix: "Remove kind, or point the relationship at a class.",
+      });
+    }
+    if (rel.kind !== "association" && rel.bidirectional) {
+      out.push({ severity: "error", rule: "relationship-kind-bidirectional", message: `Only associations go both ways, and this relationship is a ${rel.kind}.`, path: `${path}.bidirectional`, fix: "Remove bidirectional, or kind." });
+    }
+    // Inheritance, say, means one thing: its kind describes it.
+    if (!rel.description && rel.kind === "association") {
       out.push({ severity: "warning", rule: "relationship-description", message: `The relationship from "${el.id}" to "${rel.to}" has no description.`, path, fix: 'Add a short verb phrase, e.g. "Reads and writes orders".' });
     }
-    const key = `${rel.to}\u0000${rel.description ?? ""}`;
+    const key = `${rel.to}\u0000${rel.kind}\u0000${rel.description ?? ""}`;
     if (seen.has(key)) out.push({ severity: "warning", rule: "relationship-duplicate", message: `The relationship to "${rel.to}" is listed twice.`, path, fix: "Remove one of them." });
     seen.add(key);
   });

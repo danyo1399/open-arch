@@ -25,7 +25,7 @@ import {
 } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 5,
+  openarch: 6,
   name: "Shop",
   elements: {
     api: { kind: "system", name: "API" },
@@ -80,7 +80,7 @@ describe("byName", () => {
 
   it("puts the model tree in alphabetical order at every level, whatever the kinds and IDs", () => {
     const site = buildWorkspace({
-      openarch: 5,
+      openarch: 6,
       name: "Site",
       elements: {
         customer: { kind: "person", name: "Customer" },
@@ -116,7 +116,7 @@ describe("byName", () => {
 
 describe("viewList", () => {
   const site = buildWorkspace({
-    openarch: 5,
+    openarch: 6,
     name: "Site",
     elements: {
       website: { kind: "system", name: "Client Website" },
@@ -166,7 +166,7 @@ describe("viewList", () => {
 
 describe("viewAction", () => {
   const shop = buildWorkspace({
-    openarch: 5,
+    openarch: 6,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }] },
@@ -220,9 +220,46 @@ describe("viewAction", () => {
   });
 });
 
+describe("viewAction on a class view", () => {
+  const code = buildWorkspace({
+    openarch: 6,
+    name: "Shop",
+    elements: {
+      customer: { kind: "person", name: "Customer" },
+      shop: { kind: "system", name: "Shop" },
+      web: { kind: "container", name: "Web app", parent: "shop" },
+      api: { kind: "container", name: "API", parent: "shop" },
+      orders: { kind: "component", name: "Orders", parent: "api" },
+      store: { kind: "component", name: "Store", parent: "api" },
+      order: { kind: "class", name: "Order", parent: "orders" },
+      row: { kind: "class", name: "Row", parent: "store" },
+      cart: { kind: "component", name: "Cart", parent: "web" },
+    },
+    views: { classes: { title: "Classes", level: "class", scope: "orders", include: ["order"] } },
+  });
+  const view = code.views.get("classes")!;
+  const action = (id: string) => viewAction(code, view, computeView(code, view), id);
+
+  it("hides its classes, and shows classes anywhere, and what a component view of its container would", () => {
+    expect(action("order")).toBe("hide");
+    expect(["row", "store", "web", "customer"].map(action)).toEqual(["show", "show", "show", "show"]);
+  });
+
+  it("does neither for its frame, what holds the frame, or what's inside another container", () => {
+    expect(["orders", "api", "shop", "cart"].map(action)).toEqual([null, null, null, null]);
+  });
+
+  it("can show each element it offers to", () => {
+    for (const id of ["row", "store", "web", "customer"]) {
+      const shown = applyOperations(code.doc, [{ op: "show-in-view", view: "classes", id }]).doc;
+      expect(computeView(buildWorkspace(shown), buildWorkspace(shown).views.get("classes")!).nodes.map((n) => n.id)).toContain(id);
+    }
+  });
+});
+
 describe("arrowRelationships", () => {
   const shop = buildWorkspace({
-    openarch: 5,
+    openarch: 6,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Browses" }, { to: "web" }, { to: "shop", description: "Pays" }] },
@@ -256,7 +293,7 @@ describe("arrowRelationships", () => {
 
 describe("arrowRemovals", () => {
   const ws = buildWorkspace({
-    openarch: 5,
+    openarch: 6,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }, { to: "web" }] },
@@ -292,7 +329,7 @@ describe("arrowRemovals", () => {
 
 describe("arrowDeleteOps", () => {
   const ws = buildWorkspace({
-    openarch: 5,
+    openarch: 6,
     name: "Shop",
     elements: {
       site: { kind: "system", name: "Site", uses: [{ to: "cms", bidirectional: true, description: "Syncs pages with" }, { to: "cms", description: "Reads pages" }] },
@@ -328,7 +365,7 @@ describe("arrowDeleteOps", () => {
 
 describe("shownInProperties", () => {
   const noted = buildWorkspace({
-    openarch: 5,
+    openarch: 6,
     name: "Shop",
     elements: { api: { kind: "system", name: "API" } },
     views: { landscape: { title: "Landscape", level: "landscape", stickies: { note: { text: "Read me" } } } },
@@ -522,7 +559,7 @@ describe("renames", () => {
 
 describe("renamesBetween", () => {
   const shop: OpenArchDocument = {
-    openarch: 5,
+    openarch: 6,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },
@@ -580,9 +617,17 @@ describe("renamesBetween", () => {
 
 describe("isArrow", () => {
   it("finds an arrow by its ends, and one that goes both ways from either end", () => {
-    expect(isArrow({ from: "a", to: "b", bidirectional: false }, "a", "b")).toBe(true);
-    expect(isArrow({ from: "a", to: "b", bidirectional: false }, "b", "a")).toBe(false);
-    expect(isArrow({ from: "a", to: "b", bidirectional: true }, "b", "a")).toBe(true);
-    expect(isArrow({ from: "a", to: "b", bidirectional: true }, "a", "c")).toBe(false);
+    const arrow = { from: "a", to: "b", bidirectional: false, kind: "association" } as const;
+    expect(isArrow(arrow, "a", "b")).toBe(true);
+    expect(isArrow(arrow, "b", "a")).toBe(false);
+    expect(isArrow({ ...arrow, bidirectional: true }, "b", "a")).toBe(true);
+    expect(isArrow({ ...arrow, bidirectional: true }, "a", "c")).toBe(false);
+  });
+
+  it("tells a class view's arrows of different kinds between the same boxes apart", () => {
+    const inheritance = { from: "a", to: "b", bidirectional: false, kind: "inheritance" } as const;
+    expect(isArrow(inheritance, "a", "b")).toBe(false);
+    expect(isArrow(inheritance, "a", "b", "inheritance")).toBe(true);
+    expect(isArrow({ ...inheritance, kind: "association" }, "a", "b", "inheritance")).toBe(false);
   });
 });

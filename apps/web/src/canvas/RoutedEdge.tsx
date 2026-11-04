@@ -2,7 +2,7 @@
  * Arrows drawn along the routes the canvas works out for them (see routing.ts),
  * with rounded corners, and labelled where the canvas places their labels.
  */
-import type { ViewEdge } from "@open-arch/core";
+import type { RelationshipKind, ViewEdge } from "@open-arch/core";
 import { BaseEdge, EdgeLabelRenderer, useReactFlow, ViewportPortal, type Edge, type EdgeProps } from "@xyflow/react";
 import { useEffect, useRef, type PointerEvent } from "react";
 import type { Point } from "./autoLayout.js";
@@ -95,11 +95,13 @@ export const NO_DESCRIPTION = "(no description)";
 /**
  * The lines an arrow's label shows: its description, then its technology in brackets.
  * An arrow for a relationship with no description says so instead; an implied one,
- * which stands for relationships between what's inside the boxes, just leaves it out.
+ * which stands for relationships between what's inside the boxes, just leaves it out, as
+ * does one of a kind other than association, whose ends say what it means.
  * Drawn, measured and estimated alike from these.
  */
-export function labelLines(edge: Pick<ViewEdge, "description" | "technology" | "implied">): LabelLine[] {
-  const description = edge.description ? [{ text: edge.description }] : edge.implied ? [] : [{ text: NO_DESCRIPTION, className: "arrow-missing" }];
+export function labelLines(edge: Pick<ViewEdge, "description" | "technology" | "implied"> & { kind?: ViewEdge["kind"] }): LabelLine[] {
+  const quiet = edge.implied || (edge.kind ?? "association") !== "association";
+  const description = edge.description ? [{ text: edge.description }] : quiet ? [] : [{ text: NO_DESCRIPTION, className: "arrow-missing" }];
   return [...description, ...(edge.technology ? [{ text: `[${edge.technology}]`, className: "arrow-tech" }] : [])];
 }
 
@@ -285,14 +287,62 @@ function EndGrips({ data }: { data: ArrowData }) {
   );
 }
 
+/** A UML arrow end: a hollow triangle, an open arrowhead, or a filled or hollow diamond. */
+type UmlEnd = "triangle" | "open" | "diamond" | "hollow-diamond";
+
+/**
+ * How a class view draws each kind of relationship other than association: whether its line is
+ * dashed, and what's at its start (the element it's on) and its end (the one it names).
+ */
+const UML_ARROWS: Record<Exclude<RelationshipKind, "association">, { dashed: boolean; start?: UmlEnd; end?: UmlEnd }> = {
+  dependency: { dashed: true, end: "open" },
+  inheritance: { dashed: false, end: "triangle" },
+  realization: { dashed: true, end: "triangle" },
+  composition: { dashed: false, start: "diamond" },
+  aggregation: { dashed: false, start: "hollow-diamond" },
+};
+
+/**
+ * One UML arrow end, drawn pointing along the line, its tip on the box's border. At the start,
+ * the marker is turned round, so it points back at the box there.
+ */
+function UmlMarker({ id, end, selected }: { id: string; end: UmlEnd; selected: boolean }) {
+  const diamond = end === "diamond" || end === "hollow-diamond";
+  const shape = `uml-marker${end === "diamond" ? " uml-filled" : end === "open" ? " uml-open" : " uml-hollow"}${selected ? " selected" : ""}`;
+  return (
+    <marker id={id} viewBox={diamond ? "0 0 22 16" : "0 0 16 16"} markerWidth={diamond ? 22 : 16} markerHeight={16} refX={diamond ? 21 : 15} refY={8} markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+      <path className={shape} d={diamond ? "M1,8 L11,3 L21,8 L11,13 Z" : end === "open" ? "M2,2 L15,8 L2,14" : "M1,1 L15,8 L1,15 Z"} />
+    </marker>
+  );
+}
+
+/** An ID for a marker of this arrow's, made only of characters a url() takes without escaping. */
+const markerId = (arrow: string, end: "start" | "end") => `uml-${arrow.replace(/[^a-zA-Z0-9-]/g, (c) => `_${c.charCodeAt(0)}`)}-${end}`;
+
 export function RoutedEdge({ id, markerStart, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {
   if (!data || data.points.length < 2) return null;
   const { edge, points, label, moving } = data;
+  // An association has React Flow's arrowheads; the other kinds draw their own.
+  const uml = edge.kind === "association" ? undefined : UML_ARROWS[edge.kind];
+  const ends = uml && { start: uml.start && markerId(id, "start"), end: uml.end && markerId(id, "end") };
 
   return (
     <>
+      {uml && ends && !moving && (
+        <defs>
+          {uml.start && <UmlMarker id={ends.start!} end={uml.start} selected={!!selected} />}
+          {uml.end && <UmlMarker id={ends.end!} end={uml.end} selected={!!selected} />}
+        </defs>
+      )}
       {!moving && (
-        <BaseEdge id={id} path={pathThrough(points, data.crossings)} markerStart={markerStart} markerEnd={markerEnd} className={`arrow${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`} interactionWidth={18} />
+        <BaseEdge
+          id={id}
+          path={pathThrough(points, data.crossings)}
+          markerStart={ends ? ends.start && `url(#${ends.start})` : markerStart}
+          markerEnd={ends ? ends.end && `url(#${ends.end})` : markerEnd}
+          className={`arrow${edge.implied || uml?.dashed ? " dashed" : ""}${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`}
+          interactionWidth={18}
+        />
       )}
       {selected && <EndGrips data={data} />}
       {label && !moving && (

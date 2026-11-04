@@ -20,7 +20,7 @@ Its shape, Queue, draws it as a pipe. Pick a box's shape in this panel.
 ## Shown in
 
 - [4. Order API components](../views/order-api-components.md)
-- [5. Placing an order](../views/ordering-flow.md)
+- [6. Placing an order](../views/ordering-flow.md)
 - [3. Delivery Platform containers](../views/platform-containers.md)
 
 [All views and elements](../README.md)

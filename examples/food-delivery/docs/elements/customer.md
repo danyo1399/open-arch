@@ -19,7 +19,7 @@ People sit at the edge of every diagram. They use systems, but you never model w
 ## Shown in
 
 - [1. System landscape](../views/landscape.md)
-- [5. Placing an order](../views/ordering-flow.md)
+- [6. Placing an order](../views/ordering-flow.md)
 - [3. Delivery Platform containers](../views/platform-containers.md)
 - [2. Delivery Platform context](../views/platform-context.md)
 

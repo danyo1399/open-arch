@@ -26,7 +26,7 @@ Its tags hold facts about it, like who owns it. A tag is a name and a value, and
 ## Shown in
 
 - [4. Order API components](../views/order-api-components.md)
-- [5. Placing an order](../views/ordering-flow.md)
+- [6. Placing an order](../views/ordering-flow.md)
 - [3. Delivery Platform containers](../views/platform-containers.md)
 
 [All views and elements](../README.md)

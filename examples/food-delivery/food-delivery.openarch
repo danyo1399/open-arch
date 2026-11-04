@@ -1,7 +1,7 @@
 {
-  "openarch": 5,
+  "openarch": 6,
   "name": "Food Delivery",
-  "description": "A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 5 in order: each zooms in one step, and its sticky notes explain what you're looking at.",
+  "description": "A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 6 in order: views 1 to 5 each zoom in one step, and their sticky notes explain what you're looking at.",
   "export": { "docs": "docs" },
   "elements": {
     "courier": {
@@ -141,6 +141,85 @@
         { "to": "event-publisher", "description": "Announces changes using" }
       ]
     },
+    "delivery-fee": {
+      "kind": "class",
+      "name": "DeliveryFee",
+      "parent": "order-service",
+      "description": "Charges more the further the courier rides.",
+      "members": [
+        "+apply(order: Order): Money"
+      ],
+      "uses": [
+        { "to": "pricing-rule", "kind": "realization" }
+      ]
+    },
+    "order": {
+      "kind": "class",
+      "name": "Order",
+      "parent": "order-service",
+      "description": "One customer's order, from placing it to delivery.",
+      "stereotype": "entity",
+      "members": [
+        "+id: OrderId",
+        "+status: OrderStatus",
+        "+placedAt: Date",
+        "+total(): Money",
+        "+markPaid(): void"
+      ],
+      "uses": [
+        { "to": "order-line", "kind": "composition", "description": "Is made of" },
+        { "to": "order-status", "description": "Is in a" }
+      ]
+    },
+    "order-line": {
+      "kind": "class",
+      "name": "OrderLine",
+      "parent": "order-service",
+      "description": "A dish and how many of it.",
+      "members": [
+        "+dish: string",
+        "+quantity: number",
+        "+price: Money"
+      ]
+    },
+    "order-status": {
+      "kind": "class",
+      "name": "OrderStatus",
+      "parent": "order-service",
+      "stereotype": "enum",
+      "members": [
+        "Placed",
+        "Paid",
+        "Ready",
+        "PickedUp",
+        "Delivered"
+      ]
+    },
+    "place-order": {
+      "kind": "class",
+      "name": "PlaceOrder",
+      "parent": "order-service",
+      "description": "Turns a customer's request into a priced order.",
+      "notes": "**A class** is a piece of code inside a component. Classes are C4's fourth and most detailed level, and the only one drawn in UML, the notation programmers use for code.",
+      "members": [
+        "-rules: PricingRule[]",
+        "+run(request: OrderRequest): Order"
+      ],
+      "uses": [
+        { "to": "order", "kind": "dependency", "description": "Creates" },
+        { "to": "pricing-rule", "kind": "aggregation", "description": "Prices orders with" }
+      ]
+    },
+    "pricing-rule": {
+      "kind": "class",
+      "name": "PricingRule",
+      "parent": "order-service",
+      "description": "One way an order's price is worked out.",
+      "stereotype": "interface",
+      "members": [
+        "+apply(order: Order): Money"
+      ]
+    },
     "payment-gateway": {
       "kind": "component",
       "name": "Payment Gateway",
@@ -231,7 +310,7 @@
         "external": { "text": "Grey boxes are external: run by another company. You show how you use them, never what's inside them.", "at": [960, 520] },
         "people": { "text": "The boxes with rounded tops are people: roles like Customer or Courier, not named individuals.", "at": [960, 0] },
         "systems": { "text": "The square blue boxes are software systems. A system is something one team owns that does a job for people, like the Delivery Platform.", "at": [960, 260] },
-        "welcome": { "text": "Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.\n\nOpen views 1 to 5 under Views, in order. Each one zooms in a step.", "color": "green", "at": [-440, -280] }
+        "welcome": { "text": "Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.\n\nOpen views 1 to 6 under Views, in order. Views 1 to 5 each zoom in a step, down to the code.", "color": "green", "at": [-440, -280] }
       },
       "layout": {
         "courier": [640, 0],
@@ -271,8 +350,28 @@
         "support-desk": [960, 0]
       }
     },
+    "order-service-classes": {
+      "title": "5. Order Service classes",
+      "description": "The code inside the Order Service: its classes, and how they relate.",
+      "level": "class",
+      "scope": "order-service",
+      "include": ["*"],
+      "stickies": {
+        "about": { "text": "A class view looks inside one component at its code. It's C4's fourth and last level, drawn as a UML class diagram: each box is a class, with its attributes and then its methods.", "color": "blue" },
+        "arrows": { "text": "The ends of an arrow say how two classes relate. A hollow triangle extends another class, or implements it when the line is dashed. A filled diamond is made of the other class, a hollow one holds it, and a dashed open arrow depends on it." },
+        "sparingly": { "text": "Draw code only where it explains something tricky. It changes far more often than the views above, so these diagrams go out of date first.", "color": "pink" }
+      },
+      "layout": {
+        "delivery-fee": [50, 80],
+        "order": [380, 310],
+        "order-line": [130, 610],
+        "order-status": [420, 610],
+        "place-order": [340, 60],
+        "pricing-rule": [90, 310]
+      }
+    },
     "ordering-flow": {
-      "title": "5. Placing an order",
+      "title": "6. Placing an order",
       "description": "Only what's involved when a customer places an order.",
       "level": "container",
       "scope": "delivery-platform",

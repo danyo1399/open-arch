@@ -17,8 +17,8 @@ Exit codes: 0 = done, 1 = refused or failed (nothing saved), 2 = the command was
 | Command | Prints |
 |---|---|
 | `open-arch show` | The model as a tree, and the views |
-| `open-arch show <element-id>` | The element's fields, tags, notes, what it uses, what uses it (directly and through what's inside it), with those relationships' notes, and the views showing it |
-| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along |
+| `open-arch show <element-id>` | The element's fields, tags, notes, a class's stereotype and members, what it uses, what uses it (directly and through what's inside it), with those relationships' notes, and the views showing it |
+| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for, and on a class view, each arrow's kind. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along |
 | `open-arch check [--json] [--strict]` | Problems in the model; exits 1 on errors (or warnings, with `--strict`) |
 | `open-arch export [folder] [--check]` | Writes the docs to the folder, or to the workspace's docs folder; `--check` exits 1 if they're out of date |
 
@@ -32,14 +32,14 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 
 | Command | Options |
 |---|---|
-| `add-element <id>` | `--kind <person\|system\|container\|component>` (required), `--parent <id>`, `--name`, `--description`, `--technology`, `--external`, `--shape <box\|database\|queue\|folder\|document\|web-browser\|mobile-app\|desktop-app\|terminal\|server\|email\|scheduled-job>`, `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
-| `update-element <id>` | `--name`, `--parent`, `--description`, `--technology`, `--external` / `--internal`, `--shape` (`--shape ""` makes it a box again), `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
+| `add-element <id>` | `--kind <person\|system\|container\|component\|class>` (required), `--parent <id>`, `--name`, `--description`, `--technology`, `--external`, `--shape <box\|database\|queue\|folder\|document\|web-browser\|mobile-app\|desktop-app\|terminal\|server\|email\|scheduled-job>`, `--stereotype <text>` and `--member <text>` (classes only; repeat `--member` for each attribute or method), `--tag <name[=value]>`, `--notes <markdown>` or `--notes-file <path\|->` |
+| `update-element <id>` | `--name`, `--parent`, `--description`, `--technology`, `--external` / `--internal`, `--shape` (`--shape ""` makes it a box again), `--stereotype`, `--member` (replaces all of a class's members; `--member ""` removes them), `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-element <id>` | Also removes what's inside it, views scoped to them, and every reference |
 | `rename <old-id> <new-id>` | Works for elements and views; updates every reference |
-| `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--bidirectional` (`<to>` uses `<from>` too), `--notes <markdown>` or `--notes-file <path\|->` |
-| `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--bidirectional` / `--one-way`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
+| `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--kind <association\|dependency\|inheritance\|realization\|composition\|aggregation>` (between two classes; default: association), `--bidirectional` (associations only: `<to>` uses `<from>` too), `--notes <markdown>` or `--notes-file <path\|->` |
+| `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--kind` (`--kind ""` makes it an association again), `--bidirectional` / `--one-way`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
-| `add-view <id>` | `--level <landscape\|context\|container\|component\|sequence>` (required), `--scope <id>`, `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. A sequence view takes no scope, include or exclude |
+| `add-view <id>` | `--level <landscape\|context\|container\|component\|class\|sequence>` (required), `--scope <id>` (a component for a class view), `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. A sequence view takes no scope, include or exclude |
 | `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--new-elements <show\|hide>`, `--notes`, `--notes-file`. `--new-elements hide` lists the view's boxes in include, so elements added later stay out; `show` puts `*` back, excluding what it would add. Either keeps the boxes the view has now |
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
@@ -67,12 +67,12 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 
 | `op` | Fields (required in bold) |
 |---|---|
-| `add-element` | **id**, **kind**, parent, name, description, technology, external, shape, tags (`{ "owner": "payments", "pii": "" }`), notes |
-| `update-element` | **id**, name, parent, description, technology, external, shape, tags (merged into the old ones; a `null` value removes that tag), notes |
+| `add-element` | **id**, **kind**, parent, name, description, technology, external, shape, stereotype, members (a list of strings), tags (`{ "owner": "payments", "pii": "" }`), notes |
+| `update-element` | **id**, name, parent, description, technology, external, shape, stereotype, members (replaces the list), tags (merged into the old ones; a `null` value removes that tag), notes |
 | `remove-element` | **id** |
 | `rename` | **id**, **to** |
-| `add-relationship` | **from**, **to**, bidirectional, description, technology, tags, notes |
-| `update-relationship` | **from**, **to**, index, newFrom, newTo (the elements it moves to), bidirectional (`false` makes it one-way), description, technology, tags (merged, like an element's), notes |
+| `add-relationship` | **from**, **to**, kind, bidirectional, description, technology, tags, notes |
+| `update-relationship` | **from**, **to**, index, newFrom, newTo (the elements it moves to), kind, bidirectional (`false` makes it one-way), description, technology, tags (merged, like an element's), notes |
 | `remove-relationship` | **from**, **to**, index |
 | `add-view` | **id**, **level**, scope, title, description, include, exclude, notes |
 | `update-view` | **id**, title, description, include, exclude, newElements (`"show"` or `"hide"`, not with include or exclude), notes |

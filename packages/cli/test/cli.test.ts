@@ -38,14 +38,14 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 10 elements, 5 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 14 elements, 6 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
 
   it("checks the tour example cleanly too", () => {
     const dir = fileURLToPath(new URL("../../../examples/food-delivery", import.meta.url));
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: food-delivery.openarch, 21 elements, 5 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: food-delivery.openarch, 27 elements, 6 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -135,7 +135,7 @@ describe("changing", () => {
     expect(doc.views["shop-containers"].layout["orders-api"]).toEqual([0, 320]);
     expect(existsSync(join(dir, "docs/elements/checkout-api.md"))).toBe(false);
 
-    expect(cli(dir, "remove-element", "orders-api").out).toContain("removed orders-api and 3 elements inside it and view checkout-api-components");
+    expect(cli(dir, "remove-element", "orders-api").out).toContain("removed orders-api and 7 elements inside it and views checkout-api-components, order-repository-classes");
     expect(existsSync(join(dir, "docs/views/checkout-api-components.md"))).toBe(false);
     expect(cli(dir, "check").code).toBe(0);
   });
@@ -150,6 +150,32 @@ describe("changing", () => {
     expect(read(dir, "docs/views/checkout-api-components.md")).toContain('order_repository -->|"Reserves stock<br/>[gRPC]"| payment_provider');
     expect(cli(dir, "update-relationship", "web-app", "checkout-controller", "--new-to", "web-app").err).toBe("open-arch: An element can't use itself.\n");
     expect(cli(dir, "update-relationship", "--help").out).toContain("--new-from and --new-to move it");
+  });
+
+  it("adds classes with members and a stereotype, relates them by kind, and shows them in a class view", () => {
+    const dir = example();
+    const added = cli(dir, "add-element", "money", "--kind", "class", "--parent", "order-repository", "--name", "Money", "--stereotype", "value", "--member", "+amount: number", "--member", "+currency(): string");
+    expect(added).toMatchObject({ code: 0, out: expect.stringContaining("added class money\n") });
+    expect(JSON.parse(read(dir)).elements.money).toEqual({ kind: "class", name: "Money", parent: "order-repository", stereotype: "value", members: ["+amount: number", "+currency(): string"] });
+    expect(cli(dir, "add-relationship", "order", "money", "--kind", "composition", "--description", "Is priced in").code).toBe(0);
+    expect(cli(dir, "show", "money").out).toContain("  stereotype:  value\n\nMembers:\n  +amount: number\n  +currency(): string\n");
+    expect(cli(dir, "show", "order-repository-classes").out).toContain("  order -> money             (composition) Is priced in\n");
+    expect(JSON.parse(cli(dir, "show", "order", "--json").out).uses).toContainEqual({ to: "money", kind: "composition", description: "Is priced in", tags: {}, known: true });
+    expect(read(dir, "docs/views/order-repository-classes.md")).toContain("  order *-- money : Is priced in\n");
+
+    expect(cli(dir, "update-element", "money", "--member", "+cents: int").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements.money.members).toEqual(["+cents: int"]);
+    expect(cli(dir, "update-element", "money", "--member", "", "--stereotype", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements.money).toEqual({ kind: "class", name: "Money", parent: "order-repository" });
+    expect(cli(dir, "update-relationship", "order", "money", "--kind", "aggregation").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements.order.uses[1]).toEqual({ to: "money", kind: "aggregation", description: "Is priced in" });
+    expect(cli(dir, "update-relationship", "order", "money", "--kind", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements.order.uses[1]).toEqual({ to: "money", description: "Is priced in" });
+
+    expect(cli(dir, "update-element", "web-app", "--member", "+x").err).toBe("open-arch: Only classes have members, and this is a container.\n");
+    expect(cli(dir, "add-relationship", "order", "orders-db", "--kind", "inheritance").err).toContain('Only relationships between classes can be of the kind "inheritance"');
+    expect(cli(dir, "add-view", "money-classes", "--level", "class", "--scope", "order-repository").code).toBe(0);
+    expect(cli(dir, "add-view", "--help").out).toContain("a component for class views");
   });
 
   it("removes fields with empty values and hides elements from views", () => {
@@ -304,22 +330,22 @@ describe("changing", () => {
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 5', '"openarch": 1')
+      .replace('"openarch": 6', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 5, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 6, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4])("reads a version %i file, and writes it back as version 5", (version) => {
+  it.each([2, 3, 4, 5])("reads a version %i file, and writes it back as version 6", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 5', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 6', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 5,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 6,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -352,7 +378,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 5, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 6, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

@@ -19,6 +19,49 @@ export type StickyNodeData = {
 };
 export type StickyFlowNode = Node<StickyNodeData, "sticky">;
 
+/** A member with brackets is a method, as in UML; the rest are attributes. */
+export function splitMembers(members: string[]): { attributes: string[]; methods: string[] } {
+  const method = (m: string) => /\(.*\)/.test(m);
+  return { attributes: members.filter((m) => !method(m)), methods: members.filter(method) };
+}
+
+/**
+ * About how tall a class's box is drawn, from its text (see .c4-class in styles.css): for laying
+ * out boxes before they've been drawn. Its description wraps at about 30 characters a line, and a
+ * member at about 32.
+ */
+export function classHeight(e: ArchElement): number {
+  const lines = (text: string, perLine: number) => Math.max(1, Math.ceil(text.length / perLine));
+  const { attributes, methods } = splitMembers(e.members);
+  const compartment = (members: string[]) => 9 + Math.max(12, members.reduce((n, m) => n + lines(m, 32) * 16, 0));
+  const head = 16 + 20 + (e.stereotype ? 15 : 0) + (e.technology ? 15 : 0) + (e.description ? 8 + lines(e.description, 30) * 16 : 0);
+  return Math.round(head + compartment(attributes) + compartment(methods));
+}
+
+/** A class, drawn as UML draws one: its stereotype and name, then its attributes, then its methods. */
+function ClassBox({ e }: { e: ArchElement }) {
+  const { attributes, methods } = splitMembers(e.members);
+  const compartment = (lines: string[], label: string) => (
+    <div className="class-members" aria-label={label}>
+      {lines.map((m, k) => (
+        <div key={k}>{m}</div>
+      ))}
+    </div>
+  );
+  return (
+    <>
+      <div className="class-head">
+        {e.stereotype && <div className="class-stereotype">«{e.stereotype}»</div>}
+        <div className="c4-name">{e.name}</div>
+        {e.technology && <div className="c4-kind">[{e.technology}]</div>}
+        {e.description && <div className="c4-desc">{e.description}</div>}
+      </div>
+      {compartment(attributes, "Attributes")}
+      {compartment(methods, "Methods")}
+    </>
+  );
+}
+
 export function ElementNode({ id, data, selected }: NodeProps<ElementFlowNode>) {
   const e = data.element;
   const connection = useConnection();
@@ -28,12 +71,18 @@ export function ElementNode({ id, data, selected }: NodeProps<ElementFlowNode>) 
   return (
     <div className={classes.join(" ")}>
       <Handle type="target" position={Position.Top} className={dropTarget ? "handle-drop" : "handle-hidden"} isConnectableStart={false} />
-      <div className="c4-name">{e.name}</div>
-      <div className="c4-kind">
-        [{kindLabel(e)}
-        {e.technology ? `: ${e.technology}` : ""}]
-      </div>
-      {e.description && <div className="c4-desc">{e.description}</div>}
+      {e.kind === "class" ? (
+        <ClassBox e={e} />
+      ) : (
+        <>
+          <div className="c4-name">{e.name}</div>
+          <div className="c4-kind">
+            [{kindLabel(e)}
+            {e.technology ? `: ${e.technology}` : ""}]
+          </div>
+          {e.description && <div className="c4-desc">{e.description}</div>}
+        </>
+      )}
       {data.problems > 0 && (
         <div className="c4-badge" title={`${data.problems} problem${data.problems === 1 ? "" : "s"} in this element's file`}>
           {data.problems}

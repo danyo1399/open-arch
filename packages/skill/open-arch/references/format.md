@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 5)
+# The open-arch workspace (format version 6)
 
-A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers and components, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
+A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 5,
+  "openarch": 6,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -25,6 +25,23 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
       "shape": "web-browser",
       "tags": { "owner": "storefront-team", "public": "" },
       "notes": "Single-page app served from a CDN.\n\nUses feature flags for the new checkout."
+    },
+    "cart": { "kind": "component", "name": "Cart", "parent": "web-app" },
+    "cart-store": {
+      "kind": "class",
+      "name": "CartStore",
+      "parent": "cart",
+      "stereotype": "interface",
+      "members": ["+load(id: CartId): Cart", "+save(cart: Cart): void"]
+    },
+    "local-cart-store": {
+      "kind": "class",
+      "name": "LocalCartStore",
+      "parent": "cart",
+      "members": ["-key: string", "+load(id: CartId): Cart", "+save(cart: Cart): void"],
+      "uses": [
+        { "to": "cart-store", "kind": "realization" }
+      ]
     }
   },
   "views": {
@@ -56,14 +73,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `4` |
+| `openarch` | Format version, always `6` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1, 2, 3 and 4 files too, and write them back as version 5. Version 4 is the same, but without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 5 files too, and write them back as version 6. Version 5 is the same, but without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view.
 
@@ -71,16 +88,18 @@ IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elem
 
 | Field | Meaning |
 |---|---|
-| `kind` | `person`, `system`, `container` or `component` |
+| `kind` | `person`, `system`, `container`, `component` or `class` |
 | `name` | Display name |
-| `parent` | Containers: the system they belong to. Components: their container. Not used on people and systems |
+| `parent` | Containers: the system they belong to. Components: their container. Classes: their component. Not used on people and systems |
 | `description` | One sentence, shown in the box |
 | `technology` | e.g. `Node.js`, `PostgreSQL` |
 | `external` | `true` for people and systems outside your organisation |
-| `shape` | How the box is drawn (see below); without it, a box. Not used on people, who are always drawn as a person |
+| `shape` | How the box is drawn (see below); without it, a box. Not used on people, who are always drawn as a person, or classes, drawn as a class |
+| `stereotype` | Classes only: what sort of class it is, such as `interface`, `abstract` or `enum`. Drawn as «interface» above its name |
 | `tags` | Free-form facts as names and string values, e.g. `{ "owner": "payments", "repository": "github.com/example/orders" }`. A tag with the value `""` is a plain label |
 | `notes` | Longer documentation, as markdown |
-| `uses` | Relationships from this element: `to` (an element ID), `bidirectional` (`true` when `to` uses this element too), `description` (a short verb phrase, shown on the arrow), `technology`, `tags` (like an element's) and `notes` (longer documentation, as markdown) |
+| `members` | Classes only: its attributes and methods, a string each, in UML's notation, like `"+id: OrderId"` or `"+total(): Money"` (`+` public, `-` private, `#` protected, `~` package). A member with brackets is a method; the rest are attributes |
+| `uses` | Relationships from this element: `to` (an element ID), `kind` (between classes, see below; without it, an association), `bidirectional` (`true` when `to` uses this element too), `description` (a short verb phrase, shown on the arrow), `technology`, `tags` (like an element's) and `notes` (longer documentation, as markdown) |
 
 ### Shapes
 
@@ -107,6 +126,7 @@ Mermaid has only some of these, so the generated docs draw a database as a cylin
 - **system**: something that delivers value to people and is owned by one team, e.g. "Shop", or a third-party service ("Payment Provider", external).
 - **container**: something inside a system that runs or stores data on its own and is deployed separately: a web app, API, worker, database, queue, bucket.
 - **component**: a major building block inside one container, such as a module, service class or controller. Only model components when they help explain the container.
+- **class**: a class, interface or enum inside one component: C4's code level. Only model classes where a class diagram explains something tricky, as code changes far more often than the rest of the model.
 
 ### Relationships
 
@@ -114,14 +134,27 @@ A relationship can't join an element to its own parent, child or anything nested
 
 When two elements call each other, either add a relationship each way, each with its own description, or give one relationship `"bidirectional": true` when one description fits both ways ("Syncs customers with"). A relationship that goes both ways is drawn with an arrowhead at each end. Where one joins two boxes, the view draws one such arrow for every relationship between them, in either direction, rather than an arrow each way.
 
+A relationship between two classes can have a `kind`, which says what it means in UML's terms. Class views draw each kind in UML's notation, as a separate arrow from relationships of other kinds between the same two classes. Every other view draws them all as ordinary arrows.
+
+| `kind` | Means | Drawn as |
+|---|---|---|
+| `association` (the default) | The element uses `to`, as every other relationship does | A line with an arrowhead |
+| `dependency` | It depends on `to`, without keeping a reference to it | A dashed line with an open arrowhead |
+| `inheritance` | It extends `to` | A line with a hollow triangle at `to` |
+| `realization` | It implements `to`, an interface | A dashed line with a hollow triangle at `to` |
+| `composition` | It's made of `to`, which can't exist without it | A line with a filled diamond at this element |
+| `aggregation` | It holds `to`, which can exist on its own | A line with a hollow diamond at this element |
+
+Only associations go both ways. A relationship with a kind needs no description, since its kind says what it is.
+
 ## Views
 
 | Field | Meaning |
 |---|---|
 | `title` | Diagram title |
 | `description` | One sentence, shown under the title on the diagram |
-| `level` | `landscape`, `context`, `container`, `component` or `sequence` |
-| `scope` | A system for context and container views, a container for component views, none for landscape and sequence |
+| `level` | `landscape`, `context`, `container`, `component`, `class` or `sequence` |
+| `scope` | A system for context and container views, a container for component views, a component for class views, none for landscape and sequence |
 | `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence views |
 | `exclude` | IDs to hide. Not used on sequence views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
@@ -135,6 +168,7 @@ When two elements call each other, either add a relationship each way, each with
 | `context` | People and systems | The scope system, plus every person and system connected to it |
 | `container` | The scope's containers inside a frame; people and other systems outside it | The scope's containers, plus everything connected to them |
 | `component` | The scope's components inside a frame; sibling containers; people and other systems | The scope's components, plus everything connected to them |
+| `class` | The scope's classes inside a frame, drawn as UML classes with their members; classes elsewhere, as themselves; sibling components and containers; people and other systems | The scope's classes, plus everything connected to them |
 
 A `sequence` view isn't a level of detail: it shows what happens, in order, like a UML sequence diagram. Each element in its steps gets a lifeline, left to right in the order it first appears, and each step is a numbered arrow, top to bottom. A step has:
 
@@ -157,8 +191,8 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships.
-- `elements/<id>.md`: the element's details, notes, relationships (with their notes), contents and the views showing it.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships.
+- `elements/<id>.md`: the element's details, notes, members (for a class), relationships (with their notes), contents and the views showing it.
 
 Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite or delete pages with that marker, so other files in the folder are safe. Don't edit generated pages: the next change rewrites them.
 
@@ -169,7 +203,7 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `5` (or `1` to `4`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `6` (or `1` to `5`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
 | `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence view, or `steps` on another view |
 | `field-type` | error | A field has the wrong type |
@@ -180,18 +214,23 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | `level-invalid` | error | Unknown view `level` |
 | `color-invalid` | error | Unknown sticky note `color` |
 | `shape-invalid` | error | Unknown element `shape` |
-| `parent-required` | error | A container or component has no parent |
+| `relationship-kind-invalid` | error | Unknown relationship `kind` |
+| `parent-required` | error | A container, component or class has no parent |
 | `parent-not-allowed` | error | A person or system has a parent |
 | `parent-unknown` | error | `parent` isn't an element |
 | `parent-kind` | error | The parent has the wrong kind |
-| `external-ignored` | warning | `external` on a container or component |
-| `shape-ignored` | warning | `shape` on a person |
+| `external-ignored` | warning | `external` on a container, component or class |
+| `shape-ignored` | warning | `shape` on a person or class |
+| `members-ignored` | warning | `members` on something other than a class |
+| `stereotype-ignored` | warning | `stereotype` on something other than a class |
 | `relationship-unknown-target` | error | `to` isn't an element |
 | `relationship-self` | error | An element uses itself |
 | `relationship-parent-child` | error | A relationship between an element and something nested in it |
-| `relationship-description` | warning | A relationship has no description |
+| `relationship-kind-classes` | error | A relationship with a `kind` other than association doesn't join two classes |
+| `relationship-kind-bidirectional` | error | A relationship with a `kind` other than association goes both ways |
+| `relationship-description` | warning | An association has no description |
 | `relationship-duplicate` | warning | The same relationship is listed twice |
-| `view-scope-required` | error | A context, container or component view has no scope |
+| `view-scope-required` | error | A context, container, component or class view has no scope |
 | `view-scope-not-allowed` | error | A landscape view has a scope |
 | `view-scope-unknown` | error | `scope` isn't an element |
 | `view-scope-kind` | error | `scope` has the wrong kind for the level |
@@ -204,4 +243,4 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | `step-relationship-missing` | warning | The model has no relationship for a step to go along |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |
 
-The first twelve are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.
+The first thirteen are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.

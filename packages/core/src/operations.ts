@@ -11,6 +11,7 @@ import {
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
   ID_PATTERN,
+  RELATIONSHIP_KINDS,
   STICKY_COLORS,
   VIEW_LEVELS,
   type Diagnostic,
@@ -20,6 +21,7 @@ import {
   type OpenArchDocument,
   type Position,
   type RelationshipData,
+  type RelationshipKind,
   type StepData,
   type StickyColor,
   type StickyData,
@@ -40,12 +42,52 @@ export type NewElements = "show" | "hide";
 export type TagChanges = Record<string, string | null>;
 
 export type Operation =
-  | { op: "add-element"; id: string; kind: ElementKind; parent?: string; name?: string; description?: string; technology?: string; external?: boolean; shape?: ElementShape; tags?: Tags; notes?: string }
-  | { op: "update-element"; id: string; name?: string; parent?: string; description?: string | null; technology?: string | null; external?: boolean; shape?: ElementShape | null; tags?: TagChanges; notes?: string | null }
+  | {
+      op: "add-element";
+      id: string;
+      kind: ElementKind;
+      parent?: string;
+      name?: string;
+      description?: string;
+      technology?: string;
+      external?: boolean;
+      shape?: ElementShape;
+      stereotype?: string;
+      members?: string[];
+      tags?: Tags;
+      notes?: string;
+    }
+  | {
+      op: "update-element";
+      id: string;
+      name?: string;
+      parent?: string;
+      description?: string | null;
+      technology?: string | null;
+      external?: boolean;
+      shape?: ElementShape | null;
+      stereotype?: string | null;
+      members?: string[] | null;
+      tags?: TagChanges;
+      notes?: string | null;
+    }
   | { op: "remove-element"; id: string }
   | { op: "rename"; id: string; to: string }
-  | { op: "add-relationship"; from: string; to: string; bidirectional?: boolean; description?: string; technology?: string; tags?: Tags; notes?: string }
-  | { op: "update-relationship"; from: string; to: string; index?: number; newFrom?: string; newTo?: string; bidirectional?: boolean; description?: string | null; technology?: string | null; tags?: TagChanges; notes?: string | null }
+  | { op: "add-relationship"; from: string; to: string; kind?: RelationshipKind; bidirectional?: boolean; description?: string; technology?: string; tags?: Tags; notes?: string }
+  | {
+      op: "update-relationship";
+      from: string;
+      to: string;
+      index?: number;
+      newFrom?: string;
+      newTo?: string;
+      kind?: RelationshipKind | null;
+      bidirectional?: boolean;
+      description?: string | null;
+      technology?: string | null;
+      tags?: TagChanges;
+      notes?: string | null;
+    }
   | { op: "remove-relationship"; from: string; to: string; index?: number }
   | { op: "add-view"; id: string; level: ViewLevel; scope?: string; title?: string; description?: string; include?: string[]; exclude?: string[]; notes?: string }
   | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[]; newElements?: NewElements; notes?: string | null }
@@ -75,23 +117,48 @@ export class OpError extends Error {
 
 // --- Checking the shape of operations sent as JSON ----------------------------------
 
-type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "tags" | "nullable-tags" | "index" | "number" | "positions" | "point" | "nullable-point";
+type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "nullable-strings" | "tags" | "nullable-tags" | "index" | "number" | "positions" | "point" | "nullable-point";
 
 const SHAPES: Record<OperationName, { required: string[]; fields: Record<string, FieldType> }> = {
   "add-element": {
     required: ["id", "kind"],
-    fields: { id: "string", kind: "string", parent: "string", name: "string", description: "string", technology: "string", external: "boolean", shape: "string", tags: "tags", notes: "string" },
+    fields: {
+      id: "string",
+      kind: "string",
+      parent: "string",
+      name: "string",
+      description: "string",
+      technology: "string",
+      external: "boolean",
+      shape: "string",
+      stereotype: "string",
+      members: "strings",
+      tags: "tags",
+      notes: "string",
+    },
   },
   "update-element": {
     required: ["id"],
-    fields: { id: "string", name: "string", parent: "string", description: "nullable-string", technology: "nullable-string", external: "boolean", shape: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
+    fields: {
+      id: "string",
+      name: "string",
+      parent: "string",
+      description: "nullable-string",
+      technology: "nullable-string",
+      external: "boolean",
+      shape: "nullable-string",
+      stereotype: "nullable-string",
+      members: "nullable-strings",
+      tags: "nullable-tags",
+      notes: "nullable-string",
+    },
   },
   "remove-element": { required: ["id"], fields: { id: "string" } },
   rename: { required: ["id", "to"], fields: { id: "string", to: "string" } },
-  "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", bidirectional: "boolean", description: "string", technology: "string", tags: "tags", notes: "string" } },
+  "add-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", kind: "string", bidirectional: "boolean", description: "string", technology: "string", tags: "tags", notes: "string" } },
   "update-relationship": {
     required: ["from", "to"],
-    fields: { from: "string", to: "string", index: "index", newFrom: "string", newTo: "string", bidirectional: "boolean", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
+    fields: { from: "string", to: "string", index: "index", newFrom: "string", newTo: "string", kind: "nullable-string", bidirectional: "boolean", description: "nullable-string", technology: "nullable-string", tags: "nullable-tags", notes: "nullable-string" },
   },
   "remove-relationship": { required: ["from", "to"], fields: { from: "string", to: "string", index: "index" } },
   "add-view": {
@@ -135,6 +202,8 @@ function fits(type: FieldType, value: unknown): boolean {
       return typeof value === "boolean";
     case "strings":
       return Array.isArray(value) && value.every((v) => typeof v === "string");
+    case "nullable-strings":
+      return value === null || (Array.isArray(value) && value.every((v) => typeof v === "string"));
     case "tags":
       return isRecord(value) && Object.values(value).every((v) => typeof v === "string");
     case "nullable-tags":
@@ -160,6 +229,7 @@ const TYPE_TEXT: Record<FieldType, string> = {
   "nullable-string": "a string, or null to remove it",
   boolean: "true or false",
   strings: "a list of strings",
+  "nullable-strings": "a list of strings, or null to remove it",
   tags: 'an object of tag names and string values, like { "owner": "payments" }',
   "nullable-tags": 'an object of tag names and string values, like { "owner": "payments" } (null removes a tag)',
   index: "a whole number, 0 or more",
@@ -307,6 +377,7 @@ function addElement(doc: OpenArchDocument, op: Extract<Operation, { op: "add-ele
   checkParent(doc, op.kind, op.parent);
   if (op.external && PARENT_KIND[op.kind]) throw new OpError("Only people and systems can be external.");
   checkShape(op.kind, op.shape);
+  checkClassFields(op.kind, op);
   doc.elements[op.id] = clean<ElementData>({
     kind: op.kind,
     name: op.name?.trim() || titleFromId(op.id),
@@ -315,15 +386,17 @@ function addElement(doc: OpenArchDocument, op: Extract<Operation, { op: "add-ele
     technology: op.technology?.trim(),
     external: op.external || undefined,
     shape: op.shape === "box" ? undefined : op.shape,
+    stereotype: op.stereotype?.trim(),
     tags: changeTags(undefined, op.tags ?? {}),
     notes: op.notes?.trim(),
+    members: memberLines(op.members),
   });
   return `added ${op.kind} ${op.id}`;
 }
 
 function updateElement(doc: OpenArchDocument, op: Extract<Operation, { op: "update-element" }>): string {
   const e = requireElement(doc, op.id);
-  const fields = ["name", "parent", "description", "technology", "external", "shape", "tags", "notes"] as const;
+  const fields = ["name", "parent", "description", "technology", "external", "shape", "stereotype", "members", "tags", "notes"] as const;
   if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on "${op.id}": ${fields.join(", ")}.`);
   if (op.name !== undefined) {
     if (!op.name.trim()) throw new OpError("The name can't be empty.");
@@ -333,11 +406,17 @@ function updateElement(doc: OpenArchDocument, op: Extract<Operation, { op: "upda
     checkParent(doc, e.kind, op.parent);
     e.parent = op.parent;
   }
-  for (const key of ["description", "technology", "notes"] as const) {
+  checkClassFields(e.kind, { stereotype: op.stereotype || undefined, members: op.members ?? undefined });
+  for (const key of ["description", "technology", "stereotype", "notes"] as const) {
     const value = op[key];
     if (value === undefined) continue;
     if (value === null || !value.trim()) delete e[key];
     else e[key] = value.trim();
+  }
+  if (op.members !== undefined) {
+    const members = memberLines(op.members ?? undefined);
+    if (members) e.members = members;
+    else delete e.members;
   }
   if (op.external !== undefined) {
     if (op.external && PARENT_KIND[e.kind]) throw new OpError("Only people and systems can be external.");
@@ -415,13 +494,15 @@ function addRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: "ad
   const from = requireElement(doc, op.from);
   requireElement(doc, op.to);
   checkEnds(doc, op.from, op.to);
+  checkKind(op.kind);
+  const kind = op.kind === "association" ? undefined : op.kind;
   const description = op.description?.trim() || undefined;
-  if (from.uses?.some((r) => r.to === op.to && (r.description || undefined) === description)) {
+  if (from.uses?.some((r) => r.to === op.to && r.kind === kind && (r.description || undefined) === description)) {
     throw new OpError(`"${op.from}" already has this relationship to "${op.to}". Use update-relationship to change it.`);
   }
   from.uses = [
     ...(from.uses ?? []),
-    clean<RelationshipData>({ to: op.to, bidirectional: op.bidirectional || undefined, description, technology: op.technology?.trim(), tags: changeTags(undefined, op.tags ?? {}), notes: op.notes?.trim() }),
+    clean<RelationshipData>({ to: op.to, kind, bidirectional: op.bidirectional || undefined, description, technology: op.technology?.trim(), tags: changeTags(undefined, op.tags ?? {}), notes: op.notes?.trim() }),
   ];
   return `added relationship ${op.from} -> ${op.to}`;
 }
@@ -434,16 +515,22 @@ function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: 
   if (
     op.newFrom === undefined &&
     op.newTo === undefined &&
+    op.kind === undefined &&
     op.bidirectional === undefined &&
     op.description === undefined &&
     op.technology === undefined &&
     op.tags === undefined &&
     op.notes === undefined
   ) {
-    throw new OpError("Say what to change: newFrom, newTo, bidirectional, description, technology, tags or notes.");
+    throw new OpError("Say what to change: newFrom, newTo, kind, bidirectional, description, technology, tags or notes.");
   }
   const { element, position } = findRelationship(doc, op.from, op.to, op.index);
   const rel = element.uses![position]!;
+  if (op.kind !== undefined) {
+    checkKind(op.kind ?? undefined);
+    if (op.kind === null || op.kind === "association") delete rel.kind;
+    else rel.kind = op.kind;
+  }
   if (op.bidirectional === true) rel.bidirectional = true;
   else if (op.bidirectional === false) delete rel.bidirectional;
   for (const key of ["description", "technology", "notes"] as const) {
@@ -462,7 +549,7 @@ function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: 
   const source = requireElement(doc, from);
   requireElement(doc, to);
   checkEnds(doc, from, to);
-  if (source.uses?.some((r) => r !== rel && r.to === to && (r.description || undefined) === (rel.description || undefined))) {
+  if (source.uses?.some((r) => r !== rel && r.to === to && r.kind === rel.kind && (r.description || undefined) === (rel.description || undefined))) {
     throw new OpError(`"${from}" already has this relationship to "${to}".`);
   }
   rel.to = to;
@@ -488,7 +575,7 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   const scope = op.scope ? doc.elements[op.scope] : undefined;
   const title =
     op.title?.trim() ||
-    (sequence ? titleFromId(op.id) : scope ? `${scope.name} ${op.level === "context" ? "context" : op.level === "container" ? "containers" : "components"}` : "System landscape");
+    (sequence ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : "System landscape");
   doc.views[op.id] = clean<ViewData>({
     title,
     description: op.description?.trim(),
@@ -501,6 +588,16 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   });
   return `added view ${op.id}`;
 }
+
+/** What a view of a scope is called, after the scope's name, when it isn't given a title. */
+export const LEVEL_TITLE: Record<ViewLevel, string> = {
+  landscape: "landscape",
+  context: "context",
+  container: "containers",
+  component: "components",
+  class: "classes",
+  sequence: "sequence",
+};
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
   const view = requireView(doc, op.id);
@@ -786,6 +883,26 @@ function checkShape(kind: ElementKind, shape: string | null | undefined): void {
     throw new OpError(`Unknown shape "${shape}".${near ? ` Did you mean "${near}"?` : ""} Use one of: ${ELEMENT_SHAPES.join(", ")}.`);
   }
   if (kind === "person" && shape !== "box") throw new OpError("People are always drawn as a person, so they don't take a shape.");
+  if (kind === "class" && shape !== "box") throw new OpError("Classes are always drawn as a class, so they don't take a shape.");
+}
+
+/** Refuses a stereotype or members on anything but a class. */
+function checkClassFields(kind: ElementKind, fields: { stereotype?: string; members?: string[] }): void {
+  if (kind === "class") return;
+  if (fields.stereotype?.trim()) throw new OpError(`Only classes have a stereotype, and this is a ${kind}.`);
+  if (memberLines(fields.members)) throw new OpError(`Only classes have members, and this is a ${kind}.`);
+}
+
+/** A class's members, trimmed, without empty lines, or undefined when none are left. */
+function memberLines(members: string[] | undefined): string[] | undefined {
+  const lines = (members ?? []).map((m) => m.trim()).filter(Boolean);
+  return lines.length ? lines : undefined;
+}
+
+function checkKind(kind: string | undefined): void {
+  if (kind === undefined || (RELATIONSHIP_KINDS as readonly string[]).includes(kind)) return;
+  const near = suggest(kind, RELATIONSHIP_KINDS);
+  throw new OpError(`Unknown kind of relationship "${kind}".${near ? ` Did you mean "${near}"?` : ""} Use one of: ${RELATIONSHIP_KINDS.join(", ")}.`);
 }
 
 /**

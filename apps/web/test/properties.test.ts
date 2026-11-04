@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
@@ -9,7 +9,7 @@ import type { Edit } from "../src/state.js";
 import { button, checkbox, choose, click, mount, select } from "./dom.js";
 
 const doc: OpenArchDocument = {
-  openarch: 5,
+  openarch: 6,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things", notes: "Pays by **card**." }] },
@@ -180,5 +180,57 @@ describe("a step's details", () => {
     await click(button(host, "Move up"));
     expect(last.edits).toEqual([[{ op: "update-step", view: "order", step: 3, newStep: 2 }]]);
     expect(last.selected).toEqual([{ kind: "step", number: 2 }]);
+  });
+});
+
+describe("a class's details", () => {
+  const code: OpenArchDocument = {
+    ...doc,
+    elements: {
+      shop: { kind: "system", name: "Shop" },
+      api: { kind: "container", name: "API", parent: "shop" },
+      orders: { kind: "component", name: "Orders", parent: "api" },
+      order: { kind: "class", name: "Order", parent: "orders", stereotype: "entity", members: ["+id: OrderId", "+total(): Money"], uses: [{ to: "line", kind: "composition", description: "Holds" }] },
+      line: { kind: "class", name: "Order line", parent: "orders", uses: [{ to: "order", description: "Belongs to", bidirectional: true }, { to: "api", description: "Calls" }] },
+    },
+    views: { classes: { title: "Classes", level: "class", scope: "orders" } },
+  };
+
+  it("shows its stereotype and members, one per line, and no shape", () => {
+    const host = mount(panel(code, "classes", { kind: "element", id: "order" }).element);
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Stereotype"]')!.value).toBe("entity");
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Members"]')!.value).toBe("+id: OrderId\n+total(): Money");
+    expect(() => select(host, "Shape")).toThrow();
+  });
+
+  it("saves its members, a line each, and removes them all when the box is emptied", async () => {
+    const { element, edits } = panel(code, "classes", { kind: "element", id: "order" });
+    const members = mount(element).querySelector<HTMLTextAreaElement>('textarea[aria-label="Members"]')!;
+    const leave = async (text: string) => {
+      members.value = text;
+      await act(async () => void members.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    };
+    await leave("+id: OrderId\n+placedAt: Date");
+    await leave("  ");
+    expect(edits).toEqual([[{ op: "update-element", id: "order", members: ["+id: OrderId", "+placedAt: Date"] }], [{ op: "update-element", id: "order", members: null }]]);
+  });
+
+  it("gives a relationship between classes a kind, keeping its arrow selected, and one way only", async () => {
+    const arrow = panel(code, "classes", { kind: "arrow", from: "order", to: "line", relation: "composition" });
+    const host = mount(arrow.element);
+    expect(host.textContent).toContain("Composition (is made of)");
+    expect(() => checkbox(host, "Goes both ways")).toThrow();
+    await choose(select(host, "Kind"), "aggregation");
+    expect(arrow.edits).toEqual([[{ op: "update-relationship", from: "order", to: "line", index: 0, kind: "aggregation" }]]);
+    expect(arrow.selected).toEqual([{ kind: "arrow", from: "order", to: "line", relation: "aggregation" }]);
+
+    const both = panel(code, "classes", { kind: "arrow", from: "line", to: "order" });
+    await choose(select(mount(both.element), "Kind"), "inheritance");
+    expect(both.edits).toEqual([[{ op: "update-relationship", from: "line", to: "order", index: 0, kind: "inheritance", bidirectional: false }]]);
+  });
+
+  it("offers a kind only for relationships between classes", () => {
+    const host = mount(panel(code, "classes", { kind: "element", id: "line" }).element);
+    expect([...host.querySelectorAll("ul.rels li")].map((li) => !!li.querySelector("select"))).toEqual([true, false]);
   });
 });

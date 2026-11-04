@@ -20,7 +20,7 @@ You model how you use them, never what's inside them.
 
 - [1. System landscape](../views/landscape.md)
 - [4. Order API components](../views/order-api-components.md)
-- [5. Placing an order](../views/ordering-flow.md)
+- [6. Placing an order](../views/ordering-flow.md)
 - [3. Delivery Platform containers](../views/platform-containers.md)
 - [2. Delivery Platform context](../views/platform-context.md)
 

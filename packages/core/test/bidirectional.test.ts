@@ -5,7 +5,7 @@ import { apply, rules } from "./helpers.js";
 /** We publish content to a CMS, and it calls us back. The API has a component that does the calling. */
 function site(): OpenArchDocument {
   return {
-    openarch: 5,
+    openarch: 6,
     name: "Site",
     elements: {
       site: { kind: "system", name: "Site" },
@@ -46,6 +46,7 @@ describe("relationships that go both ways", () => {
         to: "cms",
         description: "Syncs pages with; Sends webhooks to",
         technology: "HTTPS",
+        kind: "association",
         implied: true,
         bidirectional: true,
         sources: [
@@ -109,6 +110,6 @@ describe("relationships that go both ways", () => {
   it("are upgraded from version 4 files, which mean the same", () => {
     const result = parseDocument(JSON.stringify({ ...site(), openarch: 4 }));
     expect(result.diagnostics).toEqual([]);
-    expect(applyOperations(result.doc, [{ op: "update-workspace", name: "Site 2" }]).doc.openarch).toBe(5);
+    expect(applyOperations(result.doc, [{ op: "update-workspace", name: "Site 2" }]).doc.openarch).toBe(6);
   });
 });

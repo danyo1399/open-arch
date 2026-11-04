@@ -8,6 +8,7 @@ An online shop, used as the open-arch example.
 
 - [Checkout API components](views/checkout-api-components.md) – How a checkout request is handled.
 - [System landscape](views/landscape.md) – Every person and system, and how they connect.
+- [Order Repository classes](views/order-repository-classes.md) – The classes that store orders, and how they fit together.
 - [Placing an order](views/place-order.md) – What happens, in order, when a customer places an order.
 - [Shop containers](views/shop-containers.md) – What runs inside the shop.
 - [Shop context](views/shop-context.md) – Who uses the shop, and which systems it depends on.
@@ -20,6 +21,10 @@ An online shop, used as the open-arch example.
   - [Checkout API](elements/checkout-api.md) (container, Node.js) – Validates carts, reserves stock and takes payment.
     - [Checkout Controller](elements/checkout-controller.md) (component, Express) – Handles checkout requests from the web app.
     - [Order Repository](elements/order-repository.md) (component, TypeScript) – Reads and writes orders.
+      - [Order](elements/order.md) (class)
+      - [OrderLine](elements/order-line.md) (class)
+      - [Orders](elements/orders.md) (class) – What the rest of the API needs from a store of orders.
+      - [PostgresOrders](elements/postgres-orders.md) (class) – Keeps orders in the Orders DB.
     - [Payment Client](elements/payment-client.md) (component, TypeScript) – Wraps the payment provider's API.
   - [Orders DB](elements/orders-db.md) (container, PostgreSQL) – Stores orders and their status.
   - [Web App](elements/web-app.md) (container, React) – The storefront customers use.

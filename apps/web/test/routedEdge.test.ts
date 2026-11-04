@@ -78,6 +78,12 @@ describe("labelLines", () => {
     expect(labelSizes({ implied: false } as ViewEdge, estimateLabel)).not.toEqual([]);
   });
 
+  it("leaves the description out of an arrow of a kind other than association, whose ends say what it is", () => {
+    expect(labelLines({ implied: false, kind: "realization" })).toEqual([]);
+    expect(labelLines({ description: "Creates", implied: false, kind: "dependency" })).toEqual([{ text: "Creates" }]);
+    expect(labelLines({ implied: false, kind: "association" })).toEqual([{ text: NO_DESCRIPTION, className: "arrow-missing" }]);
+  });
+
   it("leaves the description out of an implied arrow that has none", () => {
     expect(labelLines({ implied: true })).toEqual([]);
     expect(labelLines({ technology: "HTTPS", implied: true })).toEqual([{ text: "[HTTPS]", className: "arrow-tech" }]);

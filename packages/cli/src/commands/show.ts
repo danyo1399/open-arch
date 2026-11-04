@@ -10,6 +10,7 @@ import {
   type ComputedView,
   type NewElements,
   type Relationship,
+  type RelationshipKind,
   type Tags,
   type TreeNode,
   type ViewDef,
@@ -40,13 +41,15 @@ export function show(io: Io, opts: ShowOptions): number {
       ...summary(element),
       description: element.description,
       shape: element.shape === "box" ? undefined : element.shape,
+      stereotype: element.stereotype,
+      members: element.kind === "class" ? element.members : undefined,
       tags: element.tags,
       notes: element.notes,
       children: d.children.map((c) => c.id),
-      uses: d.uses.map(({ rel, target }) => ({ to: rel.to, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes, known: !!target })),
-      usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes })),
-      contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
-      contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
+      uses: d.uses.map(({ rel, target }) => ({ to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes, known: !!target })),
+      usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes })),
+      contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
+      contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
       views: d.views.map(({ view, as }) => ({ id: view.id, as })),
     };
     const lines = [`${element.id}: ${element.name}`];
@@ -56,6 +59,8 @@ export function show(io: Io, opts: ShowOptions): number {
     field("technology", element.technology);
     field("description", element.description);
     field("shape", element.shape === "box" ? undefined : element.shape);
+    field("stereotype", element.stereotype);
+    if (element.members.length) lines.push("", "Members:", ...element.members.map((m) => `  ${m}`));
     const tags = tagEntries(element.tags);
     if (tags.length) lines.push("", "Tags:", ...table(tags.map(([name, value]) => [`  ${name}`, value])));
     if (element.notes) lines.push("", "Notes:", ...indented(element.notes, "  "));
@@ -96,7 +101,7 @@ export function show(io: Io, opts: ShowOptions): number {
       notes: view.notes,
       frame: cv.boundary?.id,
       boxes: cv.nodes.map(summary),
-      arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, bidirectional: e.bidirectional || undefined, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
+      arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, kind: kindOf(e), bidirectional: e.bidirectional || undefined, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
       stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
     };
     const scope = cv.boundary ?? (view.scope ? ws.elements.get(view.scope) : undefined);
@@ -232,14 +237,19 @@ function row(e: ArchElement): string[] {
   return [`  ${e.id}`, e.external ? `${e.kind} (external)` : e.kind, e.technology ? `${e.name} [${e.technology}]` : e.name];
 }
 
+/** A relationship's or arrow's kind for JSON, left out for an association, which is what every one is unless it says. */
+const kindOf = (r: { kind: RelationshipKind }) => (r.kind === "association" ? undefined : r.kind);
+
 /** A relationship as "from -> to", or "from <-> to" when it goes both ways. */
 function arrow(from: string, rel: Relationship): string {
   return `${from} ${rel.bidirectional ? "<->" : "->"} ${rel.to}`;
 }
 
-function relLabel(r: { description?: string; technology?: string; tags?: Tags; bidirectional?: boolean }): string {
+function relLabel(r: { description?: string; technology?: string; tags?: Tags; bidirectional?: boolean; kind?: RelationshipKind }): string {
   const tags = r.tags && tagText(r.tags);
-  return [r.description ?? "(no description)", r.technology ? `[${r.technology}]` : "", r.bidirectional ? "(both ways)" : "", tags ? `(tags: ${tags})` : ""].filter(Boolean).join(" ");
+  // A relationship of another kind than association needs no description: its kind says what it is.
+  const kind = r.kind && r.kind !== "association" ? `(${r.kind})` : "";
+  return [kind, r.description ?? (kind ? "" : "(no description)"), r.technology ? `[${r.technology}]` : "", r.bidirectional ? "(both ways)" : "", tags ? `(tags: ${tags})` : ""].filter(Boolean).join(" ");
 }
 
 /** Multi-line text, each line indented. */

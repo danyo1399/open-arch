@@ -2,13 +2,14 @@
 
 # Food Delivery
 
-A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 5 in order: each zooms in one step, and its sticky notes explain what you're looking at.
+A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 6 in order: views 1 to 5 each zoom in one step, and their sticky notes explain what you're looking at.
 
 ## Views
 
 - [1. System landscape](views/landscape.md) – Every person and system in the business, and how they connect.
 - [4. Order API components](views/order-api-components.md) – How the Order API handles an order.
-- [5. Placing an order](views/ordering-flow.md) – Only what's involved when a customer places an order.
+- [5. Order Service classes](views/order-service-classes.md) – The code inside the Order Service: its classes, and how they relate.
+- [6. Placing an order](views/ordering-flow.md) – Only what's involved when a customer places an order.
 - [3. Delivery Platform containers](views/platform-containers.md) – The apps, services and data stores that make up the Delivery Platform.
 - [2. Delivery Platform context](views/platform-context.md) – Who uses the Delivery Platform, and which systems it depends on.
 
@@ -27,6 +28,12 @@ A guided tour of the C4 model, using a made-up food delivery business. Open view
     - [Order Repository](elements/order-repository.md) (component, TypeScript) – Reads and writes orders.
     - [Order Routes](elements/order-routes.md) (component, Express) – Receives requests from the apps, the portal and the support desk.
     - [Order Service](elements/order-service.md) (component, TypeScript) – Applies the ordering rules: prices, payment and each order's status.
+      - [DeliveryFee](elements/delivery-fee.md) (class) – Charges more the further the courier rides.
+      - [Order](elements/order.md) (class) – One customer's order, from placing it to delivery.
+      - [OrderLine](elements/order-line.md) (class) – A dish and how many of it.
+      - [OrderStatus](elements/order-status.md) (class)
+      - [PlaceOrder](elements/place-order.md) (class) – Turns a customer's request into a priced order.
+      - [PricingRule](elements/pricing-rule.md) (class) – One way an order's price is worked out.
     - [Payment Gateway](elements/payment-gateway.md) (component, TypeScript) – Wraps the payment provider's API.
   - [Order Events](elements/order-events.md) (container, Kafka) – Carries events like order-placed and order-ready.
   - [Orders Database](elements/orders-db.md) (container, PostgreSQL) – Stores orders, menus and deliveries.

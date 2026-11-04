@@ -1,4 +1,4 @@
-import { SCOPE_KIND, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
+import { LEVEL_TITLE, SCOPE_KIND, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
 import { deletePlan, idFromName, uniqueId } from "../model.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -69,6 +69,7 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   context: "Context: one system and what it connects to",
   container: "Container: the parts of one system",
   component: "Component: the parts of one container",
+  class: "Class: the code inside one component",
   sequence: "Sequence: steps between elements, in order",
 };
 
@@ -80,12 +81,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
   const scopeId = scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
   // A sequence has no scope to name it after, so it needs a title.
-  const defaultTitle =
-    level === "sequence"
-      ? undefined
-      : scopeName
-        ? `${scopeName} ${level === "context" ? "context" : level === "container" ? "containers" : "components"}`
-        : "System landscape";
+  const defaultTitle = level === "sequence" ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
   const [title, setTitle] = useState("");
   const finalTitle = title.trim() || defaultTitle;
   const canCreate = !!finalTitle && (!scopeKind || !!scopeId);
@@ -139,6 +135,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
         <span className="field-label">Title</span>
         <input value={title} placeholder={defaultTitle ?? "e.g. Placing an order"} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
+      {level === "class" && <p className="muted small">A class view draws the component's classes as a UML class diagram, with their attributes and methods, and how they relate.</p>}
       {level === "sequence" && <p className="muted small">Give it a title. A sequence shows what happens, step by step: who calls whom, and who answers. Each step goes along a relationship in the model.</p>}
     </Modal>
   );

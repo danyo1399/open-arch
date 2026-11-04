@@ -1,8 +1,9 @@
-export const ELEMENT_KINDS = ["person", "system", "container", "component"] as const;
+/** C4's four levels of detail, people aside: a class is code inside a component. */
+export const ELEMENT_KINDS = ["person", "system", "container", "component", "class"] as const;
 export type ElementKind = (typeof ELEMENT_KINDS)[number];
 
 /** A sequence view isn't a C4 level of detail: it draws steps between elements, in order. */
-export const VIEW_LEVELS = ["landscape", "context", "container", "component", "sequence"] as const;
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -41,13 +42,36 @@ export const SHAPE_LABELS: Record<ElementShape, string> = {
   "scheduled-job": "Scheduled job",
 };
 
+/**
+ * What a relationship means on a class diagram, in UML's terms. Association, the default, is
+ * what every relationship is elsewhere: the element uses the other one. The rest are only
+ * between classes:
+ * - dependency: it depends on the other class, without keeping a reference to it
+ * - inheritance: it extends the other class
+ * - realization: it implements the other class, an interface
+ * - composition: it's made of the other class, which can't exist without it
+ * - aggregation: it holds the other class, which can exist on its own
+ */
+export const RELATIONSHIP_KINDS = ["association", "dependency", "inheritance", "realization", "composition", "aggregation"] as const;
+export type RelationshipKind = (typeof RELATIONSHIP_KINDS)[number];
+
+/** Each kind of relationship, as the designer lists it. */
+export const RELATIONSHIP_KIND_LABELS: Record<RelationshipKind, string> = {
+  association: "Association (uses)",
+  dependency: "Dependency (depends on)",
+  inheritance: "Inheritance (extends)",
+  realization: "Realization (implements)",
+  composition: "Composition (is made of)",
+  aggregation: "Aggregation (holds)",
+};
+
 /** Name/value pairs. A tag can have an empty value, which makes it a plain label. */
 export type Tags = Record<string, string>;
 
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 5;
+export const FORMAT_VERSION = 6;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -72,17 +96,26 @@ export interface ElementData {
   description?: string;
   technology?: string;
   external?: boolean;
-  /** Default: box. Not used on people. */
+  /** Default: box. Not used on people or classes. */
   shape?: ElementShape;
+  /** Classes only: what sort of class it is, e.g. interface, abstract or enum. Drawn as «interface». */
+  stereotype?: string;
   /** Free-form facts, e.g. owner or repository. */
   tags?: Tags;
   /** Longer documentation, as markdown. */
   notes?: string;
+  /**
+   * Classes only: its attributes and methods, one per line, in UML's notation, like
+   * "+id: OrderId" or "+total(): Money". A line with brackets is a method.
+   */
+  members?: string[];
   uses?: RelationshipData[];
 }
 
 export interface RelationshipData {
   to: string;
+  /** Default: association. The other kinds are only between classes. */
+  kind?: RelationshipKind;
   /** True when it goes both ways: `to` uses the element too. Drawn with an arrowhead at each end. */
   bidirectional?: boolean;
   description?: string;
@@ -140,6 +173,7 @@ export interface StickyData {
 
 export interface Relationship {
   to: string;
+  kind: RelationshipKind;
   bidirectional: boolean;
   description?: string;
   technology?: string;
@@ -159,10 +193,14 @@ export interface ArchElement {
   description?: string;
   technology?: string;
   external: boolean;
-  /** Always "box" for people: they're drawn as a person, whatever the file says. */
+  /** Always "box" for people and classes: they're drawn as a person or a class, whatever the file says. */
   shape: ElementShape;
+  /** Classes only. */
+  stereotype?: string;
   tags: Tags;
   notes?: string;
+  /** Classes only; empty on other elements. */
+  members: string[];
   uses: Relationship[];
 }
 

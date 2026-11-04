@@ -8,6 +8,15 @@ Applies the ordering rules: prices, payment and each order's status.
 
 **A component** is a big building block inside one container, such as a module, a service or a set of classes.
 
+## Contains
+
+- [DeliveryFee](delivery-fee.md) (class) – Charges more the further the courier rides.
+- [Order](order.md) (class) – One customer's order, from placing it to delivery.
+- [OrderLine](order-line.md) (class) – A dish and how many of it.
+- [OrderStatus](order-status.md) (class)
+- [PlaceOrder](place-order.md) (class) – Turns a customer's request into a priced order.
+- [PricingRule](pricing-rule.md) (class) – One way an order's price is worked out.
+
 ## Uses
 
 | Element | Description | Technology |
@@ -25,5 +34,6 @@ Applies the ordering rules: prices, payment and each order's status.
 ## Shown in
 
 - [4. Order API components](../views/order-api-components.md)
+- [5. Order Service classes](../views/order-service-classes.md) (as the frame)
 
 [All views and elements](../README.md)

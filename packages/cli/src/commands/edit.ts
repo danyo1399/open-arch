@@ -94,6 +94,12 @@ function tags(v: Values): TagChanges | undefined {
   return out.size ? Object.fromEntries(out) : undefined;
 }
 
+/** A class's members, from `--member` repeated; `--member ""` on its own means "remove them". */
+function members(v: Values): string[] | null | undefined {
+  if (!Array.isArray(v.member)) return undefined;
+  return v.member.every((m) => m.trim() === "") ? null : v.member;
+}
+
 function notes(io: Io, v: Values): string | null | undefined {
   const file = text(v["notes-file"]);
   if (file === undefined) return clearable(v.notes);
@@ -134,7 +140,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-element": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const kind = text(v.kind);
-    if (!kind) throw new CliError(`Pass --kind: person, system, container or component.\n\n${usage}`, 2);
+    if (!kind) throw new CliError(`Pass --kind: person, system, container, component or class.\n\n${usage}`, 2);
     return [
       {
         op: "add-element",
@@ -146,6 +152,8 @@ export const BUILDERS: Record<string, Builder> = {
         technology: text(v.technology),
         external: v.external === true || undefined,
         shape: text(v.shape) as never,
+        stereotype: text(v.stereotype),
+        members: members(v) ?? undefined,
         tags: tags(v) as Tags | undefined,
         notes: notes(io, v) ?? undefined,
       },
@@ -164,6 +172,8 @@ export const BUILDERS: Record<string, Builder> = {
         technology: clearable(v.technology),
         external: v.external === true ? true : v.internal === true ? false : undefined,
         shape: clearable(v.shape) as never,
+        stereotype: clearable(v.stereotype),
+        members: members(v),
         tags: tags(v),
         notes: notes(io, v),
       },
@@ -181,6 +191,7 @@ export const BUILDERS: Record<string, Builder> = {
         op: "add-relationship",
         from: from!,
         to: to!,
+        kind: text(v.kind) as never,
         bidirectional: v.bidirectional === true || undefined,
         description: text(v.description),
         technology: text(v.technology),
@@ -200,6 +211,7 @@ export const BUILDERS: Record<string, Builder> = {
         index: index(v.index),
         newFrom: text(v["new-from"]),
         newTo: text(v["new-to"]),
+        kind: clearable(v.kind) as never,
         bidirectional: v.bidirectional === true ? true : v["one-way"] === true ? false : undefined,
         description: clearable(v.description),
         technology: clearable(v.technology),
@@ -215,7 +227,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container, component or sequence.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class or sequence.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",

@@ -1,9 +1,25 @@
 /** Small questions about the model that the designer's UI asks. */
-import { computeAllViews, describeElement, isInside, VIEW_LEVELS, type ArchElement, type ComputedView, type ElementData, type Operation, type Relationship, type Step, type Sticky, type ViewData, type ViewDef, type Workspace } from "@open-arch/core";
+import {
+  computeAllViews,
+  describeElement,
+  isInside,
+  VIEW_LEVELS,
+  type ArchElement,
+  type ComputedView,
+  type ElementData,
+  type Operation,
+  type Relationship,
+  type RelationshipKind,
+  type Step,
+  type Sticky,
+  type ViewData,
+  type ViewDef,
+  type Workspace,
+} from "@open-arch/core";
 import type { Selection } from "./canvas/Canvas.js";
 
 /** IDs the designer gives new elements before they have a name. */
-export const PLACEHOLDER_ID = /^new-(person|system|container|component)(-\d+)?$/;
+export const PLACEHOLDER_ID = /^new-(person|system|container|component|class)(-\d+)?$/;
 
 /** `base`, or `base-2`, `base-3`, ... whichever isn't taken by an element or view other than `self`. */
 export function uniqueId(ws: Workspace, base: string, self?: string): string {
@@ -36,7 +52,7 @@ export function byName(a: ArchElement, b: ArchElement): number {
   return a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
-/** How the Views list is sorted: by title, or by level, from landscape down to component, and then by title. */
+/** How the Views list is sorted: by title, or by level, from landscape down to class, and then by title. */
 export type ViewOrder = "name" | "level";
 
 /** The Views list: the pinned views, then the rest, each in `order`. Views with the same title go by ID. */
@@ -70,13 +86,21 @@ export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; 
 /** Whether a view can draw this element as its own box (rather than as the system or container around it). */
 function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boolean {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  // A class view's scope is a component: the container and system it's in.
+  const container = view.level === "class" && scope?.parent ? ws.elements.get(scope.parent) : undefined;
   if (element.kind === "person" || element.kind === "system") {
     // The frame's own system has no box of its own.
-    const frameSystem = view.level === "container" ? scope?.id : view.level === "component" ? scope?.parent : undefined;
+    const frameSystem = view.level === "container" ? scope?.id : view.level === "component" ? scope?.parent : view.level === "class" ? container?.parent : undefined;
     return element.id !== frameSystem;
   }
   if (view.level === "container") return element.parent === scope?.id;
   if (view.level === "component") return element.parent === scope?.id || (element.kind === "container" && element.parent === scope?.parent && element.id !== scope?.id);
+  if (view.level === "class") {
+    // A class anywhere is drawn as itself; other components of its container, and other containers of its system, as boxes.
+    if (element.kind === "class") return true;
+    if (element.kind === "component") return element.parent === container?.id && element.id !== scope?.id;
+    return element.kind === "container" && element.parent === container?.parent && element.id !== container?.id;
+  }
   return false;
 }
 
@@ -93,22 +117,38 @@ export function viewAction(ws: Workspace, view: ViewDef | null, computed: Comput
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
 
-/** Whether an arrow is the one between these boxes: one that goes both ways is, from either end. */
-export function isArrow(edge: { from: string; to: string; bidirectional: boolean }, from: string, to: string): boolean {
+/**
+ * Whether an arrow is the one between these boxes, of this kind: one that goes both ways is, from
+ * either end. Only a class view has arrows of kinds other than association, the default, and draws
+ * one for each kind of relationship between two boxes.
+ */
+export function isArrow(edge: { from: string; to: string; bidirectional: boolean; kind: RelationshipKind }, from: string, to: string, relation: RelationshipKind = "association"): boolean {
+  if (edge.kind !== relation) return false;
   return (edge.from === from && edge.to === to) || (edge.bidirectional && edge.from === to && edge.to === from);
 }
 
-/** The arrow between these boxes, if the view draws one. */
-export function findArrow(computed: ComputedView | null, from: string, to: string) {
-  return computed?.edges.find((e) => isArrow(e, from, to));
+/** The arrow between these boxes, of this kind, if the view draws one. */
+export function findArrow(computed: ComputedView | null, from: string, to: string, relation?: RelationshipKind) {
+  return computed?.edges.find((e) => isArrow(e, from, to, relation));
+}
+
+/** What an arrow's selection says about its kind: nothing for an association, which most are, so their selections stay as they were. */
+export function arrowRelation(edge: { kind: RelationshipKind }): { relation?: RelationshipKind } {
+  return edge.kind === "association" ? {} : { relation: edge.kind };
 }
 
 /**
  * The relationships an arrow draws, in the order its details list them, each with the element it's
  * on and how operations name it: none when the view doesn't draw the arrow.
  */
-export function arrowRelationships(ws: Workspace, computed: ComputedView | null, from: string, to: string): { element: ArchElement; rel: Relationship; ref: ReturnType<typeof relationshipRef> }[] {
-  const edge = findArrow(computed, from, to);
+export function arrowRelationships(
+  ws: Workspace,
+  computed: ComputedView | null,
+  from: string,
+  to: string,
+  relation?: RelationshipKind,
+): { element: ArchElement; rel: Relationship; ref: ReturnType<typeof relationshipRef> }[] {
+  const edge = findArrow(computed, from, to, relation);
   return (edge?.sources ?? []).flatMap(({ element, index }) => {
     const source = ws.elements.get(element);
     const rel = source?.uses[index];
@@ -130,9 +170,9 @@ export interface ArrowRemoval {
  * details list them. Each label says which relationship it removes: its technology tells apart
  * ones with the same description, or none, and a number those that would still read the same.
  */
-export function arrowRemovals(ws: Workspace, computed: ComputedView | null, from: string, to: string): ArrowRemoval[] {
+export function arrowRemovals(ws: Workspace, computed: ComputedView | null, from: string, to: string, relation?: RelationshipKind): ArrowRemoval[] {
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
-  const items = arrowRelationships(ws, computed, from, to).map(({ element, rel, ref }) => {
+  const items = arrowRelationships(ws, computed, from, to, relation).map(({ element, rel, ref }) => {
     const ends = `${element.name} ${rel.bidirectional ? "↔" : "→"} ${name(rel.to)}`;
     const detail = rel.description && rel.technology ? `${rel.description} [${rel.technology}]` : (rel.description ?? rel.technology);
     return { ends, label: detail ? `${ends}: ${detail}` : ends, ops: [{ op: "remove-relationship", ...ref } as Operation] };
@@ -154,8 +194,8 @@ export function arrowRemovals(ws: Workspace, computed: ComputedView | null, from
  * what's inside the boxes, or one the view doesn't draw. The last go first, so earlier ones keep
  * their place.
  */
-export function arrowDeleteOps(ws: Workspace, computed: ComputedView | null, from: string, to: string): Operation[] {
-  const edge = findArrow(computed, from, to);
+export function arrowDeleteOps(ws: Workspace, computed: ComputedView | null, from: string, to: string, relation?: RelationshipKind): Operation[] {
+  const edge = findArrow(computed, from, to, relation);
   if (!edge || edge.implied) return [];
   const joins = (s: { element: string; index: number }, a: string, b: string) => s.element === a && ws.elements.get(s.element)?.uses[s.index]?.to === b;
   return edge.sources
@@ -166,7 +206,7 @@ export function arrowDeleteOps(ws: Workspace, computed: ComputedView | null, fro
 
 export interface Usages {
   /** Relationships to the element or to something inside it, each with an arrow that draws it, if any view does. */
-  relationships: { from: ArchElement; rel: Relationship; arrow?: { view: string; from: string; to: string } }[];
+  relationships: { from: ArchElement; rel: Relationship; arrow?: { view: string; from: string; to: string; relation?: RelationshipKind } }[];
   /** Views that draw the element, as a box or as the frame around the view, by title. */
   views: { view: ViewDef; as: "box" | "frame" }[];
 }
@@ -179,7 +219,7 @@ export function findUsages(ws: Workspace, id: string, preferView?: string): Usag
   const arrowFor = (from: string, index: number) => {
     for (const cv of computed) {
       const edge = cv.edges.find((e) => e.sources.some((s) => s.element === from && s.index === index));
-      if (edge) return { view: cv.view.id, from: edge.from, to: edge.to };
+      if (edge) return { view: cv.view.id, from: edge.from, to: edge.to, ...arrowRelation(edge) };
     }
     return undefined;
   };
@@ -227,7 +267,7 @@ export function toggleShape(selection: Selection, boxes: ReadonlySet<string>, sh
 /** What the details panel shows. */
 export type Shown =
   | { kind: "element"; element: ArchElement }
-  | { kind: "arrow"; from: string; to: string }
+  | { kind: "arrow"; from: string; to: string; relation?: RelationshipKind }
   | { kind: "sticky"; view: ViewDef; sticky: Sticky }
   | { kind: "step"; view: ViewDef; step: Step }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }

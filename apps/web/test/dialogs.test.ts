@@ -6,7 +6,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { button, choose, click, key, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 5,
+  openarch: 6,
   name: "Shop",
   elements: { customer: { kind: "person", name: "Customer" }, shop: { kind: "system", name: "Shop" } },
   views: {},
@@ -43,6 +43,19 @@ describe("NewViewDialog", () => {
     expect(title.placeholder).toBe("System landscape");
     await key(title, "Enter");
     expect(created).toEqual([{ op: { op: "add-view", id: "system-landscape", level: "landscape", scope: undefined, title: "System landscape" }, id: "system-landscape" }]);
+  });
+
+  it("makes a class view of a component, named after it", async () => {
+    const model: OpenArchDocument = {
+      ...shop,
+      elements: { ...shop.elements, api: { kind: "container", name: "API", parent: "shop" }, orders: { kind: "component", name: "Orders", parent: "api" } },
+    };
+    const { host, created, level, title } = dialog(model);
+    await choose(level, "class");
+    expect(host.textContent).toContain("Of which component");
+    expect(title.placeholder).toBe("Orders classes");
+    await key(title, "Enter");
+    expect(created).toEqual([{ op: { op: "add-view", id: "orders-classes", level: "class", scope: "orders", title: "Orders classes" }, id: "orders-classes" }]);
   });
 
   it("creates nothing when the level needs a scope the model doesn't have", async () => {

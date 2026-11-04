@@ -9,7 +9,7 @@ import { button, checkbox, choose, click, mount, press, select } from "./dom.js"
 
 /** A shop whose web app calls a controller inside its API, and a mail system nothing uses. */
 const shop: OpenArchDocument = {
-  openarch: 5,
+  openarch: 6,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web-app", description: "Buys things" }] },

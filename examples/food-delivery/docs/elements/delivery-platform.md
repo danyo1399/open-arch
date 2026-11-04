@@ -29,7 +29,7 @@ This is the system the example looks inside: its containers are in view 3, and t
 ## Shown in
 
 - [1. System landscape](../views/landscape.md)
-- [5. Placing an order](../views/ordering-flow.md) (as the frame)
+- [6. Placing an order](../views/ordering-flow.md) (as the frame)
 - [3. Delivery Platform containers](../views/platform-containers.md) (as the frame)
 - [2. Delivery Platform context](../views/platform-context.md)
 

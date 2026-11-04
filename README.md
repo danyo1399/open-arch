@@ -2,14 +2,14 @@
 
 An architecture model (C4) that people and AI agents can both read and change safely.
 
-- **One file:** the whole model lives in a `.openarch` file, JSON with a canonical layout: people, systems, containers and components, keyed by ID, each with its relationships (one way, or both ways), notes, shape and tags (name/value facts like an owner), plus views (diagrams) with their saved box positions. Elements, relationships and views each have a one-line description, shown on the diagram, and markdown notes for longer documentation.
-- **Views are computed:** a view picks elements from the shared model, and the boxes and arrows are worked out from it, including relationships implied by nested elements. A sequence view shows what happens in order instead: numbered steps between elements, each going along a relationship in the model. A view can also carry sticky notes: text for the people reading that diagram, which isn't part of the model.
+- **One file:** the whole model lives in a `.openarch` file, JSON with a canonical layout: people, systems, containers, components and classes, keyed by ID, each with its relationships (one way, or both ways), notes, shape and tags (name/value facts like an owner), plus views (diagrams) with their saved box positions. Elements, relationships and views each have a one-line description, shown on the diagram, and markdown notes for longer documentation.
+- **Views are computed:** a view picks elements from the shared model, and the boxes and arrows are worked out from it, including relationships implied by nested elements. A class view draws the classes inside one component as a UML class diagram, with their attributes and methods. A sequence view shows what happens in order instead: numbered steps between elements, each going along a relationship in the model. A view can also carry sticky notes: text for the people reading that diagram, which isn't part of the model.
 - **Docs are generated:** markdown pages with Mermaid diagrams (an index, a page per element and per view) are generated from the model for people to read, on GitHub or anywhere else.
 - **Changes are checked:** people change the model in the designer and agents change it with `open-arch` commands. Both go through the same validated operations, so a change that would break the model is refused and nothing is saved.
 
 Try the designer in your browser at <https://danyo1399.github.io/open-arch/>, with nothing to install.
 
-See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.openarch) and the [docs generated from it](examples/shop/docs/README.md), including a [sequence view](examples/shop/docs/views/place-order.md) of an order being placed. New to architecture diagrams? [`examples/food-delivery`](examples/food-delivery) is a guided tour of the C4 model: five views of a made-up food delivery business that zoom in one step at a time, with sticky notes explaining what each one shows ([docs](examples/food-delivery/docs/README.md)). The designer opens it with **Take the tour**. The [skill](packages/skill/open-arch/SKILL.md) explains the commands and the [format reference](packages/skill/open-arch/references/format.md) the file.
+See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.openarch) and the [docs generated from it](examples/shop/docs/README.md), including a [sequence view](examples/shop/docs/views/place-order.md) of an order being placed and a [class view](examples/shop/docs/views/order-repository-classes.md) of the code that stores orders. New to architecture diagrams? [`examples/food-delivery`](examples/food-delivery) is a guided tour of the C4 model: views of a made-up food delivery business that zoom in one step at a time, from the whole business down to the code, with sticky notes explaining what each one shows ([docs](examples/food-delivery/docs/README.md)). The designer opens it with **Take the tour**. The [skill](packages/skill/open-arch/SKILL.md) explains the commands and the [format reference](packages/skill/open-arch/references/format.md) the file.
 
 ## Packages
 
@@ -51,6 +51,12 @@ A new view shows everything in its scope, and elements added to the model later 
 ### Sequence views
 
 A sequence view shows what happens, in order: a lifeline for each element in it, and each step as a numbered arrow from one to another. Make one with **+ New view** and the **Sequence** level, and give it a title. Drag from one lifeline to another to add a step where you drop it, or use **+ Add step** to pick any element and one it uses. A step has to go along a relationship in the model, from the element or something inside it, or one that goes both ways. When there isn't one, dropping the step offers to add it, one way or both ways, or to make a relationship the other way go both ways. Or the step can be a reply back along that relationship, drawn dashed. **+ Add step** can add the relationship too. Select a step to describe it, move it up or down, or delete it. A call without a description shows its relationship's.
+
+### Class views
+
+A class view draws the code inside one component, C4's fourth level, as a UML class diagram. Make one with **+ New view** and the **Class** level, and pick the component. **+ Add** adds a class to it. Each class box shows its stereotype, such as «interface», its name, its attributes, and then its methods: in its details, type its **Members** one per line, in UML's notation (`+id: OrderId`, `+total(): Money`). A line with brackets is a method.
+
+Drag from the dot under a class to another to relate them, then pick the relationship's **Kind**: an association (uses, the default), a dependency (a dashed open arrow), inheritance (a hollow triangle), realization of an interface (a dashed hollow triangle), composition (a filled diamond at the whole) or aggregation (a hollow diamond). Each kind is its own arrow. Other views draw a class as the component it's in, and its relationships as ordinary arrows.
 
 ### Exporting one view
 

@@ -3,7 +3,7 @@
  * markdown viewers show a diagram without open-arch.
  */
 import { kindLabel } from "./model.js";
-import type { ArchElement } from "./types.js";
+import type { ArchElement, RelationshipKind } from "./types.js";
 import type { ComputedView } from "./views.js";
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
@@ -22,6 +22,9 @@ const SEQUENCE_RESERVED = new Set([
   "rect", "critical", "break", "end", "box", "title", "link", "links", "properties", "details", "create", "destroy", "off",
 ]);
 
+/** Words a class diagram reads as keywords, beyond those in RESERVED. */
+const CLASS_RESERVED = new Set(["note", "namespace", "link", "callback"]);
+
 /** Mermaid node ID for an element ID: kebab-case becomes snake_case, which Mermaid parses safely. */
 export function mermaidId(id: string): string {
   const out = id.replace(/-/g, "_");
@@ -32,6 +35,12 @@ export function mermaidId(id: string): string {
 function participantId(id: string): string {
   const out = mermaidId(id);
   return SEQUENCE_RESERVED.has(out) ? `${out}_` : out;
+}
+
+/** A class's ID in a class diagram, which has keywords of its own. */
+function classId(id: string): string {
+  const out = mermaidId(id);
+  return CLASS_RESERVED.has(out) ? `${out}_` : out;
 }
 
 function escape(text: string): string {
@@ -70,6 +79,7 @@ function nodeLine(e: ArchElement): string {
 
 export function renderMermaid(cv: ComputedView): string {
   if (cv.view.level === "sequence") return renderSequence(cv);
+  if (cv.view.level === "class") return renderClasses(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = boundary ? cv.nodes.filter((n) => n.parent === boundary.id) : [];
@@ -124,6 +134,73 @@ function renderSequence(cv: ComputedView): string {
   for (const step of cv.steps) {
     const text = [step.label ?? "(no description)", step.labelTechnology ? `[${step.labelTechnology}]` : undefined].filter(Boolean).map((t) => escapeLine(t!)).join(" ");
     lines.push(`  ${participantId(step.from)}${step.reply ? "-->>" : "->>"}${participantId(step.to)}: ${text}`);
+  }
+  return lines.join("\n");
+}
+
+/** Each kind of relationship as a class diagram draws it, from the element it's on to the one it names. */
+const CLASS_ARROWS: Record<RelationshipKind, string> = {
+  association: "-->",
+  dependency: "..>",
+  inheritance: "--|>",
+  realization: "..|>",
+  composition: "*--",
+  aggregation: "o--",
+};
+
+/**
+ * Characters a class diagram reads as markup, as entities. Brackets are left alone: they make a
+ * member a method. Line breaks become spaces.
+ */
+const CLASS_ENTITIES: Record<string, string> = {
+  "#": "#35;",
+  ";": "#59;",
+  '"': "#quot;",
+  "<": "#lt;",
+  ">": "#gt;",
+  "{": "#123;",
+  "}": "#125;",
+  "|": "#124;",
+  "`": "#96;",
+  "~": "#126;",
+  "*": "#42;",
+  _: "#95;",
+  $: "#36;",
+};
+
+function escapeClass(text: string): string {
+  return text.replace(/\s*\r?\n\s*/g, " ").replace(/[#;"<>{}|`~*_$]/g, (c) => CLASS_ENTITIES[c]!);
+}
+
+/**
+ * A member as Mermaid shows it. Mermaid puts its own colon before a method's return type, so the
+ * one in UML's "+total(): Money" goes.
+ */
+function memberLine(member: string): string {
+  return escapeClass(member.replace(/\)\s*:\s*([^()]*)$/, ") $1"));
+}
+
+/**
+ * A class view as a Mermaid class diagram: each class with its stereotype and members, the other
+ * boxes as classes named by their kind, and each arrow in UML's notation for its kind.
+ */
+function renderClasses(cv: ComputedView): string {
+  const lines = ["classDiagram"];
+  if (cv.nodes.length === 0) {
+    lines.push("  %% This view has no elements yet.");
+    return lines.join("\n");
+  }
+  for (const e of cv.nodes) {
+    const kind = kindLabel(e);
+    const annotation = e.kind === "class" ? e.stereotype : e.technology ? `${kind}: ${e.technology}` : kind;
+    const body = [...(annotation ? [`<<${escapeClass(annotation)}>>`] : []), ...(e.kind === "class" ? e.members.map(memberLine) : [])];
+    const head = `  class ${classId(e.id)}["${escapeClass(e.name)}"]`;
+    lines.push(body.length ? `${head} {` : head, ...(body.length ? [...body.map((b) => `    ${b}`), "  }"] : []));
+  }
+  for (const edge of cv.edges) {
+    const arrow = edge.bidirectional ? "<-->" : CLASS_ARROWS[edge.kind];
+    const text = [edge.description, edge.technology ? `[${edge.technology}]` : undefined].filter(Boolean).join(" ");
+    lines.push(`  ${classId(edge.from)} ${arrow} ${classId(edge.to)}${text ? ` : ${escapeClass(text)}` : ""}`);
   }
   return lines.join("\n");
 }
