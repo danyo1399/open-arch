@@ -1,23 +1,16 @@
 {
   "name": "@open-arch/server",
   "version": "0.1.0",
-  "description": "Hosts shared workspaces for the designer, end-to-end encrypted: it only ever stores what the browser encrypted. Runs on Node, as a Linux executable, in a container, or on Cloudflare Workers.",
+  "description": "Hosts shared workspaces for the designer, end-to-end encrypted: it only ever stores what the browser encrypted. In Go: one static executable, or a container.",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -b",
-    "start": "tsc -b && node dist/main.js",
-    "dev": "tsc -b && node dist/main.js --memory",
-    "deploy": "npx wrangler deploy",
+    "test": "go vet ./... && go test ./...",
+    "start": "go run . serve",
+    "dev": "go run . serve --memory",
     "executable": "node scripts/executable.mjs && node scripts/smoke-executable.mjs"
   },
   "engines": {
-    "node": ">=22.13"
-  },
-  "devDependencies": {
-    "@types/node": "^22.20.5",
-    "esbuild": "^0.28.2",
-    "postject": "1.0.0-alpha.6",
-    "typescript": "^7.0.2"
+    "node": ">=22"
   }
 }

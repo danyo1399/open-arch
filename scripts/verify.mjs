@@ -19,20 +19,25 @@ function changedSinceMain(cwd) {
   return [...tracked.split("\n"), ...untracked.split("\n")].filter(Boolean);
 }
 
-/** The checks, as commands to run in order. `executable`: build the share server's Linux executable, and run it. */
-export function checks({ examples, smoke, executable = false }) {
+/** The checks, as commands to run in order. `smoke` also builds the share server's executables, and runs the one for this machine. */
+export function checks({ examples, smoke }) {
   return [
     ["pnpm", ["install", "--frozen-lockfile"]],
     ["pnpm", ["typecheck"]],
     ["pnpm", ["test"]],
+    ["pnpm", ["--filter", "@open-arch/server", "test"]],
     ["pnpm", ["build"]],
     ...examples.flatMap((file) => [
       ["pnpm", ["open-arch", "check", "--file", file]],
       ["pnpm", ["open-arch", "fmt", "--check", "--file", file]],
       ["pnpm", ["open-arch", "export", "--check", "--file", file]],
     ]),
-    ...(smoke ? [["pnpm", ["--filter", "@open-arch/desktop", "smoke"]]] : []),
-    ...(executable ? [["pnpm", ["--filter", "@open-arch/server", "executable"]]] : []),
+    ...(smoke
+      ? [
+          ["pnpm", ["--filter", "@open-arch/desktop", "smoke"]],
+          ["pnpm", ["--filter", "@open-arch/server", "executable"]],
+        ]
+      : []),
   ];
 }
 
@@ -48,12 +53,9 @@ export function verify(cwd = process.cwd()) {
     .sort();
   const changed = changedSinceMain(cwd);
   const smoke = !(changed && onlyMarkdown(changed));
-  if (!smoke) console.log("Only Markdown changed since main, so the desktop smoke test and the share server's executable are skipped.");
-  // The executable is a Linux one, built from this machine's Node.
-  const executable = smoke && process.platform === "linux";
-  if (smoke && !executable) console.log("The share server's Linux executable is only built on Linux, so it's skipped here.");
+  if (!smoke) console.log("Only Markdown changed since main, so the desktop smoke test and the share server's executables are skipped.");
 
-  for (const [command, args] of checks({ examples, smoke, executable })) {
+  for (const [command, args] of checks({ examples, smoke })) {
     if (run(command, args, { cwd }) !== 0) {
       console.error(`\nFailed: ${[command, ...args].join(" ")}`);
       if (args.includes("export")) console.error(`If the docs were meant to change, regenerate them with pnpm open-arch export --file ${args.at(-1)} and commit them.`);

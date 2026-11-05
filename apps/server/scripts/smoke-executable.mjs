@@ -1,6 +1,7 @@
-// Runs the executable that scripts/executable.mjs built, as someone would on a Linux server:
-// serves from a data folder, takes an upload, keeps it through a restart, takes it down with a
-// command, and stops cleanly on SIGTERM.
+// Runs the executable that scripts/executable.mjs built for this machine, as someone would on a
+// Linux server:
+// it serves from a data folder, takes an upload, keeps it through a restart, takes it down with
+// a command, and stops cleanly on SIGTERM.
 //
 //   node scripts/smoke-executable.mjs [executable]
 import { execFileSync, spawn } from "node:child_process";
@@ -11,6 +12,10 @@ import { fileURLToPath } from "node:url";
 
 const server = fileURLToPath(new URL("..", import.meta.url));
 const executable = process.argv[2] ?? join(server, "release", `open-arch-share-linux-${process.arch}`);
+if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch)) {
+  console.log("The executables are for Linux on x64 and arm64, so they aren't run on this machine.");
+  process.exit(0);
+}
 const data = mkdtempSync(join(tmpdir(), "open-arch-share-smoke-"));
 let failed = false;
 
@@ -49,7 +54,7 @@ try {
   check(helpText.includes("Usage: open-arch-share-linux-"), "help names the executable");
 
   let running = await start(["--data", data, "--port", "0"]);
-  check(!/ExperimentalWarning|SQLite is an experimental/.test(running.output()), "starts without Node's warnings");
+  check(execFileSync(executable, ["version"], { encoding: "utf8" }).startsWith("open-arch-share "), "says its version");
   const created = await fetch(`${running.url}/v1/workspaces`, { method: "POST", body: file });
   check(created.status === 201, "takes an upload");
   const { id, hash } = await created.json();

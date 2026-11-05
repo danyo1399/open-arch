@@ -1,29 +1,31 @@
 import "fake-indexeddb/auto";
 import { strFromU8 } from "fflate";
-import { beforeEach, describe, expect, it } from "vitest";
-import { handle } from "../../server/src/handler.js";
-import { MemoryStore } from "../../server/src/store.js";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { exampleHost, SharedHost } from "../src/hosts.js";
 import { Settings } from "../src/settings.js";
 import { linkTo, readLink, seal, ShareClient, unseal, newKey, type Share } from "../src/share.js";
+import { BUILD_TIMEOUT, startShareServer, type RunningServer } from "./shareServer.js";
 
-let store: MemoryStore;
+let server: RunningServer;
 /** Every URL the designer asked the share server for. */
 let requested: string[];
 let online: boolean;
 
-/** A client whose requests go straight to the share server's handler, with its files in memory. */
+beforeAll(async () => {
+  server = await startShareServer();
+}, BUILD_TIMEOUT);
+afterAll(() => server?.stop());
+
+/** A client of the share server, which notes what it asks for, and can be offline. */
 function client(): ShareClient {
-  return new ShareClient("https://share.example/", async (input, init) => {
+  return new ShareClient(`${server.url}/`, async (input, init) => {
     if (!online) throw new TypeError("Failed to fetch");
-    const request = new Request(input, init);
-    requested.push(request.url);
-    return handle(request, { store, client: { ip: "203.0.113.7", country: null, city: null, asn: null, asOrganization: null, userAgent: null, origin: null, referer: null, ray: null } });
+    requested.push(String(input));
+    return fetch(input, init);
   });
 }
 
 beforeEach(() => {
-  store = new MemoryStore();
   requested = [];
   online = true;
 });
@@ -59,14 +61,14 @@ describe("sharing a link", () => {
   it("uploads only what the server can't read, and opens it from the link", async () => {
     const share = await client().create(await shop(), 5);
     expect(share).toMatchObject({ updated: 5 });
-    const [stored] = [...store.files.values()];
-    expect(strFromU8(stored!, true)).not.toContain("Shop");
+    const stored = new Uint8Array(await (await fetch(`${server.url}/v1/workspaces/${share.id}/${share.hash}`)).arrayBuffer());
+    expect(strFromU8(stored, true)).not.toContain("Shop");
 
     const link = readLink(linkTo("https://designer.example/", share))!;
     expect(await client().open(link)).toEqual(await shop());
     // The key never went to the server, nor the token in a URL.
     expect(requested.some((url) => url.includes(share.key) || url.includes(share.token))).toBe(false);
-    expect(requested).toEqual(["https://share.example/v1/workspaces", `https://share.example/v1/workspaces/${share.id}`, `https://share.example/v1/workspaces/${share.id}/${share.hash}`]);
+    expect(requested).toEqual([`${server.url}/v1/workspaces`, `${server.url}/v1/workspaces/${share.id}`, `${server.url}/v1/workspaces/${share.id}/${share.hash}`]);
   });
 
   it("opens the latest version from a link to an older one, or the link's own when offline", async () => {
@@ -81,9 +83,9 @@ describe("sharing a link", () => {
 
     // Offline, the server can't say which is the latest: the link's version is what the browser may have cached.
     let calls = 0;
-    const flaky = new ShareClient("https://share.example", async (input, init) => {
+    const flaky = new ShareClient(server.url, async (input, init) => {
       if (calls++ === 0) throw new TypeError("Failed to fetch");
-      return handle(new Request(input, init), { store, client: { ip: null, country: null, city: null, asn: null, asOrganization: null, userAgent: null, origin: null, referer: null, ray: null } });
+      return fetch(input, init);
     });
     expect((await flaky.open(first)).text).toBe((await shop()).text);
   });

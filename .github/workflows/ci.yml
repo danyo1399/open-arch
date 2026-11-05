@@ -29,8 +29,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The designer's tests run its sharing against the share server, which is in Go.
+      - uses: ./.github/actions/go
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm --filter @open-arch/server test
       - run: pnpm build
       - run: pnpm open-arch check --file examples/shop/shop.openarch
       - run: pnpm open-arch fmt --check --file examples/shop/shop.openarch
@@ -106,8 +109,8 @@ jobs:
           # Installers are already compressed.
           compression-level: 0
 
-  # The share server as one Linux executable, built on each architecture for that architecture, then
-  # run as a server would run it. Each is uploaded as a .tar.gz artifact of the run.
+  # The share server's Linux executables, both built on each architecture, then the one for that
+  # architecture run as a server would run it. Each is uploaded as a .tar.gz artifact of the run.
   server:
     name: share server (linux-${{ matrix.arch }})
     strategy:
@@ -128,9 +131,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # Builds release/open-arch-share-linux-<arch>, then runs it (scripts/smoke-executable.mjs).
+      - uses: ./.github/actions/go
+      # Builds release/open-arch-share-linux-x64 and -arm64, then runs this machine's (scripts/smoke-executable.mjs).
       - run: pnpm --filter @open-arch/server executable
       - name: Pack the executable
         run: tar -czf open-arch-share-linux-${{ matrix.arch }}.tar.gz -C apps/server/release open-arch-share-linux-${{ matrix.arch }}

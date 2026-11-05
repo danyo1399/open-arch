@@ -44,10 +44,10 @@ How agents (and people) build features and fix bugs in this repo. What open-arch
 `pnpm verify` runs every check a branch must pass before it's merged into `main`, in order, and stops at the first that fails:
 
 1. `pnpm install --frozen-lockfile`
-2. `pnpm typecheck`, `pnpm test` and `pnpm build`
+2. `pnpm typecheck`, `pnpm test`, the share server's Go tests (`pnpm --filter @open-arch/server test`) and `pnpm build`
 3. `open-arch check`, `fmt --check` and `export --check` on every example
 4. the desktop smoke test, `pnpm --filter @open-arch/desktop smoke`. It's skipped when only Markdown changed since `main`. The desktop app bundles the designer, core, the CLI and the skill, so most changes reach it. With no display on Linux, it runs the app under `xvfb-run`.
-5. on Linux, the share server's executable, `pnpm --filter @open-arch/server executable`: it builds it and runs it as a server would. It's skipped when only Markdown changed since `main`.
+5. the share server's executables, `pnpm --filter @open-arch/server executable`: it builds them for Linux on x64 and arm64, and on Linux runs the one for this machine as a server would. It's skipped when only Markdown changed since `main`.
 
 ```bash
 pnpm verify

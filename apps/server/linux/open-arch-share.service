@@ -41,6 +41,10 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=yes
 LockPersonality=yes
 SystemCallArchitectures=native
+# Go compiles ahead of time, so nothing needs memory that's both writable and runnable.
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

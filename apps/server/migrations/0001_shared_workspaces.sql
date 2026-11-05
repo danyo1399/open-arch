@@ -1,5 +1,6 @@
--- The share server's records in D1 (cloudflare.ts). The encrypted files themselves are in R2.
--- Apply with: npx wrangler d1 migrations apply open-arch-shares --remote
+-- The share server's records, in SQLite (store_sql.go). The encrypted files are beside the
+-- database, in files/. The server applies these files in order when it opens the database, and
+-- notes each in schema_migrations, so a newer server brings an older database up to date.
 
 -- One row per shared workspace.
 CREATE TABLE workspaces (
@@ -28,10 +29,8 @@ CREATE TABLE uploads (
   size INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   ip TEXT,
+  -- From Cloudflare's CF-IPCountry, behind Cloudflare's proxy.
   country TEXT,
-  city TEXT,
-  asn INTEGER,
-  as_organization TEXT,
   user_agent TEXT,
   origin TEXT,
   referer TEXT,

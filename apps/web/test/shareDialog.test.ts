@@ -1,23 +1,30 @@
 // @vitest-environment happy-dom
 import "fake-indexeddb/auto";
 import { act, createElement } from "react";
-import { describe, expect, it } from "vitest";
-import { handle } from "../../server/src/handler.js";
-import { MemoryStore } from "../../server/src/store.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { OpenLinkDialog, ShareDialog } from "../src/panels/ShareDialog.js";
 import { Settings } from "../src/settings.js";
 import { readLink, ShareClient, type LinkParts } from "../src/share.js";
 import { button, click, mount, type } from "./dom.js";
+import { BUILD_TIMEOUT, startShareServer, type RunningServer } from "./shareServer.js";
 
-const store = new MemoryStore();
-const client = new ShareClient("https://share.example", (input, init) =>
-  handle(new Request(input, init), { store, client: { ip: null, country: null, city: null, asn: null, asOrganization: null, userAgent: null, origin: null, referer: null, ray: null } }),
-);
+let server: RunningServer;
+let client: ShareClient;
 
-/** Lets the dialog's uploads and settings finish, and React render what they found. */
-const settle = async () => {
-  for (let i = 0; i < 20; i++) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+beforeAll(async () => {
+  server = await startShareServer();
+  client = new ShareClient(server.url);
+}, BUILD_TIMEOUT);
+afterAll(() => server?.stop());
+
+/** Lets the dialog's uploads and settings finish, until the dialog shows `text`. */
+const until = async (host: HTMLElement, text: string) => {
+  for (let i = 0; i < 500 && !host.textContent?.includes(text); i++) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  expect(host.textContent).toContain(text);
 };
+
+/** What the share server says about a workspace's latest version: 200 while it's shared, 410 once it isn't. */
+const latest = async (id: string) => (await fetch(`${server.url}/v1/workspaces/${id}`)).status;
 
 const file = { name: "a.openarch", text: '{"openarch": 9, "name": "A", "elements": {}, "views": {}}' };
 
@@ -29,23 +36,22 @@ describe("ShareDialog", () => {
   it("makes a link, updates it, and stops sharing it", async () => {
     const settings = new Settings(`share-dialog-${Math.random()}`);
     let host = dialog(settings);
-    await settle();
-    expect(host.textContent).toContain("encrypted on this device");
+    await until(host, "encrypted on this device");
     await click(button(host, "Create link"));
-    await settle();
+    await until(host, "Made a link.");
     const link = host.querySelector<HTMLInputElement>('input[aria-label="Link"]')!.value;
     const parts = readLink(link)!;
     expect(link.startsWith("https://designer.example/?share=")).toBe(true);
     expect(await settings.share("browser/a")).toMatchObject(parts);
-    expect(store.workspaces.has(parts.id)).toBe(true);
+    expect(await latest(parts.id)).toBe(200);
 
     // Opened again, it shows the same link, and updating it keeps the workspace's ID and key.
     host.remove();
     host = dialog(settings, file.text.replace('"A"', '"A2"'));
-    await settle();
+    await until(host, "Update link");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Link"]')!.value).toBe(link);
     await click(button(host, "Update link"));
-    await settle();
+    await until(host, "Updated the link.");
     const updated = readLink(host.querySelector<HTMLInputElement>('input[aria-label="Link"]')!.value)!;
     expect(updated).toMatchObject({ id: parts.id, key: parts.key });
     expect(updated.hash).not.toBe(parts.hash);
@@ -53,10 +59,9 @@ describe("ShareDialog", () => {
 
     await click(button(host, "Stop sharing…"));
     await click(button(host, "Stop sharing"));
-    await settle();
-    expect(store.workspaces.get(parts.id)?.deleted).not.toBeNull();
+    await until(host, "Stopped sharing it.");
+    expect(await latest(parts.id)).toBe(410);
     expect(await settings.share("browser/a")).toBeUndefined();
-    expect(host.textContent).toContain("Stopped sharing it.");
     expect(button(host, "Create link")).toBeTruthy();
   });
 });

@@ -6,9 +6,7 @@
 # to a server over HTTPS too: put a reverse proxy in front (README, "The share server").
 services:
   share:
-    build:
-      context: ../..
-      dockerfile: apps/server/Dockerfile
+    build: .
     image: open-arch-share
     restart: unless-stopped
     ports:

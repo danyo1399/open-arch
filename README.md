@@ -20,7 +20,7 @@ See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.opena
 | [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`: agents read with `show` and change the model only with commands. |
 | [`apps/web`](apps/web) | The designer as a static web app (React, React Flow, ELK). |
 | [`apps/desktop`](apps/desktop) | The same designer in Electron, for Windows, macOS and Linux. |
-| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. Runs from a terminal, as a Linux executable, in a container, or on Cloudflare Workers. |
+| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. In Go: one executable for Linux, or a container. |
 
 ## The designer
 
@@ -114,26 +114,21 @@ A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID na
 
 An uploaded file is one byte for the format (`1`), AES-GCM's 12-byte IV, then the ciphertext of `{"name", "text"}`, the file name and the `.openarch` text, as JSON compressed with DEFLATE. The key is 256 random bits. The server only checks the format byte and the size: at most 1 MB.
 
-To find and stop abuse, the server keeps a record of every upload: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, on Cloudflare, the country, the city, the network and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour.
+To find and stop abuse, the server keeps a record of every upload: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, behind Cloudflare's proxy, the country and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour.
 
-### Where it runs
+The server is written in Go, and builds to one static executable with nothing to install where it runs, not even a C library: its SQLite is pure Go. It keeps its records in SQLite, in `<data>/shares.db`, and each version's encrypted file in `<data>/files/`. It brings the database's tables ([`migrations/`](apps/server/migrations)) up to date as it opens it.
 
-The same server runs in four ways, and keeps the same records in the same tables ([`migrations/`](apps/server/migrations)):
+Build the designer with the server's address in `VITE_SHARE_SERVER`. The Pages and CI workflows take it from the repository's `SHARE_SERVER` variable (**Settings**, **Secrets and variables**, **Actions**, **Variables**), and the Cloudflare build of the designer from its build variables. Links made in the desktop app open in the web designer at `VITE_SHARE_APP_URL`, <https://danyo1399.github.io/open-arch/> unless it's set.
 
-| | Records | Encrypted files |
-|---|---|---|
-| [From a terminal](#from-a-terminal), on any machine with Node.js 22.13+ | SQLite, in `data/shares.db` | `data/files/` |
-| [As a Linux executable](#as-a-linux-executable), with nothing to install | SQLite, in `data/shares.db` | `data/files/` |
-| [In a container](#in-a-container): Docker, Compose, or any host that runs one | SQLite, in `/data/shares.db` | `/data/files/` |
-| [On Cloudflare Workers](#on-cloudflare-workers) | D1 | R2 |
+The designer is served over HTTPS, and browsers only let it talk to a server over HTTPS too. So put a reverse proxy that does HTTPS in front, such as Caddy, nginx, Cloudflare's, or a hosting platform's own, and tell the server to believe the address the proxy passes on (`TRUST_PROXY`, below). Caddy, for example, gets a certificate for the domain by itself:
 
-Then build the designer with the server's address in `VITE_SHARE_SERVER`. The Pages and CI workflows take it from the repository's `SHARE_SERVER` variable (**Settings**, **Secrets and variables**, **Actions**, **Variables**), and the Cloudflare build from its build variables. Links made in the desktop app open in the web designer at `VITE_SHARE_APP_URL`, <https://danyo1399.github.io/open-arch/> unless it's set.
-
-The designer is served over HTTPS, and browsers only let it talk to a server over HTTPS too. Cloudflare does that for you. Anywhere else, put a reverse proxy that does HTTPS in front, such as Caddy, nginx, or a hosting platform's own, and tell the server to believe the address the proxy passes on (below).
+```bash
+caddy reverse-proxy --from share.example.com --to localhost:8787
+```
 
 ### Settings
 
-Each is a flag or an environment variable; the flag wins. `node apps/server/dist/main.js help` lists them.
+Each is a flag or an environment variable; the flag wins. `open-arch-share help` lists them, with the commands.
 
 | Flag | Variable | Does |
 |---|---|---|
@@ -146,44 +141,21 @@ Each is a flag or an environment variable; the flag wins. `node apps/server/dist
 | `--uploads-per-hour` | `UPLOADS_PER_HOUR` | How many files one IP address can upload in an hour: 60 unless it's set |
 | `--quiet` | `LOG=off` | Doesn't print a line for each request |
 
-### From a terminal
-
-Build it and start it from the repository's root. Stop it with Ctrl+C; it finishes the requests under way first.
-
-```bash
-pnpm install
-pnpm --filter @open-arch/server start
-```
-
-That keeps its records and files in `apps/server/data`. To run it from another folder, or as a service (systemd, launchd, pm2), it only needs Node.js and three things from `apps/server`, kept side by side: `dist`, `migrations` and `package.json`. It has no dependencies:
-
-```bash
-node apps/server/dist/main.js --data /var/lib/open-arch-share --port 8787 --trust-proxy forwarded
-```
-
-Behind Caddy, for example, which gets an HTTPS certificate for the domain by itself:
-
-```bash
-caddy reverse-proxy --from share.example.com --to localhost:8787
-```
-
 ### As a Linux executable
 
-The share server can be built as one file that runs on Linux with nothing installed, not even Node.js. It is Node's own binary with the server inside it, a [single executable application](https://nodejs.org/api/single-executable-applications.html), so it's about 125 MB (42 MB compressed). It runs on any Linux with glibc 2.28 or later: Debian 10, Ubuntu 20.04, RHEL and Rocky 8, Amazon Linux 2023 and later. Alpine uses musl instead, so use the container there.
-
-Build it on Linux, for the machine's architecture (x64 or arm64), with Node.js 22.13+. It's built in `apps/server/release/`, then run to check it works:
+The executable runs on any Linux on x64 or arm64, Alpine and other musl ones too, and is about 11 MB. The [CI workflow](#ci) builds both and uploads each as an artifact of the run. To build them yourself, with Go 1.26+ on any system, into `apps/server/release/`:
 
 ```bash
-pnpm install
 pnpm --filter @open-arch/server executable
 ```
 
-The [CI workflow](#ci) builds it for x64 and arm64, and uploads each as an artifact of the run. It takes the same commands and [settings](#settings) as `node dist/main.js`:
+That writes `open-arch-share-linux-x64` and `open-arch-share-linux-arm64`, and on Linux runs the one for the machine to check it works. Run it with a data folder:
 
 ```bash
 ./open-arch-share-linux-x64 --data /var/lib/open-arch-share --port 8787
-./open-arch-share-linux-x64 help
 ```
+
+Stop it with Ctrl+C or SIGTERM: it finishes the requests under way first.
 
 To run it as a service, [`apps/server/linux/open-arch-share.service`](apps/server/linux/open-arch-share.service) is a systemd unit. It runs as its own user, keeps its data in `/var/lib/open-arch-share`, and listens only on the machine, for a reverse proxy that does HTTPS in front:
 
@@ -198,10 +170,10 @@ sudo systemctl enable --now open-arch-share
 
 ### In a container
 
-[`apps/server/Dockerfile`](apps/server/Dockerfile) builds an image of the server, with nothing in it but Node.js and the server. Build it from the repository's root, then run it with a volume for `/data`, so what's shared outlives the container:
+[`apps/server/Dockerfile`](apps/server/Dockerfile) builds an image with the executable and nothing else, about 17 MB. Run it with a volume for `/data`, so what's shared outlives the container:
 
 ```bash
-docker build -f apps/server/Dockerfile -t open-arch-share .
+docker build -t open-arch-share apps/server
 docker run -d --name open-arch-share -p 8787:8787 -v open-arch-share:/data open-arch-share
 ```
 
@@ -211,50 +183,26 @@ Or with Compose, from [`apps/server/compose.yaml`](apps/server/compose.yaml):
 docker compose -f apps/server/compose.yaml up -d
 ```
 
-Settings are environment variables (`-e TRUST_PROXY=forwarded`). The image runs as the unprivileged `node` user, checks its own health, and stops cleanly when the container is stopped. A hosting platform that runs containers runs it too, as long as it keeps `/data` on a disk that lasts: one without, such as a serverless container, forgets what's shared when it restarts.
-
-### On Cloudflare Workers
-
-The files are in an R2 bucket and the records are in a D1 database. To deploy it, from `apps/server`:
-
-```bash
-npx wrangler r2 bucket create open-arch-shares
-npx wrangler d1 create open-arch-shares
-```
-
-Put the database's ID in [`wrangler.jsonc`](apps/server/wrangler.jsonc), then:
-
-```bash
-npx wrangler d1 migrations apply open-arch-shares --remote
-pnpm --filter @open-arch/server deploy
-```
-
-`MAX_BYTES` and `UPLOADS_PER_HOUR` in `wrangler.jsonc` change the limits.
+Settings are environment variables (`-e TRUST_PROXY=forwarded`). The image runs as an unprivileged user, checks its own health, and stops cleanly when the container is stopped. A hosting platform that runs containers runs it too, as long as it keeps `/data` on a disk that lasts: one without, such as a serverless container, forgets what's shared when it restarts.
 
 ### Taking down abuse
 
-Find a workspace by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too. On a server from a terminal, add `--data <folder>` if it isn't `./data`. With the executable, run `open-arch-share` in place of `node apps/server/dist/main.js`; as the systemd service, as its user: `sudo -u open-arch-share open-arch-share block <id> --data /var/lib/open-arch-share --reason "<why>"`. In a container, run them with `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`:
+Find a workspace by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too. They work while the server runs, on the same data folder: add `--data <folder>` if it isn't `./data`.
 
 ```bash
-node apps/server/dist/main.js uploads --workspace <id>
-node apps/server/dist/main.js uploads --ip <address>
-node apps/server/dist/main.js block <id> --reason "<why>"
-node apps/server/dist/main.js block-ip <address> --reason "<why>"
+open-arch-share uploads --workspace <id>
+open-arch-share uploads --ip <address>
+open-arch-share block <id> --reason "<why>"
+open-arch-share block-ip <address> --reason "<why>"
 ```
 
-`unblock` and `unblock-ip` undo them. On Cloudflare, the same with SQL:
-
-```bash
-npx wrangler d1 execute open-arch-shares --remote --command "SELECT * FROM uploads WHERE workspace_id = '<id>'"
-npx wrangler d1 execute open-arch-shares --remote --command "UPDATE workspaces SET blocked_at = unixepoch() * 1000, blocked_reason = '<why>' WHERE id = '<id>'"
-npx wrangler d1 execute open-arch-shares --remote --command "INSERT INTO blocked_ips (ip, reason, created_at) VALUES ('<ip>', '<why>', unixepoch() * 1000)"
-```
+`unblock` and `unblock-ip` undo them. As the systemd service, run them as its user: `sudo -u open-arch-share open-arch-share block <id> --data /var/lib/open-arch-share --reason "<why>"`. In a container, `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`.
 
 A browser that cached a version's file can still open it offline. Online, opening a link asks the server first, so it won't open.
 
 ### Trying it locally
 
-Run the share server with everything in memory, on <http://localhost:8787>:
+Run the share server from its source, with everything in memory, on <http://localhost:8787>:
 
 ```bash
 pnpm --filter @open-arch/server dev
@@ -266,6 +214,8 @@ Then run the designer against it:
 VITE_SHARE_SERVER=http://localhost:8787 pnpm --filter @open-arch/web dev
 ```
 
+`pnpm --filter @open-arch/server start` keeps what's shared in `apps/server/data` instead, and `pnpm --filter @open-arch/server test` runs its tests.
+
 ## Using it in a project
 
 ```bash
@@ -276,7 +226,7 @@ This creates `architecture.openarch`, generates its docs into `docs/architecture
 
 ## Development
 
-Needs Node.js 22+ and pnpm.
+Needs Node.js 22+, pnpm, and Go 1.26+ for the share server. The designer's tests run its sharing against the share server, so `pnpm test` builds it too.
 
 ```bash
 pnpm install
@@ -352,6 +302,6 @@ pnpm open-arch show --file examples/shop/shop.openarch
 
 It has three jobs:
 
-- **lint** (Ubuntu): typecheck, tests, the CLI build, then `open-arch check`, `fmt --check` and `export --check` on the example.
+- **lint** (Ubuntu): typecheck, tests, the share server's Go tests, the CLI build, then `open-arch check`, `fmt --check` and `export --check` on the example.
 - **desktop** (macOS, Windows and Linux): the smoke test (under `xvfb-run` on Linux), then unsigned installers built with `dist`. The smoke screenshots and the installers (`.dmg`/`.zip`, `.exe`, `.AppImage`/`.deb`) are uploaded as artifacts of the run.
-- **share server** (Linux on x64 and arm64): builds the [share server's executable](#as-a-linux-executable) for each, runs it, and uploads it as a `.tar.gz` artifact of the run.
+- **share server** (Linux on x64 and arm64): builds the [share server's executables](#as-a-linux-executable), runs the one for each, and uploads it as a `.tar.gz` artifact of the run.

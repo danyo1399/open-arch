@@ -1,0 +1,22 @@
+name: Go
+description: Installs Go for the share server (apps/server), from go.dev, checked against the checksum go.dev publishes.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        # https://go.dev/dl/: the version, and each archive's SHA-256.
+        version=1.27.3
+        case "$(uname -m)" in
+          x86_64) arch=amd64 sum=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 ;;
+          aarch64) arch=arm64 sum=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 ;;
+          *) echo "No Go for $(uname -m) here." && exit 1 ;;
+        esac
+        curl -sSfL -o "$RUNNER_TEMP/go.tar.gz" "https://go.dev/dl/go$version.linux-$arch.tar.gz"
+        echo "$sum  $RUNNER_TEMP/go.tar.gz" | sha256sum -c -
+        tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/go.tar.gz"
+        rm "$RUNNER_TEMP/go.tar.gz"
+        echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+        # Use this Go, rather than download the one go.mod names.
+        echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
