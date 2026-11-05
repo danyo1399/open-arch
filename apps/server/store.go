@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 )
@@ -28,7 +29,9 @@ type Workspace struct {
 // Who sent a request, as far as the server can tell: kept with every upload, to find abuse.
 // An empty string is something the request didn't say.
 type Client struct {
-	IP      string
+	IP string
+	// What the limits count the address as (client.go): an IPv4 address as it is, an IPv6 one as its /64.
+	Group   string
 	Country string
 	// What the browser said about itself, and the page the request came from.
 	UserAgent, Origin, Referer string
@@ -48,22 +51,27 @@ type Upload struct {
 	At   int64
 }
 
+// ErrNotShared is what Update gives for a workspace that was deleted or taken down while the
+// update was on its way, so its file isn't kept.
+var ErrNotShared = errors.New("the workspace isn't shared any more")
+
 type Store interface {
 	// The workspace with this ID, or nil.
 	Workspace(ctx context.Context, id string) (*Workspace, error)
 	// Stores a new workspace's first version.
 	Create(ctx context.Context, w Workspace, file []byte, u Upload) error
 	// Stores a new version of a workspace, makes it the latest, and deletes the version it
-	// replaces: a link to that one is sent on to this one (handler.go).
+	// replaces: a link to that one is sent on to this one (handler.go). If the workspace was
+	// deleted or taken down meanwhile, it keeps nothing, and gives ErrNotShared.
 	Update(ctx context.Context, id string, file []byte, u Upload) error
 	// Deletes a workspace's files, and marks it deleted. What's known about its uploads is kept.
 	Remove(ctx context.Context, id string, at int64) error
 	// The file of one version, or nil if there isn't one.
 	File(ctx context.Context, id, hash string) ([]byte, error)
-	// How many files were uploaded from an IP address since a time, for the rate limit.
-	UploadsSince(ctx context.Context, ip string, since int64) (int, error)
-	// Whether uploads from an IP address were blocked for abuse.
-	IPBlocked(ctx context.Context, ip string) (bool, error)
+	// How many files were uploaded from an address's group (Client.Group) since a time, for the rate limit.
+	UploadsSince(ctx context.Context, group string, since int64) (int, error)
+	// Whether uploads from an IP address were blocked for abuse, by itself or by its group.
+	IPBlocked(ctx context.Context, ip, group string) (bool, error)
 }
 
 // Keeps everything in memory, for trying the server out (--memory) and the tests.
@@ -101,8 +109,11 @@ func (m *MemoryStore) Create(_ context.Context, w Workspace, file []byte, u Uplo
 func (m *MemoryStore) Update(_ context.Context, id string, file []byte, u Upload) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	w, ok := m.workspaces[id]
+	if !ok || w.Deleted != 0 || w.Blocked != 0 {
+		return ErrNotShared
+	}
 	m.files[id+"/"+u.Hash] = file
-	w := m.workspaces[id]
 	if w.Latest != u.Hash {
 		delete(m.files, id+"/"+w.Latest)
 	}
@@ -133,20 +144,20 @@ func (m *MemoryStore) File(_ context.Context, id, hash string) ([]byte, error) {
 	return m.files[id+"/"+hash], nil
 }
 
-func (m *MemoryStore) UploadsSince(_ context.Context, ip string, since int64) (int, error) {
+func (m *MemoryStore) UploadsSince(_ context.Context, group string, since int64) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	n := 0
 	for _, u := range m.uploads {
-		if u.IP == ip && u.At >= since {
+		if u.Group == group && u.At >= since {
 			n++
 		}
 	}
 	return n, nil
 }
 
-func (m *MemoryStore) IPBlocked(_ context.Context, ip string) (bool, error) {
+func (m *MemoryStore) IPBlocked(_ context.Context, ip, group string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.blockedIPs[ip], nil
+	return m.blockedIPs[ip] || m.blockedIPs[group], nil
 }

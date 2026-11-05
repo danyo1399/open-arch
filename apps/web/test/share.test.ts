@@ -127,6 +127,12 @@ describe("sharing a link", () => {
     await client().remove(share);
   });
 
+  it("stops sharing a workspace the server no longer has", async () => {
+    // As after a server that keeps them in memory restarts: it answers 404 for it.
+    const lost: Share = { id: "A".repeat(22), hash: "B".repeat(22), key: newKey(), token: "t".repeat(43), updated: 1 };
+    await expect(client().remove(lost)).resolves.toBeUndefined();
+  });
+
   it("says when the share server can't be reached", async () => {
     online = false;
     await expect(client().create(await shop())).rejects.toThrow("Couldn't share it: the share server didn't answer. Check you're online.");

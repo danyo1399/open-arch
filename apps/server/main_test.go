@@ -62,10 +62,10 @@ func TestBelievesAProxyOnlyWhenToldTheresOne(t *testing.T) {
 	r.Header.Set("CF-Connecting-IP", "192.0.2.4")
 	r.Header.Set("CF-IPCountry", "NZ")
 	r.Header.Set("CF-Ray", "ray")
-	expect(t, ClientOf(r, TrustNone), Client{IP: "10.0.0.5"}, "none")
+	expect(t, ClientOf(r, TrustNone), Client{IP: "10.0.0.5", Group: "10.0.0.5"}, "none")
 	// The last address is the one the proxy saw; the earlier ones are whatever the client said.
 	expect(t, ClientOf(r, TrustForwarded).IP, "203.0.113.7", "forwarded")
-	expect(t, ClientOf(r, TrustCloudflare), Client{IP: "192.0.2.4", Country: "NZ", Ray: "ray"}, "cloudflare")
+	expect(t, ClientOf(r, TrustCloudflare), Client{IP: "192.0.2.4", Group: "192.0.2.4", Country: "NZ", Ray: "ray"}, "cloudflare")
 	r.Header.Del("X-Forwarded-For")
 	expect(t, ClientOf(r, TrustForwarded).IP, "10.0.0.5", "forwarded without the header")
 }

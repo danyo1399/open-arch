@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,7 +57,7 @@ func (h *harness) send(method, path string, body []byte, headers map[string]stri
 		reader = bytes.NewReader(body)
 	}
 	r := httptest.NewRequest(method, "https://share.example"+path, reader)
-	r.RemoteAddr = h.ip + ":5555"
+	r.RemoteAddr = net.JoinHostPort(h.ip, "5555")
 	r.Header.Set("User-Agent", "test-agent")
 	for name, value := range headers {
 		r.Header.Set(name, value)

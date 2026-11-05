@@ -190,8 +190,9 @@ export class ShareClient {
     try {
       await this.send(`/${share.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${share.token}` } }, "stop sharing it");
     } catch (error) {
-      // Already deleted, or taken down: either way, it isn't shared.
-      if (!(error instanceof ShareError && error.status === 410)) throw error;
+      // Already deleted, taken down, or gone from the server, as from one kept in memory that
+      // restarted: whichever, it isn't shared, and there's nothing left to stop.
+      if (!(error instanceof ShareError && (error.status === 404 || error.status === 410))) throw error;
     }
   }
 

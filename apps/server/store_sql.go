@@ -164,10 +164,10 @@ func (s *SQLStore) Workspace(ctx context.Context, id string) (*Workspace, error)
 	return &w, nil
 }
 
-const insertUpload = "INSERT INTO uploads (workspace_id, hash, action, size, created_at, ip, country, user_agent, origin, referer, ray) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+const insertUpload = "INSERT INTO uploads (workspace_id, hash, action, size, created_at, ip, ip_group, country, user_agent, origin, referer, ray) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
 func uploadValues(u Upload) []any {
-	return []any{u.Workspace, u.Hash, u.Action, u.Size, u.At, null(u.IP), null(u.Country), null(u.UserAgent), null(u.Origin), null(u.Referer), null(u.Ray)}
+	return []any{u.Workspace, u.Hash, u.Action, u.Size, u.At, null(u.IP), null(u.Group), null(u.Country), null(u.UserAgent), null(u.Origin), null(u.Referer), null(u.Ray)}
 }
 
 // inTx runs statements in one transaction.
@@ -202,14 +202,25 @@ func (s *SQLStore) Create(ctx context.Context, w Workspace, file []byte, u Uploa
 // The version it replaces is read in the same transaction that replaces it, so of two updates at
 // once, each deletes the one it replaced. Its file goes once the new one is the latest: if that
 // fails, it's a file nothing serves, and it's only logged.
+//
+// The workspace is checked in that transaction too, as it may have been deleted or taken down
+// since the handler looked. Then the new file goes, and for a deleted one, so does its folder: a
+// delete that ran first removed the folder before this file was put in it.
 func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload) error {
 	if err := s.putFile(id, u.Hash, file); err != nil {
 		return err
 	}
 	var previous string
+	var deleted, blocked sql.NullInt64
 	err := s.inTx(ctx,
 		func(tx *sql.Tx) error {
-			return tx.QueryRowContext(ctx, "SELECT latest FROM workspaces WHERE id = ?", id).Scan(&previous)
+			if err := tx.QueryRowContext(ctx, "SELECT latest, deleted_at, blocked_at FROM workspaces WHERE id = ?", id).Scan(&previous, &deleted, &blocked); err != nil {
+				return err
+			}
+			if deleted.Valid || blocked.Valid {
+				return ErrNotShared
+			}
+			return nil
 		},
 		func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, "UPDATE workspaces SET latest = ?, updated_at = ? WHERE id = ?", u.Hash, u.At, id)
@@ -217,6 +228,14 @@ func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload)
 		},
 		func(tx *sql.Tx) error { _, err := tx.ExecContext(ctx, insertUpload, uploadValues(u)...); return err },
 	)
+	if errors.Is(err, ErrNotShared) || errors.Is(err, sql.ErrNoRows) {
+		if path, pathErr := s.path(id, u.Hash); pathErr == nil {
+			os.Remove(path)
+			// Only removes it if it's empty: a taken-down workspace keeps its files.
+			os.Remove(filepath.Dir(path))
+		}
+		return ErrNotShared
+	}
 	if err != nil || previous == u.Hash {
 		return err
 	}
@@ -251,15 +270,15 @@ func (s *SQLStore) File(_ context.Context, id, hash string) ([]byte, error) {
 	return file, err
 }
 
-func (s *SQLStore) UploadsSince(ctx context.Context, ip string, since int64) (int, error) {
+func (s *SQLStore) UploadsSince(ctx context.Context, group string, since int64) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM uploads WHERE ip = ? AND created_at >= ?", ip, since).Scan(&n)
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM uploads WHERE ip_group = ? AND created_at >= ?", group, since).Scan(&n)
 	return n, err
 }
 
-func (s *SQLStore) IPBlocked(ctx context.Context, ip string) (bool, error) {
+func (s *SQLStore) IPBlocked(ctx context.Context, ip, group string) (bool, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM blocked_ips WHERE ip = ?", ip).Scan(&n)
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM blocked_ips WHERE ip IN (?, ?)", ip, group).Scan(&n)
 	return n > 0, err
 }
 
@@ -274,12 +293,14 @@ type UploadRow struct {
 	IP, Country, UserAgent, Origin string
 }
 
-// ListUploads gives the latest uploads to a workspace (column "workspace_id") or from an IP address ("ip").
+// ListUploads gives the latest uploads to a workspace (column "workspace_id"), or from an IP
+// address or an IPv6 /64 ("ip").
 func (s *SQLStore) ListUploads(ctx context.Context, column, value string, limit int) ([]UploadRow, error) {
-	if column != "workspace_id" && column != "ip" {
+	where := map[string]string{"workspace_id": "workspace_id = ?1", "ip": "(ip = ?1 OR ip_group = ?1)"}[column]
+	if where == "" {
 		return nil, fmt.Errorf("can't list uploads by %s", column)
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT created_at, workspace_id, action, size, ip, country, user_agent, origin FROM uploads WHERE "+column+" = ? ORDER BY created_at DESC, id DESC LIMIT ?", value, limit)
+	rows, err := s.db.QueryContext(ctx, "SELECT created_at, workspace_id, action, size, ip, country, user_agent, origin FROM uploads WHERE "+where+" ORDER BY created_at DESC, id DESC LIMIT ?2", value, limit)
 	if err != nil {
 		return nil, err
 	}

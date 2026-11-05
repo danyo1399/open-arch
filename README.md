@@ -120,7 +120,7 @@ A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID na
 
 An uploaded file is one byte for the format (`1`), AES-GCM's 12-byte IV, then the ciphertext of `{"name", "text"}`, the file name and the `.openarch` text, as JSON compressed with DEFLATE. The key is 256 random bits. The server only checks the format byte and the size: at most 1 MB.
 
-To find and stop abuse, the server keeps a record of every upload, even of versions it has since deleted: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, behind Cloudflare's proxy, the country and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour. It can also ask for 60 workspaces that aren't there in an hour, by any method: past that, it can't look up any workspace until the hour is up, so nobody can try IDs until they find one.
+To find and stop abuse, the server keeps a record of every upload, even of versions it has since deleted: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, behind Cloudflare's proxy, the country and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour. It can also ask for 60 workspaces that aren't there in an hour, by any method: past that, it can't look up any workspace until the hour is up, so nobody can try IDs until they find one. These limits count an IPv6 address by its /64 network, as one address: someone with IPv6 is usually given a whole /64, and could otherwise use as many addresses as they like.
 
 The server is written in Go, and builds to one static executable with nothing to install where it runs, not even a C library: its SQLite is pure Go. It keeps its records in SQLite, in `<data>/shares.db`, and each version's encrypted file in `<data>/files/`. It brings the database's tables ([`migrations/`](apps/server/migrations)) up to date as it opens it.
 
@@ -143,9 +143,9 @@ Each is a flag or an environment variable; the flag wins. `open-arch-share help`
 | `--data` | `DATA_DIR` | The folder for records and files: `./data` unless it's set (`/data` in the container) |
 | `--memory` | `DATA_DIR=:memory:` | Keeps everything in memory instead, and forgets it when the server stops |
 | `--trust-proxy` | `TRUST_PROXY` | Whose word to take for a request's IP address. `none`, the default: the connection's. `forwarded`: the last address in `X-Forwarded-For`, which a reverse proxy adds. `cloudflare`: `CF-Connecting-IP`, and the country from `CF-IPCountry`, behind Cloudflare's proxy. Only set it when that proxy is really in front: otherwise anyone can choose the address they're recorded with. Behind a proxy, do set it: otherwise every request comes from the proxy's address, and the per-address limits count everyone together |
-| `--max-bytes` | `MAX_BYTES` | The largest encrypted workspace: 1000000 bytes unless it's set |
-| `--uploads-per-hour` | `UPLOADS_PER_HOUR` | How many files one IP address can upload in an hour: 60 unless it's set |
-| `--failed-lookups-per-hour` | `FAILED_LOOKUPS_PER_HOUR` | How many requests for workspaces that aren't there one IP address can make in an hour, before it can't look up any for the rest of it: 60 unless it's set. It's counted in memory, so a restart starts it again |
+| `--max-bytes` | `MAX_BYTES` | The largest encrypted workspace: 1000000 bytes unless it's set. At least 1 |
+| `--uploads-per-hour` | `UPLOADS_PER_HOUR` | How many files one IP address can upload in an hour: 60 unless it's set. At least 1 |
+| `--failed-lookups-per-hour` | `FAILED_LOOKUPS_PER_HOUR` | How many requests for workspaces that aren't there one IP address can make in an hour, before it can't look up any for the rest of it: 60 unless it's set. At least 1. It's counted in memory, so a restart starts it again |
 | `--quiet` | `LOG=off` | Doesn't print a line for each request |
 
 ### As an executable
@@ -217,13 +217,13 @@ Settings are environment variables (`-e TRUST_PROXY=forwarded`). The image runs 
 
 ### Taking down abuse
 
-Find a workspace by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too. They work while the server runs, on the same data folder: add `--data <folder>` if it isn't `./data`.
+Find a workspace by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too, or block a whole IPv6 network by its /64, like `2001:db8:1:2::/64`. They work while the server runs, on the same data folder: add `--data <folder>` if it isn't `./data`.
 
 ```bash
 open-arch-share uploads --workspace <id>
-open-arch-share uploads --ip <address>
+open-arch-share uploads --ip <address or IPv6 /64>
 open-arch-share block <id> --reason "<why>"
-open-arch-share block-ip <address> --reason "<why>"
+open-arch-share block-ip <address or IPv6 /64> --reason "<why>"
 ```
 
 `unblock` and `unblock-ip` undo them. As the systemd service, run them as its user: `sudo -u open-arch-share open-arch-share block <id> --data /var/lib/open-arch-share --reason "<why>"`. As the launchd job on a Mac, give its folder: `--data ~/Library/Application\ Support/open-arch-share`. In a container, `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`.

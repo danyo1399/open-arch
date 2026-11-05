@@ -66,6 +66,21 @@ describe("ShareDialog", () => {
   });
 });
 
+describe("ShareDialog, for a link the server no longer has", () => {
+  it("stops sharing it, rather than staying stuck on a dead link", async () => {
+    const settings = new Settings(`share-dialog-lost-${Math.random()}`);
+    // A link kept from a server that has since lost it, such as one kept in memory that restarted.
+    await settings.setShare("browser/a", { id: "C".repeat(22), hash: "D".repeat(22), key: "k".repeat(43), token: "t".repeat(43), updated: 1 });
+    const host = dialog(settings);
+    await until(host, "Stop sharing…");
+    await click(button(host, "Stop sharing…"));
+    await click(button(host, "Stop sharing"));
+    await until(host, "Stopped sharing it.");
+    expect(await settings.share("browser/a")).toBeUndefined();
+    expect(button(host, "Create link")).toBeTruthy();
+  });
+});
+
 describe("OpenLinkDialog", () => {
   it("opens a whole link, and says what's wrong with part of one", async () => {
     const opened: LinkParts[] = [];

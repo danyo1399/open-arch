@@ -50,5 +50,41 @@ func ClientOf(r *http.Request, trust TrustProxy) Client {
 		ip = parsed.To4().String()
 	}
 	c.IP = ip
+	c.Group = AddressGroup(ip)
 	return c
+}
+
+// AddressGroup is what the limits count an address as: an IPv4 address as it is, and an IPv6 one
+// as its /64 network, like "2001:db8:1:2::/64". Someone with IPv6 is usually given a whole /64,
+// so counting each of its addresses alone would let them make as many as they like. Anything
+// that isn't an address is its own group.
+func AddressGroup(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+	return parsed.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// BlockTarget is what block-ip and uploads --ip take, written the way the server records it: an
+// IP address, or an IPv6 /64. It's empty for anything else.
+func BlockTarget(target string) string {
+	if strings.Contains(target, "/") {
+		ip, network, err := net.ParseCIDR(target)
+		if ones, bits := network.Mask.Size(); err != nil || ip.To4() != nil || ones != 64 || bits != 128 {
+			return ""
+		}
+		return AddressGroup(ip.String())
+	}
+	parsed := net.ParseIP(target)
+	if parsed == nil {
+		return ""
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+	return parsed.String()
 }

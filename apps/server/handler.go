@@ -26,6 +26,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -208,12 +209,12 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 		lookupLimit = DefaultFailedLookupsPerHour
 	}
 	notThere := func() {
-		if client.IP != "" {
-			s.lookups.fail(client.IP, lookupLimit, now)
+		if client.Group != "" {
+			s.lookups.fail(client.Group, lookupLimit, now)
 		}
 	}
-	if len(parts) > 2 && client.IP != "" {
-		if wait := s.lookups.wait(client.IP, lookupLimit, now); wait > 0 {
+	if len(parts) > 2 && client.Group != "" {
+		if wait := s.lookups.wait(client.Group, lookupLimit, now); wait > 0 {
 			w.Header().Set("Retry-After", strconv.FormatInt((wait+999)/1000, 10))
 			fail(w, http.StatusTooManyRequests, fmt.Sprintf("Too many requests from this address for shared workspaces that aren't there: at most %d an hour. Try again later.", lookupLimit))
 			return nil
@@ -307,7 +308,15 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 			return err
 		}
 		u := upload(client, id, file, "update", now)
-		if err := s.Store.Update(ctx, id, file, u); err != nil {
+		if err := s.Store.Update(ctx, id, file, u); errors.Is(err, ErrNotShared) {
+			// Deleted or taken down since it was looked up above.
+			if latest, _ := s.Store.Workspace(ctx, id); latest != nil && latest.Blocked != 0 {
+				fail(w, http.StatusGone, "This shared workspace was taken down.")
+			} else {
+				fail(w, http.StatusGone, "This workspace isn't shared any more: whoever shared it stopped sharing it.")
+			}
+			return nil
+		} else if err != nil {
 			return err
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"id": id, "hash": u.Hash})
@@ -377,7 +386,7 @@ func (s *Server) readUpload(w http.ResponseWriter, r *http.Request, client Clien
 		return nil, nil
 	}
 	if client.IP != "" {
-		blocked, err := s.Store.IPBlocked(r.Context(), client.IP)
+		blocked, err := s.Store.IPBlocked(r.Context(), client.IP, client.Group)
 		if err != nil {
 			return nil, err
 		}
@@ -389,7 +398,7 @@ func (s *Server) readUpload(w http.ResponseWriter, r *http.Request, client Clien
 		if limit == 0 {
 			limit = DefaultUploadsPerHour
 		}
-		recent, err := s.Store.UploadsSince(r.Context(), client.IP, now-hour)
+		recent, err := s.Store.UploadsSince(r.Context(), client.Group, now-hour)
 		if err != nil {
 			return nil, err
 		}

@@ -73,10 +73,10 @@ Usage: %s [command] [options]
 Commands:
   serve                     Answer requests (the default)
   uploads --workspace <id>  List a workspace's uploads, and who sent them
-  uploads --ip <address>    List the uploads from an IP address
+  uploads --ip <address>    List the uploads from an IP address, or an IPv6 /64
   block <id> --reason <why>          Take a workspace down: it's no longer served
   unblock <id>                       Serve it again
-  block-ip <address> --reason <why>  Refuse uploads from an IP address
+  block-ip <address> --reason <why>  Refuse uploads from an IP address, or an IPv6 /64
   unblock-ip <address>               Accept them again
   health                    Check the server on this machine answers, for a container's health check
   version                   Say which version this is
@@ -106,6 +106,15 @@ func whole(value, name string) (int, error) {
 		return 0, usage("%s must be a whole number, not %q.", name, value)
 	}
 	return n, nil
+}
+
+// atLeastOne is a limit: none of them can be 0, which would stop every upload or lookup.
+func atLeastOne(value, name string) (int, error) {
+	n, err := whole(value, name)
+	if err == nil && n < 1 {
+		return 0, usage("%s must be at least 1, not %q.", name, value)
+	}
+	return n, err
 }
 
 var valueFlags = map[string]bool{"port": true, "host": true, "data": true, "trust-proxy": true, "max-bytes": true, "uploads-per-hour": true, "failed-lookups-per-hour": true, "workspace": true, "ip": true, "limit": true, "reason": true}
@@ -176,18 +185,18 @@ func ReadInvocation(args []string, getenv func(string) string) (Invocation, erro
 	if inv.Config.Port, err = whole(setting("port", "PORT", "8787"), "The port"); err != nil {
 		return inv, err
 	}
-	maxBytes, err := whole(setting("max-bytes", "MAX_BYTES", strconv.Itoa(DefaultMaxBytes)), "The largest workspace")
+	maxBytes, err := atLeastOne(setting("max-bytes", "MAX_BYTES", strconv.Itoa(DefaultMaxBytes)), "The largest workspace")
 	if err != nil {
 		return inv, err
 	}
 	inv.Config.MaxBytes = int64(maxBytes)
-	if inv.Config.UploadsPerHour, err = whole(setting("uploads-per-hour", "UPLOADS_PER_HOUR", strconv.Itoa(DefaultUploadsPerHour)), "The uploads an hour"); err != nil {
+	if inv.Config.UploadsPerHour, err = atLeastOne(setting("uploads-per-hour", "UPLOADS_PER_HOUR", strconv.Itoa(DefaultUploadsPerHour)), "The uploads an hour"); err != nil {
 		return inv, err
 	}
-	if inv.Config.FailedLookupsPerHour, err = whole(setting("failed-lookups-per-hour", "FAILED_LOOKUPS_PER_HOUR", strconv.Itoa(DefaultFailedLookupsPerHour)), "The failed lookups an hour"); err != nil {
+	if inv.Config.FailedLookupsPerHour, err = atLeastOne(setting("failed-lookups-per-hour", "FAILED_LOOKUPS_PER_HOUR", strconv.Itoa(DefaultFailedLookupsPerHour)), "The failed lookups an hour"); err != nil {
 		return inv, err
 	}
-	if inv.Limit, err = whole(setting("limit", "", "50"), "The limit"); err != nil {
+	if inv.Limit, err = atLeastOne(setting("limit", "", "50"), "The limit"); err != nil {
 		return inv, err
 	}
 	inv.Config.Host = setting("host", "HOST", "")
@@ -217,6 +226,22 @@ func ReadInvocation(args []string, getenv func(string) string) (Invocation, erro
 			what = "address"
 		}
 		return inv, usage("Say what to %s: %s <%s>.", strings.TrimSuffix(command, "-ip"), command, what)
+	}
+	// An address the way the server records it, so 2001:DB8::1 finds 2001:db8::1.
+	if strings.HasSuffix(command, "-ip") || (command == "uploads" && inv.IP != "") {
+		raw := inv.Target
+		if command == "uploads" {
+			raw = inv.IP
+		}
+		normal := BlockTarget(raw)
+		if normal == "" {
+			return inv, usage("%q isn't an IP address, or an IPv6 /64 like 2001:db8:1:2::/64.", raw)
+		}
+		if command == "uploads" {
+			inv.IP = normal
+		} else {
+			inv.Target = normal
+		}
 	}
 	if (command == "block" || command == "block-ip") && inv.Reason == "" {
 		return inv, usage("Say why, with --reason, so whoever reads the records later knows.")
