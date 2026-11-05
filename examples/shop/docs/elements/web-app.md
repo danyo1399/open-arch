@@ -30,6 +30,7 @@ Single-page app served from a CDN.
 - [Checkout API components](../views/checkout-api-components.md)
 - [Logging classes](../views/logging-classes.md)
 - [Placing an order](../views/place-order.md)
+- [Production](../views/production.md) (runs in Customer's computer)
 - [Shop containers](../views/shop-containers.md)
 
 [All views and elements](../README.md)

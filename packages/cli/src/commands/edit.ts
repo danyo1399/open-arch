@@ -112,7 +112,7 @@ function notes(io: Io, v: Values): string | null | undefined {
   }
 }
 
-/** A step's or transition's number, from `--<name> <n>` or a positional argument: 1 is the first. */
+/** A step's, transition's or connection's number, from `--<name> <n>` or a positional argument: 1 is the first. */
 function stepNumber(v: Values[string], name: string, what = "step"): number | undefined {
   if (v === undefined) return undefined;
   const n = Number(v);
@@ -124,6 +124,15 @@ function stepNumber(v: Values[string], name: string, what = "step"): number | un
 function either(v: Values, yes: string, no: string): boolean | undefined {
   if (v[yes] === true && v[no] === true) throw new CliError(`Pass --${yes} or --${no}, not both.`, 2);
   return v[yes] === true ? true : v[no] === true ? false : undefined;
+}
+
+/** `--instances 3`: how many copies of a node run. In an update, an empty value means "back to 1". */
+function instances(v: Values[string]): number | null | undefined {
+  if (typeof v !== "string") return undefined;
+  if (v.trim() === "") return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1) throw new CliError(`--instances must be a whole number, 1 or more, not "${v}".`, 2);
+  return n;
 }
 
 function index(v: Values[string]): number | undefined {
@@ -237,7 +246,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence or state.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state or deployment.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",
@@ -353,6 +362,70 @@ export const BUILDERS: Record<string, Builder> = {
   "remove-transition": (_io, _v, p, usage) => {
     const [view, n] = need(p, ["<view>", "<n>"], usage);
     return [{ op: "remove-transition", view: view!, transition: stepNumber(n, "<n>", "transition")! }];
+  },
+  "add-node": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "add-node",
+        view: view!,
+        id: id!,
+        name: text(v.name),
+        parent: text(v.parent),
+        description: text(v.description),
+        technology: text(v.technology),
+        infrastructure: v.infrastructure === true || undefined,
+        instances: instances(v.instances) ?? undefined,
+        shape: text(v.shape) as never,
+        runs: replacing(v.run) ?? undefined,
+      },
+    ];
+  },
+  "update-node": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "update-node",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        name: text(v.name),
+        parent: clearable(v.parent),
+        description: clearable(v.description),
+        technology: clearable(v.technology),
+        infrastructure: either(v, "infrastructure", "deployment-node"),
+        instances: instances(v.instances),
+        shape: clearable(v.shape) as never,
+        runs: replacing(v.run),
+      },
+    ];
+  },
+  "remove-node": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-node", view: view!, id: id! }];
+  },
+  "add-connection": (_io, v, p, usage) => {
+    const [view, from, to] = need(p, ["<view>", "<from>", "<to>"], usage);
+    return [{ op: "add-connection", view: view!, from: from!, to: to!, description: text(v.description), technology: text(v.technology), connection: stepNumber(v.connection, "--connection", "connection") }];
+  },
+  "update-connection": (_io, v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [
+      {
+        op: "update-connection",
+        view: view!,
+        connection: stepNumber(n, "<n>", "connection")!,
+        from: text(v.from),
+        to: text(v.to),
+        description: clearable(v.description),
+        technology: clearable(v.technology),
+        newConnection: stepNumber(v["move-to"], "--move-to", "connection"),
+      },
+    ];
+  },
+  "remove-connection": (_io, _v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [{ op: "remove-connection", view: view!, connection: stepNumber(n, "<n>", "connection")! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

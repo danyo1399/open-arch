@@ -8,9 +8,10 @@ export type ElementKind = (typeof ELEMENT_KINDS)[number];
 
 /**
  * A sequence view isn't a C4 level of detail: it draws steps between elements, in order. Nor is
- * a state view: it draws the states something can be in, and the transitions between them.
+ * a state view: it draws the states something can be in, and the transitions between them. A
+ * deployment view draws where containers run: the servers, clusters and cloud services, nested.
  */
-export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state"] as const;
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -78,7 +79,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 9;
+export const FORMAT_VERSION = 10;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -158,6 +159,45 @@ export interface ViewData {
   initial?: string;
   /** State views only: the ways from one state to another, or back to itself. */
   transitions?: TransitionData[];
+  /** Deployment views only: where things run, keyed by an ID unique within the view. */
+  nodes?: Record<string, DeploymentNodeData>;
+  /** Deployment views only: arrows to or from nodes, like a load balancer forwarding to the web app. */
+  connections?: ConnectionData[];
+}
+
+/**
+ * One node of a deployment view: something things run on or in, like a server, a Kubernetes
+ * cluster or a cloud region. Nodes nest, and each lists the containers and systems that run in it.
+ * An infrastructure node, like a load balancer, DNS or a firewall, runs nothing and holds nothing.
+ */
+export interface DeploymentNodeData {
+  name: string;
+  /** The ID of the node of the same view it's inside. */
+  parent?: string;
+  description?: string;
+  /** What it is, e.g. "Ubuntu 24.04" or "Amazon ECS". */
+  technology?: string;
+  /** True for infrastructure, like a load balancer: it runs no containers and holds no nodes. */
+  infrastructure?: boolean;
+  /** How many copies of it run, with everything inside. Default: 1. */
+  instances?: number;
+  /** Default: box. */
+  shape?: ElementShape;
+  /** The IDs of the containers and systems of the model that run in it. */
+  runs?: string[];
+}
+
+/**
+ * An arrow on a deployment view to or from a node. Each end is a node of the view, or a container
+ * or system that one of its nodes runs; at least one end is a node. Arrows between two containers
+ * come from the model's relationships instead.
+ */
+export interface ConnectionData {
+  from: string;
+  to: string;
+  /** What it does, e.g. "Forwards requests to". */
+  description?: string;
+  technology?: string;
 }
 
 /** One state of a state view, like "Paid". */
@@ -265,6 +305,37 @@ export interface ViewDef {
   initial?: string;
   /** State views only, in the file's order; empty on other views. */
   transitions: Transition[];
+  /** Deployment views only, in reading order: each top-level node, then the nodes inside it. Empty on other views. */
+  nodes: DeploymentNode[];
+  /** Deployment views only, in the file's order; empty on other views. */
+  connections: Connection[];
+}
+
+export interface DeploymentNode {
+  id: string;
+  /** Where it lives in the document, e.g. `views.production.nodes.web-server`. */
+  path: string;
+  name: string;
+  parent?: string;
+  description?: string;
+  technology?: string;
+  infrastructure: boolean;
+  /** 1 or more. */
+  instances: number;
+  shape: ElementShape;
+  /** Each once, in the file's order. */
+  runs: string[];
+}
+
+export interface Connection {
+  /** Where it lives in the document, e.g. `views.production.connections[0]`. */
+  path: string;
+  /** Its number: 1 is the first. */
+  number: number;
+  from: string;
+  to: string;
+  description?: string;
+  technology?: string;
 }
 
 export interface State {

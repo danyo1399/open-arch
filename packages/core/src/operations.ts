@@ -14,6 +14,8 @@ import {
   RELATIONSHIP_KINDS,
   STICKY_COLORS,
   VIEW_LEVELS,
+  type ConnectionData,
+  type DeploymentNodeData,
   type Diagnostic,
   type ElementData,
   type ElementKind,
@@ -30,7 +32,7 @@ import {
   type ViewData,
   type ViewLevel,
 } from "./types.js";
-import { computeView, scopeProblems, stepRelationships } from "./views.js";
+import { computeView, RUNNABLE_KINDS, scopeProblems, stepRelationships } from "./views.js";
 import { buildWorkspace } from "./workspace.js";
 
 /**
@@ -111,6 +113,39 @@ export type Operation =
   | { op: "add-transition"; view: string; from: string; to: string; event?: string; guard?: string; action?: string; transition?: number }
   | { op: "update-transition"; view: string; transition: number; from?: string; to?: string; event?: string | null; guard?: string | null; action?: string | null; newTransition?: number }
   | { op: "remove-transition"; view: string; transition: number }
+  | {
+      op: "add-node";
+      view: string;
+      id: string;
+      name?: string;
+      parent?: string;
+      description?: string;
+      technology?: string;
+      infrastructure?: boolean;
+      instances?: number;
+      shape?: ElementShape;
+      runs?: string[];
+    }
+  | {
+      op: "update-node";
+      view: string;
+      id: string;
+      newId?: string;
+      name?: string;
+      /** null puts it at the top. */
+      parent?: string | null;
+      description?: string | null;
+      technology?: string | null;
+      infrastructure?: boolean;
+      instances?: number | null;
+      shape?: ElementShape | null;
+      /** Replaces what it runs. */
+      runs?: string[] | null;
+    }
+  | { op: "remove-node"; view: string; id: string }
+  | { op: "add-connection"; view: string; from: string; to: string; description?: string; technology?: string; connection?: number }
+  | { op: "update-connection"; view: string; connection: number; from?: string; to?: string; description?: string | null; technology?: string | null; newConnection?: number }
+  | { op: "remove-connection"; view: string; connection: number }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -127,7 +162,21 @@ export class OpError extends Error {
 
 // --- Checking the shape of operations sent as JSON ----------------------------------
 
-type FieldType = "string" | "nullable-string" | "boolean" | "strings" | "nullable-strings" | "tags" | "nullable-tags" | "index" | "number" | "positions" | "point" | "nullable-point";
+type FieldType =
+  | "string"
+  | "nullable-string"
+  | "boolean"
+  | "strings"
+  | "nullable-strings"
+  | "tags"
+  | "nullable-tags"
+  | "index"
+  | "number"
+  | "count"
+  | "nullable-count"
+  | "positions"
+  | "point"
+  | "nullable-point";
 
 const SHAPES: Record<OperationName, { required: string[]; fields: Record<string, FieldType> }> = {
   "add-element": {
@@ -215,6 +264,47 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
     fields: { view: "string", transition: "number", from: "string", to: "string", event: "nullable-string", guard: "nullable-string", action: "nullable-string", newTransition: "number" },
   },
   "remove-transition": { required: ["view", "transition"], fields: { view: "string", transition: "number" } },
+  "add-node": {
+    required: ["view", "id"],
+    fields: {
+      view: "string",
+      id: "string",
+      name: "string",
+      parent: "string",
+      description: "string",
+      technology: "string",
+      infrastructure: "boolean",
+      instances: "count",
+      shape: "string",
+      runs: "strings",
+    },
+  },
+  "update-node": {
+    required: ["view", "id"],
+    fields: {
+      view: "string",
+      id: "string",
+      newId: "string",
+      name: "string",
+      parent: "nullable-string",
+      description: "nullable-string",
+      technology: "nullable-string",
+      infrastructure: "boolean",
+      instances: "nullable-count",
+      shape: "nullable-string",
+      runs: "nullable-strings",
+    },
+  },
+  "remove-node": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-connection": {
+    required: ["view", "from", "to"],
+    fields: { view: "string", from: "string", to: "string", description: "string", technology: "string", connection: "number" },
+  },
+  "update-connection": {
+    required: ["view", "connection"],
+    fields: { view: "string", connection: "number", from: "string", to: "string", description: "nullable-string", technology: "nullable-string", newConnection: "number" },
+  },
+  "remove-connection": { required: ["view", "connection"], fields: { view: "string", connection: "number" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
@@ -242,6 +332,10 @@ function fits(type: FieldType, value: unknown): boolean {
       return Number.isInteger(value) && (value as number) >= 0;
     case "number":
       return Number.isInteger(value) && (value as number) >= 1;
+    case "count":
+      return Number.isInteger(value) && (value as number) >= 1;
+    case "nullable-count":
+      return value === null || (Number.isInteger(value) && (value as number) >= 1);
     case "positions":
       return (
         isRecord(value) &&
@@ -264,6 +358,8 @@ const TYPE_TEXT: Record<FieldType, string> = {
   "nullable-tags": 'an object of tag names and string values, like { "owner": "payments" } (null removes a tag)',
   index: "a whole number, 0 or more",
   number: "a number, 1 or more: 1 is the first",
+  count: "a whole number, 1 or more",
+  "nullable-count": "a whole number, 1 or more, or null for 1",
   positions: "an object of [x, y] positions (null removes one)",
   point: "a position, [x, y]",
   "nullable-point": "a position, [x, y], or null to let the designer place it",
@@ -420,6 +516,22 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       view.transitions!.splice(op.transition - 1, 1);
       return `removed transition ${op.transition} from view ${op.view}`;
     }
+    case "add-node":
+      return addNode(doc, op);
+    case "update-node":
+      return updateNode(doc, op);
+    case "remove-node":
+      return removeNode(doc, op.view, op.id);
+    case "add-connection":
+      return addConnection(doc, op);
+    case "update-connection":
+      return updateConnection(doc, op);
+    case "remove-connection": {
+      const view = requireDeployment(doc, op.view);
+      requireConnection(view, op.view, op.connection);
+      view.connections!.splice(op.connection - 1, 1);
+      return `removed connection ${op.connection} from view ${op.view}`;
+    }
     case "update-workspace":
       return updateWorkspace(doc, op);
   }
@@ -523,6 +635,13 @@ function removeElement(doc: OpenArchDocument, id: string): string {
     if (v.exclude?.length === 0) delete v.exclude;
     // A step needs both its ends.
     if (v.steps) v.steps = v.steps.filter((step) => !gone.has(step.from) && !gone.has(step.to));
+    // A node no longer runs it, and a connection to it goes, unless the end is a node of that name.
+    for (const node of Object.values(v.nodes ?? {})) {
+      if (!node.runs) continue;
+      node.runs = node.runs.filter((id) => !gone.has(id));
+      if (node.runs.length === 0) delete node.runs;
+    }
+    if (v.connections) v.connections = v.connections.filter((c) => ![c.from, c.to].some((end) => gone.has(end) && !Object.hasOwn(v.nodes ?? {}, end)));
   }
   const extra = [gone.size > 1 ? `${gone.size - 1} element${gone.size === 2 ? "" : "s"} inside it` : "", removedViews.length ? `view${removedViews.length === 1 ? "" : "s"} ${removedViews.join(", ")}` : ""].filter(Boolean);
   return `removed ${id}${extra.length ? ` and ${extra.join(" and ")}` : ""}`;
@@ -551,6 +670,14 @@ function rename(doc: OpenArchDocument, from: string, to: string): string {
     for (const step of v.steps ?? []) {
       if (step.from === from) step.from = to;
       if (step.to === from) step.to = to;
+    }
+    for (const node of Object.values(v.nodes ?? {})) if (node.runs) node.runs = node.runs.map((id) => (id === from ? to : id));
+    // A connection's end is a node when the view has one of that name.
+    if (!Object.hasOwn(v.nodes ?? {}, from)) {
+      for (const c of v.connections ?? []) {
+        if (c.from === from) c.from = to;
+        if (c.to === from) c.to = to;
+      }
     }
   }
   return `renamed ${from} to ${to}`;
@@ -631,30 +758,49 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   assertNewId(doc, op.id);
   if (!(VIEW_LEVELS as readonly string[]).includes(op.level)) throw new OpError(`Unknown level "${op.level}". Use one of: ${VIEW_LEVELS.join(", ")}.`);
   const ws = buildWorkspace(doc);
-  const draft = { id: op.id, path: `views.${op.id}`, title: "", level: op.level, scope: op.scope, include: ["*"], exclude: [], stickies: [], layout: {}, steps: [], states: [], transitions: [] };
+  const draft = {
+    id: op.id,
+    path: `views.${op.id}`,
+    title: "",
+    level: op.level,
+    scope: op.scope,
+    include: ["*"],
+    exclude: [],
+    stickies: [],
+    layout: {},
+    steps: [],
+    states: [],
+    transitions: [],
+    nodes: [],
+    connections: [],
+  };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
   const sequence = op.level === "sequence";
   const statesView = op.level === "state";
+  const deployment = op.level === "deployment";
   if (sequence && (op.include || op.exclude)) throw new OpError(SEQUENCE_PARTICIPANTS);
   if (statesView && (op.include || op.exclude)) throw new OpError(STATE_BOXES);
+  if (deployment && (op.include || op.exclude)) throw new OpError(DEPLOYMENT_BOXES);
   checkIds(doc, op.include, "include");
   checkIds(doc, op.exclude, "exclude");
   const scope = op.scope ? doc.elements[op.scope] : undefined;
   const title =
     op.title?.trim() ||
-    (sequence ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView ? titleFromId(op.id) : "System landscape");
+    (sequence || deployment ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView ? titleFromId(op.id) : "System landscape");
   doc.views[op.id] = clean<ViewData>({
     title,
     description: op.description?.trim(),
     level: op.level,
     scope: op.scope,
-    include: sequence || statesView ? undefined : op.include ? [...op.include] : ["*"],
+    include: sequence || statesView || deployment ? undefined : op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
     notes: op.notes?.trim(),
     steps: sequence ? [] : undefined,
     states: statesView ? {} : undefined,
     transitions: statesView ? [] : undefined,
+    nodes: deployment ? {} : undefined,
+    connections: deployment ? [] : undefined,
   });
   return `added view ${op.id}`;
 }
@@ -668,6 +814,7 @@ export const LEVEL_TITLE: Record<ViewLevel, string> = {
   class: "classes",
   sequence: "sequence",
   state: "states",
+  deployment: "deployment",
 };
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
@@ -693,6 +840,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   }
   if (view.level === "sequence" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(SEQUENCE_PARTICIPANTS);
   if (view.level === "state" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(STATE_BOXES);
+  if (view.level === "deployment" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(DEPLOYMENT_BOXES);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -741,6 +889,7 @@ function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
   const view = requireView(doc, viewId);
   if (view.level === "sequence") throw new OpError(SEQUENCE_PARTICIPANTS);
   if (view.level === "state") throw new OpError(STATE_BOXES);
+  if (view.level === "deployment") throw new OpError(DEPLOYMENT_BOXES);
   requireElement(doc, id);
   if (shows(doc, viewId, id)) return `${id} is already in view ${viewId}`;
   if (view.exclude?.includes(id)) {
@@ -758,6 +907,7 @@ function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
   const view = requireView(doc, viewId);
   if (view.level === "sequence") throw new OpError(SEQUENCE_PARTICIPANTS);
   if (view.level === "state") throw new OpError(STATE_BOXES);
+  if (view.level === "deployment") throw new OpError(DEPLOYMENT_BOXES);
   requireElement(doc, id);
   if (!shows(doc, viewId, id)) throw new OpError(`"${id}" isn't a box in view "${viewId}".`);
   if (view.include?.includes(id)) view.include = view.include.filter((x) => x !== id);
@@ -769,6 +919,7 @@ function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<stri
   const view = requireView(doc, viewId);
   if (view.level === "sequence") throw new OpError("A sequence view is laid out from its steps, so it has no box positions.");
   if (view.level === "state") throw new OpError("A state view has no boxes. Move a state with update-state --at.");
+  if (view.level === "deployment") throw new OpError("A deployment view is laid out from its nodes, so it has no box positions.");
   const layout: Record<string, Position> = { ...view.layout };
   for (const [id, pos] of Object.entries(positions)) {
     if (pos === null) {
@@ -988,6 +1139,227 @@ function requireTransition(view: ViewData, viewId: string, number: number) {
   const transition = transitions[number - 1];
   if (!transition) throw new OpError(transitions.length ? `View "${viewId}" has ${count(transitions.length, "transition")}: "transition" must be 1 to ${transitions.length}.` : `View "${viewId}" has no transitions yet.`);
   return transition;
+}
+
+/** Why a deployment view can't be given elements to show or hide. */
+const DEPLOYMENT_BOXES =
+  "A deployment view shows its nodes and the containers and systems they run, so it takes no include or exclude list. Add a node with add-node, and list what it runs in its runs.";
+
+const NODE_ID_EXAMPLE = 'IDs are lowercase kebab-case, like "web-server".';
+
+function addNode(doc: OpenArchDocument, op: Extract<Operation, { op: "add-node" }>): string {
+  const view = requireDeployment(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. ${NODE_ID_EXAMPLE}`);
+  if (view.nodes?.[op.id]) throw new OpError(`View "${op.view}" already has a node "${op.id}".`);
+  if (op.parent !== undefined) checkNodeParent(view, op.view, op.id, op.parent);
+  // A node can be drawn as any shape, as a container can.
+  checkShape("container", op.shape);
+  const runs = runList(doc, op.runs);
+  if (op.infrastructure && runs) throw new OpError("Infrastructure runs no containers or systems. Make it a deployment node to run them in it.");
+  view.nodes = {
+    ...view.nodes,
+    [op.id]: clean<DeploymentNodeData>({
+      name: op.name?.trim() || titleFromId(op.id),
+      parent: op.parent,
+      description: op.description?.trim(),
+      technology: op.technology?.trim(),
+      infrastructure: op.infrastructure || undefined,
+      instances: op.instances && op.instances > 1 ? op.instances : undefined,
+      shape: op.shape === "box" ? undefined : op.shape,
+      runs,
+    }),
+  };
+  return `added ${op.infrastructure ? "infrastructure node" : "node"} ${op.id} to view ${op.view}`;
+}
+
+function updateNode(doc: OpenArchDocument, op: Extract<Operation, { op: "update-node" }>): string {
+  const view = requireDeployment(doc, op.view);
+  const node = requireNode(view, op.view, op.id);
+  const fields = ["newId", "name", "parent", "description", "technology", "infrastructure", "instances", "shape", "runs"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on node "${op.id}": ${fields.join(", ")}.`);
+  if (op.name !== undefined) {
+    if (!op.name.trim()) throw new OpError("A node's name can't be empty.");
+    node.name = op.name.trim();
+  }
+  if (op.parent === null) delete node.parent;
+  else if (op.parent !== undefined && op.parent !== node.parent) {
+    checkNodeParent(view, op.view, op.id, op.parent);
+    node.parent = op.parent;
+  }
+  for (const key of ["description", "technology"] as const) {
+    const value = op[key];
+    if (value === undefined) continue;
+    if (value === null || !value.trim()) delete node[key];
+    else node[key] = value.trim();
+  }
+  if (op.instances !== undefined) {
+    if (op.instances === null || op.instances === 1) delete node.instances;
+    else node.instances = op.instances;
+  }
+  if (op.shape !== undefined) {
+    checkShape("container", op.shape);
+    if (op.shape === null || op.shape === "box") delete node.shape;
+    else node.shape = op.shape;
+  }
+  let lost = 0;
+  if (op.runs !== undefined) {
+    const runs = runList(doc, op.runs ?? undefined);
+    if (runs) node.runs = runs;
+    else delete node.runs;
+    lost = dropLooseConnections(doc, view, new Set());
+  }
+  if (op.infrastructure === true) node.infrastructure = true;
+  else if (op.infrastructure === false) delete node.infrastructure;
+  if (node.infrastructure && node.runs?.length) throw new OpError("Infrastructure runs no containers or systems. Take them out of it first, or keep it a deployment node.");
+  if (node.infrastructure && Object.values(view.nodes!).some((n) => n.parent === op.id)) {
+    throw new OpError(`Node "${op.id}" holds other nodes, and infrastructure holds none. Move them out of it first.`);
+  }
+  const dropped = lost ? ` and removed ${count(lost, "connection")} to what it no longer runs` : "";
+  if (op.newId === undefined || op.newId === op.id) return `updated node ${op.id} in view ${op.view}${dropped}`;
+  // A new ID keeps the node where it is, and the nodes inside it and its connections follow it.
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. ${NODE_ID_EXAMPLE}`);
+  if (view.nodes![op.newId]) throw new OpError(`View "${op.view}" already has a node "${op.newId}".`);
+  view.nodes = renameKey(view.nodes!, op.id, op.newId);
+  for (const n of Object.values(view.nodes)) if (n.parent === op.id) n.parent = op.newId;
+  for (const c of view.connections ?? []) {
+    if (c.from === op.id) c.from = op.newId;
+    if (c.to === op.id) c.to = op.newId;
+  }
+  return `renamed node ${op.id} to ${op.newId} in view ${op.view}${dropped}`;
+}
+
+/** Removes a node, the nodes inside it, and connections to them and to what only they ran. */
+function removeNode(doc: OpenArchDocument, viewId: string, id: string): string {
+  const view = requireDeployment(doc, viewId);
+  requireNode(view, viewId, id);
+  const nodes = view.nodes!;
+  const gone = new Set([id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [nid, n] of Object.entries(nodes)) {
+      if (n.parent && gone.has(n.parent) && !gone.has(nid)) {
+        gone.add(nid);
+        grew = true;
+      }
+    }
+  }
+  for (const g of gone) delete nodes[g];
+  const lost = dropLooseConnections(doc, view, gone);
+  const extra = [gone.size > 1 ? count(gone.size - 1, "node") + " inside it" : "", lost ? count(lost, "connection") : ""].filter(Boolean);
+  return `removed node ${id} from view ${viewId}${extra.length ? ` and ${extra.join(" and ")}` : ""}`;
+}
+
+function addConnection(doc: OpenArchDocument, op: Extract<Operation, { op: "add-connection" }>): string {
+  const view = requireDeployment(doc, op.view);
+  checkConnectionEnds(doc, view, op.view, op.from, op.to);
+  const connections = view.connections ?? [];
+  const at = op.connection ?? connections.length + 1;
+  if (at > connections.length + 1) throw new OpError(`View "${op.view}" has ${count(connections.length, "connection")}, so a new one can be connection 1 to ${connections.length + 1}.`);
+  const connection = clean<ConnectionData>({ from: op.from, to: op.to, description: op.description?.trim(), technology: op.technology?.trim() });
+  view.connections = [...connections.slice(0, at - 1), connection, ...connections.slice(at - 1)];
+  return `added connection ${at} to view ${op.view}: ${op.from} -> ${op.to}`;
+}
+
+function updateConnection(doc: OpenArchDocument, op: Extract<Operation, { op: "update-connection" }>): string {
+  const view = requireDeployment(doc, op.view);
+  const connection = requireConnection(view, op.view, op.connection);
+  const fields = ["from", "to", "description", "technology", "newConnection"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on connection ${op.connection}: ${fields.join(", ")}.`);
+  if (op.from !== undefined || op.to !== undefined) {
+    checkConnectionEnds(doc, view, op.view, op.from ?? connection.from, op.to ?? connection.to);
+    connection.from = op.from ?? connection.from;
+    connection.to = op.to ?? connection.to;
+  }
+  for (const key of ["description", "technology"] as const) {
+    const value = op[key];
+    if (value === undefined) continue;
+    if (value === null || !value.trim()) delete connection[key];
+    else connection[key] = value.trim();
+  }
+  const connections = view.connections!;
+  if (op.newConnection !== undefined && op.newConnection !== op.connection) {
+    if (op.newConnection > connections.length) throw new OpError(`View "${op.view}" has ${count(connections.length, "connection")}, so "newConnection" must be 1 to ${connections.length}.`);
+    connections.splice(op.connection - 1, 1);
+    connections.splice(op.newConnection - 1, 0, connection);
+    return `moved connection ${op.connection} to ${op.newConnection} in view ${op.view}`;
+  }
+  return `updated connection ${op.connection} in view ${op.view}`;
+}
+
+/**
+ * Removes the connections to or from a node that's gone, or an element no node of the view runs
+ * any more, and says how many. An end that was never either is left for the checks to report.
+ */
+function dropLooseConnections(doc: OpenArchDocument, view: ViewData, goneNodes: Set<string>): number {
+  const nodes = view.nodes ?? {};
+  const run = new Set(Object.values(nodes).flatMap((n) => n.runs ?? []));
+  const before = view.connections?.length ?? 0;
+  if (!before) return 0;
+  const loose = (end: string) => !Object.hasOwn(nodes, end) && (goneNodes.has(end) || (!!doc.elements[end] && !run.has(end)));
+  view.connections = view.connections!.filter((c) => !loose(c.from) && !loose(c.to));
+  return before - view.connections.length;
+}
+
+/** Refuses a connection whose ends aren't a node of the view, or something a node runs; or that joins two elements, or something to itself. */
+function checkConnectionEnds(doc: OpenArchDocument, view: ViewData, viewId: string, from: string, to: string): void {
+  const nodes = view.nodes ?? {};
+  const run = new Set(Object.values(nodes).flatMap((n) => n.runs ?? []));
+  for (const end of [from, to]) {
+    if (Object.hasOwn(nodes, end) || run.has(end)) continue;
+    if (doc.elements[end]) throw new OpError(`No node of view "${viewId}" runs "${end}". Run it in one first: list it in the node's runs with update-node.`);
+    const near = suggest(end, [...Object.keys(nodes), ...run]);
+    throw new OpError(`"${end}" isn't a node of view "${viewId}", or a container or system one runs.${near ? ` Did you mean "${near}"?` : ""}`);
+  }
+  if (from === to) throw new OpError("A connection can't go from something to itself.");
+  if (!Object.hasOwn(nodes, from) && !Object.hasOwn(nodes, to)) {
+    throw new OpError(`"${from}" and "${to}" are both elements. Arrows between them come from the model's relationships: add one with add-relationship ${from} ${to}.`);
+  }
+}
+
+/** Refuses a parent that isn't a node of the view, is infrastructure, or is the node itself or inside it. */
+function checkNodeParent(view: ViewData, viewId: string, id: string, parent: string): void {
+  const nodes = view.nodes ?? {};
+  const holder = requireNode(view, viewId, parent);
+  if (holder.infrastructure) throw new OpError(`"${parent}" is infrastructure, which holds no nodes.`);
+  for (let at: string | undefined = parent, steps = 0; at !== undefined && steps <= Object.keys(nodes).length; at = nodes[at]?.parent, steps++) {
+    if (at === id) throw new OpError(parent === id ? "A node can't be inside itself." : `"${parent}" is inside "${id}", so "${id}" can't be inside it.`);
+  }
+}
+
+/** What a node runs, each once and in order, or undefined when nothing. Refuses anything but containers and systems. */
+function runList(doc: OpenArchDocument, runs: string[] | undefined): string[] | undefined {
+  const ids = [...new Set((runs ?? []).map((r) => r.trim()).filter(Boolean))];
+  if (ids.length === 0) return undefined;
+  for (const id of ids) {
+    const element = requireElement(doc, id);
+    if (!RUNNABLE_KINDS.includes(element.kind)) {
+      throw new OpError(`"${id}" is a ${element.kind}. Nodes run containers and systems${element.kind === "component" || element.kind === "class" ? ": run the container it's in instead" : ""}.`);
+    }
+  }
+  return ids;
+}
+
+function requireDeployment(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "deployment") throw new OpError(`View "${id}" is a ${view.level} view. Only deployment views have nodes and connections.`);
+  return view;
+}
+
+function requireNode(view: ViewData, viewId: string, id: string): DeploymentNodeData {
+  const node = view.nodes?.[id];
+  if (!node) {
+    const ids = Object.keys(view.nodes ?? {});
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no node "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its nodes: ${ids.join(", ")}.` : " Add one with add-node."}`);
+  }
+  return node;
+}
+
+function requireConnection(view: ViewData, viewId: string, number: number): ConnectionData {
+  const connections = view.connections ?? [];
+  const connection = connections[number - 1];
+  if (!connection) throw new OpError(connections.length ? `View "${viewId}" has ${count(connections.length, "connection")}: "connection" must be 1 to ${connections.length}.` : `View "${viewId}" has no connections yet.`);
+  return connection;
 }
 
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {

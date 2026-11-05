@@ -39,7 +39,7 @@ describe("hosts", () => {
 
 describe("model helpers", () => {
   const ws = buildWorkspace({
-    openarch: 9,
+    openarch: 10,
     name: "T",
     elements: {
       shop: { kind: "system", name: "Shop" },

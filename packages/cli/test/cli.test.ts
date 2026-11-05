@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 8 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 9 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -231,6 +231,49 @@ Transitions:
     expect(cli(dir, "add-view", "--help").out).toContain("A state view shows the states something can be in");
   });
 
+  it("adds a deployment view, its nodes and connections, and shows what runs where", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "staging", "--level", "deployment").code).toBe(0);
+    expect(cli(dir, "add-node", "staging", "server", "--technology", "Ubuntu 24.04", "--run", "web-app", "--run", "checkout-api", "--instances", "2").code).toBe(0);
+    expect(cli(dir, "add-node", "staging", "db-server", "--parent", "server", "--shape", "database", "--run", "orders-db").code).toBe(0);
+    expect(cli(dir, "add-node", "staging", "lb", "--name", "Load balancer", "--infrastructure", "--technology", "nginx").out).toContain("added infrastructure node lb to view staging");
+    expect(cli(dir, "add-connection", "staging", "lb", "web-app", "--description", "Forwards requests to", "--technology", "HTTPS").code).toBe(0);
+    expect(cli(dir, "show", "staging").out).toBe(`staging: Staging
+  level:        deployment view
+
+Nodes:
+  lb           Load balancer [nginx]  (infrastructure node)
+  server       Server [Ubuntu 24.04]  ×2 runs web-app, checkout-api
+    db-server  Db Server              (database) runs orders-db
+
+Connections:
+  1.  lb -> web-app  Forwards requests to [HTTPS]
+
+Arrows:
+  server/checkout-api -> db-server/orders-db  Reads and writes orders [SQL]
+  server/web-app -> server/checkout-api       Places orders [HTTPS/JSON]
+  lb -> server/web-app                        Forwards requests to [HTTPS]  (connection 1)
+`);
+    const json = JSON.parse(cli(dir, "show", "staging", "--json").out);
+    expect(json.nodes[1]).toEqual({ id: "server", name: "Server", technology: "Ubuntu 24.04", instances: 2, runs: ["web-app", "checkout-api"] });
+    expect(json.arrows[2]).toEqual({ from: "lb", to: "server/web-app", description: "Forwards requests to", technology: "HTTPS", connection: 1 });
+    expect(cli(dir, "show", "orders-db").out).toContain("staging (runs in db-server)");
+    expect(read(dir, "docs/views/staging.md")).toContain('  subgraph server["Server ×2 [Deployment node: Ubuntu 24.04]"]\n');
+
+    expect(cli(dir, "update-node", "staging", "lb", "--new-id", "front", "--instances", "3").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.staging.connections).toEqual([{ from: "front", to: "web-app", description: "Forwards requests to", technology: "HTTPS" }]);
+    expect(cli(dir, "update-node", "staging", "server", "--run", "checkout-api").out).toContain("removed 1 connection to what it no longer runs");
+    expect(cli(dir, "update-node", "staging", "db-server", "--parent", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.staging.nodes["db-server"].parent).toBeUndefined();
+    expect(cli(dir, "update-node", "staging", "front", "--infrastructure", "--deployment-node").err).toContain("Pass --infrastructure or --deployment-node, not both.");
+    expect(cli(dir, "add-node", "staging", "x", "--instances", "two").err).toContain('--instances must be a whole number, 1 or more, not "two".');
+    expect(cli(dir, "add-connection", "staging", "server", "front").code).toBe(0);
+    expect(cli(dir, "update-connection", "staging", "1", "--description", "Calls").code).toBe(0);
+    expect(cli(dir, "remove-node", "staging", "front").out).toContain("removed node front from view staging and 1 connection");
+    expect(cli(dir, "remove-connection", "staging", "1").err).toContain('View "staging" has no connections yet.');
+    expect(cli(dir, "add-view", "--help").out).toContain("A deployment view shows where containers and systems run");
+  });
+
   it("removes fields with empty values and hides elements from views", () => {
     const dir = example();
     expect(cli(dir, "update-element", "web-app", "--technology", "", "--tag", "frontend").code).toBe(0);
@@ -383,22 +426,22 @@ Transitions:
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 9', '"openarch": 1')
+      .replace('"openarch": 10', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 9, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 10, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8])("reads a version %i file, and writes it back as version 9", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9])("reads a version %i file, and writes it back as version 10", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 9', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 10', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 9,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 10,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -431,7 +474,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 9, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 10, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

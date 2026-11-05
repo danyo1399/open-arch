@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 9)
+# The open-arch workspace (format version 10)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 9,
+  "openarch": 10,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -75,14 +75,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `9` |
+| `openarch` | Format version, always `10` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 8 files too, and write them back as version 9. Version 8 is the same, but without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 9 files too, and write them back as version 10. Version 9 is the same, but without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view.
 
@@ -161,17 +161,19 @@ Only associations go both ways. A relationship with a kind needs no description,
 |---|---|
 | `title` | Diagram title |
 | `description` | One sentence, shown under the title on the diagram |
-| `level` | `landscape`, `context`, `container`, `component`, `class`, `sequence` or `state` |
-| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, optionally any element for state views (the one whose states they are), none for landscape and sequence |
-| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence and state views |
-| `exclude` | IDs to hide. Not used on sequence and state views |
+| `level` | `landscape`, `context`, `container`, `component`, `class`, `sequence`, `state` or `deployment` |
+| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, optionally any element for state views (the one whose states they are), none for landscape, sequence and deployment |
+| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence, state and deployment views |
+| `exclude` | IDs to hide. Not used on sequence, state and deployment views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
 | `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside the diagram) |
-| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence and state views |
+| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence, state and deployment views |
 | `steps` | Sequence views only: what happens, in order (see below) |
 | `states` | State views only: the states, keyed by an ID unique within the view (see below) |
 | `initial` | State views only: the ID of the state it starts in |
 | `transitions` | State views only: the ways from one state to another, in order (see below) |
+| `nodes` | Deployment views only: where things run, keyed by an ID unique within the view (see below) |
+| `connections` | Deployment views only: arrows to or from nodes, in order (see below) |
 
 | Level | Boxes | `"*"` includes |
 |---|---|---|
@@ -229,6 +231,45 @@ A `state` view isn't a level of detail either: it shows the states something can
 
 A transition is labelled as UML writes it: `event [guard] / action`. Transitions are numbered from 1, in order, as `show <view>` prints them; the order doesn't change what the diagram means. The `initial` state gets a dot with an arrow into it.
 
+A `deployment` view shows where the containers run, such as in one environment like Production, as a C4 deployment diagram does. Its nodes are what they run on or in, like a cloud region, a Kubernetes cluster, a server or a database service, nested with `parent`; each lists the containers and systems of the model that run in it. Nodes and connections belong to the view, not the model:
+
+```json
+"production": {
+  "title": "Production",
+  "level": "deployment",
+  "nodes": {
+    "aws": { "name": "Amazon Web Services" },
+    "api-servers": { "name": "API servers", "parent": "aws", "technology": "Amazon ECS", "instances": 3, "runs": ["checkout-api"] },
+    "database": { "name": "Database", "parent": "aws", "technology": "Amazon RDS", "runs": ["orders-db"] },
+    "load-balancer": { "name": "Load balancer", "parent": "aws", "technology": "Application Load Balancer", "infrastructure": true }
+  },
+  "connections": [
+    { "from": "load-balancer", "to": "checkout-api", "description": "Forwards requests to", "technology": "HTTPS" }
+  ]
+}
+```
+
+| Node field | Meaning |
+|---|---|
+| `name` | Display name |
+| `parent` | The ID of the node of the same view it's inside. Without it, it's at the top |
+| `description` | One sentence |
+| `technology` | What it is, e.g. `Ubuntu 24.04`, `Amazon ECS` |
+| `infrastructure` | `true` for infrastructure, like a load balancer, DNS or a firewall: it runs nothing and holds no nodes |
+| `instances` | How many copies of it run, with everything inside: a whole number, 1 (the default) or more. Drawn as a stack, with ×3 by its name |
+| `shape` | As an element's. A node that holds nothing, such as infrastructure, is drawn as a box in this shape |
+| `runs` | The IDs of the containers and systems that run in it |
+
+| Connection field | Meaning |
+|---|---|
+| `from`, `to` | Each is a node of the view, or a container or system one of its nodes runs. At least one is a node, and neither is inside the other |
+| `description` | What it does, e.g. "Forwards requests to" |
+| `technology` | e.g. `HTTPS` |
+
+Arrows between the containers and systems come from the model's relationships, lifted to the nearest element the view runs, as other views lift them to their boxes. So does a relationship of a component inside a container that runs. Where an element runs in more than one node, each copy is joined to the copies of what it uses that run nearest it: those in the deepest node they share. With a web app and its database in each of two regions, each web app uses the database in its own region; with one database, they both use it. Connections are for arrows to or from a node, and are joined to the copies of an element the same way. Connections are numbered from 1, in order, as `show <view>` prints them. The designer lays out a deployment view automatically, so it has no positions.
+
+A node's ID can't be the ID of an element the view runs, since a connection's end could then mean either. Removing an element from the model takes it out of every node's `runs`, and removes connections to it; renaming it renames it there too.
+
 Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside them.
 
 Each element is drawn at the level of detail the view allows: in a container view of `shop`, a component inside `checkout-api` appears as `checkout-api`, and a container of another system appears as that system. Relationships move up with their elements, and several relationships between the same two boxes become one arrow.
@@ -238,8 +279,8 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions.
-- `elements/<id>.md`: the element's details, notes, members (for a class), libraries (for a container), the containers built with it (for a library), relationships (with their notes), contents and the views showing it.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections.
+- `elements/<id>.md`: the element's details, notes, members (for a class), libraries (for a container), the containers built with it (for a library), relationships (with their notes), contents and the views showing it, with the nodes it runs in on deployment views.
 
 Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite or delete pages with that marker, so other files in the folder are safe. Don't edit generated pages: the next change rewrites them.
 
@@ -250,9 +291,9 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `9` (or `1` to `8`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `10` (or `1` to `9`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
-| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence or state view, `steps` on another view than a sequence, or `states`, `initial` or `transitions` on another view than a state view |
+| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state or deployment view, `scope` on a deployment view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, or `nodes` or `connections` on another view than a deployment view |
 | `field-type` | error | A field has the wrong type |
 | `field-required` | error | A required field is missing |
 | `id-format` | error | An ID isn't kebab-case |
@@ -282,7 +323,7 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | `relationship-description` | warning | An association has no description |
 | `relationship-duplicate` | warning | The same relationship is listed twice |
 | `view-scope-required` | error | A context, container, component or class view has no scope |
-| `view-scope-not-allowed` | error | A landscape view has a scope |
+| `view-scope-not-allowed` | error | A landscape, sequence or deployment view has a scope |
 | `view-scope-unknown` | error | `scope` isn't an element |
 | `view-scope-kind` | error | `scope` has the wrong kind for the level |
 | `view-include-unknown` | error | An `include` entry isn't an element |
@@ -296,6 +337,17 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | `state-initial-unknown` | error | A state view's `initial` isn't one of its states |
 | `state-initial-missing` | warning | A state view with states has no `initial` state |
 | `transition-unknown-state` | error | A transition's `from` or `to` isn't one of its view's states |
+| `node-parent-unknown` | error | A node's `parent` isn't a node of its view |
+| `node-parent-infrastructure` | error | A node's `parent` is infrastructure, which holds no nodes |
+| `node-parent-cycle` | error | A node is inside itself, through its parents |
+| `node-infrastructure-runs` | error | An infrastructure node has `runs` |
+| `node-runs-unknown` | error | A `runs` entry isn't an element |
+| `node-runs-kind` | error | A `runs` entry isn't a container or a system |
+| `node-id-taken` | error | A node has the ID of an element its view runs |
+| `connection-unknown-end` | error | A connection's `from` or `to` isn't a node of its view, or something one runs |
+| `connection-self` | error | A connection goes from something to itself |
+| `connection-between-elements` | error | A connection joins two elements: that's a relationship in the model |
+| `connection-parent-child` | error | A connection joins a node and something inside it |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |
 
 The first thirteen are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.

@@ -1,7 +1,7 @@
 /** Read-only questions about the model, used by `show` and later by the designer. */
 import type { Workspace } from "./workspace.js";
 import { builtInto, childrenOf, compareElements, isInside } from "./model.js";
-import type { ArchElement, Relationship, ViewDef } from "./types.js";
+import type { ArchElement, DeploymentNode, Relationship, ViewDef } from "./types.js";
 import { computeView, scopeProblems, type ComputedView } from "./views.js";
 
 export interface ElementDescription {
@@ -17,8 +17,11 @@ export interface ElementDescription {
   libraries: ArchElement[];
   /** A library's containers: those built with it. */
   builtInto: ArchElement[];
-  /** Views that draw this element: as a box, as the frame around the view, or as what a state view shows the states of. */
-  views: { view: ViewDef; as: "box" | "frame" | "states" }[];
+  /**
+   * Views that draw this element: as a box, as the frame around the view, as what a state view
+   * shows the states of, or running in a deployment view's nodes, which `runsIn` lists.
+   */
+  views: { view: ViewDef; as: "box" | "frame" | "states" | "deployed"; runsIn?: DeploymentNode[] }[];
 }
 
 export function describeElement(ws: Workspace, id: string): ElementDescription | undefined {
@@ -39,7 +42,10 @@ export function describeElement(ws: Workspace, id: string): ElementDescription |
   const views: ElementDescription["views"] = [];
   for (const cv of computeAllViews(ws)) {
     if (cv.boundary?.id === id) views.push({ view: cv.view, as: cv.view.level === "state" ? "states" : "frame" });
-    else if (cv.nodes.some((n) => n.id === id)) views.push({ view: cv.view, as: "box" });
+    else if (cv.deployment) {
+      const runsIn = cv.deployment.nodes.filter((n) => cv.deployment!.instances.some((i) => i.node === n.id && i.element.id === id));
+      if (runsIn.length) views.push({ view: cv.view, as: "deployed", runsIn });
+    } else if (cv.nodes.some((n) => n.id === id)) views.push({ view: cv.view, as: "box" });
   }
   return {
     element,

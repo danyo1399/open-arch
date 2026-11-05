@@ -70,7 +70,8 @@ Without an id: the model as a tree, and the list of views.
 With an element id: its fields, notes, what it uses and what uses it (with those
 relationships' notes), and the views showing it.
 With a view id: its description and notes, and the boxes and arrows the view draws, or for
-a sequence view, its steps in order, or for a state view, its states and transitions.
+a sequence view, its steps in order, for a state view, its states and transitions, or for a
+deployment view, its nodes and what runs in them, its connections and the arrows it draws.
 A class's members, a relationship's kind when it isn't an association, a container's
 libraries and the containers a library is built into are shown too.
 `,
@@ -105,7 +106,8 @@ Operations: add-element, update-element, remove-element, rename, add-relationshi
 update-relationship, remove-relationship, add-view, update-view, remove-view, show-in-view,
 hide-in-view, set-layout, add-sticky, update-sticky, remove-sticky, add-step, update-step,
 remove-step, add-state, update-state, remove-state, add-transition, update-transition,
-remove-transition, update-workspace.
+remove-transition, add-node, update-node, remove-node, add-connection, update-connection,
+remove-connection, update-workspace.
 In updates, null removes a field.
 `,
     {},
@@ -211,7 +213,7 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment> [options]
 
 A class view shows a component's or library's classes, with their members, as a UML class
 diagram.
@@ -220,11 +222,15 @@ scope, include or exclude.
 A state view shows the states something can be in, and the transitions between them: add
 them with add-state and add-transition. Its scope, if any, is the element whose states they
 are, of any kind. It takes no include or exclude.
+A deployment view shows where containers and systems run, such as one environment like
+Production: add its nodes with add-node, each listing what it runs. Arrows between the
+containers come from the model's relationships; add-connection adds arrows to or from nodes.
+It takes no scope, include or exclude.
   --scope <id>           A system for context and container views, a container or library
                          for component views, a component or library for class views, and
                          for state views, if any, the element of any kind they're the states of
-  --title <title>        Default: from the scope and level, or for a sequence view or a state
-                         view without a scope, from the id
+  --title <title>        Default: from the scope and level, or for a sequence or deployment
+                         view, or a state view without a scope, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
@@ -336,6 +342,62 @@ An empty value removes a field.
     { from: s, to: s, event: s, guard: s, action: s, "move-to": s },
   ),
   "remove-transition": writer(`Usage: open-arch remove-transition <view> <n>\n\nRemoves transition <n>; the ones after it move up one.\n`, {}),
+  "add-node": writer(
+    `Usage: open-arch add-node <view> <id> [--name <name>] [--parent <node>] [--technology <text>] [--run <id>]...
+                         [--infrastructure] [--instances <n>] [--shape <shape>] [--description <text>]
+
+Adds a node to a deployment view: something things run on or in, like a server, a Kubernetes
+cluster or a cloud region. The id must be unique within the view.
+  --name <name>          Display name (default: from the id)
+  --parent <node>        The node of the view it's inside (default: none, at the top)
+  --technology <text>    What it is, e.g. "Ubuntu 24.04" or "Amazon ECS"
+  --run <id>             A container or system that runs in it; repeat for each
+  --infrastructure       It's infrastructure, like a load balancer, DNS or a firewall: it runs
+                         nothing and holds no nodes, and connections join it to what it serves
+  --instances <n>        How many copies of it run, with everything inside (default: 1)
+  --shape <shape>        box (default), database, queue, folder, document, web-browser,
+                         mobile-app, desktop-app, terminal, server, email, scheduled-job
+  --description <text>   One sentence, shown in the node
+`,
+    { name: s, parent: s, description: s, technology: s, run: many, infrastructure: b, instances: s, shape: s },
+  ),
+  "update-node": writer(
+    `Usage: open-arch update-node <view> <id> [--name <name>] [--new-id <id>] [--parent <node>] [--technology <text>]
+                            [--run <id>]... [--infrastructure | --deployment-node] [--instances <n>]
+                            [--shape <shape>] [--description <text>]
+
+--run replaces what the node runs: repeat it for each, and --run "" runs nothing. A connection
+to something it no longer runs goes too.
+--new-id changes its ID, and the nodes inside it and its connections follow it.
+--parent "" puts it at the top, and --instances "" back to 1.
+An empty value removes a field.
+`,
+    { name: s, "new-id": s, parent: s, description: s, technology: s, run: many, infrastructure: b, "deployment-node": b, instances: s, shape: s },
+  ),
+  "remove-node": writer(`Usage: open-arch remove-node <view> <id>\n\nRemoves a node, the nodes inside it, and the connections to them and to what only they ran.\n`, {}),
+  "add-connection": writer(
+    `Usage: open-arch add-connection <view> <from> <to> [--description <text>] [--technology <text>] [--connection <n>]
+
+Adds an arrow to a deployment view, like a load balancer forwarding to the web app. Each end
+is a node of the view, or a container or system one of its nodes runs, and at least one is a
+node: arrows between two containers come from the model's relationships.
+  --description <text>   What it does, e.g. "Forwards requests to"
+  --technology <text>    e.g. HTTPS
+  --connection <n>       Its number: 1 is the first (default: after the last)
+`,
+    { description: s, technology: s, connection: s },
+  ),
+  "update-connection": writer(
+    `Usage: open-arch update-connection <view> <n> [--from <id>] [--to <id>] [--description <text>] [--technology <text>]
+                                  [--move-to <n>]
+
+<n> is the connection's number, as show prints it: 1 is the first.
+  --move-to <n>          Give it another number; the ones between move up or down one
+An empty value removes a field.
+`,
+    { from: s, to: s, description: s, technology: s, "move-to": s },
+  ),
+  "remove-connection": writer(`Usage: open-arch remove-connection <view> <n>\n\nRemoves connection <n>; the ones after it move up one.\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -364,6 +426,8 @@ Change (each change is checked first; nothing is saved if it would break the mod
   add-step <view> <from> <to>     update-step <view> <n>          remove-step <view> <n>
   add-state <view> <id>           update-state <view> <id>        remove-state <view> <id>
   add-transition <view> <from> <to>   update-transition <view> <n>   remove-transition <view> <n>
+  add-node <view> <id>            update-node <view> <id>         remove-node <view> <id>
+  add-connection <view> <from> <to>   update-connection <view> <n>   remove-connection <view> <n>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

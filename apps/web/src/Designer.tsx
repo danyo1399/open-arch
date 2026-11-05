@@ -15,6 +15,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
+import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
 import { BrowserHost, copyText, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
@@ -54,6 +55,9 @@ function detailsName(ws: Workspace, view: ViewDef | null, computed: ComputedView
   if (shown.kind === "step") return `Step ${shown.step.number}`;
   if (shown.kind === "state") return shown.state.name;
   if (shown.kind === "transition") return `Transition ${shown.transition.number}`;
+  if (shown.kind === "node") return shown.node.name;
+  if (shown.kind === "connection") return `Connection ${shown.connection.number}`;
+  if (shown.kind === "instance") return `${shown.element.name} in ${shown.node.name}`;
   if (shown.kind === "several") return shapesLabel(shown.elements.length, shown.stickies.length);
   return shown.kind === "view" ? "This view" : "Workspace";
 }
@@ -151,6 +155,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "step" && ws && selection.number > (ws.views.get(viewId ?? "")?.steps.length ?? 0)) setSelection(null);
     if (selection?.kind === "state" && ws && !ws.views.get(viewId ?? "")?.states.some((s) => s.id === selection.id)) setSelection(null);
     if (selection?.kind === "transition" && ws && selection.number > (ws.views.get(viewId ?? "")?.transitions.length ?? 0)) setSelection(null);
+    if (selection?.kind === "node" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.id)) setSelection(null);
+    if (selection?.kind === "connection" && ws && selection.number > (ws.views.get(viewId ?? "")?.connections.length ?? 0)) setSelection(null);
+    if (selection?.kind === "instance" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.node && n.runs.includes(selection.element))) setSelection(null);
   }, [ws, selection, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
@@ -246,6 +253,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     // So does a state, with its transitions, and a transition: Undo brings them back.
     if (selection?.kind === "state" && view) void edit([{ op: "remove-state", view: view.id, id: selection.id }]).then(() => select(null));
     if (selection?.kind === "transition" && view) void edit([{ op: "remove-transition", view: view.id, transition: selection.number }]).then(() => select(null));
+    // A node, with what's inside it, and a connection are only this view's, and Undo brings them back.
+    if (selection?.kind === "node" && view) void edit([{ op: "remove-node", view: view.id, id: selection.id }]).then(() => select(null));
+    if (selection?.kind === "connection" && view) void edit([{ op: "remove-connection", view: view.id, connection: selection.number }]).then(() => select(null));
+    // A container running in a node stops running there; it stays in the model.
+    if (selection?.kind === "instance" && view) {
+      const node = view.nodes.find((n) => n.id === selection.node);
+      if (node) void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== current(selection.element)) }]).then(() => select(null));
+    }
     if (selection?.kind === "arrow" && ws) {
       const ops = arrowDeleteOps(ws, computed, selection.from, selection.to, selection.relation);
       if (ops.length) void edit(ops).then(() => select(null));
@@ -320,7 +335,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   if (!ws || state.text === null) return <div className="center muted">Loading…</div>;
 
   const mod = isMac ? "⌘" : "Ctrl+";
-  const selected = selection?.kind === "element" ? [selection.id] : selection?.kind === "several" ? selection.elements : selection?.kind === "arrow" ? [selection.from, selection.to] : [];
+  const selected =
+    selection?.kind === "element"
+      ? [selection.id]
+      : selection?.kind === "instance"
+        ? [selection.element]
+        : selection?.kind === "several"
+          ? selection.elements
+          : selection?.kind === "arrow"
+            ? [selection.from, selection.to]
+            : [];
   // While Ask AI is open, the agent's edits reload the file again and again, and the panel already says what it changed.
   const message = state.message?.kind === "info" && askOpen ? null : state.message;
   const status =
@@ -517,6 +541,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           computed ? (
             <ReactFlowProvider key={view.id}>
               <StateDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} />
+            </ReactFlowProvider>
+          ) : (
+            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+          )
+        ) : view?.level === "deployment" ? (
+          computed ? (
+            <ReactFlowProvider key={view.id}>
+              <DeploymentDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

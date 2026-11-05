@@ -2,14 +2,18 @@ import {
   describeElement,
   ELEMENT_SHAPES,
   kindLabel,
+  nodeKindLabel,
   PARENT_KINDS,
   RELATIONSHIP_KIND_LABELS,
   RELATIONSHIP_KINDS,
+  RUNNABLE_KINDS,
   SHAPE_LABELS,
   STICKY_COLORS,
   transitionLabel,
   type ArchElement,
   type ComputedView,
+  type Connection,
+  type DeploymentNode,
   type NewElements,
   type Operation,
   type Relationship,
@@ -23,7 +27,7 @@ import {
 } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, uniqueStateId, viewAction } from "../model.js";
+import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, uniqueNodeId, uniqueStateId, viewAction } from "../model.js";
 import type { Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
 
@@ -76,6 +80,9 @@ export function Properties(props: PropertiesProps) {
   else if (shown.kind === "step") body = <StepProperties {...props} view={shown.view} step={shown.step} />;
   else if (shown.kind === "state") body = <StateProperties {...props} view={shown.view} state={shown.state} />;
   else if (shown.kind === "transition") body = <TransitionProperties {...props} view={shown.view} transition={shown.transition} />;
+  else if (shown.kind === "node") body = <NodeProperties {...props} view={shown.view} node={shown.node} />;
+  else if (shown.kind === "connection") body = <ConnectionProperties {...props} view={shown.view} connection={shown.connection} />;
+  else if (shown.kind === "instance") body = <InstanceProperties {...props} view={shown.view} node={shown.node} element={shown.element} />;
   else if (shown.kind === "several") body = <SeveralProperties {...props} elements={shown.elements} stickies={shown.stickies} />;
   else if (shown.kind === "view") body = <ViewProperties {...props} view={shown.view} />;
   else body = <WorkspaceProperties {...props} />;
@@ -300,9 +307,13 @@ function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect }: P
       </p>
       {edge.kind !== "association" && <p className="small">{RELATIONSHIP_KIND_LABELS[edge.kind]}</p>}
       {edge.implied && <p className="muted small">This arrow stands for relationships between elements inside these boxes. Edit them here or on those elements.</p>}
-      <p className="muted small">
-        Drag the dot at either end of the arrow to another box to move that end there.{edge.sources.length > 1 && " Every relationship the arrow stands for moves with it."}
-      </p>
+      {computed?.deployment ? (
+        <p className="muted small">This view joins each copy of {name(from)} to the copies of {name(to)} that run nearest it.</p>
+      ) : (
+        <p className="muted small">
+          Drag the dot at either end of the arrow to another box to move that end there.{edge.sources.length > 1 && " Every relationship the arrow stands for moves with it."}
+        </p>
+      )}
       <ul className="rels">
         {edge.sources.map(({ element, index }) => {
           const source = ws.elements.get(element);
@@ -605,6 +616,219 @@ function TransitionProperties({ view, transition, edit, onSelect }: PropertiesPr
   );
 }
 
+/** The nodes of a deployment view, and the containers and systems they run, for picking a connection's end. */
+function connectionEnds(ws: Workspace, view: ViewDef): { id: string; label: string }[] {
+  const run = [...new Set(view.nodes.flatMap((n) => n.runs))].flatMap((id) => ws.elements.get(id) ?? []).sort(byName);
+  return [...view.nodes.map((n) => ({ id: n.id, label: `${n.name} [${nodeKindLabel(n)}]` })), ...run.map((e) => ({ id: e.id, label: `${e.name} [${kindLabel(e)}]` }))];
+}
+
+/** A connection's end, by name: a node's, or an element's. */
+function endName(ws: Workspace, view: ViewDef, id: string): string {
+  return view.nodes.find((n) => n.id === id)?.name ?? ws.elements.get(id)?.name ?? id;
+}
+
+function NodeProperties({ ws, view, node, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; node: DeploymentNode }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-node" }>, "op" | "view" | "id">) => void edit([{ op: "update-node", view: view.id, id: node.id, ...fields }]);
+  // An ID made from the name keeps following it, as an element's does; the selection follows the ID.
+  const rename = (name: string) => {
+    const base = idFromName(name);
+    const newId = base && followsName(node.id, node.name) ? uniqueNodeId(view, base, node.id) : node.id;
+    void edit([{ op: "update-node", view: view.id, id: node.id, name, ...(newId !== node.id && { newId }) }]).then((ok) => ok && newId !== node.id && onSelect({ kind: "node", id: newId }));
+  };
+  const changeId = (text: string) => {
+    const newId = idFromName(text);
+    if (!newId || newId === node.id) return;
+    void edit([{ op: "update-node", view: view.id, id: node.id, newId }]).then((ok) => ok && onSelect({ kind: "node", id: newId }));
+  };
+  /** Whether a node is this one, or inside it, so this one can't go inside it. */
+  const within = (id: string | undefined): boolean => id !== undefined && (id === node.id || within(view.nodes.find((n) => n.id === id)?.parent));
+  const parents = view.nodes.filter((n) => !n.infrastructure && !within(n.id));
+  const holdsNodes = view.nodes.some((n) => n.parent === node.id);
+  const runnable = [...ws.elements.values()].filter((e) => RUNNABLE_KINDS.includes(e.kind) && !node.runs.includes(e.id)).sort(byName);
+  const connections = view.connections.filter((c) => c.from === node.id || c.to === node.id);
+  const ends = connectionEnds(ws, view).filter((e) => e.id !== node.id);
+  return (
+    <>
+      <header className="props-header">
+        <span className={`badge badge-${node.infrastructure ? "infrastructure" : "node"}`}>{nodeKindLabel(node)}</span>
+      </header>
+      <Field label="Name" value={node.name} onCommit={(n) => n.trim() && rename(n)} autoFocus={isNew} />
+      <Field label="ID" value={node.id} onCommit={changeId} hint={idHint(followsName(node.id, node.name))} />
+      <Field label="Description" value={node.description ?? ""} multiline placeholder="One sentence, shown when you point at it" onCommit={(description) => set({ description: description || null })} />
+      <Field label="Technology" value={node.technology ?? ""} placeholder="e.g. Ubuntu 24.04, Amazon ECS" onCommit={(technology) => set({ technology: technology || null })} />
+      <Field
+        label="Copies"
+        value={String(node.instances)}
+        hint="How many copies of it run, with everything inside."
+        onCommit={(text) => {
+          const n = Number(text.trim() || "1");
+          if (!Number.isInteger(n) || n < 1) return false;
+          set({ instances: n === 1 ? null : n });
+        }}
+      />
+      <label className="field">
+        <span className="field-label">Shape</span>
+        <select value={node.shape} onChange={(e) => set({ shape: e.target.value === "box" ? null : (e.target.value as DeploymentNode["shape"]) })}>
+          {ELEMENT_SHAPES.map((shape) => (
+            <option key={shape} value={shape}>
+              {SHAPE_LABELS[shape]}
+            </option>
+          ))}
+        </select>
+        <span className="field-hint">Drawn when it holds nothing, as infrastructure doesn't.</span>
+      </label>
+      <label className="field">
+        <span className="field-label">Inside</span>
+        <select value={node.parent ?? ""} onChange={(e) => set({ parent: e.target.value || null })}>
+          <option value="">(nothing: at the top)</option>
+          {parents.map((n) => (
+            <option key={n.id} value={n.id}>
+              {n.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={node.infrastructure} disabled={!node.infrastructure && (node.runs.length > 0 || holdsNodes)} onChange={(e) => set({ infrastructure: e.target.checked })} />
+        Infrastructure, like a load balancer, DNS or a firewall
+      </label>
+      {!node.infrastructure && (node.runs.length > 0 || holdsNodes) && <span className="field-hint">Infrastructure runs nothing and holds no nodes, so take those out of it first.</span>}
+      {!node.infrastructure && (
+        <>
+          <h3>Runs</h3>
+          {node.runs.length === 0 && <p className="muted small">Nothing yet. Choose a container or system to run in it.</p>}
+          <ul className="plain">
+            {node.runs.map((id) => (
+              <li key={id}>
+                <button className="link" onClick={() => onSelect({ kind: "instance", node: node.id, element: id })}>
+                  {ws.elements.get(id)?.name ?? id}
+                </button>{" "}
+                <button className="link danger" onClick={() => set({ runs: node.runs.filter((r) => r !== id) })}>
+                  Stop running it here
+                </button>
+              </li>
+            ))}
+          </ul>
+          <label className="field">
+            <span className="field-label">Run here</span>
+            <select value="" onChange={(e) => e.target.value && set({ runs: [...node.runs, e.target.value] })}>
+              <option value="">Choose a container or system…</option>
+              {runnable.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name} [{kindLabel(e)}]
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
+      <h3>Connections</h3>
+      {connections.length === 0 && <p className="muted small">None yet. Drag from the dot under it to a box or node to add one.</p>}
+      <ul className="plain">
+        {connections.map((c) => (
+          <li key={c.number}>
+            <button className="link" onClick={() => onSelect({ kind: "connection", number: c.number })}>
+              {c.from === node.id ? `→ ${endName(ws, view, c.to)}` : `← ${endName(ws, view, c.from)}`}
+            </button>{" "}
+            <span className="muted small">{c.description}</span>
+          </li>
+        ))}
+      </ul>
+      <label className="field">
+        <span className="field-label">Add a connection to</span>
+        <select
+          value=""
+          onChange={(e) => {
+            const to = e.target.value;
+            if (!to) return;
+            const number = view.connections.length + 1;
+            void edit([{ op: "add-connection", view: view.id, from: node.id, to }]).then((ok) => ok && onSelect({ kind: "connection", number }));
+          }}
+        >
+          <option value="">Choose a node, container or system…</option>
+          {ends.map((end) => (
+            <option key={end.id} value={end.id}>
+              {end.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="actions">
+        <button className="danger" onClick={() => void edit([{ op: "remove-node", view: view.id, id: node.id }]).then(() => onSelect(null))}>
+          {holdsNodes ? "Delete node and what's inside" : "Delete node"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function ConnectionProperties({ ws, view, connection, edit, onSelect }: PropertiesProps & { view: ViewDef; connection: Connection }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-connection" }>, "op" | "view" | "connection">) =>
+    void edit([{ op: "update-connection", view: view.id, connection: connection.number, ...fields }]);
+  const count = view.connections.length;
+  const move = (to: number) => void edit([{ op: "update-connection", view: view.id, connection: connection.number, newConnection: to }]).then((ok) => ok && onSelect({ kind: "connection", number: to }));
+  const ends = connectionEnds(ws, view);
+  const end = (field: "from" | "to", label: string) => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={connection[field]} onChange={(e) => set({ [field]: e.target.value })}>
+        {!ends.some((e) => e.id === connection[field]) && <option value={connection[field]}>{connection[field]} (not in this view)</option>}
+        {ends.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Connection {connection.number}</span>
+        <span className="muted small">of {count}</span>
+      </header>
+      {end("from", "From")}
+      {end("to", "To")}
+      <Field label="Description" value={connection.description ?? ""} autoFocus={!connection.description} placeholder="e.g. Forwards requests to" onCommit={(description) => set({ description: description || null })} />
+      <Field label="Technology" value={connection.technology ?? ""} placeholder="e.g. HTTPS" onCommit={(technology) => set({ technology: technology || null })} />
+      <p className="muted small">A connection is an arrow to or from a node of this view. Arrows between two containers come from the model's relationships.</p>
+      <div className="actions">
+        <button disabled={connection.number === 1} onClick={() => move(connection.number - 1)}>
+          Move up
+        </button>
+        <button disabled={connection.number === count} onClick={() => move(connection.number + 1)}>
+          Move down
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-connection", view: view.id, connection: connection.number }]).then(() => onSelect(null))}>
+          Delete connection
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** A container or system running in a node: where it runs, then the element itself. */
+function InstanceProperties(props: PropertiesProps & { view: ViewDef; node: DeploymentNode; element: ArchElement }) {
+  const { view, node, element, edit, onSelect } = props;
+  return (
+    <>
+      <div className="instance-of">
+        <p className="small">
+          Runs in{" "}
+          <button className="link" onClick={() => onSelect({ kind: "node", id: node.id })}>
+            {node.name}
+          </button>
+          {node.instances > 1 ? `, ${node.instances} copies` : ""}.
+        </p>
+        <button onClick={() => void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element.id) }]).then(() => onSelect({ kind: "node", id: node.id }))}>
+          Stop running it here
+        </button>
+      </div>
+      <ElementProperties {...props} element={element} />
+    </>
+  );
+}
+
 function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
   return (
     <>
@@ -679,8 +903,24 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
         placeholder="Longer documentation, in markdown"
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
       />
-      {view.level !== "sequence" && view.level !== "state" && <NewElementsField view={view} edit={edit} />}
-      {view.level === "state" ? (
+      {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && <NewElementsField view={view} edit={edit} />}
+      {view.level === "deployment" ? (
+        <>
+          <dl className="facts">
+            <dt>Level</dt>
+            <dd>deployment</dd>
+            <dt>Nodes</dt>
+            <dd>{view.nodes.length}</dd>
+            <dt>Runs</dt>
+            <dd>{computed?.nodes.map((e) => e.name).join(", ") || "nothing yet"}</dd>
+            <dt>Connections</dt>
+            <dd>{view.connections.length}</dd>
+          </dl>
+          <p className="muted small">
+            A deployment view shows where containers run: the servers, clusters and cloud services, nested. Use + Add to add a node, inside the one selected, and choose what runs in it in its details. Arrows between containers come from the model's relationships; drag from the dot under a node to add a connection to it. It's laid out automatically.
+          </p>
+        </>
+      ) : view.level === "state" ? (
         <>
           <dl className="facts">
             <dt>Level</dt>

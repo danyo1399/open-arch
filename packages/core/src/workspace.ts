@@ -1,5 +1,5 @@
 /** The model, indexed for queries, built from a parsed document. */
-import { parseDocument } from "./document.js";
+import { nodeOrder, parseDocument } from "./document.js";
 import type { ArchElement, Diagnostic, OpenArchDocument, State, StateData, Sticky, TransitionData, ViewDef } from "./types.js";
 
 export interface Workspace {
@@ -85,6 +85,29 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         event: t.event || undefined,
         guard: t.guard || undefined,
         action: t.action || undefined,
+      })),
+      nodes: nodeOrder(v.nodes ?? {}).map((nid) => {
+        const n = v.nodes![nid]!;
+        return {
+          id: nid,
+          path: `views.${id}.nodes.${nid}`,
+          name: n.name,
+          parent: n.parent || undefined,
+          description: n.description || undefined,
+          technology: n.technology || undefined,
+          infrastructure: n.infrastructure ?? false,
+          instances: n.instances ?? 1,
+          shape: n.shape ?? "box",
+          runs: [...new Set(n.runs ?? [])],
+        };
+      }),
+      connections: (v.connections ?? []).map((c, i) => ({
+        path: `views.${id}.connections[${i}]`,
+        number: i + 1,
+        from: c.from,
+        to: c.to,
+        description: c.description || undefined,
+        technology: c.technology || undefined,
       })),
     });
   }

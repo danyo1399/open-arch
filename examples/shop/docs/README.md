@@ -12,6 +12,7 @@ An online shop, used as the open-arch example.
 - [Order Repository classes](views/order-repository-classes.md) – The classes that store orders, and how they fit together.
 - [Order states](views/order-states.md) – What an order goes through, from being placed to being delivered.
 - [Placing an order](views/place-order.md) – What happens, in order, when a customer places an order.
+- [Production](views/production.md) – Where the shop runs for customers.
 - [Shop containers](views/shop-containers.md) – What runs inside the shop.
 - [Shop context](views/shop-context.md) – Who uses the shop, and which systems it depends on.
 

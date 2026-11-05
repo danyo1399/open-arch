@@ -19,6 +19,7 @@ Run by the Fulfilment team. The shop only talks to it to reserve stock.
 - [Checkout API components](../views/checkout-api-components.md)
 - [System landscape](../views/landscape.md)
 - [Placing an order](../views/place-order.md)
+- [Production](../views/production.md) (runs in Warehouse data centre)
 - [Shop containers](../views/shop-containers.md)
 - [Shop context](../views/shop-context.md)
 

@@ -2,11 +2,25 @@
  * Working out what a view shows: which elements appear as boxes, and which
  * arrows connect them, including relationships implied by nested elements.
  * A sequence view shows the elements in its steps instead, and its steps in order.
+ * A deployment view shows its nodes, the containers and systems running in them, and the
+ * arrows between those copies.
  */
 import type { Workspace } from "./workspace.js";
 import { builtInto, childrenOf, compareElements, containerOf, kindList, libraryOf, lineage, topLevel } from "./model.js";
 import { suggest } from "./suggest.js";
-import { ELEMENT_KINDS, RELATIONSHIP_KINDS, type ArchElement, type Diagnostic, type ElementKind, type RelationshipKind, type Step, type ViewDef, type ViewLevel } from "./types.js";
+import {
+  ELEMENT_KINDS,
+  RELATIONSHIP_KINDS,
+  type ArchElement,
+  type Connection,
+  type DeploymentNode,
+  type Diagnostic,
+  type ElementKind,
+  type RelationshipKind,
+  type Step,
+  type ViewDef,
+  type ViewLevel,
+} from "./types.js";
 
 export interface ViewEdge {
   from: string;
@@ -54,8 +68,53 @@ export interface ComputedView {
   edges: ViewEdge[];
   /** A sequence view's steps, in order; empty for other views. */
   steps: ComputedStep[];
+  /** A deployment view's nodes, what runs in them and the arrows between them; absent on other views. */
+  deployment?: ComputedDeployment;
   /** Problems with the view's include/exclude lists. */
   diagnostics: Diagnostic[];
+}
+
+/**
+ * What a deployment view draws. Its `nodes` are the elements its nodes run, and its `edges` the
+ * arrows between those elements, as another view would draw them. This says where each copy of
+ * them runs, and which copies each arrow joins.
+ */
+export interface ComputedDeployment {
+  /**
+   * The view's nodes in reading order. A node whose parent is missing, is infrastructure or is in
+   * a cycle is drawn at the top, so its `parent` here is left out.
+   */
+  nodes: DeploymentNode[];
+  /** A container or system running in a node, in the order of the nodes and their `runs`. */
+  instances: DeploymentInstance[];
+  arrows: DeploymentArrow[];
+}
+
+export interface DeploymentInstance {
+  /** The node's ID and the element's, as `instanceId` makes them. */
+  id: string;
+  node: string;
+  element: ArchElement;
+}
+
+/** An arrow on a deployment view: between two boxes, each a node or an instance. */
+export interface DeploymentArrow {
+  /** Unique within the view. */
+  id: string;
+  from: string;
+  to: string;
+  description?: string;
+  technology?: string;
+  bidirectional: boolean;
+  /** For an arrow between two instances: the arrow between their elements, with the relationships it draws. */
+  edge?: ViewEdge;
+  /** For an arrow to or from a node: the view's connection. */
+  connection?: Connection;
+}
+
+/** The ID of the box for an element running in a node: no node or element ID has a slash. */
+export function instanceId(node: string, element: string): string {
+  return `${node}/${element}`;
 }
 
 /** The kinds a view's scope can have: none when the level takes no scope. */
@@ -68,6 +127,7 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   sequence: [],
   // Optional: the element whose states the view shows, of any kind.
   state: ELEMENT_KINDS,
+  deployment: [],
 };
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
@@ -77,7 +137,11 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
   const wanted = kindList(kinds);
   if (!kinds.length) {
     const message =
-      view.level === "sequence" ? "Sequence views show the elements in their steps, so they don't take a `scope`." : "Landscape views show every person and system, so they don't take a `scope`.";
+      view.level === "sequence"
+        ? "Sequence views show the elements in their steps, so they don't take a `scope`."
+        : view.level === "deployment"
+          ? "Deployment views show their nodes and what runs in them, so they don't take a `scope`."
+          : "Landscape views show every person and system, so they don't take a `scope`.";
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
   }
   if (view.scope === undefined) {
@@ -177,6 +241,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
         return top.id;
       case "sequence":
       case "state":
+      case "deployment":
         return id;
     }
   };
@@ -186,6 +251,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
 export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   if (view.level === "sequence") return computeSequence(ws, view);
   if (view.level === "state") return computeStates(ws, view);
+  if (view.level === "deployment") return computeDeployment(ws, view);
   const diagnostics: Diagnostic[] = [];
   const rep = representative(ws, view);
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
@@ -206,7 +272,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   // does any view that draws a relationship's two classes as themselves, such as a component view
   // of a library that holds classes.
   const classes = view.level === "class";
-  const lifted: { from: string; to: string; element: string; index: number; both: boolean; kind: RelationshipKind }[] = [];
+  const lifted: Lifted[] = [];
   for (const element of ws.elements.values()) {
     element.uses.forEach((rel, index) => {
       if (!ws.elements.has(rel.to)) return;
@@ -274,7 +340,23 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   });
 
   const nodes = [...shown].map((id) => ws.elements.get(id)!).sort(compareElements);
+  const edges = groupEdges(ws, lifted, shown);
+  const boundary = view.level === "container" || view.level === "component" || view.level === "class" ? scope : undefined;
+  return { view, boundary, nodes, edges, steps: [], diagnostics };
+}
 
+/** A model relationship lifted to the boxes of a view: the boxes it joins, and the relationship. */
+interface Lifted {
+  from: string;
+  to: string;
+  element: string;
+  index: number;
+  both: boolean;
+  kind: RelationshipKind;
+}
+
+/** The arrows between the boxes `shown`, from the relationships lifted to them. */
+function groupEdges(ws: Workspace, lifted: Lifted[], shown: Set<string>): ViewEdge[] {
   // Two boxes joined by a relationship that goes both ways get one arrow, with a head at each end,
   // for every relationship of its kind between them: a second arrow would only say part of it again.
   // Only associations go both ways.
@@ -307,9 +389,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   });
   const kindRank = (e: ViewEdge) => RELATIONSHIP_KINDS.indexOf(e.kind);
   edges.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : kindRank(a) - kindRank(b)));
-
-  const boundary = view.level === "container" || view.level === "component" || view.level === "class" ? scope : undefined;
-  return { view, boundary, nodes, edges, steps: [], diagnostics };
+  return edges;
 }
 
 /**
@@ -438,6 +518,209 @@ function computeStates(ws: Workspace, view: ViewDef): ComputedView {
   }
   const boundary = view.scope ? ws.elements.get(view.scope) : undefined;
   return { view, boundary, nodes: [], edges: [], steps: [], diagnostics };
+}
+
+/** The kinds of element a deployment view's nodes can run. */
+export const RUNNABLE_KINDS: readonly ElementKind[] = ["container", "system"];
+
+/**
+ * A deployment view: its nodes, nested, with the containers and systems each runs, and arrows.
+ * An arrow between two elements comes from the model's relationships, lifted to the nearest
+ * element the view runs, as other views lift them to their boxes. Each copy of the element at
+ * its start joins the copies at its end that run nearest to it: those in the deepest node they
+ * share. So with a copy of a web app and of its database in each of two regions, each web app
+ * uses the database in its own region. Connections join nodes the same way.
+ */
+function computeDeployment(ws: Workspace, view: ViewDef): ComputedView {
+  const diagnostics: Diagnostic[] = [];
+  const byId = new Map(view.nodes.map((n) => [n.id, n]));
+  const near = (id: string) => {
+    const match = suggest(id, [...byId.keys()]);
+    return match ? `Did you mean "${match}"?` : undefined;
+  };
+
+  // Each node's parent as drawn: one that's missing, infrastructure or in a cycle is left out.
+  const drawnParent = new Map<string, string | undefined>();
+  for (const node of view.nodes) {
+    let parent = node.parent;
+    if (parent !== undefined) {
+      const holder = byId.get(parent);
+      if (!holder) {
+        diagnostics.push({ severity: "error", rule: "node-parent-unknown", message: `Node "${node.id}": its parent "${parent}" isn't a node of this view.`, path: `${node.path}.parent`, fix: near(parent) });
+        parent = undefined;
+      } else if (holder.infrastructure) {
+        diagnostics.push({
+          severity: "error",
+          rule: "node-parent-infrastructure",
+          message: `Node "${node.id}" is inside "${parent}", which is infrastructure, and infrastructure holds no nodes.`,
+          path: `${node.path}.parent`,
+          fix: `Put it in another node, or make "${parent}" a deployment node.`,
+        });
+        parent = undefined;
+      }
+    }
+    drawnParent.set(node.id, parent);
+  }
+  const cycled = view.nodes.filter((node) => {
+    const seen = new Set<string>();
+    for (let at = drawnParent.get(node.id); at !== undefined && !seen.has(at); at = drawnParent.get(at)) {
+      if (at === node.id) return true;
+      seen.add(at);
+    }
+    return false;
+  });
+  // A node in a cycle is drawn at the top, which breaks it.
+  for (const node of cycled) {
+    diagnostics.push({ severity: "error", rule: "node-parent-cycle", message: `Node "${node.id}" is inside itself, through its parents.`, path: `${node.path}.parent`, fix: "Change one of the parents." });
+    drawnParent.set(node.id, undefined);
+  }
+  /** A node and the nodes it's inside, the top one first. */
+  const chain = (id: string): string[] => {
+    const out: string[] = [];
+    for (let at: string | undefined = id; at !== undefined && !out.includes(at); at = drawnParent.get(at)) out.unshift(at);
+    return out;
+  };
+
+  const instances: DeploymentInstance[] = [];
+  for (const node of view.nodes) {
+    if (node.infrastructure && node.runs.length) {
+      diagnostics.push({
+        severity: "error",
+        rule: "node-infrastructure-runs",
+        message: `Node "${node.id}" is infrastructure, so it runs no containers or systems.`,
+        path: `${node.path}.runs`,
+        fix: "Remove runs, or make it a deployment node.",
+      });
+      continue;
+    }
+    node.runs.forEach((id, i) => {
+      const path = `${node.path}.runs[${i}]`;
+      const element = ws.elements.get(id);
+      if (!element) {
+        diagnostics.push({ severity: "error", rule: "node-runs-unknown", message: `Node "${node.id}" runs "${id}", which isn't an element.`, path, fix: didYouMean(ws, id) });
+      } else if (!RUNNABLE_KINDS.includes(element.kind)) {
+        diagnostics.push({
+          severity: "error",
+          rule: "node-runs-kind",
+          message: `Node "${node.id}" runs "${id}", a ${element.kind}. Nodes run containers and systems.`,
+          path,
+          fix: element.kind === "component" || element.kind === "class" ? `Run the container it's in instead.` : `Remove "${id}" from runs.`,
+        });
+      } else instances.push({ id: instanceId(node.id, id), node: node.id, element });
+    });
+  }
+  const runs = new Map<string, DeploymentInstance[]>();
+  for (const instance of instances) runs.set(instance.element.id, [...(runs.get(instance.element.id) ?? []), instance]);
+  for (const node of view.nodes) {
+    if (!runs.has(node.id)) continue;
+    diagnostics.push({
+      severity: "error",
+      rule: "node-id-taken",
+      message: `Node "${node.id}" has the ID of an element this view runs, so a connection to "${node.id}" could mean either.`,
+      path: node.path,
+      fix: `Give the node another ID with \`open-arch update-node ${view.id} ${node.id} --new-id <id>\`.`,
+    });
+  }
+
+  // The model's relationships, lifted to the elements the view runs.
+  const deployed = (id: string) => lineage(ws, id).find((e) => runs.has(e.id))?.id;
+  const lifted: Lifted[] = [];
+  for (const element of ws.elements.values()) {
+    element.uses.forEach((rel, index) => {
+      if (!ws.elements.has(rel.to)) return;
+      const pairs = new Set<string>();
+      for (const [fromCopy, toCopy] of libraryCopies(ws, element.id, rel.to)) {
+        if (fromCopy === null || toCopy === null) continue;
+        const from = deployed(fromCopy ?? element.id);
+        const to = deployed(toCopy ?? rel.to);
+        if (!from || !to || from === to || pairs.has(`${from}\u0000${to}`)) continue;
+        pairs.add(`${from}\u0000${to}`);
+        lifted.push({ from, to, element: element.id, index, both: rel.bidirectional, kind: "association" });
+      }
+    });
+  }
+  const edges = groupEdges(ws, lifted, new Set(runs.keys()));
+
+  /** The nodes a box is in, top first: a node's own chain, or the chain of the node an instance runs in. */
+  const where = (box: string) => chain(box.includes("/") ? box.slice(0, box.indexOf("/")) : box);
+  /** The pairs of boxes from `from` to `to` that are nearest each other: for each start, the ends in the deepest node they share. */
+  const nearest = (from: string[], to: string[]): [string, string][] =>
+    from.flatMap((a) => {
+      const shared = (b: string) => {
+        const [x, y] = [where(a), where(b)];
+        let k = 0;
+        while (k < x.length && k < y.length && x[k] === y[k]) k++;
+        return k;
+      };
+      const ends = to.filter((b) => b !== a);
+      const best = Math.max(0, ...ends.map(shared));
+      return ends.filter((b) => shared(b) === best).map((b): [string, string] => [a, b]);
+    });
+
+  const arrows: DeploymentArrow[] = [];
+  for (const edge of edges) {
+    const ends = (id: string) => runs.get(id)!.map((i) => i.id);
+    for (const [from, to] of nearest(ends(edge.from), ends(edge.to))) {
+      arrows.push({ id: `${from}->${to}`, from, to, description: edge.description, technology: edge.technology, bidirectional: edge.bidirectional, edge });
+    }
+  }
+
+  for (const c of view.connections) {
+    const boxes = { from: [] as string[], to: [] as string[] };
+    for (const end of ["from", "to"] as const) {
+      const id = c[end];
+      if (byId.has(id)) boxes[end] = [id];
+      else if (runs.has(id)) boxes[end] = runs.get(id)!.map((i) => i.id);
+      else {
+        const known = ws.elements.has(id);
+        diagnostics.push({
+          severity: "error",
+          rule: "connection-unknown-end",
+          message: known
+            ? `Connection ${c.number}: "${id}" isn't run by any node of this view.`
+            : `Connection ${c.number}: "${id}" isn't a node of this view, or a container or system one runs.`,
+          path: `${c.path}.${end}`,
+          fix: known ? `Run it in a node: list it in the node's runs, with \`open-arch update-node ${view.id} <node> --run ${id}\` and a --run for each of the others it runs.` : (near(id) ?? didYouMean(ws, id)),
+        });
+      }
+    }
+    if (!boxes.from.length || !boxes.to.length) continue;
+    if (c.from === c.to) {
+      diagnostics.push({ severity: "error", rule: "connection-self", message: `Connection ${c.number} goes from "${c.from}" to itself.`, path: c.path, fix: "Point it at something else." });
+      continue;
+    }
+    if (!byId.has(c.from) && !byId.has(c.to)) {
+      diagnostics.push({
+        severity: "error",
+        rule: "connection-between-elements",
+        message: `Connection ${c.number} joins "${c.from}" and "${c.to}", two elements. Arrows between them come from the model's relationships.`,
+        path: c.path,
+        fix: `Add a relationship with \`open-arch add-relationship ${c.from} ${c.to}\`, and remove the connection.`,
+      });
+      continue;
+    }
+    // A node can't connect to what's inside it, as a relationship can't join an element and its parent.
+    const inside = (box: string, node: string) => byId.has(node) && box !== node && where(box).includes(node);
+    const from = boxes.from.filter((box) => !inside(box, c.to));
+    const to = boxes.to.filter((box) => !inside(box, c.from));
+    if (!from.length || !to.length) {
+      diagnostics.push({
+        severity: "error",
+        rule: "connection-parent-child",
+        message: `Connection ${c.number} joins "${c.from}" and "${c.to}", and one is inside the other.`,
+        path: c.path,
+        fix: "Point it at something outside instead.",
+      });
+      continue;
+    }
+    nearest(from, to).forEach(([from, to], k) =>
+      arrows.push({ id: `connection:${c.number}${k ? `:${k}` : ""}`, from, to, description: c.description, technology: c.technology, bidirectional: false, connection: c }),
+    );
+  }
+
+  const nodes = view.nodes.map((n) => (drawnParent.get(n.id) === n.parent ? n : { ...n, parent: drawnParent.get(n.id) }));
+  const elements = [...runs.keys()].map((id) => ws.elements.get(id)!).sort(compareElements);
+  return { view, nodes: elements, edges, steps: [], deployment: { nodes, instances, arrows }, diagnostics };
 }
 
 function joinLabels(values: (string | undefined)[], separator: string): string | undefined {

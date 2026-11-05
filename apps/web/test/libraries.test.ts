@@ -12,7 +12,7 @@ import { checkbox, choose, click, mount } from "./dom.js";
 
 /** A shop whose API is built with a logging library, and whose web app isn't. */
 const shop: OpenArchDocument = {
-  openarch: 9,
+  openarch: 10,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },

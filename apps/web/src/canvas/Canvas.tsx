@@ -53,6 +53,10 @@ export type Selection =
   /** A state view's state, and its transition, by its number: 1 is the first. */
   | { kind: "state"; id: string }
   | { kind: "transition"; number: number }
+  /** A deployment view's node, its connection, by its number, and a container or system running in one of its nodes. */
+  | { kind: "node"; id: string }
+  | { kind: "connection"; number: number }
+  | { kind: "instance"; node: string; element: string }
   | { kind: "several"; elements: string[]; stickies: string[] }
   | { kind: "workspace" }
   | null;

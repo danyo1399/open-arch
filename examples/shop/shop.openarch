@@ -1,5 +1,5 @@
 {
-  "openarch": 9,
+  "openarch": 10,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -254,6 +254,25 @@
         { "from": "order-repository", "to": "orders-db", "description": "Inserts the order" },
         { "from": "checkout-controller", "to": "web-app", "description": "Order number", "reply": true },
         { "from": "web-app", "to": "customer", "description": "Shows the confirmation", "reply": true }
+      ]
+    },
+    "production": {
+      "title": "Production",
+      "description": "Where the shop runs for customers.",
+      "level": "deployment",
+      "nodes": {
+        "aws": { "name": "Amazon Web Services", "technology": "AWS" },
+        "eu-west-1": { "name": "EU (Ireland)", "parent": "aws", "technology": "eu-west-1" },
+        "api-servers": { "name": "API servers", "parent": "eu-west-1", "technology": "Amazon ECS on Fargate", "instances": 3, "runs": ["checkout-api"] },
+        "database": { "name": "Database", "parent": "eu-west-1", "technology": "Amazon RDS for PostgreSQL", "runs": ["orders-db"] },
+        "load-balancer": { "name": "Load balancer", "parent": "eu-west-1", "technology": "Application Load Balancer", "infrastructure": true },
+        "customer-computer": { "name": "Customer's computer", "technology": "A web browser", "runs": ["web-app"] },
+        "payment-cloud": { "name": "Payment provider's cloud", "runs": ["payment-provider"] },
+        "warehouse-data-centre": { "name": "Warehouse data centre", "technology": "On premises", "runs": ["warehouse"] }
+      },
+      "connections": [
+        { "from": "load-balancer", "to": "checkout-api", "description": "Forwards requests to", "technology": "HTTPS" },
+        { "from": "web-app", "to": "load-balancer", "description": "Sends API calls to", "technology": "HTTPS" }
       ]
     },
     "shop-containers": {

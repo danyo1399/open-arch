@@ -13,7 +13,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 
 ## Workflow
 
-1. **Look first.** `open-arch show` prints the whole model as a tree and lists the views. `open-arch show <id>` prints one element (fields, notes, what it uses, what uses it, which views show it) or one view (its description, notes, boxes and arrows, or a sequence view's steps). Add `--json` for structured output.
+1. **Look first.** `open-arch show` prints the whole model as a tree and lists the views. `open-arch show <id>` prints one element (fields, notes, what it uses, what uses it, which views show it) or one view (its description, notes, boxes and arrows, a sequence view's steps, or a deployment view's nodes and what runs in them). Add `--json` for structured output.
 2. **Change it with commands**, using the recipes below. For several related changes, prefer one `open-arch apply` batch: it's all or nothing.
 3. **Read the result.** Each command prints what it changed, plus any warnings (for example, a relationship without a description). Fix warnings your change caused. If a command fails, read the message, fix the command, and run it again; nothing was saved.
 4. **Confirm** with `open-arch check` when you're done, and report what you changed.
@@ -36,7 +36,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 - **Move an element** to another parent: `open-arch update-element <id> --parent <new-parent>`.
 - **Rename an ID:** `open-arch rename <old-id> <new-id>` updates every reference. To change only the display name, use `update-element <id> --name "..."`.
 - **Remove:** `open-arch remove-element <id>` also removes what's inside it, views scoped to them, and every reference. `remove-relationship <from> <to>` and `remove-view <id>` remove one thing.
-- **Add a diagram:** `open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state> --scope <id>`. Context and container views take a system as scope; component views take a container or library; class views take a component or library, and draw its classes as a UML class diagram; state views can take the element of any kind whose states they show; landscape and sequence views take none. Give it a one-sentence `--description`, and `--notes` (markdown) for longer documentation about the diagram.
+- **Add a diagram:** `open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment> --scope <id>`. Context and container views take a system as scope; component views take a container or library; class views take a component or library, and draw its classes as a UML class diagram; state views can take the element of any kind whose states they show; landscape, sequence and deployment views take none. Give it a one-sentence `--description`, and `--notes` (markdown) for longer documentation about the diagram.
 - **Show what happens in order** (a sequence diagram): `open-arch add-view place-order --level sequence --title "Placing an order"`, then a step for each call, in order:
   `open-arch add-step place-order customer web-app --description "Places an order"`
   `open-arch add-step place-order checkout-api web-app --reply --description "Order number"`
@@ -47,6 +47,13 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
   `open-arch add-state order-states delivered --final`
   `open-arch add-transition order-states placed paid --event "Payment taken" --guard "paid in full" --action "Send a receipt"`
   States and transitions belong to the view, not the model. A transition can go back to the state it leaves. Change one with `update-state <view> <id>` or `update-transition <view> <n>`, and remove one with `remove-state` or `remove-transition`. Transitions are numbered from 1, as `show <view>` prints them.
+- **Show where things run** (a deployment diagram, usually one per environment): `open-arch add-view production --level deployment --title Production`, then its nodes, nested with `--parent`, each listing the containers and systems that run in it with `--run` (repeatable):
+  `open-arch add-node production aws --name "Amazon Web Services"`
+  `open-arch add-node production api-servers --parent aws --technology "Amazon ECS" --instances 3 --run checkout-api`
+  `open-arch add-node production database --parent aws --technology "Amazon RDS" --run orders-db`
+  `open-arch add-node production load-balancer --parent aws --infrastructure --technology "Application Load Balancer"`
+  `open-arch add-connection production load-balancer checkout-api --description "Forwards requests to" --technology HTTPS`
+  Nodes and connections belong to the view, not the model. Arrows between the containers come from the model's relationships, so add those with `add-relationship`, not connections: a connection is for an arrow to or from a node, such as infrastructure like a load balancer, DNS or a firewall, which runs nothing. Where a container runs in several nodes, each copy is joined to the nearest copies of what it uses: those in the deepest node they share. `--run` on `update-node` replaces what the node runs, so repeat it for each (`show <view>` lists them). Change a node with `update-node <view> <id>` and a connection with `update-connection <view> <n>`; remove them with `remove-node` (it takes the nodes inside too) and `remove-connection`. A deployment view is laid out automatically, and takes no scope, include or exclude.
 - **Show or hide something in one diagram:** `open-arch show-in-view <view> <id>...` / `hide-in-view <view> <id>...`.
 - **Keep elements added later out of a view:** `open-arch update-view <view> --new-elements hide`. The view keeps its boxes, and new elements stay out of it until you `show-in-view` them. `--new-elements show` lets them in again. A new view shows them; check `show <view>` before adding an element, so you know which views it lands in.
 - **Explain a diagram with a sticky note:** `open-arch add-sticky <view> <id> --text "Orders are paid before they're saved."` (`--color yellow|pink|blue|green`). Notes are for people reading that diagram, not part of the model; leave out `--at` and the designer places them beside it. Change or remove one with `update-sticky` / `remove-sticky <view> <id>`.

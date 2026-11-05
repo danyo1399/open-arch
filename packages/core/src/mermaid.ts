@@ -3,7 +3,7 @@
  * markdown viewers show a diagram without open-arch.
  */
 import { inFrame, kindLabel } from "./model.js";
-import type { ArchElement, RelationshipKind, Transition } from "./types.js";
+import type { ArchElement, DeploymentNode, ElementShape, RelationshipKind, Transition } from "./types.js";
 import type { ComputedView } from "./views.js";
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
@@ -64,11 +64,14 @@ function nodeLabel(e: ArchElement): string {
 }
 
 function nodeLine(e: ArchElement): string {
-  const id = mermaidId(e.id);
-  const label = nodeLabel(e);
-  if (e.kind === "person") return `${id}([${label}])`;
-  // The nearest of Mermaid's shapes. The rest, like a browser, a folder or an envelope, are boxes.
-  switch (e.shape) {
+  if (e.kind === "person") return `${mermaidId(e.id)}([${nodeLabel(e)}])`;
+  return shaped(mermaidId(e.id), nodeLabel(e), e.shape);
+}
+
+/** A flowchart node with this ID and label, in the nearest of Mermaid's shapes. */
+function shaped(id: string, label: string, shape: ElementShape): string {
+  // The rest, like a browser, a folder or an envelope, are boxes.
+  switch (shape) {
     case "database":
       return `${id}[(${label})]`;
     case "queue":
@@ -84,6 +87,7 @@ export function renderMermaid(cv: ComputedView): string {
   if (cv.view.level === "sequence") return renderSequence(cv);
   if (cv.view.level === "class") return renderClasses(cv);
   if (cv.view.level === "state") return renderStates(cv);
+  if (cv.deployment) return renderDeployment(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = cv.nodes.filter((n) => inFrame(boundary, n));
@@ -259,6 +263,69 @@ function renderStates(cv: ComputedView): string {
   for (const s of v.states) if (s.final) lines.push(`  ${stateId(s.id)} --> [*]`);
   return lines.join("\n");
 }
+
+/** A deployment node's kind, as its label says it: an infrastructure node, or a deployment node. */
+export function nodeKindLabel(node: Pick<DeploymentNode, "infrastructure">): string {
+  return node.infrastructure ? "Infrastructure node" : "Deployment node";
+}
+
+/**
+ * A deployment view as a Mermaid flowchart: each node that holds anything as a subgraph, nested,
+ * with the containers and systems it runs inside, and each other node as a box in its shape.
+ */
+function renderDeployment(cv: ComputedView): string {
+  const d = cv.deployment!;
+  const lines = ["flowchart TB"];
+  if (d.nodes.length === 0) {
+    lines.push("  %% This view has no nodes yet.");
+    return lines.join("\n");
+  }
+  // Node IDs come from kebab-case, so never have two underscores in a row, and an instance's can't be any node's.
+  const nodeId = (id: string) => mermaidId(id);
+  const boxId = (box: string) => (box.includes("/") ? box.split("/").map((p) => p.replace(/-/g, "_")).join("__") : nodeId(box));
+  const label = (n: DeploymentNode) => {
+    const detail = n.technology ? `${nodeKindLabel(n)}: ${n.technology}` : nodeKindLabel(n);
+    return `${escape(n.name)}${n.instances > 1 ? ` ×${n.instances}` : ""} [${escape(detail)}]`;
+  };
+  const children = (id: string | undefined) => d.nodes.filter((n) => n.parent === id);
+  const runIn = (id: string) => d.instances.filter((i) => i.node === id);
+  const holds = (n: DeploymentNode) => children(n.id).length > 0 || runIn(n.id).length > 0;
+  const write = (n: DeploymentNode, indent: string) => {
+    if (!holds(n)) {
+      // A node with nothing inside is a box, which Mermaid can't put a line break in the middle of the label of.
+      lines.push(`${indent}${shaped(nodeId(n.id), `"${label(n).replace(" [", "<br/>[")}"`, n.shape)}`);
+      return;
+    }
+    lines.push(`${indent}subgraph ${nodeId(n.id)}["${label(n)}"]`);
+    for (const i of runIn(n.id)) lines.push(`${indent}  ${shaped(boxId(i.id), nodeLabel(i.element), i.element.shape)}`);
+    for (const child of children(n.id)) write(child, `${indent}  `);
+    lines.push(`${indent}end`);
+  };
+  for (const n of children(undefined)) write(n, "  ");
+  for (const arrow of d.arrows) {
+    const parts = [arrow.description, arrow.technology ? `[${arrow.technology}]` : undefined].filter(Boolean) as string[];
+    const text = parts.length ? `|"${parts.map(escape).join("<br/>")}"|` : "";
+    lines.push(`  ${boxId(arrow.from)} ${arrow.bidirectional ? "<-->" : "-->"}${text} ${boxId(arrow.to)}`);
+  }
+  if (d.instances.length) {
+    lines.push(...CLASS_DEFS.filter((c) => /classDef (container|system|external) /.test(c)).map((c) => `  ${c}`));
+    const byClass = new Map<string, string[]>();
+    for (const i of d.instances) {
+      const cls = i.element.external ? "external" : i.element.kind;
+      byClass.set(cls, [...(byClass.get(cls) ?? []), boxId(i.id)]);
+    }
+    for (const [cls, ids] of byClass) lines.push(`  class ${ids.join(",")} ${cls}`);
+  }
+  const boxes = d.nodes.filter((n) => !holds(n));
+  if (boxes.length) {
+    lines.push(`  ${NODE_DEF}`, `  class ${boxes.map((n) => nodeId(n.id)).join(",")} deploymentNode`);
+  }
+  for (const n of d.nodes.filter(holds)) lines.push(`  style ${nodeId(n.id)} fill:none,stroke:#444444`);
+  return lines.join("\n");
+}
+
+/** A deployment node or infrastructure node drawn as a box: white, with a grey edge, as the designer draws them. */
+const NODE_DEF = "classDef deploymentNode fill:#ffffff,stroke:#8a94a6,color:#000000";
 
 /**
  * One view on its own as a markdown file: its title, its description and its Mermaid diagram.

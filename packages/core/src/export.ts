@@ -3,7 +3,7 @@
  * element and one per view with its Mermaid diagram. They're output only:
  * every page says so, and tools rewrite them freely.
  */
-import { renderMermaid, transitionLabel } from "./mermaid.js";
+import { nodeKindLabel, renderMermaid, transitionLabel } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
 import { SHAPE_LABELS, type ArchElement, type Relationship, type RelationshipKind } from "./types.js";
@@ -127,6 +127,35 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
       files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
       continue;
     }
+    if (cv.deployment) {
+      const d = cv.deployment;
+      const nodeName = (id: string) => cell(d.nodes.find((n) => n.id === id)?.name ?? id);
+      const elementLink = (id: string) => {
+        const e = ws.elements.get(id);
+        return e ? link(e, "views") : cell(id);
+      };
+      lines.push("", "## Nodes", "");
+      if (d.nodes.length) {
+        lines.push("| Node | Kind | Inside | Technology | Copies | Runs | Description |", "|---|---|---|---|---|---|---|");
+        for (const n of d.nodes) {
+          const runs = d.instances.filter((i) => i.node === n.id).map((i) => link(i.element, "views"));
+          lines.push(`| ${cell(n.name)} | ${nodeKindLabel(n)} | ${n.parent ? nodeName(n.parent) : ""} | ${cell(n.technology)} | ${n.instances} | ${runs.join(", ")} | ${cell(n.description)} |`);
+        }
+      } else lines.push("None yet.");
+      if (cv.edges.length) {
+        lines.push("", "## Relationships", "", "| From | To | Description | Technology |", "|---|---|---|---|");
+        for (const e of cv.edges) lines.push(`| ${elementLink(e.from)} | ${elementLink(e.to)} | ${described(e)} | ${cell(e.technology)} |`);
+        lines.push(...relNotes(ws, cv.edges.flatMap((e) => e.sources.map(({ element, index }) => ({ from: element, rel: ws.elements.get(element)!.uses[index]! })))));
+      }
+      if (v.connections.length) {
+        const end = (id: string) => (d.nodes.some((n) => n.id === id) ? nodeName(id) : elementLink(id));
+        lines.push("", "## Connections", "", "| # | From | To | Description | Technology |", "|---|---|---|---|---|");
+        for (const c of v.connections) lines.push(`| ${c.number} | ${end(c.from)} | ${end(c.to)} | ${cell(c.description)} | ${cell(c.technology)} |`);
+      }
+      lines.push("", `[All views and elements](../README.md)`, "");
+      files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
+      continue;
+    }
     lines.push("", "## Elements", "");
     if (cv.nodes.length) {
       lines.push("| Element | Kind | Technology | Description |", "|---|---|---|---|");
@@ -196,7 +225,9 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     const tags = tagEntries(e.tags);
     if (tags.length) lines.push("", "## Tags", "", "| Tag | Value |", "|---|---|", ...tags.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
     if (d.views.length) {
-      lines.push("", "## Shown in", "", ...d.views.map(({ view, as }) => `- [${view.title}](../views/${view.id}.md)${as === "frame" ? " (as the frame)" : as === "states" ? " (its states)" : ""}`));
+      const how = ({ as, runsIn }: (typeof d.views)[number]) =>
+        as === "frame" ? " (as the frame)" : as === "states" ? " (its states)" : as === "deployed" ? ` (runs in ${runsIn!.map((n) => n.name).join(", ")})` : "";
+      lines.push("", "## Shown in", "", ...d.views.map((shown) => `- [${shown.view.title}](../views/${shown.view.id}.md)${how(shown)}`));
     }
     lines.push("", `[All views and elements](../README.md)`, "");
     files.push({ path: `elements/${e.id}.md`, content: lines.join("\n") });

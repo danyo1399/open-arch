@@ -18,7 +18,7 @@ Exit codes: 0 = done, 1 = refused or failed (nothing saved), 2 = the command was
 |---|---|
 | `open-arch show` | The model as a tree, and the views |
 | `open-arch show <element-id>` | The element's fields, tags, notes, a class's stereotype and members, a container's libraries, the containers a library is built into, what it uses, what uses it (directly and through what's inside it), with those relationships' notes, and the views showing it |
-| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for, and on a class view, each arrow's kind. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along. For a state view: its states, with where it starts and can end, and its transitions in order |
+| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for, and on a class view, each arrow's kind. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along. For a state view: its states, with where it starts and can end, and its transitions in order. For a deployment view: its nodes, nested, with what each runs, its connections in order, and the arrows it draws between the copies of what runs where |
 | `open-arch check [--json] [--strict]` | Problems in the model; exits 1 on errors (or warnings, with `--strict`) |
 | `open-arch export [folder] [--check]` | Writes the docs to the folder, or to the workspace's docs folder; `--check` exits 1 if they're out of date |
 
@@ -39,7 +39,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--kind <association\|dependency\|inheritance\|realization\|composition\|aggregation>` (between two classes; default: association), `--bidirectional` (associations only: `<to>` uses `<from>` too), `--notes <markdown>` or `--notes-file <path\|->` |
 | `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--kind` (`--kind ""` makes it an association again), `--bidirectional` / `--one-way`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
-| `add-view <id>` | `--level <landscape\|context\|container\|component\|class\|sequence\|state>` (required), `--scope <id>` (a container or library for a component view, a component or library for a class view, and for a state view, optionally, the element of any kind whose states it shows), `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. A sequence view takes no scope, include or exclude, and a state view no include or exclude |
+| `add-view <id>` | `--level <landscape\|context\|container\|component\|class\|sequence\|state\|deployment>` (required), `--scope <id>` (a container or library for a component view, a component or library for a class view, and for a state view, optionally, the element of any kind whose states it shows), `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. Sequence and deployment views take no scope, include or exclude, and a state view no include or exclude |
 | `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--new-elements <show\|hide>`, `--notes`, `--notes-file`. `--new-elements hide` lists the view's boxes in include, so elements added later stay out; `show` puts `*` back, excluding what it would add. Either keeps the boxes the view has now |
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
@@ -56,6 +56,12 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-transition <view> <from> <to>` | State views only; `<from>` and `<to>` can be the same state. `--event`, `--guard`, `--action`, `--transition <n>` (insert it as transition n; default: after the last) |
 | `update-transition <view> <n>` | `--from <id>`, `--to <id>`, `--event`, `--guard`, `--action`, `--move-to <n>` |
 | `remove-transition <view> <n>` | The transitions after it move up one |
+| `add-node <view> <id>` | Deployment views only. `--name`, `--parent <node>` (the node of the view it's inside), `--technology`, `--description`, `--run <id>` (a container or system that runs in it; repeat for each), `--infrastructure` (like a load balancer: it runs nothing and holds no nodes), `--instances <n>` (how many copies run; default: 1), `--shape` (as for elements; drawn when it holds nothing) |
+| `update-node <view> <id>` | `--name`, `--new-id <id>` (the nodes inside it and its connections follow it), `--parent` (`--parent ""` puts it at the top), `--technology`, `--description`, `--run` (replaces what it runs; `--run ""` runs nothing; connections to what it no longer runs go), `--infrastructure` / `--deployment-node`, `--instances` (`--instances ""` is 1 again), `--shape` |
+| `remove-node <view> <id>` | Also removes the nodes inside it, and the connections to them and to what only they ran |
+| `add-connection <view> <from> <to>` | Deployment views only. Each end is a node of the view, or a container or system one of its nodes runs; at least one is a node. `--description`, `--technology`, `--connection <n>` (insert it as connection n; default: after the last) |
+| `update-connection <view> <n>` | `--from <id>`, `--to <id>`, `--description`, `--technology`, `--move-to <n>` |
+| `remove-connection <view> <n>` | The connections after it move up one |
 | `update-workspace` | `--name`, `--description`, `--docs <folder>` (`--docs ""` stops generating docs) |
 | `apply [file\|-]` | A JSON list of operations, all or nothing (see below) |
 | `init [file]` | `--name`, `--docs <folder>`, `--no-skills`, `--no-agents-md` |
@@ -98,6 +104,12 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `add-transition` | **view**, **from**, **to**, event, guard, action, transition (its number: 1 is the first; default: after the last) |
 | `update-transition` | **view**, **transition**, from, to, event, guard, action, newTransition (the number to move it to) |
 | `remove-transition` | **view**, **transition** |
+| `add-node` | **view**, **id**, name, parent, description, technology, infrastructure, instances (a whole number, 1 or more), shape, runs (a list of container and system IDs) |
+| `update-node` | **view**, **id**, newId, name, parent (`null` puts it at the top), description, technology, infrastructure, instances (`null` is 1), shape, runs (replaces the list) |
+| `remove-node` | **view**, **id** |
+| `add-connection` | **view**, **from**, **to**, description, technology, connection (its number: 1 is the first; default: after the last) |
+| `update-connection` | **view**, **connection**, from, to, description, technology, newConnection (the number to move it to) |
+| `remove-connection` | **view**, **connection** |
 | `update-workspace` | name, description, docs |
 
 Example:

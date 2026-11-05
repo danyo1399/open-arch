@@ -8,7 +8,10 @@ import {
   VIEW_LEVELS,
   type ArchElement,
   type ComputedView,
+  type Connection,
+  type DeploymentNode,
   type ElementData,
+  type ElementDescription,
   type Operation,
   type Relationship,
   type RelationshipKind,
@@ -35,6 +38,13 @@ export function uniqueId(ws: Workspace, base: string, self?: string): string {
 /** `base`, or `base-2`, `base-3`, ... whichever isn't the ID of another of the view's states than `self`. */
 export function uniqueStateId(view: ViewDef, base: string, self?: string): string {
   const taken = (id: string) => id !== self && view.states.some((s) => s.id === id);
+  if (!taken(base)) return base;
+  for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
+}
+
+/** `base`, or `base-2`, `base-3`, ... whichever isn't the ID of another of the view's nodes than `self`. */
+export function uniqueNodeId(view: ViewDef, base: string, self?: string): string {
+  const taken = (id: string) => id !== self && view.nodes.some((n) => n.id === id);
   if (!taken(base)) return base;
   for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
 }
@@ -107,8 +117,8 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  // A sequence view shows the elements in its steps, and a state view its states, so they have nothing to show or hide.
-  if (!view || !computed || !element || view.level === "sequence" || view.level === "state" || computed.boundary?.id === id) return null;
+  // A sequence view shows the elements in its steps, a state view its states, and a deployment view what its nodes run, so they have nothing to show or hide.
+  if (!view || !computed || !element || view.level === "sequence" || view.level === "state" || view.level === "deployment" || computed.boundary?.id === id) return null;
   if (computed.nodes.some((n) => n.id === id)) return "hide";
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
@@ -203,8 +213,8 @@ export function arrowDeleteOps(ws: Workspace, computed: ComputedView | null, fro
 export interface Usages {
   /** Relationships to the element or to something inside it, each with an arrow that draws it, if any view does. */
   relationships: { from: ArchElement; rel: Relationship; arrow?: { view: string; from: string; to: string; relation?: RelationshipKind } }[];
-  /** Views that draw the element, as a box or as the frame around the view, by title. */
-  views: { view: ViewDef; as: "box" | "frame" | "states" }[];
+  /** Views that draw the element, as a box, as the frame around the view, or running in a deployment view's nodes, by title. */
+  views: ElementDescription["views"];
 }
 
 /** What refers to an element, for "Find usages". Arrows are looked for in `preferView` first. */
@@ -268,6 +278,9 @@ export type Shown =
   | { kind: "step"; view: ViewDef; step: Step }
   | { kind: "state"; view: ViewDef; state: State }
   | { kind: "transition"; view: ViewDef; transition: Transition }
+  | { kind: "node"; view: ViewDef; node: DeploymentNode }
+  | { kind: "connection"; view: ViewDef; connection: Connection }
+  | { kind: "instance"; view: ViewDef; node: DeploymentNode; element: ArchElement }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
@@ -292,6 +305,12 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
   if (view && state) return { kind: "state", view, state };
   const transition = selection?.kind === "transition" ? view?.transitions[selection.number - 1] : undefined;
   if (view && transition) return { kind: "transition", view, transition };
+  const node = selection?.kind === "node" || selection?.kind === "instance" ? view?.nodes.find((n) => n.id === (selection.kind === "node" ? selection.id : selection.node)) : undefined;
+  if (view && node && selection?.kind === "node") return { kind: "node", view, node };
+  const runs = selection?.kind === "instance" && node?.runs.includes(selection.element) ? ws.elements.get(selection.element) : undefined;
+  if (view && node && runs) return { kind: "instance", view, node, element: runs };
+  const connection = selection?.kind === "connection" ? view?.connections[selection.number - 1] : undefined;
+  if (view && connection) return { kind: "connection", view, connection };
   return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
 }
 
@@ -312,6 +331,7 @@ export function renamedSelection<S extends Selection>(selection: S, to: (id: str
   if (selection?.kind === "element" && to(selection.id) !== selection.id) return { ...selection, id: to(selection.id) };
   if (selection?.kind === "arrow" && (to(selection.from) !== selection.from || to(selection.to) !== selection.to)) return { ...selection, from: to(selection.from), to: to(selection.to) };
   if (selection?.kind === "several" && selection.elements.some((id) => to(id) !== id)) return { ...selection, elements: selection.elements.map(to) };
+  if (selection?.kind === "instance" && to(selection.element) !== selection.element) return { ...selection, element: to(selection.element) };
   return selection;
 }
 
@@ -361,6 +381,8 @@ export function renamesBetween(before: Workspace, after: Workspace): Rename[] {
       exclude: v.exclude?.map(to),
       layout: v.layout && Object.fromEntries(Object.entries(v.layout).map(([id, at]) => [to(id), at])),
       steps: v.steps?.map((step) => ({ ...step, from: to(step.from), to: to(step.to) })),
+      nodes: v.nodes && Object.fromEntries(Object.entries(v.nodes).map(([id, n]) => [id, { ...n, runs: n.runs?.map(to) }])),
+      connections: v.connections?.map((c) => ({ ...c, from: Object.hasOwn(v.nodes ?? {}, c.from) ? c.from : to(c.from), to: Object.hasOwn(v.nodes ?? {}, c.to) ? c.to : to(c.to) })),
     });
 
   /**
@@ -438,6 +460,17 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
         return { ...op, view: follow(op.view) };
       case "add-step":
         return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };
+      // A node's ID is its view's own; what it runs, and a connection's ends when they aren't nodes, are elements.
+      case "add-node":
+      case "update-node":
+        return { ...op, view: follow(op.view), ...(op.runs && { runs: op.runs.map(follow) }) };
+      case "remove-node":
+      case "remove-connection":
+        return { ...op, view: follow(op.view) };
+      case "add-connection":
+        return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };
+      case "update-connection":
+        return { ...op, view: follow(op.view), ...(op.from && { from: follow(op.from) }), ...(op.to && { to: follow(op.to) }) };
       case "update-step":
         return { ...op, view: follow(op.view), ...(op.from && { from: follow(op.from) }), ...(op.to && { to: follow(op.to) }) };
       case "update-workspace":

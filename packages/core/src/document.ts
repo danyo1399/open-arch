@@ -12,6 +12,8 @@ import {
   RELATIONSHIP_KINDS,
   STICKY_COLORS,
   VIEW_LEVELS,
+  type ConnectionData,
+  type DeploymentNodeData,
   type Diagnostic,
   type ElementData,
   type ElementShape,
@@ -58,15 +60,21 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "libraries", "tags", "notes", "members", "uses"];
 const RELATIONSHIP_KEYS = ["to", "kind", "bidirectional", "description", "technology", "tags", "notes"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "stickies", "layout"];
-/** Fields only sequence views and state views take, and those they don't, with why. */
-const ONLY_ON: Record<string, "sequence" | "state"> = { steps: "sequence", initial: "state", states: "state", transitions: "state" };
-const NOT_ON: Record<"sequence" | "state", { fields: string[]; why: string }> = {
+const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "nodes", "connections", "stickies", "layout"];
+/** Views that draw something other than boxes picked from the model. */
+type OwnLevel = "sequence" | "state" | "deployment";
+/** Fields only sequence, state and deployment views take, and those they don't, with why. */
+const ONLY_ON: Record<string, OwnLevel> = { steps: "sequence", initial: "state", states: "state", transitions: "state", nodes: "deployment", connections: "deployment" };
+const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   sequence: { fields: ["include", "exclude", "layout"], why: "they show the elements in their steps, in the order they first appear" },
   state: { fields: ["include", "exclude", "layout"], why: "they show their states, each placed by its own `at`" },
+  deployment: { fields: ["scope", "include", "exclude", "layout"], why: "they show their nodes and what runs in them, laid out automatically" },
 };
+const LEVEL_NAME: Record<OwnLevel, string> = { sequence: "Sequence", state: "State", deployment: "Deployment" };
 const STATE_KEYS = ["name", "description", "final", "at"];
 const TRANSITION_KEYS = ["from", "to", "event", "guard", "action"];
+const NODE_KEYS = ["name", "parent", "description", "technology", "infrastructure", "instances", "shape", "runs"];
+const CONNECTION_KEYS = ["from", "to", "description", "technology"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "color", "at"];
 
@@ -171,6 +179,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 7) out = { ...out, openarch: 8 };
   // Version 9 added state views, so a version 8 file means the same in it.
   if (out.openarch === 8) out = { ...out, openarch: 9 };
+  // Version 10 added deployment views, so a version 9 file means the same in it.
+  if (out.openarch === 9) out = { ...out, openarch: 10 };
   return out;
 }
 
@@ -318,20 +328,21 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   const view: ViewData = { title: title?.trim() ? title : id, level: value.level as ViewData["level"] };
   const sequence = view.level === "sequence";
   const statesView = view.level === "state";
+  const deployment = view.level === "deployment";
   // Boxes come from include and exclude, and are placed by layout, only on the other views.
-  const boxes = !sequence && !statesView;
+  const boxes = !sequence && !statesView && !deployment;
+  const own = boxes ? undefined : (view.level as OwnLevel);
   for (const key of Object.keys(value)) {
     const only = ONLY_ON[key];
-    const not = sequence || statesView ? NOT_ON[view.level as "sequence" | "state"] : undefined;
     if (only && only !== view.level) {
       report(`${path}.${key}`, "field-not-allowed", `Only ${only} views have \`${key}\`.`, `Remove \`${key}\`.`);
-    } else if (not?.fields.includes(key)) {
-      report(`${path}.${key}`, "field-not-allowed", `${sequence ? "Sequence" : "State"} views don't take \`${key}\`: ${not.why}.`, `Remove \`${key}\`.`);
+    } else if (own && NOT_ON[own].fields.includes(key)) {
+      report(`${path}.${key}`, "field-not-allowed", `${LEVEL_NAME[own]} views don't take \`${key}\`: ${NOT_ON[own].why}.`, `Remove \`${key}\`.`);
     }
   }
   const description = str(value.description, `${path}.description`, report);
   if (description !== undefined) view.description = description;
-  const scope = str(value.scope, `${path}.scope`, report);
+  const scope = deployment ? undefined : str(value.scope, `${path}.scope`, report);
   if (scope !== undefined) view.scope = scope;
   const include = boxes ? strList(value.include, `${path}.include`, report) : undefined;
   if (include) view.include = include;
@@ -369,6 +380,28 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
         value.transitions.forEach((item, i) => {
           const t = readTransition(item, `${path}.transitions[${i}]`, report);
           if (t) view.transitions!.push(t);
+        });
+      }
+    }
+  }
+  if (deployment) {
+    if (value.nodes !== undefined) {
+      if (!isObject(value.nodes)) report(`${path}.nodes`, "field-type", "Must be an object keyed by node ID.");
+      else {
+        view.nodes = {};
+        for (const [nodeId, node] of Object.entries(value.nodes)) {
+          const n = readNode(nodeId, node, `${path}.nodes.${nodeId}`, report);
+          if (n) view.nodes[nodeId] = n;
+        }
+      }
+    }
+    if (value.connections !== undefined) {
+      if (!Array.isArray(value.connections)) report(`${path}.connections`, "field-type", "Must be a list of connections.");
+      else {
+        view.connections = [];
+        value.connections.forEach((item, i) => {
+          const c = readConnection(item, `${path}.connections[${i}]`, report);
+          if (c) view.connections!.push(c);
         });
       }
     }
@@ -465,6 +498,57 @@ function readTransition(value: unknown, path: string, report: Report): Transitio
   return transition;
 }
 
+function readNode(id: string, value: unknown, path: string, report: Report): DeploymentNodeData | undefined {
+  if (!readId(id, path, report)) return undefined;
+  if (!isObject(value)) {
+    report(path, "field-type", 'A node must be an object like { "name": "Web server" }.');
+    return undefined;
+  }
+  unknownKeys(value, NODE_KEYS, path, report);
+  const name = str(value.name, `${path}.name`, report);
+  if (!name?.trim()) report(`${path}.name`, "field-required", "`name` is required.");
+  const node: DeploymentNodeData = { name: name?.trim() ? name : id };
+  for (const key of ["parent", "description", "technology"] as const) {
+    const v = str(value[key], `${path}.${key}`, report);
+    if (v !== undefined) node[key] = v;
+  }
+  if (value.infrastructure !== undefined) {
+    if (typeof value.infrastructure !== "boolean") report(`${path}.infrastructure`, "field-type", "Must be true or false.");
+    else if (value.infrastructure) node.infrastructure = true;
+  }
+  if (value.instances !== undefined) {
+    if (Number.isInteger(value.instances) && (value.instances as number) >= 1) {
+      if (value.instances !== 1) node.instances = value.instances as number;
+    } else report(`${path}.instances`, "field-type", "Must be a whole number, 1 or more: how many copies of the node run.");
+  }
+  if (value.shape !== undefined) {
+    if ((ELEMENT_SHAPES as readonly unknown[]).includes(value.shape)) node.shape = value.shape as ElementShape;
+    else report(`${path}.shape`, "shape-invalid", `\`shape\` must be one of: ${ELEMENT_SHAPES.join(", ")}.`);
+  }
+  const runs = strList(value.runs, `${path}.runs`, report);
+  if (runs) node.runs = runs;
+  return node;
+}
+
+function readConnection(value: unknown, path: string, report: Report): ConnectionData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A connection must be an object like { "from": "load-balancer", "to": "web-app" }.');
+    return undefined;
+  }
+  unknownKeys(value, CONNECTION_KEYS, path, report);
+  const from = str(value.from, `${path}.from`, report);
+  const to = str(value.to, `${path}.to`, report);
+  if (!from) report(`${path}.from`, "field-required", "`from` is required: the ID of a node, or of a container or system a node runs.");
+  if (!to) report(`${path}.to`, "field-required", "`to` is required: the ID of a node, or of a container or system a node runs.");
+  if (!from || !to) return undefined;
+  const connection: ConnectionData = { from, to };
+  for (const key of ["description", "technology"] as const) {
+    const v = str(value[key], `${path}.${key}`, report);
+    if (v !== undefined) connection[key] = v;
+  }
+  return connection;
+}
+
 function readSticky(id: string, value: unknown, path: string, report: Report): StickyData | undefined {
   if (!readId(id, path, report)) return undefined;
   if (!isObject(value)) {
@@ -511,6 +595,28 @@ export function elementOrder(elements: Record<string, ElementData>): string[] {
   roots.sort(byRank).forEach(visit);
   // Anything left is in a parent cycle; keep it rather than drop it.
   Object.keys(elements).sort().forEach(visit);
+  return out;
+}
+
+/** A deployment view's nodes in reading order: each top-level node, then the nodes inside it, by ID at each level. */
+export function nodeOrder(nodes: Record<string, { parent?: string }>): string[] {
+  const children = new Map<string, string[]>();
+  const roots: string[] = [];
+  for (const [id, n] of Object.entries(nodes)) {
+    if (n.parent && Object.hasOwn(nodes, n.parent) && n.parent !== id) children.set(n.parent, [...(children.get(n.parent) ?? []), id]);
+    else roots.push(id);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const visit = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+    (children.get(id) ?? []).sort().forEach(visit);
+  };
+  roots.sort().forEach(visit);
+  // Anything left is in a parent cycle; keep it rather than drop it.
+  Object.keys(nodes).sort().forEach(visit);
   return out;
 }
 
@@ -573,7 +679,8 @@ function viewText(v: ViewData, indent: string): string {
   entries.push(["level", JSON.stringify(v.level)]);
   const sequence = v.level === "sequence";
   const statesView = v.level === "state";
-  const boxes = !sequence && !statesView;
+  const deployment = v.level === "deployment";
+  const boxes = !sequence && !statesView && !deployment;
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
   if (boxes) entries.push(["include", inline(v.include ?? ["*"])]);
   if (boxes && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
@@ -593,6 +700,22 @@ function viewText(v: ViewData, indent: string): string {
       inline({ from: t.from, to: t.to, event: t.event || undefined, guard: t.guard || undefined, action: t.action || undefined }),
     );
     entries.push(["transitions", transitions.length ? `[\n${transitions.map((t) => `${indent}    ${t}`).join(",\n")}\n${indent}  ]` : "[]"]);
+  }
+  if (deployment) {
+    const node = (n: DeploymentNodeData) =>
+      inline({
+        name: n.name,
+        parent: n.parent || undefined,
+        description: n.description || undefined,
+        technology: n.technology || undefined,
+        infrastructure: n.infrastructure || undefined,
+        instances: n.instances && n.instances !== 1 ? n.instances : undefined,
+        shape: n.shape && n.shape !== "box" ? n.shape : undefined,
+        runs: n.runs?.length ? n.runs : undefined,
+      });
+    entries.push(["nodes", block(nodeOrder(v.nodes ?? {}).map((id) => [id, node(v.nodes![id]!)]), `${indent}  `)]);
+    const connections = (v.connections ?? []).map((c) => inline({ from: c.from, to: c.to, description: c.description || undefined, technology: c.technology || undefined }));
+    entries.push(["connections", connections.length ? `[\n${connections.map((c) => `${indent}    ${c}`).join(",\n")}\n${indent}  ]` : "[]"]);
   }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();

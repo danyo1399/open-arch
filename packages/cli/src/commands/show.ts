@@ -1,6 +1,7 @@
 import {
   computeView,
   describeElement,
+  nodeKindLabel,
   modelTree,
   scopeProblems,
   suggest,
@@ -53,7 +54,7 @@ export function show(io: Io, opts: ShowOptions): number {
       usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes })),
       contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
       contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
-      views: d.views.map(({ view, as }) => ({ id: view.id, as })),
+      views: d.views.map(({ view, as, runsIn }) => ({ id: view.id, as, runsIn: runsIn?.map((n) => n.id) })),
     };
     const lines = [`${element.id}: ${element.name}`];
     const field = (label: string, value: string | undefined) => value && lines.push(`  ${(label + ":").padEnd(13)}${value}`);
@@ -82,7 +83,9 @@ export function show(io: Io, opts: ShowOptions): number {
     if (d.contentsUsedBy.length) {
       lines.push("", "Its contents are used by:", ...relTable(d.contentsUsedBy.map(({ from, rel }) => [rel, `  ${arrow(from.id, rel)}`, relLabel(rel)])));
     }
-    lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => (v.as === "frame" ? `${v.view.id} (as the frame)` : v.as === "states" ? `${v.view.id} (its states)` : v.view.id)).join(", ")}` : "  (none)");
+    const how = (v: (typeof d.views)[number]) =>
+      v.as === "frame" ? " (as the frame)" : v.as === "states" ? " (its states)" : v.as === "deployed" ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})` : "";
+    lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => `${v.view.id}${how(v)}`).join(", ")}` : "  (none)");
     print(json, lines.join("\n") + "\n");
     return 0;
   }
@@ -98,6 +101,10 @@ export function show(io: Io, opts: ShowOptions): number {
     }
     if (view.level === "state") {
       print(statesJson(cv), statesText(ws, cv));
+      return 0;
+    }
+    if (cv.deployment) {
+      print(deploymentJson(cv), deploymentText(cv));
       return 0;
     }
     const json = {
@@ -241,6 +248,81 @@ function statesText(ws: Workspace, cv: ComputedView): string {
     "",
     "Transitions:",
     ...(view.transitions.length ? table(view.transitions.map((t) => [`  ${t.number}.`, `${t.from} -> ${t.to}`, transitionLabel(t) || "(no event)"])) : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function deploymentJson(cv: ComputedView) {
+  const view = cv.view;
+  const d = cv.deployment!;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    notes: view.notes,
+    nodes: d.nodes.map((n) => ({
+      id: n.id,
+      name: n.name,
+      parent: n.parent,
+      description: n.description,
+      technology: n.technology,
+      infrastructure: n.infrastructure || undefined,
+      instances: n.instances === 1 ? undefined : n.instances,
+      shape: n.shape === "box" ? undefined : n.shape,
+      runs: d.instances.filter((i) => i.node === n.id).map((i) => i.element.id),
+    })),
+    connections: view.connections.map((c) => ({ connection: c.number, from: c.from, to: c.to, description: c.description, technology: c.technology })),
+    arrows: d.arrows.map((a) => ({
+      from: a.from,
+      to: a.to,
+      bidirectional: a.bidirectional || undefined,
+      description: a.description,
+      technology: a.technology,
+      connection: a.connection?.number,
+      relationships: a.edge?.sources,
+    })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function deploymentText(cv: ComputedView): string {
+  const view = cv.view;
+  const d = cv.deployment!;
+  const depth = (id: string | undefined): number => {
+    const node = d.nodes.find((n) => n.id === id);
+    return node?.parent ? depth(node.parent) + 1 : 0;
+  };
+  const nodes = d.nodes.map((n) => {
+    const runs = d.instances.filter((i) => i.node === n.id).map((i) => i.element.id);
+    const facts = [
+      n.instances > 1 ? `×${n.instances}` : "",
+      n.infrastructure ? `(${nodeKindLabel(n).toLowerCase()})` : "",
+      n.shape === "box" ? "" : `(${n.shape})`,
+      runs.length ? `runs ${runs.join(", ")}` : "",
+      n.description ?? "",
+    ];
+    return [`  ${"  ".repeat(depth(n.id))}${n.id}`, n.technology ? `${n.name} [${n.technology}]` : n.name, facts.filter(Boolean).join(" ")];
+  });
+  const lines = [
+    `${view.id}: ${view.title}`,
+    "  level:        deployment view",
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Nodes:",
+    ...(nodes.length ? table(nodes) : ["  (none)"]),
+    "",
+    "Connections:",
+    ...(view.connections.length ? table(view.connections.map((c) => [`  ${c.number}.`, `${c.from} -> ${c.to}`, relLabel(c)])) : ["  (none)"]),
+    "",
+    "Arrows:",
+    ...(d.arrows.length
+      ? table(d.arrows.map((a) => [`  ${a.from} ${a.bidirectional ? "<->" : "->"} ${a.to}`, relLabel(a) + (a.connection ? `  (connection ${a.connection.number})` : "")]))
+      : ["  (none)"]),
     ...(view.stickies.length
       ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
       : []),

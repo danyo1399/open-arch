@@ -6,7 +6,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { button, choose, click, key, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 9,
+  openarch: 10,
   name: "Shop",
   elements: { customer: { kind: "person", name: "Customer" }, shop: { kind: "system", name: "Shop" } },
   views: {},
