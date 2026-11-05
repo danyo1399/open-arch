@@ -31,6 +31,8 @@ var migrations embed.FS
 type SQLStore struct {
 	db    *sql.DB
 	files string
+	// Removes a deleted workspace's folder: os.RemoveAll, unless a test needs it to fail.
+	removeAll func(path string) error
 }
 
 // A file's path from an ID and a hash, which the handler checked, but the store doesn't count on it.
@@ -71,7 +73,7 @@ func openStore(dsn, files string) (*SQLStore, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLStore{db: db, files: files}, nil
+	return &SQLStore{db: db, files: files, removeAll: os.RemoveAll}, nil
 }
 
 func (s *SQLStore) Close() error { return s.db.Close() }
@@ -187,9 +189,14 @@ func (s *SQLStore) putFile(id, hash string, file []byte) error {
 	rand.Read(suffix)
 	partial := path + "." + hex.EncodeToString(suffix) + ".partial"
 	if err := os.WriteFile(partial, file, 0o640); err != nil {
+		os.Remove(partial)
 		return err
 	}
-	return os.Rename(partial, path)
+	if err := os.Rename(partial, path); err != nil {
+		os.Remove(partial)
+		return err
+	}
+	return nil
 }
 
 func (s *SQLStore) Workspace(ctx context.Context, id string) (*Workspace, error) {
@@ -251,9 +258,9 @@ func (s *SQLStore) Create(ctx context.Context, w Workspace, file []byte, u Uploa
 // delete that ran first removed the folder before this file was put in it.
 func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload) error {
 	if err := s.putFile(id, u.Hash, file); err != nil {
-		// A delete that removed the folder while the file was being written leaves it nowhere to go.
+		// A delete that removed the folder while the file was being written leaves it nowhere to
+		// go. It wrote nothing, so there's nothing to take back.
 		if gone, _ := s.notShared(ctx, id); gone {
-			s.dropFile(id, u.Hash)
 			return ErrNotShared
 		}
 		return err
@@ -277,7 +284,8 @@ func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload)
 		func(tx *sql.Tx) error { _, err := tx.ExecContext(ctx, insertUpload, uploadValues(u)...); return err },
 	)
 	if errors.Is(err, ErrNotShared) || errors.Is(err, sql.ErrNoRows) {
-		s.dropFile(id, u.Hash)
+		// Gone altogether, or deleted, unless it was only taken down.
+		s.takeBack(id, u.Hash, previous, deleted.Valid || !blocked.Valid)
 		return ErrNotShared
 	}
 	if err != nil || previous == u.Hash {
@@ -300,12 +308,19 @@ func (s *SQLStore) notShared(ctx context.Context, id string) (bool, error) {
 	return w == nil || w.Deleted != 0 || w.Blocked != 0, nil
 }
 
-// dropFile removes a file an update wrote for a workspace that's gone, and its folder if that's
-// left empty: a deleted workspace's is, and a taken-down one keeps its other files.
-func (s *SQLStore) dropFile(id, hash string) {
+// takeBack removes the file an update wrote for a workspace that went before it could replace a
+// version. A deleted workspace's files are all gone, so it goes, and the folder with it if that's
+// left empty. A taken-down workspace keeps its files: the update's goes only if it's new, as one
+// with the same hash as the latest version wrote over that version's file, which must stay.
+func (s *SQLStore) takeBack(id, hash, latest string, deleted bool) {
+	if !deleted && hash == latest {
+		return
+	}
 	if path, err := s.path(id, hash); err == nil {
 		os.Remove(path)
-		os.Remove(filepath.Dir(path))
+		if deleted {
+			os.Remove(filepath.Dir(path))
+		}
 	}
 }
 
@@ -321,7 +336,7 @@ func (s *SQLStore) Remove(ctx context.Context, id string, at int64) error {
 	// that update then finds the workspace deleted and removes its file, so try again.
 	var err error
 	for try := 0; try < 5; try++ {
-		if err = os.RemoveAll(filepath.Join(s.files, "workspaces", id)); err == nil {
+		if err = s.removeAll(filepath.Join(s.files, "workspaces", id)); err == nil {
 			return nil
 		}
 		time.Sleep(10 * time.Millisecond)

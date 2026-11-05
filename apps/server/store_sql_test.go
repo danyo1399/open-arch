@@ -239,15 +239,19 @@ func TestUpgradesADatabaseToGroupAddresses(t *testing.T) {
 	expect(t, applied, 2, "both migrations recorded")
 }
 
-// A store that still says a workspace is shared after it was deleted: the handler's view of it,
-// a moment before the delete landed.
-type staleStore struct{ *SQLStore }
+// A store whose first look at a workspace still says it's shared after it was deleted or taken
+// down: the handler's view of it, a moment before that landed. Later looks see it as it is.
+type staleStore struct {
+	*SQLStore
+	looked bool
+}
 
-func (s staleStore) Workspace(ctx context.Context, id string) (*Workspace, error) {
+func (s *staleStore) Workspace(ctx context.Context, id string) (*Workspace, error) {
 	w, err := s.SQLStore.Workspace(ctx, id)
-	if w != nil {
-		w.Deleted = 0
+	if w != nil && !s.looked {
+		w.Deleted, w.Blocked = 0, 0
 	}
+	s.looked = true
 	return w, err
 }
 
@@ -267,7 +271,7 @@ func TestAnUpdateOvertakenByADeleteIsAnswered410(t *testing.T) {
 			// delete removed it in the middle of the update's write.
 			os.WriteFile(workspace, nil, 0o640)
 		}
-		h.server.Store = staleStore{s}
+		h.server.Store = &staleStore{SQLStore: s}
 		r := h.send("PUT", "/v1/workspaces/"+c.ID, file(2, 48), map[string]string{"Authorization": "Bearer " + c.Token})
 		expect(t, r.StatusCode, http.StatusGone, fmt.Sprintf("folder gone: %v", folderGone))
 		if !folderGone {
@@ -276,4 +280,58 @@ func TestAnUpdateOvertakenByADeleteIsAnswered410(t *testing.T) {
 		}
 		s.Close()
 	}
+}
+
+// A workspace taken down while an update was on its way keeps its files for whoever looks into
+// it, the latest version's above all, even when the update sent that same version again.
+func TestAnUpdateOvertakenByATakedownKeepsItsFiles(t *testing.T) {
+	folder := t.TempDir()
+	s, _ := OpenStore(folder)
+	defer s.Close()
+	h := &harness{t: t, store: s, ip: "127.0.0.1"}
+	h.server = &Server{Store: s}
+	c := h.create(file(1, 48))
+	found, _ := s.SetBlocked(context.Background(), c.ID, "abuse", 1)
+	expect(t, found, true, "taken down")
+	auth := map[string]string{"Authorization": "Bearer " + c.Token}
+	latest := filepath.Join(folder, "files", "workspaces", c.ID, c.Hash)
+
+	for _, body := range [][]byte{file(1, 48), file(2, 48)} {
+		h.server.Store = &staleStore{SQLStore: s}
+		r := h.send("PUT", "/v1/workspaces/"+c.ID, body, auth)
+		expect(t, r.StatusCode, http.StatusGone, "answered")
+		expect(t, decode[map[string]string](t, r)["error"], "This shared workspace was taken down.", "message")
+		kept, err := os.ReadFile(latest)
+		expect(t, err, nil, "the latest version's file is kept")
+		expect(t, bytes.Equal(kept, file(1, 48)), true, "as it was")
+	}
+	// The new version's file isn't.
+	_, err := os.Stat(filepath.Join(folder, "files", "workspaces", c.ID, FileHash(file(2, 48))))
+	expect(t, errors.Is(err, os.ErrNotExist), true, "the update's file is gone")
+}
+
+// Removing a deleted workspace's folder is tried again, as an update putting a file in it can
+// leave it not empty for a moment; one that keeps failing is a failure.
+func TestRemoveTriesAgainToDeleteTheFolder(t *testing.T) {
+	folder := t.TempDir()
+	s, _ := OpenStore(folder)
+	defer s.Close()
+	h := &harness{t: t, store: s, ip: "127.0.0.1"}
+	h.server = &Server{Store: s}
+	c := h.create(file(1, 48))
+	tries := 0
+	s.removeAll = func(path string) error {
+		if tries++; tries < 3 {
+			return errors.New("directory not empty")
+		}
+		return os.RemoveAll(path)
+	}
+	expect(t, s.Remove(context.Background(), c.ID, 1), nil, "removed after trying again")
+	expect(t, tries, 3, "tries")
+	_, err := os.Stat(filepath.Join(folder, "files", "workspaces", c.ID))
+	expect(t, errors.Is(err, os.ErrNotExist), true, "folder gone")
+
+	d := h.create(file(2, 48))
+	s.removeAll = func(string) error { return errors.New("permission denied") }
+	expect(t, s.Remove(context.Background(), d.ID, 1) != nil, true, "a folder that can't be removed")
 }
