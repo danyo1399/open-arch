@@ -90,11 +90,12 @@ Options, each also an environment variable:
                                            none (the connection, the default), forwarded
                                            (X-Forwarded-For, from a reverse proxy) or
                                            cloudflare (CF-Connecting-IP)
-  --max-bytes <n>        MAX_BYTES         Largest encrypted workspace (%d)
-  --uploads-per-hour <n> UPLOADS_PER_HOUR  Uploads one address can make an hour (%d)
+  --max-bytes <n>        MAX_BYTES         Largest encrypted workspace, at least 1 (%d)
+  --uploads-per-hour <n> UPLOADS_PER_HOUR  Uploads one address can make an hour, at least 1 (%d)
   --failed-lookups-per-hour <n>            Requests for workspaces that aren't there one
                          FAILED_LOOKUPS_PER_HOUR  address can make an hour, before it can't look
-                                           any up for the rest of it (%d)
+                                           any up for the rest of it, at least 1 (%d)
+                                           The limits count an IPv6 address by its /64.
   --quiet                LOG=off           Don't print a line for each request
   --limit <n>                              How many uploads to list (50)
 `, program, DefaultMaxBytes, DefaultUploadsPerHour, DefaultFailedLookupsPerHour)
@@ -108,7 +109,8 @@ func whole(value, name string) (int, error) {
 	return n, nil
 }
 
-// atLeastOne is a limit: none of them can be 0, which would stop every upload or lookup.
+// atLeastOne is one of the server's limits: none of them can be 0, which would refuse every
+// upload, or every lookup of a workspace that isn't there.
 func atLeastOne(value, name string) (int, error) {
 	n, err := whole(value, name)
 	if err == nil && n < 1 {
@@ -196,7 +198,7 @@ func ReadInvocation(args []string, getenv func(string) string) (Invocation, erro
 	if inv.Config.FailedLookupsPerHour, err = atLeastOne(setting("failed-lookups-per-hour", "FAILED_LOOKUPS_PER_HOUR", strconv.Itoa(DefaultFailedLookupsPerHour)), "The failed lookups an hour"); err != nil {
 		return inv, err
 	}
-	if inv.Limit, err = atLeastOne(setting("limit", "", "50"), "The limit"); err != nil {
+	if inv.Limit, err = whole(setting("limit", "", "50"), "The limit"); err != nil {
 		return inv, err
 	}
 	inv.Config.Host = setting("host", "HOST", "")

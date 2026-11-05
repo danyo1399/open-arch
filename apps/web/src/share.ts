@@ -127,6 +127,8 @@ export class ShareError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** What the share server says went wrong, for the answers it marks, such as "no-workspace". */
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -137,9 +139,9 @@ const failed = (doing: string | null, reason: string) => (doing ? `Couldn't ${do
 
 /** The share server's reason a request failed, or one made up from its status. */
 async function problem(response: Response, doing: string | null): Promise<ShareError> {
-  const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+  const body = (await response.json().catch(() => null)) as { error?: unknown; code?: unknown } | null;
   const reason = typeof body?.error === "string" ? body.error : `the share server answered ${response.status}.`;
-  return new ShareError(failed(doing, reason), response.status);
+  return new ShareError(failed(doing, reason), response.status, typeof body?.code === "string" ? body.code : undefined);
 }
 
 /** Talks to a share server. */
@@ -191,8 +193,11 @@ export class ShareClient {
       await this.send(`/${share.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${share.token}` } }, "stop sharing it");
     } catch (error) {
       // Already deleted, taken down, or gone from the server, as from one kept in memory that
-      // restarted: whichever, it isn't shared, and there's nothing left to stop.
-      if (!(error instanceof ShareError && (error.status === 404 || error.status === 410))) throw error;
+      // restarted: whichever, it isn't shared, and there's nothing left to stop. Only the share
+      // server's own "no workspace" counts as gone: any other 404, such as a wrong address or a
+      // proxy's, says nothing about it, and forgetting the token then would leave it shared for good.
+      const gone = error instanceof ShareError && (error.status === 410 || (error.status === 404 && error.code === "no-workspace"));
+      if (!gone) throw error;
     }
   }
 

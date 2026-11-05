@@ -84,3 +84,69 @@ func TestListensAndStops(t *testing.T) {
 		t.Error("healthy after it stopped")
 	}
 }
+
+func TestRefusesLimitsOfZero(t *testing.T) {
+	for _, args := range [][]string{{"--uploads-per-hour", "0"}, {"--failed-lookups-per-hour", "0"}, {"--max-bytes", "0"}} {
+		_, err := ReadInvocation(args, env(nil))
+		if err == nil || !strings.Contains(err.Error(), "at least 1") {
+			t.Errorf("%v: got %v", args, err)
+		}
+	}
+	_, err := ReadInvocation(nil, env(map[string]string{"UPLOADS_PER_HOUR": "0"}))
+	expect(t, err != nil && strings.Contains(err.Error(), "The uploads an hour must be at least 1"), true, "from the environment")
+	// uploads --limit isn't one of them: 0 lists none.
+	inv, err := ReadInvocation([]string{"uploads", "--ip", "192.0.2.1", "--limit", "0", "--data", "/tmp/x"}, env(nil))
+	expect(t, err, nil, "--limit 0")
+	expect(t, inv.Limit, 0, "limit")
+	// Port 0 still means any free port.
+	inv, err = ReadInvocation([]string{"--port", "0"}, env(nil))
+	expect(t, err, nil, "port 0")
+	expect(t, inv.Config.Port, 0, "port")
+}
+
+func TestBlockIPTakesAnAddressOrAnIPv6Network(t *testing.T) {
+	for target, want := range map[string]string{
+		"203.0.113.7":         "203.0.113.7",
+		"2001:DB8::1":         "2001:db8::1",
+		"2001:db8:1:2:3::/64": "2001:db8:1:2::/64",
+		"2001:db8:1:2::/64":   "2001:db8:1:2::/64",
+	} {
+		inv, err := ReadInvocation([]string{"block-ip", target, "--reason", "spam", "--data", "/tmp/x"}, env(nil))
+		expect(t, err, nil, target)
+		expect(t, inv.Target, want, target)
+	}
+	// Ones with a "/" that isn't a network at all are refused the same way, not crashed on.
+	for _, target := range []string{"not-an-address", "203.0.113.0/24", "2001:db8::/48", "nonsense/64", "2001:db8::/200", "1.2.3.4/33", "/"} {
+		for _, args := range [][]string{{"block-ip", target, "--reason", "spam"}, {"unblock-ip", target}, {"uploads", "--ip", target}} {
+			_, err := ReadInvocation(append(args, "--data", "/tmp/x"), env(nil))
+			expect(t, err != nil && strings.Contains(err.Error(), "an IP address, or an IPv6 /64"), true, strings.Join(args, " "))
+		}
+	}
+}
+
+// The limits count an IPv4 address as it is, and an IPv6 one by its /64, written one way.
+func TestGroupsAddressesTheWayTheLimitsCountThem(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	for remote, group := range map[string]string{
+		"203.0.113.7:4000":               "203.0.113.7",
+		"[::ffff:203.0.113.7]:4000":      "203.0.113.7",
+		"[2001:db8:1:2:aaaa::1]:4000":    "2001:db8:1:2::/64",
+		"[2001:db8:1:2:ffff:1:2:3]:4000": "2001:db8:1:2::/64",
+		"[2001:db8:1:3::1]:4000":         "2001:db8:1:3::/64",
+	} {
+		r.RemoteAddr = remote
+		expect(t, ClientOf(r, TrustNone).Group, group, remote)
+	}
+	// IPv6 is recorded in its short form, so uploads --ip and block-ip find it.
+	r.RemoteAddr = "[2001:DB8:0:0::1]:4000"
+	expect(t, ClientOf(r, TrustNone).IP, "2001:db8::1", "short form")
+	// A proxy's header is believed only for an address: anything else means the connection's.
+	r.RemoteAddr = "10.0.0.5:4000"
+	for _, header := range []string{"X-Forwarded-For", "CF-Connecting-IP"} {
+		r.Header.Set(header, "not-an-address")
+	}
+	expect(t, ClientOf(r, TrustForwarded).IP, "10.0.0.5", "forwarded, not an address")
+	expect(t, ClientOf(r, TrustCloudflare).IP, "10.0.0.5", "cloudflare, not an address")
+	r.Header.Set("X-Forwarded-For", "203.0.113.9, 2001:DB8::2")
+	expect(t, ClientOf(r, TrustForwarded), Client{IP: "2001:db8::2", Group: "2001:db8::/64"}, "forwarded IPv6")
+}

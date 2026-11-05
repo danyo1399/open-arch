@@ -133,6 +133,16 @@ describe("sharing a link", () => {
     await expect(client().remove(lost)).resolves.toBeUndefined();
   });
 
+  it("doesn't take any other 404 to mean a workspace is gone", async () => {
+    const share = await client().create(await shop());
+    // A wrong address for the server, as a proxy sending it elsewhere would give: 404, "nothing here".
+    const astray = new ShareClient(`${server.url}/elsewhere`);
+    await expect(astray.remove(share)).rejects.toThrow("Couldn't stop sharing it: There's nothing here.");
+    // So it's still shared, and the token still stops it.
+    expect((await fetch(`${server.url}/v1/workspaces/${share.id}`)).status).toBe(200);
+    await client().remove(share);
+  });
+
   it("says when the share server can't be reached", async () => {
     online = false;
     await expect(client().create(await shop())).rejects.toThrow("Couldn't share it: the share server didn't answer. Check you're online.");

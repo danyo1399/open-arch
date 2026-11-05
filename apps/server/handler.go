@@ -124,6 +124,13 @@ func fail(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
+// noWorkspace answers that there's no workspace with that ID, marked so the designer can tell it
+// from any other 404, such as a wrong path or a proxy's: Stop sharing forgets the link only then.
+func noWorkspace(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "There's no shared workspace with that ID.", "code": "no-workspace"})
+}
+
 // Whether the request's If-None-Match names this ETag, so the copy the browser has is still right.
 func notModified(r *http.Request, etag string) bool {
 	for _, tag := range strings.Split(r.Header.Get("If-None-Match"), ",") {
@@ -226,7 +233,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 		id = parts[2]
 		if !idPattern.MatchString(id) {
 			notThere()
-			fail(w, http.StatusNotFound, "There's no shared workspace with that ID.")
+			noWorkspace(w)
 			return nil
 		}
 	}
@@ -273,7 +280,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 	}
 	if workspace == nil {
 		notThere()
-		fail(w, http.StatusNotFound, "There's no shared workspace with that ID.")
+		noWorkspace(w)
 		return nil
 	}
 	if workspace.Blocked != 0 {

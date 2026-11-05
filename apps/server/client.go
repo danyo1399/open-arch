@@ -29,15 +29,18 @@ func ClientOf(r *http.Request, trust TrustProxy) Client {
 		ip = host
 	}
 	c := Client{UserAgent: r.Header.Get("User-Agent"), Origin: r.Header.Get("Origin"), Referer: r.Header.Get("Referer")}
+	// A proxy's word is taken only for an address: anything else in the header means the proxy
+	// isn't the one the server was told about, and the connection's address is all there is.
+	valid := func(s string) bool { return net.ParseIP(s) != nil }
 	switch trust {
 	case TrustForwarded:
 		// The proxy appends the address it saw, so the last one is the only one it vouches for.
 		forwarded := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
-		if last := strings.TrimSpace(forwarded[len(forwarded)-1]); last != "" {
+		if last := strings.TrimSpace(forwarded[len(forwarded)-1]); valid(last) {
 			ip = last
 		}
 	case TrustCloudflare:
-		if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
+		if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); valid(cf) {
 			ip = cf
 		}
 		if country := r.Header.Get("CF-IPCountry"); country != "XX" {
@@ -45,9 +48,14 @@ func ClientOf(r *http.Request, trust TrustProxy) Client {
 		}
 		c.Ray = r.Header.Get("CF-Ray")
 	}
-	// An IPv4 address the way IPv6 sockets report it ("::ffff:203.0.113.7"), as plain IPv4.
-	if parsed := net.ParseIP(ip); parsed != nil && parsed.To4() != nil {
-		ip = parsed.To4().String()
+	// Written one way, so the limits, blocks and uploads --ip all match it: an IPv4 address the
+	// way IPv6 sockets report it ("::ffff:203.0.113.7") as plain IPv4, and IPv6 in its short form.
+	if parsed := net.ParseIP(ip); parsed != nil {
+		if v4 := parsed.To4(); v4 != nil {
+			ip = v4.String()
+		} else {
+			ip = parsed.String()
+		}
 	}
 	c.IP = ip
 	c.Group = AddressGroup(ip)
@@ -74,7 +82,10 @@ func AddressGroup(ip string) string {
 func BlockTarget(target string) string {
 	if strings.Contains(target, "/") {
 		ip, network, err := net.ParseCIDR(target)
-		if ones, bits := network.Mask.Size(); err != nil || ip.To4() != nil || ones != 64 || bits != 128 {
+		if err != nil || ip.To4() != nil {
+			return ""
+		}
+		if ones, bits := network.Mask.Size(); ones != 64 || bits != 128 {
 			return ""
 		}
 		return AddressGroup(ip.String())

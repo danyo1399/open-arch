@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -365,4 +367,57 @@ func TestKeepsWhoSentEveryUpload(t *testing.T) {
 	expect(t, rows[1].IP, "203.0.113.7", "ip")
 	expect(t, rows[1].UserAgent, "test-agent", "user agent")
 	expect(t, rows[1].At.UnixMilli(), int64(1_000_000), "time")
+}
+
+// An update that lands after the workspace was deleted keeps nothing: its files were deleted.
+func TestUpdateAfterADeleteKeepsNothing(t *testing.T) {
+	eachStore(t, func(t *testing.T, h *harness) {
+		c := h.create(file(1, 48))
+		ctx := context.Background()
+		// The update checked the workspace before the delete, then the delete ran first.
+		expect(t, h.store.Remove(ctx, c.ID, h.now), nil, "remove")
+		u := upload(Client{IP: h.ip}, c.ID, file(2, 48), "update", h.now)
+		err := h.store.Update(ctx, c.ID, file(2, 48), u)
+		expect(t, errors.Is(err, ErrNotShared), true, "update after delete")
+		f, _ := h.store.File(ctx, c.ID, u.Hash)
+		expect(t, f == nil, true, "its file isn't kept")
+		if s, ok := h.store.(*SQLStore); ok {
+			_, err := os.Stat(filepath.Join(s.files, "workspaces", c.ID))
+			expect(t, errors.Is(err, os.ErrNotExist), true, "the workspace's folder is gone")
+		}
+	})
+}
+
+func TestCountsAnIPv6NetworkAsOneAddress(t *testing.T) {
+	eachStore(t, func(t *testing.T, h *harness) {
+		h.server.UploadsPerHour = 2
+		h.server.FailedLookupsPerHour = 2
+		// Two addresses of one /64 share its limits.
+		h.ip = "2001:db8:1:2::a"
+		h.create(file(1, 48))
+		h.ip = "2001:db8:1:2::b"
+		h.create(file(2, 48))
+		expect(t, h.send("POST", "/v1/workspaces", file(3, 48), nil).StatusCode, http.StatusTooManyRequests, "uploads from the same /64")
+		h.ip = "2001:db8:1:2::c"
+		h.send("GET", "/v1/workspaces/AAAAAAAAAAAAAAAAAAAAAA", nil, nil)
+		h.ip = "2001:db8:1:2::d"
+		h.send("GET", "/v1/workspaces/BBBBBBBBBBBBBBBBBBBBBB", nil, nil)
+		expect(t, h.send("GET", "/v1/workspaces/CCCCCCCCCCCCCCCCCCCCCC", nil, nil).StatusCode, http.StatusTooManyRequests, "lookups from the same /64")
+		// Another /64 has its own.
+		h.ip = "2001:db8:1:3::a"
+		expect(t, h.send("POST", "/v1/workspaces", file(4, 48), nil).StatusCode, 201, "another /64")
+	})
+}
+
+// The 404 for a workspace that isn't there says so in a way the designer can tell from any other.
+func TestMarksANoWorkspaceAnswer(t *testing.T) {
+	eachStore(t, func(t *testing.T, h *harness) {
+		for _, path := range []string{"/v1/workspaces/AAAAAAAAAAAAAAAAAAAAAA", "/v1/workspaces/short"} {
+			body := decode[map[string]string](t, h.send("DELETE", path, nil, map[string]string{"Authorization": "Bearer x"}))
+			expect(t, body["code"], "no-workspace", path)
+			expect(t, body["error"], "There's no shared workspace with that ID.", path)
+		}
+		// Another 404 isn't marked.
+		expect(t, decode[map[string]string](t, h.send("DELETE", "/elsewhere", nil, nil))["code"], "", "elsewhere")
+	})
 }

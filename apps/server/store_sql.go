@@ -67,6 +67,10 @@ func openStore(dsn, files string) (*SQLStore, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := groupAddresses(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &SQLStore{db: db, files: files}, nil
 }
 
@@ -114,6 +118,36 @@ func migrate(db *sql.DB) ([]string, error) {
 		applied = append(applied, name)
 	}
 	return applied, nil
+}
+
+// groupAddresses gives each upload recorded before uploads had a group (0002_upload_ip_groups.sql)
+// the group the limits count it under, so the hour after an upgrade still counts them. It's Go's
+// work, not SQL's, as SQLite can't find an IPv6 address's /64. Once they all have one, it finds none.
+func groupAddresses(db *sql.DB) error {
+	rows, err := db.Query("SELECT id, ip FROM uploads WHERE ip_group IS NULL AND ip IS NOT NULL")
+	if err != nil {
+		return err
+	}
+	groups := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var ip string
+		if err := rows.Scan(&id, &ip); err != nil {
+			rows.Close()
+			return err
+		}
+		groups[id] = AddressGroup(ip)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for id, group := range groups {
+		if _, err := db.Exec("UPDATE uploads SET ip_group = ? WHERE id = ?", group, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // null stores what a request didn't say as NULL, not as an empty string.
@@ -208,6 +242,11 @@ func (s *SQLStore) Create(ctx context.Context, w Workspace, file []byte, u Uploa
 // delete that ran first removed the folder before this file was put in it.
 func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload) error {
 	if err := s.putFile(id, u.Hash, file); err != nil {
+		// A delete that removed the folder while the file was being written leaves it nowhere to go.
+		if gone, _ := s.notShared(ctx, id); gone {
+			s.dropFile(id, u.Hash)
+			return ErrNotShared
+		}
 		return err
 	}
 	var previous string
@@ -229,11 +268,7 @@ func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload)
 		func(tx *sql.Tx) error { _, err := tx.ExecContext(ctx, insertUpload, uploadValues(u)...); return err },
 	)
 	if errors.Is(err, ErrNotShared) || errors.Is(err, sql.ErrNoRows) {
-		if path, pathErr := s.path(id, u.Hash); pathErr == nil {
-			os.Remove(path)
-			// Only removes it if it's empty: a taken-down workspace keeps its files.
-			os.Remove(filepath.Dir(path))
-		}
+		s.dropFile(id, u.Hash)
 		return ErrNotShared
 	}
 	if err != nil || previous == u.Hash {
@@ -245,6 +280,24 @@ func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload)
 		}
 	}
 	return nil
+}
+
+// notShared says whether a workspace was deleted or taken down, or isn't there at all.
+func (s *SQLStore) notShared(ctx context.Context, id string) (bool, error) {
+	w, err := s.Workspace(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return w == nil || w.Deleted != 0 || w.Blocked != 0, nil
+}
+
+// dropFile removes a file an update wrote for a workspace that's gone, and its folder if that's
+// left empty: a deleted workspace's is, and a taken-down one keeps its other files.
+func (s *SQLStore) dropFile(id, hash string) {
+	if path, err := s.path(id, hash); err == nil {
+		os.Remove(path)
+		os.Remove(filepath.Dir(path))
+	}
 }
 
 // Marked deleted first, so nothing serves a version while its files go.
