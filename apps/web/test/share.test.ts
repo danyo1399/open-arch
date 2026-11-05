@@ -49,9 +49,9 @@ describe("sharing a link", () => {
   });
 
   it("puts the key after the #, so it's never sent to a server", async () => {
-    const parts = { id: "abcdefghijklmnop", hash: "ABCDEFGHIJKLMNOPQRSTUV", key: newKey() };
+    const parts = { id: "abcdefghijklmnopqrstuv", hash: "ABCDEFGHIJKLMNOPQRSTUV", key: newKey() };
     const link = linkTo("https://designer.example/open-arch/?old=1#elsewhere", parts);
-    expect(link).toBe(`https://designer.example/open-arch/?share=abcdefghijklmnop&v=ABCDEFGHIJKLMNOPQRSTUV#key=${parts.key}`);
+    expect(link).toBe(`https://designer.example/open-arch/?share=abcdefghijklmnopqrstuv&v=ABCDEFGHIJKLMNOPQRSTUV#key=${parts.key}`);
     expect(new URL(link).hash).toBe(`#key=${parts.key}`);
     expect(readLink(` ${link} `)).toEqual(parts);
     expect(readLink(link.replace(/#.*/, ""))).toBeNull();

@@ -18,7 +18,8 @@ package main
 // it on to the latest version's. That answer changes with each version, so it's never cached.
 //
 // Every upload is kept with what the request said about who sent it (client.go), so abuse can
-// be found and taken down, and uploads from one address are limited per hour.
+// be found and taken down, and uploads from one address are limited per hour. So are requests
+// for workspaces that aren't there (limit.go), so nobody can try IDs until they find one.
 
 import (
 	"crypto/rand"
@@ -47,7 +48,7 @@ const (
 )
 
 var (
-	idPattern   = regexp.MustCompile(`^[A-Za-z0-9_-]{16}$`)
+	idPattern   = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
 	hashPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
 	bearer      = regexp.MustCompile(`^Bearer (\S+)$`)
 )
@@ -57,12 +58,16 @@ type Server struct {
 	Store          Store
 	MaxBytes       int64
 	UploadsPerHour int
+	// How many requests for workspaces that aren't there one address can make in an hour.
+	FailedLookupsPerHour int
 	// Whose word to take for a request's address (client.go).
 	TrustProxy TrustProxy
 	// Milliseconds since the epoch. The clock, unless a test sets it.
 	Now func() int64
 	// Prints a line for each request, when set.
 	Log func(line string)
+
+	lookups lookups
 }
 
 var b64 = base64.RawURLEncoding
@@ -196,10 +201,30 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 		fail(w, http.StatusNotFound, "There's nothing here.")
 		return nil
 	}
+	// Any request that names a workspace, with any method, as each answers differently for one
+	// that's there and one that isn't. Past the limit, an address can't name any for a while.
+	lookupLimit := s.FailedLookupsPerHour
+	if lookupLimit == 0 {
+		lookupLimit = DefaultFailedLookupsPerHour
+	}
+	notThere := func() {
+		if client.IP != "" {
+			s.lookups.fail(client.IP, lookupLimit, now)
+		}
+	}
+	if len(parts) > 2 && client.IP != "" {
+		if wait := s.lookups.wait(client.IP, lookupLimit, now); wait > 0 {
+			w.Header().Set("Retry-After", strconv.FormatInt((wait+999)/1000, 10))
+			fail(w, http.StatusTooManyRequests, fmt.Sprintf("Too many requests from this address for shared workspaces that aren't there: at most %d an hour. Try again later.", lookupLimit))
+			return nil
+		}
+	}
+
 	var id, hash string
 	if len(parts) > 2 {
 		id = parts[2]
 		if !idPattern.MatchString(id) {
+			notThere()
 			fail(w, http.StatusNotFound, "There's no shared workspace with that ID.")
 			return nil
 		}
@@ -207,6 +232,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 	if len(parts) > 3 {
 		hash = parts[3]
 		if !hashPattern.MatchString(hash) {
+			notThere()
 			fail(w, http.StatusNotFound, "There's no version of this workspace with that hash.")
 			return nil
 		}
@@ -229,7 +255,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 		if file == nil || err != nil {
 			return err
 		}
-		newID, token := random(12), random(32)
+		// 128 random bits for the ID, which is in every link, and 256 for the token, which is kept secret.
+		newID, token := random(16), random(32)
 		u := upload(client, newID, file, "create", now)
 		workspace := Workspace{ID: newID, TokenHash: tokenHash(token), Latest: u.Hash, Created: now, Updated: now}
 		if err := s.Store.Create(ctx, workspace, file, u); err != nil {
@@ -244,6 +271,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 		return err
 	}
 	if workspace == nil {
+		notThere()
 		fail(w, http.StatusNotFound, "There's no shared workspace with that ID.")
 		return nil
 	}

@@ -38,10 +38,11 @@ type Config struct {
 	// All interfaces when empty.
 	Host string
 	// Where the records and files are kept. Empty keeps them in memory, and forgets them when it stops.
-	Data           string
-	MaxBytes       int64
-	UploadsPerHour int
-	TrustProxy     TrustProxy
+	Data                 string
+	MaxBytes             int64
+	UploadsPerHour       int
+	FailedLookupsPerHour int
+	TrustProxy           TrustProxy
 	// Whether to print a line for each request.
 	Log bool
 }
@@ -91,9 +92,12 @@ Options, each also an environment variable:
                                            cloudflare (CF-Connecting-IP)
   --max-bytes <n>        MAX_BYTES         Largest encrypted workspace (%d)
   --uploads-per-hour <n> UPLOADS_PER_HOUR  Uploads one address can make an hour (%d)
+  --failed-lookups-per-hour <n>            Requests for workspaces that aren't there one
+                         FAILED_LOOKUPS_PER_HOUR  address can make an hour, before it can't look
+                                           any up for the rest of it (%d)
   --quiet                LOG=off           Don't print a line for each request
   --limit <n>                              How many uploads to list (50)
-`, program, DefaultMaxBytes, DefaultUploadsPerHour)
+`, program, DefaultMaxBytes, DefaultUploadsPerHour, DefaultFailedLookupsPerHour)
 }
 
 func whole(value, name string) (int, error) {
@@ -104,7 +108,7 @@ func whole(value, name string) (int, error) {
 	return n, nil
 }
 
-var valueFlags = map[string]bool{"port": true, "host": true, "data": true, "trust-proxy": true, "max-bytes": true, "uploads-per-hour": true, "workspace": true, "ip": true, "limit": true, "reason": true}
+var valueFlags = map[string]bool{"port": true, "host": true, "data": true, "trust-proxy": true, "max-bytes": true, "uploads-per-hour": true, "failed-lookups-per-hour": true, "workspace": true, "ip": true, "limit": true, "reason": true}
 var boolFlags = map[string]bool{"memory": true, "quiet": true, "help": true}
 
 // ReadInvocation reads the command line and the environment. It returns a UsageError saying what's wrong with them.
@@ -180,6 +184,9 @@ func ReadInvocation(args []string, getenv func(string) string) (Invocation, erro
 	if inv.Config.UploadsPerHour, err = whole(setting("uploads-per-hour", "UPLOADS_PER_HOUR", strconv.Itoa(DefaultUploadsPerHour)), "The uploads an hour"); err != nil {
 		return inv, err
 	}
+	if inv.Config.FailedLookupsPerHour, err = whole(setting("failed-lookups-per-hour", "FAILED_LOOKUPS_PER_HOUR", strconv.Itoa(DefaultFailedLookupsPerHour)), "The failed lookups an hour"); err != nil {
+		return inv, err
+	}
 	if inv.Limit, err = whole(setting("limit", "", "50"), "The limit"); err != nil {
 		return inv, err
 	}
@@ -233,7 +240,7 @@ func Listen(config Config, store Store) (string, func() error, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	server := &Server{Store: store, MaxBytes: config.MaxBytes, UploadsPerHour: config.UploadsPerHour, TrustProxy: config.TrustProxy}
+	server := &Server{Store: store, MaxBytes: config.MaxBytes, UploadsPerHour: config.UploadsPerHour, FailedLookupsPerHour: config.FailedLookupsPerHour, TrustProxy: config.TrustProxy}
 	if config.Log {
 		server.Log = func(line string) { fmt.Println(line) }
 	}

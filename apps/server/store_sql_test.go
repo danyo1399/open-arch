@@ -73,7 +73,7 @@ func TestBlockingCommands(t *testing.T) {
 	expect(t, h.send("GET", "/v1/workspaces/"+c.ID+"/"+c.Hash, nil, nil).StatusCode, 410, "blocked")
 	s.SetBlocked(ctx, c.ID, "", 6)
 	expect(t, h.send("GET", "/v1/workspaces/"+c.ID+"/"+c.Hash, nil, nil).StatusCode, 200, "unblocked")
-	found, _ = s.SetBlocked(ctx, "AAAAAAAAAAAAAAAA", "spam", 5)
+	found, _ = s.SetBlocked(ctx, "AAAAAAAAAAAAAAAAAAAAAA", "spam", 5)
 	expect(t, found, false, "unknown workspace")
 
 	s.SetIPBlocked(ctx, "127.0.0.1", "spam", 5)

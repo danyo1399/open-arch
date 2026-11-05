@@ -72,13 +72,13 @@ describe("OpenLinkDialog", () => {
     const host = mount(createElement(OpenLinkDialog, { onOpen: (link: LinkParts) => void opened.push(link), onClose() {} }));
     const input = host.querySelector("input")!;
     const key = "k".repeat(43);
-    await type(input, "https://designer.example/?share=abcdefghijklmnop&v=ABCDEFGHIJKLMNOPQRSTUV");
+    await type(input, "https://designer.example/?share=abcdefghijklmnopqrstuv&v=ABCDEFGHIJKLMNOPQRSTUV");
     await click(button(host, "Open"));
     expect(host.querySelector('[role="alert"]')?.textContent).toContain("That isn't a whole share link.");
     expect(opened).toEqual([]);
 
-    await type(input, `https://designer.example/?share=abcdefghijklmnop&v=ABCDEFGHIJKLMNOPQRSTUV#key=${key}`);
+    await type(input, `https://designer.example/?share=abcdefghijklmnopqrstuv&v=ABCDEFGHIJKLMNOPQRSTUV#key=${key}`);
     await click(button(host, "Open"));
-    expect(opened).toEqual([{ id: "abcdefghijklmnop", hash: "ABCDEFGHIJKLMNOPQRSTUV", key }]);
+    expect(opened).toEqual([{ id: "abcdefghijklmnopqrstuv", hash: "ABCDEFGHIJKLMNOPQRSTUV", key }]);
   });
 });

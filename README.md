@@ -102,7 +102,7 @@ OpenCode's default model is used. To use another, start the app with `OPEN_ARCH_
 
 [`apps/server`](apps/server) keeps the workspaces shared as links. It never has their keys, so it can't read them.
 
-A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID names the shared workspace, and the hash names one version of it: the first 128 bits of the SHA-256 of its encrypted file. So a new version has a new URL, and the version's file is served with `Cache-Control: public, max-age=31536000, immutable`, for browsers and proxies to cache for good. A new version replaces the one before: the server deletes its file, and a request for it is redirected (`302`, never cached) to the latest version's. Opening a link first asks which version is the latest, a small answer that's checked each time (`no-cache`, with an ETag), so a browser that cached an earlier version opens the latest too. Offline, the link's own version opens, if the browser cached it.
+A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID names the shared workspace: 128 random bits, far too many to guess. The hash names one version of it: the first 128 bits of the SHA-256 of its encrypted file. So a new version has a new URL, and the version's file is served with `Cache-Control: public, max-age=31536000, immutable`, for browsers and proxies to cache for good. A new version replaces the one before: the server deletes its file, and a request for it is redirected (`302`, never cached) to the latest version's. Opening a link first asks which version is the latest, a small answer that's checked each time (`no-cache`, with an ETag), so a browser that cached an earlier version opens the latest too. Offline, the link's own version opens, if the browser cached it.
 
 | Request | Does |
 |---|---|
@@ -114,7 +114,7 @@ A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID na
 
 An uploaded file is one byte for the format (`1`), AES-GCM's 12-byte IV, then the ciphertext of `{"name", "text"}`, the file name and the `.openarch` text, as JSON compressed with DEFLATE. The key is 256 random bits. The server only checks the format byte and the size: at most 1 MB.
 
-To find and stop abuse, the server keeps a record of every upload, even of versions it has since deleted: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, behind Cloudflare's proxy, the country and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour.
+To find and stop abuse, the server keeps a record of every upload, even of versions it has since deleted: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, behind Cloudflare's proxy, the country and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour. It can also ask for 60 workspaces that aren't there in an hour, by any method: past that, it can't look up any workspace until the hour is up, so nobody can try IDs until they find one.
 
 The server is written in Go, and builds to one static executable with nothing to install where it runs, not even a C library: its SQLite is pure Go. It keeps its records in SQLite, in `<data>/shares.db`, and each version's encrypted file in `<data>/files/`. It brings the database's tables ([`migrations/`](apps/server/migrations)) up to date as it opens it.
 
@@ -136,9 +136,10 @@ Each is a flag or an environment variable; the flag wins. `open-arch-share help`
 | `--host` | `HOST` | The address to listen on: all of them unless it's set |
 | `--data` | `DATA_DIR` | The folder for records and files: `./data` unless it's set (`/data` in the container) |
 | `--memory` | `DATA_DIR=:memory:` | Keeps everything in memory instead, and forgets it when the server stops |
-| `--trust-proxy` | `TRUST_PROXY` | Whose word to take for a request's IP address. `none`, the default: the connection's. `forwarded`: the last address in `X-Forwarded-For`, which a reverse proxy adds. `cloudflare`: `CF-Connecting-IP`, and the country from `CF-IPCountry`, behind Cloudflare's proxy. Only set it when that proxy is really in front: otherwise anyone can choose the address they're recorded with |
+| `--trust-proxy` | `TRUST_PROXY` | Whose word to take for a request's IP address. `none`, the default: the connection's. `forwarded`: the last address in `X-Forwarded-For`, which a reverse proxy adds. `cloudflare`: `CF-Connecting-IP`, and the country from `CF-IPCountry`, behind Cloudflare's proxy. Only set it when that proxy is really in front: otherwise anyone can choose the address they're recorded with. Behind a proxy, do set it: otherwise every request comes from the proxy's address, and the per-address limits count everyone together |
 | `--max-bytes` | `MAX_BYTES` | The largest encrypted workspace: 1000000 bytes unless it's set |
 | `--uploads-per-hour` | `UPLOADS_PER_HOUR` | How many files one IP address can upload in an hour: 60 unless it's set |
+| `--failed-lookups-per-hour` | `FAILED_LOOKUPS_PER_HOUR` | How many requests for workspaces that aren't there one IP address can make in an hour, before it can't look up any for the rest of it: 60 unless it's set. It's counted in memory, so a restart starts it again |
 | `--quiet` | `LOG=off` | Doesn't print a line for each request |
 
 ### As an executable

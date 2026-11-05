@@ -41,7 +41,7 @@ export interface Share extends LinkParts {
 
 const FORMAT = 1;
 const IV_BYTES = 12;
-const ID = /^[A-Za-z0-9_-]{16}$/;
+const ID = /^[A-Za-z0-9_-]{22}$/;
 const HASH = /^[A-Za-z0-9_-]{22}$/;
 const KEY = /^[A-Za-z0-9_-]{43}$/;
 

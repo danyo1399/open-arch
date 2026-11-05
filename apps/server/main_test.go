@@ -12,14 +12,15 @@ func env(values map[string]string) func(string) string {
 
 func TestSettingsFromFlagsThenEnvironmentThenDefaults(t *testing.T) {
 	inv, _ := ReadInvocation(nil, env(nil))
-	expect(t, inv.Config, Config{Port: 8787, Data: "./data", MaxBytes: 1_000_000, UploadsPerHour: 60, TrustProxy: TrustNone, Log: true}, "defaults")
+	expect(t, inv.Config, Config{Port: 8787, Data: "./data", MaxBytes: 1_000_000, UploadsPerHour: 60, FailedLookupsPerHour: 60, TrustProxy: TrustNone, Log: true}, "defaults")
 
-	vars := env(map[string]string{"PORT": "9000", "HOST": "127.0.0.1", "DATA_DIR": "/data", "TRUST_PROXY": "forwarded", "MAX_BYTES": "500", "UPLOADS_PER_HOUR": "5", "LOG": "off"})
+	vars := env(map[string]string{"PORT": "9000", "HOST": "127.0.0.1", "DATA_DIR": "/data", "TRUST_PROXY": "forwarded", "MAX_BYTES": "500", "UPLOADS_PER_HOUR": "5", "FAILED_LOOKUPS_PER_HOUR": "7", "LOG": "off"})
 	inv, _ = ReadInvocation(nil, vars)
-	expect(t, inv.Config, Config{Port: 9000, Host: "127.0.0.1", Data: "/data", MaxBytes: 500, UploadsPerHour: 5, TrustProxy: TrustForwarded}, "environment")
+	expect(t, inv.Config, Config{Port: 9000, Host: "127.0.0.1", Data: "/data", MaxBytes: 500, UploadsPerHour: 5, FailedLookupsPerHour: 7, TrustProxy: TrustForwarded}, "environment")
 
-	inv, _ = ReadInvocation([]string{"--port", "9100", "--memory", "--trust-proxy=cloudflare"}, vars)
+	inv, _ = ReadInvocation([]string{"--port", "9100", "--memory", "--trust-proxy=cloudflare", "--failed-lookups-per-hour", "3"}, vars)
 	expect(t, inv.Config.Port, 9100, "flag port")
+	expect(t, inv.Config.FailedLookupsPerHour, 3, "flag failed lookups")
 	expect(t, inv.Config.Data, "", "memory")
 	expect(t, inv.Config.TrustProxy, TrustCloudflare, "flag proxy")
 	inv, _ = ReadInvocation(nil, env(map[string]string{"DATA_DIR": ":memory:"}))
@@ -27,9 +28,9 @@ func TestSettingsFromFlagsThenEnvironmentThenDefaults(t *testing.T) {
 }
 
 func TestReadsTheAbuseCommands(t *testing.T) {
-	inv, err := ReadInvocation([]string{"block", "abcdefghijklmnop", "--reason", "spam"}, env(nil))
+	inv, err := ReadInvocation([]string{"block", "abcdefghijklmnopqrstuv", "--reason", "spam"}, env(nil))
 	expect(t, err, nil, "block")
-	expect(t, inv.Command+" "+inv.Target+" "+inv.Reason, "block abcdefghijklmnop spam", "block")
+	expect(t, inv.Command+" "+inv.Target+" "+inv.Reason, "block abcdefghijklmnopqrstuv spam", "block")
 	inv, _ = ReadInvocation([]string{"uploads", "--ip", "192.0.2.1", "--limit", "5"}, env(nil))
 	expect(t, inv.IP, "192.0.2.1", "ip")
 	expect(t, inv.Limit, 5, "limit")
@@ -37,13 +38,13 @@ func TestReadsTheAbuseCommands(t *testing.T) {
 
 func TestSaysWhatsWrongWithACommandLine(t *testing.T) {
 	for args, want := range map[string]string{
-		"--port http":            `The port must be a whole number, not "http".`,
-		"block abcdefghijklmnop": "Say why, with --reason",
-		"uploads":                "Say whose uploads to list",
-		"block-ip --memory":      "block-ip needs the data folder",
-		"serve --colour":         "There's no option --colour.",
-		"frob":                   `There's no command "frob".`,
-		"--port":                 "--port needs a value.",
+		"--port http":                  `The port must be a whole number, not "http".`,
+		"block abcdefghijklmnopqrstuv": "Say why, with --reason",
+		"uploads":                      "Say whose uploads to list",
+		"block-ip --memory":            "block-ip needs the data folder",
+		"serve --colour":               "There's no option --colour.",
+		"frob":                         `There's no command "frob".`,
+		"--port":                       "--port needs a value.",
 	} {
 		_, err := ReadInvocation(strings.Fields(args), env(nil))
 		if err == nil || !strings.Contains(err.Error(), want) {

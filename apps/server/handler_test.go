@@ -98,6 +98,8 @@ func TestCreate(t *testing.T) {
 		body := file(7, 64)
 		c := h.create(body)
 		expect(t, idPattern.MatchString(c.ID), true, "id")
+		// 128 random bits.
+		expect(t, len(c.ID), 22, "id length")
 		expect(t, c.Hash, FileHash(body), "hash")
 		expect(t, len(c.Token), 43, "token length")
 		w, _ := h.store.Workspace(context.Background(), c.ID)
@@ -301,7 +303,7 @@ func TestTooBigWithoutContentLength(t *testing.T) {
 
 func TestCORSPreflight(t *testing.T) {
 	eachStore(t, func(t *testing.T, h *harness) {
-		r := h.send("OPTIONS", "/v1/workspaces/abcdefghijklmnop", nil, nil)
+		r := h.send("OPTIONS", "/v1/workspaces/abcdefghijklmnopqrstuv", nil, nil)
 		expect(t, r.StatusCode, 204, "status")
 		expect(t, r.Header.Get("Access-Control-Allow-Origin"), "*", "origin")
 		expect(t, strings.Contains(r.Header.Get("Access-Control-Allow-Methods"), "PUT"), true, "methods")
@@ -311,7 +313,7 @@ func TestCORSPreflight(t *testing.T) {
 
 func TestWhatsWrongWithARequest(t *testing.T) {
 	eachStore(t, func(t *testing.T, h *harness) {
-		expect(t, h.send("GET", "/v1/workspaces/abcdefghijklmnop", nil, nil).StatusCode, 404, "unknown")
+		expect(t, h.send("GET", "/v1/workspaces/abcdefghijklmnopqrstuv", nil, nil).StatusCode, 404, "unknown")
 		expect(t, h.send("GET", "/v1/workspaces/not-an-id", nil, nil).StatusCode, 404, "bad id")
 		expect(t, h.send("GET", "/elsewhere", nil, nil).StatusCode, 404, "elsewhere")
 		expect(t, h.send("GET", "/", nil, nil).StatusCode, 200, "front page")
@@ -333,7 +335,7 @@ func (failingStore) Workspace(context.Context, string) (*Workspace, error) {
 func TestFailureStillAnswers(t *testing.T) {
 	server := &Server{Store: failingStore{NewMemoryStore()}}
 	w := httptest.NewRecorder()
-	server.ServeHTTP(w, httptest.NewRequest("GET", "/v1/workspaces/abcdefghijklmnop", nil))
+	server.ServeHTTP(w, httptest.NewRequest("GET", "/v1/workspaces/abcdefghijklmnopqrstuv", nil))
 	expect(t, w.Code, 500, "status")
 	expect(t, w.Header().Get("Access-Control-Allow-Origin"), "*", "cors")
 	expect(t, strings.Contains(w.Body.String(), "The share server failed. Try again later."), true, "message")
