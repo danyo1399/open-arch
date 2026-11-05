@@ -1,15 +1,24 @@
 name: CI
 
-# Seven machines, three of them macOS and Windows, so not on every push: only when a release is
-# published, or when started by hand (Actions, CI, Run workflow). Branches run the same checks
-# locally with pnpm verify before they're merged (AGENTS.md); macOS and Windows are checked only here.
+# Seven machines, three of them macOS and Windows, so not on every push: only when started by hand
+# (Actions, CI, Run workflow), or by the Release workflow, with the version to build, before it
+# publishes what this built. Branches run the same checks locally with pnpm verify before they're
+# merged (AGENTS.md); macOS and Windows are checked only here.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: The version to build the desktop apps and the share server as. Unset, each is its package.json's.
+        type: string
+        default: ""
 
 permissions:
   contents: read
+
+env:
+  # Read by the share server's build, and passed to electron-builder for the desktop apps.
+  OPEN_ARCH_VERSION: ${{ inputs.version }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -93,7 +102,8 @@ jobs:
       # above all when building a release's tag.
       # .deb packages need a homepage; use this repository's until package.json names one.
       - name: Build installers
-        run: pnpm --filter @open-arch/desktop dist --publish never -c.extraMetadata.homepage="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+        # A release's version goes in the app's package.json, and so in the installers' names.
+        run: pnpm --filter @open-arch/desktop dist --publish never -c.extraMetadata.homepage="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" ${OPEN_ARCH_VERSION:+-c.extraMetadata.version="$OPEN_ARCH_VERSION"}
       - name: Upload installers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

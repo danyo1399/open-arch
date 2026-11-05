@@ -2,6 +2,9 @@ appId: dev.openarch.desktop
 productName: open-arch
 directories:
   output: release
+# The app doesn't update itself, so there's nowhere to publish updates to, and no update files to
+# write. electron-builder otherwise looks for one, and fails on a pre-release version like 1.0.0-rc.1.
+publish: null
 # Main, preload and the web UI are bundled into dist/, so the app needs no node_modules.
 files:
   - dist/**
@@ -11,9 +14,16 @@ asarUnpack:
   - dist/cli/**
 mac:
   target: [dmg, zip]
+  # Named explicitly, as a release looks for them by name (scripts/release-assets.mjs).
+  artifactName: "${productName}-${version}-${arch}-mac.${ext}"
+dmg:
+  artifactName: "${productName}-${version}-${arch}.${ext}"
   category: public.app-category.developer-tools
 win:
   target: [nsis]
+nsis:
+  # The default, "${productName} Setup ${version}.exe", has spaces, which a GitHub release renames.
+  artifactName: "${productName}-${version}-setup.${ext}"
 linux:
   target: [AppImage, deb]
   category: Development

@@ -150,7 +150,7 @@ Each is a flag or an environment variable; the flag wins. `open-arch-share help`
 
 ### As an executable
 
-There's an executable for Linux and one for macOS, each on x64 and arm64 (Apple Silicon), of about 11 MB. The Linux ones run on any Linux, Alpine and other musl ones too. The [CI workflow](#ci) builds them all, and uploads them as artifacts of the run. To build them yourself, with Go 1.26+ on any system, into `apps/server/release/`:
+There's an executable for Linux and one for macOS, each on x64 and arm64 (Apple Silicon), of about 11 MB. The Linux ones run on any Linux, Alpine and other musl ones too. Each [release](#releases) has them all, and the [CI workflow](#ci) builds them too, as artifacts of its run. To build them yourself, with Go 1.26+ on any system, into `apps/server/release/`:
 
 ```bash
 pnpm --filter @open-arch/server executable
@@ -194,7 +194,13 @@ Its log is `~/Library/Logs/open-arch-share.log`. To stop it, `launchctl bootout 
 
 ### In a container
 
-[`apps/server/Dockerfile`](apps/server/Dockerfile) builds an image with the executable and nothing else, about 17 MB. Run it with a volume for `/data`, so what's shared outlives the container:
+Each [release](#releases) publishes an image of the server, with the executable and nothing else, about 17 MB, for x64 and arm64. Run it with a volume for `/data`, so what's shared outlives the container:
+
+```bash
+docker run -d --name open-arch-share -p 8787:8787 -v open-arch-share:/data ghcr.io/danyo1399/open-arch-share
+```
+
+To build the image yourself, from [`apps/server/Dockerfile`](apps/server/Dockerfile), for this machine or with `--platform linux/arm64` for another:
 
 ```bash
 docker build -t open-arch-share apps/server
@@ -322,10 +328,26 @@ pnpm open-arch show --file examples/shop/shop.openarch
 
 ## CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs when a release is published, or when you start it from the Actions tab (**CI**, then **Run workflow**). It doesn't run on pushes or pull requests: `pnpm verify` runs the same checks before merging. They test the desktop app only on your own system, so start a run on `main` by hand to check macOS and Windows before a release.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs when you start it from the Actions tab (**CI**, then **Run workflow**), and as the first part of a [release](#releases). It doesn't run on pushes or pull requests: `pnpm verify` runs the same checks before merging. They test the desktop app only on your own system, so start a run on `main` by hand to check macOS and Windows.
 
 It has three jobs:
 
 - **lint** (Ubuntu): typecheck, tests, the share server's Go tests, the CLI build, then `open-arch check`, `fmt --check` and `export --check` on the example.
 - **desktop** (macOS, Windows and Linux): the smoke test (under `xvfb-run` on Linux), then unsigned installers built with `dist`. The smoke screenshots and the installers (`.dmg`/`.zip`, `.exe`, `.AppImage`/`.deb`) are uploaded as artifacts of the run.
 - **share server** (Linux on x64 and arm64, and macOS on arm64): runs the share server's Go tests, builds [its executables](#as-an-executable), runs the one for each machine, and uploads them as `.tar.gz` artifacts of the run. There's no Intel Mac, so the macOS x64 executable is only checked to be one.
+
+## Releases
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) publishes a release on GitHub, with the desktop app's installers and the share server's executables. Start it from the Actions tab: **Release**, then **Run workflow**. Pick the branch, normally `main`, and give the version, such as `1.2.0`. A version like `1.2.0-rc.1` is marked as a pre-release, and its image isn't tagged `latest`.
+
+It runs [CI](#ci) first, building everything as that version, and stops if any check fails. Then it makes the release, with a tag `v<version>` on the commit it ran on:
+
+- the desktop app: a `.dmg` and a `.zip` for macOS on Apple Silicon, an installer for Windows, an `.AppImage` for Linux, and a `.deb` for Debian and Ubuntu, all unsigned
+- the share server: a `.tar.gz` for each of Linux and macOS, on x64 and arm64
+- `SHA256SUMS`, to check a download against, and notes that say what each file is for
+
+And it publishes the share server's Docker image on GitHub's container registry, for x64 and arm64: `ghcr.io/<owner>/open-arch-share:<version>`, and `:latest` for a release that isn't a pre-release.
+
+These are the files CI built in that run, not new builds: each installer is built on the machine that smoke-tested the app, and each executable on one that ran it, except the macOS x64 one. The image holds the Linux executables.
+
+A new package on GitHub's container registry starts out private, and a workflow can't change that. After the first release, make it public once: on the repository owner's **Packages** tab, open **open-arch-share**, then **Package settings**, **Change visibility**, **Public**. Until then, each release warns that only you can pull it. The version must be new: it stops straight away if there's already a tag for it.
