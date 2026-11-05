@@ -42,9 +42,14 @@ export function uniqueStateId(view: ViewDef, base: string, self?: string): strin
   for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
 }
 
-/** `base`, or `base-2`, `base-3`, ... whichever isn't the ID of another of the view's nodes than `self`. */
-export function uniqueNodeId(view: ViewDef, base: string, self?: string): string {
-  const taken = (id: string) => id !== self && view.nodes.some((n) => n.id === id);
+/**
+ * `base`, or `base-2`, `base-3`, ... whichever isn't the ID of another of the view's nodes than
+ * `self`, or of an element. A node can't have the ID of an element its view runs, as a
+ * connection to it could mean either, so a node named after what it runs, like "Orders DB", gets
+ * "orders-db-2"; and no element can be run in the view later and clash with it.
+ */
+export function uniqueNodeId(ws: Workspace, view: ViewDef, base: string, self?: string): string {
+  const taken = (id: string) => id !== self && (view.nodes.some((n) => n.id === id) || ws.elements.has(id));
   if (!taken(base)) return base;
   for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
 }

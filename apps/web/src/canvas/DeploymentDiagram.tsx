@@ -5,7 +5,7 @@
  * box or a node to another to add an arrow: between two containers, that's a relationship in the
  * model; to or from a node, a connection of this view.
  */
-import { kindLabel, nodeKindLabel, type ComputedView, type DeploymentArrow, type DeploymentNode, type Operation, type Sticky, type ViewEdge } from "@open-arch/core";
+import { kindLabel, nodeKindLabel, type ComputedView, type DeploymentArrow, type DeploymentNode, type Operation, type Sticky, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -196,6 +196,7 @@ export function arrowSelected(arrow: DeploymentArrow, selection: Selection): boo
 }
 
 interface DeploymentDiagramProps {
+  ws: Workspace;
   computed: ComputedView;
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
@@ -206,7 +207,7 @@ interface DeploymentDiagramProps {
   exportItems: MenuItem[];
 }
 
-export function DeploymentDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems }: DeploymentDiagramProps) {
+export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit, onError, exportItems }: DeploymentDiagramProps) {
   const view = cv.view;
   const d = cv.deployment!;
   const rf = useReactFlow<FlowNode, DeploymentEdge>();
@@ -379,7 +380,7 @@ export function DeploymentDiagram({ computed: cv, selection, onSelect, edit, onE
   /** The node new ones go inside: the selected node, unless it's infrastructure, which holds none. */
   const holder = selection?.kind === "node" ? d.nodes.find((n) => n.id === selection.id && !n.infrastructure) : undefined;
   const addNode = (infrastructure: boolean) => {
-    const id = uniqueNodeId(view, infrastructure ? "new-infrastructure" : "new-node");
+    const id = uniqueNodeId(ws, view, infrastructure ? "new-infrastructure" : "new-node");
     void edit([{ op: "add-node", view: view.id, id, name: infrastructure ? "New infrastructure" : "New node", parent: holder?.id, infrastructure: infrastructure || undefined }]).then(
       (ok) => ok && onSelect({ kind: "node", id }, { isNew: true }),
     );

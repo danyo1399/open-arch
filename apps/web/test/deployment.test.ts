@@ -87,9 +87,12 @@ describe("a deployment view in the designer", () => {
   });
 
   it("makes new node IDs that the view doesn't have yet", () => {
-    expect(uniqueNodeId(view, "cluster")).toBe("cluster-2");
-    expect(uniqueNodeId(view, "cluster", "cluster")).toBe("cluster");
-    expect(uniqueNodeId(view, "new-node")).toBe("new-node");
+    expect(uniqueNodeId(ws, view, "cluster")).toBe("cluster-2");
+    expect(uniqueNodeId(ws, view, "cluster", "cluster")).toBe("cluster");
+    expect(uniqueNodeId(ws, view, "new-node")).toBe("new-node");
+    // Nor an element's: a node named after the database it runs can't take the database's ID.
+    expect(uniqueNodeId(ws, view, "db")).toBe("db-2");
+    expect(uniqueNodeId(ws, view, "customer")).toBe("customer-2");
   });
 
   it("follows renamed elements in what nodes run and in connections, and a running container's selection", () => {
@@ -155,7 +158,7 @@ describe("the deployment diagram", () => {
       createElement(
         ReactFlowProvider,
         null,
-        createElement(DeploymentDiagram, { computed, selection: null, onSelect() {}, edit: async () => true, onError() {}, exportItems: [] }),
+        createElement(DeploymentDiagram, { ws, computed, selection: null, onSelect() {}, edit: async () => true, onError() {}, exportItems: [] }),
       ),
     );
     // ELK lays it out a moment later.
@@ -169,6 +172,16 @@ describe("the deployment diagram", () => {
 });
 
 describe("a deployment node's details", () => {
+  it("rename it after what it runs, with an ID that isn't that element's", async () => {
+    const { host, edits, selected } = panel({ kind: "node", id: "cluster" });
+    const name = host.querySelector<HTMLInputElement>('input[aria-label="Name"]')!;
+    await type(name, "API");
+    name.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(edits).toEqual([[{ op: "update-node", view: "production", id: "cluster", name: "API", newId: "api-2" }]]);
+    expect(selected).toEqual([{ kind: "node", id: "api-2" }]);
+  });
+
   it("rename it, with its ID following the name, and select it under its new ID", async () => {
     const { host, edits, selected } = panel({ kind: "node", id: "cluster" });
     const name = host.querySelector<HTMLInputElement>('input[aria-label="Name"]')!;

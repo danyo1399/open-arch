@@ -548,7 +548,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ) : view?.level === "deployment" ? (
           computed ? (
             <ReactFlowProvider key={view.id}>
-              <DeploymentDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} />
+              <DeploymentDiagram ws={ws} computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

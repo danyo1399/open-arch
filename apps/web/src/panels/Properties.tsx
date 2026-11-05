@@ -632,7 +632,7 @@ function NodeProperties({ ws, view, node, isNew, edit, onSelect }: PropertiesPro
   // An ID made from the name keeps following it, as an element's does; the selection follows the ID.
   const rename = (name: string) => {
     const base = idFromName(name);
-    const newId = base && followsName(node.id, node.name) ? uniqueNodeId(view, base, node.id) : node.id;
+    const newId = base && followsName(node.id, node.name) ? uniqueNodeId(ws, view, base, node.id) : node.id;
     void edit([{ op: "update-node", view: view.id, id: node.id, name, ...(newId !== node.id && { newId }) }]).then((ok) => ok && newId !== node.id && onSelect({ kind: "node", id: newId }));
   };
   const changeId = (text: string) => {

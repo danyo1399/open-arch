@@ -283,20 +283,22 @@ function renderDeployment(cv: ComputedView): string {
   // Node IDs come from kebab-case, so never have two underscores in a row, and an instance's can't be any node's.
   const nodeId = (id: string) => mermaidId(id);
   const boxId = (box: string) => (box.includes("/") ? box.split("/").map((p) => p.replace(/-/g, "_")).join("__") : nodeId(box));
-  const label = (n: DeploymentNode) => {
+  /** A node's name, with how many copies run, then its kind and technology, with `between` between them. */
+  const label = (n: DeploymentNode, between: string) => {
     const detail = n.technology ? `${nodeKindLabel(n)}: ${n.technology}` : nodeKindLabel(n);
-    return `${escape(n.name)}${n.instances > 1 ? ` ×${n.instances}` : ""} [${escape(detail)}]`;
+    return `${escape(n.name)}${n.instances > 1 ? ` ×${n.instances}` : ""}${between}[${escape(detail)}]`;
   };
   const children = (id: string | undefined) => d.nodes.filter((n) => n.parent === id);
   const runIn = (id: string) => d.instances.filter((i) => i.node === id);
   const holds = (n: DeploymentNode) => children(n.id).length > 0 || runIn(n.id).length > 0;
   const write = (n: DeploymentNode, indent: string) => {
     if (!holds(n)) {
-      // A node with nothing inside is a box, which Mermaid can't put a line break in the middle of the label of.
-      lines.push(`${indent}${shaped(nodeId(n.id), `"${label(n).replace(" [", "<br/>[")}"`, n.shape)}`);
+      // A node with nothing inside is a box, with its kind under its name, as an element's box has.
+      lines.push(`${indent}${shaped(nodeId(n.id), `"${label(n, "<br/>")}"`, n.shape)}`);
       return;
     }
-    lines.push(`${indent}subgraph ${nodeId(n.id)}["${label(n)}"]`);
+    // A subgraph's title on one line: Mermaid clips titles of more.
+    lines.push(`${indent}subgraph ${nodeId(n.id)}["${label(n, " ")}"]`);
     for (const i of runIn(n.id)) lines.push(`${indent}  ${shaped(boxId(i.id), nodeLabel(i.element), i.element.shape)}`);
     for (const child of children(n.id)) write(child, `${indent}  `);
     lines.push(`${indent}end`);
