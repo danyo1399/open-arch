@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { pushedToMain } from "../git-hooks/open-arch-pre-push.mjs";
-import { land, reviewPrompt, Stop, writeChange } from "../land.mjs";
+import { land, renderReview, reviewPrompt, Stop, VERDICT_SCHEMA, verdictFrom, writeChange } from "../land.mjs";
 import { approved, cmdArg, spawnArgs, verified } from "../lib.mjs";
 import { setupHooks } from "../setup-hooks.mjs";
 import { checks, onlyMarkdown } from "../verify.mjs";
@@ -119,6 +119,27 @@ describe("pnpm land", () => {
     expect(fake.reviews).toMatchObject([{ previous: { commit: head, approved: false, report: "Rename b." }, note: "b is the name the task asked for." }]);
     // The files passed the checks the first time, so they aren't run again.
     expect(fake.checked).toEqual([head]);
+    expect(remoteMain(remote)).toBe(head);
+  });
+
+  it("stops at any defect, even from a review that says it's approved", async () => {
+    const { remote, worktree } = repos();
+    const before = remoteMain(remote);
+    const fake = passing();
+    const defect = { severity: "defect", file: "b.txt", line: 1, problem: "b stops working after a restart.", why: "Nobody can use it then." };
+    const contradicting = { ...fake, review: async () => ({ approved: true, report: "Fine.", findings: [defect] }) };
+    await expect(land({ cwd: worktree, task: "Add b", ...contradicting })).rejects.toThrow("1 defect must be fixed first.");
+    expect(remoteMain(remote)).toBe(before);
+    // The next review is told what the last one found, as for any review that asked for changes.
+    await land({ cwd: worktree, task: "Add b", ...fake });
+    expect(fake.reviews).toMatchObject([{ previous: { approved: false, findings: [defect] } }]);
+  });
+
+  it("lands a branch whose review has only suggestions", async () => {
+    const { remote, worktree, head } = repos();
+    const fake = passing();
+    const suggesting = { ...fake, review: async () => verdictFrom({ findings: [{ severity: "suggestion", file: "b.txt", problem: "b could be named better.", why: "It's short." }], summary: "Adds b." }) };
+    await land({ cwd: worktree, task: "Add b", ...suggesting });
     expect(remoteMain(remote)).toBe(head);
   });
 
@@ -362,9 +383,33 @@ describe("running commands", () => {
     const prompt = reviewPrompt({ branch: "fix", task: "Fix the bug", note: "That finding is wrong.", previous: { commit: "abcdef1234", report: "Finding 1" }, change: "/tmp/x" });
     expect(prompt).toContain(`is in ${join("/tmp/x", "diff.patch")}`);
     expect(prompt).toContain("What it's for:\nFix the bug");
-    expect(prompt).toContain("at abcdef1, asked for changes:\nFinding 1");
+    expect(prompt).toContain("at abcdef1, found defects:\nFinding 1");
     expect(prompt).toContain("The author's reply to that review:\nThat finding is wrong.");
     expect(reviewPrompt({ branch: "fix", task: "Fix the bug", change: "/tmp/x" })).not.toContain("last review");
     expect(reviewPrompt({ branch: "fix", task: "Fix the bug", note: "The name is on purpose.", change: "/tmp/x" })).toContain("A note from the author:\nThe name is on purpose.");
+  });
+
+  it("tells the reviewer what a defect is, and that any one stops the merge", () => {
+    const prompt = reviewPrompt({ branch: "fix", task: "Fix the bug", change: "/tmp/x" });
+    expect(prompt).toContain("- defect: it must be fixed before the branch is merged.");
+    for (const kind of ["edge cases and failures", "a restart, a race, a value at or past a limit", "says something the code doesn't do", "security, privacy or abuse protection"]) expect(prompt).toContain(kind);
+    expect(prompt).toContain("If you're not sure whether something is a defect, it is one");
+    expect(prompt).toContain("don't call one a suggestion because it's small, rare, or could be fixed later");
+    // The checks passing is context, not a reason to approve.
+    expect(prompt).toContain("They only show what they test");
+  });
+
+  it("asks the reviewer for findings, not a verdict, and approves only with no defects", () => {
+    expect(Object.keys(VERDICT_SCHEMA.properties)).toEqual(["findings", "summary"]);
+    expect(VERDICT_SCHEMA.properties.findings.items.properties.severity.enum).toEqual(["defect", "suggestion"]);
+    const findings = [
+      { severity: "suggestion", file: "a.ts", problem: "A clearer name.", why: "It reads better." },
+      { severity: "defect", file: "b.ts", line: 12, problem: "Stop sharing fails on a 404.", why: "The dialog is stuck." },
+    ];
+    const verdict = verdictFrom({ findings, summary: "Checked the dialog." });
+    expect(verdict.approved).toBe(false);
+    expect(verdict.report).toBe("Must be fixed:\n1. b.ts:12: Stop sharing fails on a 404. The dialog is stuck.\n\nSuggestions:\n1. a.ts: A clearer name. It reads better.\n\nChecked the dialog.");
+    expect(verdictFrom({ findings: [findings[0]!], summary: "Fine." }).approved).toBe(true);
+    expect(renderReview({ findings: [], summary: "Fine." })).toBe("Nothing must be fixed.\n\nFine.");
   });
 });

@@ -23,13 +23,55 @@ export class Stop extends Error {}
 /** How many times to go round when main moves while a branch is being checked. */
 const ATTEMPTS = 3;
 
-/** The reviewer's answer. */
+/**
+ * The reviewer's answer: each finding, marked a defect, which must be fixed before the branch is
+ * merged, or a suggestion, which needn't be, and a summary. There's no verdict to give: the
+ * branch is approved when there are no defects, so a review can't list one and approve anyway.
+ */
 export const VERDICT_SCHEMA = {
   type: "object",
-  properties: { approved: { type: "boolean" }, report: { type: "string" } },
-  required: ["approved", "report"],
+  properties: {
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          severity: { type: "string", enum: ["defect", "suggestion"] },
+          file: { type: "string" },
+          line: { type: "integer" },
+          problem: { type: "string" },
+          why: { type: "string" },
+        },
+        required: ["severity", "file", "problem", "why"],
+        additionalProperties: false,
+      },
+    },
+    summary: { type: "string" },
+  },
+  required: ["findings", "summary"],
   additionalProperties: false,
 };
+
+/** The findings that must be fixed before the branch is merged. */
+export const defects = (verdict) => (verdict.findings ?? []).filter((f) => f.severity === "defect");
+
+/** The review as it's printed, and shown to the next review: the defects first, then the suggestions, then the summary. */
+export function renderReview({ findings, summary }) {
+  const list = (severity) =>
+    findings
+      .filter((f) => f.severity === severity)
+      .map((f, i) => `${i + 1}. ${f.file}${f.line ? `:${f.line}` : ""}: ${f.problem} ${f.why}`)
+      .join("\n");
+  const must = list("defect");
+  const may = list("suggestion");
+  return [must ? `Must be fixed:\n${must}` : "Nothing must be fixed.", ...(may ? [`Suggestions:\n${may}`] : []), summary].join("\n\n");
+}
+
+/** What a review's structured answer means: approved only with no defects. */
+export function verdictFrom({ findings, summary }) {
+  const verdict = { findings, summary };
+  return { approved: defects(verdict).length === 0, findings, report: renderReview(verdict) };
+}
 
 /**
  * The reviewer's tools only read files. With no shell, nothing it runs can write one (git diff and
@@ -50,10 +92,15 @@ export function reviewPrompt({ branch, task, note, previous, change }) {
     `You're reviewing the branch "${branch}" of this repository before it's merged into main. Review only: you can read files, but not change them or run commands.`,
     `What it's for:\n${task}`,
     `The change, \`git diff origin/main...HEAD\`, is in ${join(change, "diff.patch")}. Its commits, with their messages, are in ${join(change, "commits.txt")}, and the last 20 commits on main, for how messages are written here, in ${join(change, "main-commits.txt")}. The repository's files are as the branch has them. AGENTS.md says how features are built and bugs fixed here, and what a commit should look like: read it. Read the code around the change, not just the diff. Check that the change does what it's for, and fixes a bug's cause, not just where it shows; that it's correct, on every path that handles the same data; that it matches the code around it; that new behaviour has tests; that everything describing the behaviour (CLI help, the skill, the README, the tour's notes) says what it now does; that nothing unrelated changed; and that the commits follow AGENTS.md.`,
-    "The checks (typecheck, tests, builds, the examples and the desktop smoke test) have passed.",
-    ...(previous ? [`Your last review of this branch, at ${previous.commit.slice(0, 7)}, asked for changes:\n${previous.report}\n\nCheck whether they're fixed, but review the whole branch again.`] : []),
+    "The checks (typecheck, tests, builds, the examples and the desktop smoke test) have passed. They only show what they test: look for what they don't, such as failures, edge cases and what happens at once.",
+    ...(previous ? [`Your last review of this branch, at ${previous.commit.slice(0, 7)}, found defects:\n${previous.report}\n\nCheck whether they're fixed, but review the whole branch again.`] : []),
     ...(note ? [`${previous ? "The author's reply to that review" : "A note from the author"}:\n${note}`] : []),
-    "Set approved to true if it can be merged as it is, or false if anything must change first. In report, list each finding with its file and line and why it matters, say which ones must be fixed, and end with your verdict.",
+    [
+      "List every finding in findings, with its file, its line if it has one, the problem, and why it matters. Mark each one:",
+      "- defect: it must be fixed before the branch is merged. That's anything in what the branch adds or changes, or relies on, that doesn't work as it should on any path, including edge cases and failures: an error answer, a restart, a race, a value at or past a limit. A setting, message, help text or document that says something the code doesn't do. A weakness in security, privacy or abuse protection. New behaviour without a test. A commit that doesn't follow AGENTS.md. A change the task didn't need.",
+      "- suggestion: an improvement that isn't a defect, such as a clearer name, a simpler way, or a test for something that already works.",
+      "If you're not sure whether something is a defect, it is one: the author can say why it isn't with --note. The branch is merged only if there are no defects, so don't call one a suggestion because it's small, rare, or could be fixed later. In summary, say what you checked, and whether the branch does what it's for.",
+    ].join("\n"),
   ].join("\n\n");
 }
 
@@ -94,11 +141,11 @@ export function claudeReview({ cwd, branch, task, note, previous, log }) {
         // Reported below.
       }
       const verdict = result?.structured_output;
-      if (code !== 0 || result?.is_error || typeof verdict?.approved !== "boolean") {
+      if (code !== 0 || result?.is_error || !Array.isArray(verdict?.findings) || typeof verdict?.summary !== "string") {
         const why = (typeof result?.result === "string" && result.result) || err || out;
         return reject(new Stop(`The review didn't finish: ${why.trim() || `claude exited with ${code}`}`));
       }
-      resolve({ approved: verdict.approved, report: verdict.report });
+      resolve(verdictFrom(verdict));
     });
     child.stdin.end(reviewPrompt({ branch, task, note, previous, change }));
   });
@@ -212,10 +259,14 @@ export async function land({ cwd, task, note, keepWorktree = false, review = cla
       // Its tools only read, but if something changed here anyway, landing it would skip the review.
       const changed = git(["status", "--porcelain"], root);
       if (changed || git(["rev-parse", "HEAD"], root) !== head) throw new Stop(`The reviewer changed the worktree, which it mustn't, so nothing was landed. Look at what it did:\n${changed || "HEAD moved"}`);
-      lastReview.set(branch, { commit: head, ...verdict }, root);
-      log(`Review of ${head.slice(0, 7)}: ${verdict.approved ? "approved" : "changes requested"}\n\n${verdict.report}`);
-      if (!verdict.approved) {
-        throw new Stop('Changes requested. Fix them in a new commit, and run pnpm land again for a review of the whole branch. If you think a finding is wrong, say why with --note "...", and the reviewer decides.');
+      // Approved only with no defects, whatever else the review says.
+      const found = defects(verdict).length;
+      const ok = verdict.approved && found === 0;
+      lastReview.set(branch, { commit: head, ...verdict, approved: ok }, root);
+      log(`Review of ${head.slice(0, 7)}: ${ok ? "approved" : "changes requested"}\n\n${verdict.report}`);
+      if (!ok) {
+        const what = found ? `${found} defect${found === 1 ? "" : "s"} must be fixed first` : "Changes requested";
+        throw new Stop(`${what}. Fix them in a new commit, and run pnpm land again for a review of the whole branch. If you think a finding is wrong, say why with --note "...", and the reviewer decides.`);
       }
       approved.add(head, root);
     }
