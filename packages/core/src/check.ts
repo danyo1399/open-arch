@@ -113,8 +113,8 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
       const message = source
         ? `${where} ${names(missing)}, built with the library "${source.id}", ${missing.length === 1 ? "isn't" : "aren't"} built with that one, so ${missing.length === 1 ? "its" : "their"} diagrams leave this out.`
         : container
-          ? `${where} its container "${container.id}" isn't built with that library, so only class views draw it.`
-          : `${where} isn't inside a container, and only containers are built with libraries, so only class views draw it.`;
+          ? `${where} its container "${container.id}" isn't built with that library, so only views of the library and class views draw it.`
+          : `${where} isn't inside a container, and only containers are built with libraries, so only views of the library and class views draw it.`;
       if (missing.length || (!source && !container)) {
         out.push({
           severity: "warning",

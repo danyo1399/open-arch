@@ -88,7 +88,7 @@ describe("libraries", () => {
     const doc = logging();
     doc.elements.api!.libraries = [];
     const warning = checkWorkspace(buildWorkspace(doc)).find((d) => d.rule === "library-not-included")!;
-    expect(warning.message).toBe('"controller" uses "logger", in the library "logging", but its container "api" isn\'t built with that library, so only class views draw it.');
+    expect(warning.message).toBe('"controller" uses "logger", in the library "logging", but its container "api" isn\'t built with that library, so only views of the library and class views draw it.');
     expect(warning.fix).toBe("Build api with it: `open-arch update-element api --library logging`.");
   });
 
@@ -187,6 +187,15 @@ describe("libraries", () => {
     it("keep the kinds of relationships between classes held directly in the library, on its component view", () => {
       const doc = apply(logging(), { op: "add-view", id: "logging-components", level: "component", scope: "logging" });
       expect(view(doc, "logging-components").edges.find((e) => e.from === "json-logger" && e.to === "logger")).toMatchObject({ kind: "realization", implied: false });
+    });
+
+    it("show the kinds of relationships between classes held directly in the library in Mermaid", () => {
+      const doc = apply(logging(), { op: "add-view", id: "logging-components", level: "component", scope: "logging" }, { op: "add-relationship", from: "json-logger", to: "logger", description: "Wraps" });
+      const text = renderMermaid(view(doc, "logging-components"));
+      expect(text).toContain('  json_logger -.->|"(realization)"| logger');
+      expect(text).toContain('  json_logger -->|"Wraps"| logger');
+      const page = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "views/logging-components.md")!.content;
+      expect(page).toContain("| [JsonLogger](../elements/json-logger.md) | [Logger](../elements/logger.md) | (realization) |  |");
     });
 
     it("have class views, with the rest of the library drawn as its component view would", () => {

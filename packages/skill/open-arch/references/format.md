@@ -129,7 +129,7 @@ Mermaid has only some of these, so the generated docs draw a database as a cylin
 - **system**: something that delivers value to people and is owned by one team, e.g. "Shop", or a third-party service ("Payment Provider", external).
 - **container**: something inside a system that runs or stores data on its own and is deployed separately: a web app, API, worker, database, queue, bucket.
 - **component**: a major building block inside one container, such as a module, service class or controller. Only model components when they help explain the container.
-- **library**: code shared by several containers, such as a logging library or an SDK. A small one holds classes directly; a bigger one holds components, each with its classes. It belongs to no container: each container built with it lists it in `libraries`, and has its own copy. Its classes are kept in it once. Don't copy a library into each container as a component.
+- **library**: code shared by several containers, such as a logging library or an SDK. A small one holds classes directly; a bigger one holds components, each with its classes. It belongs to no container: each container built with it lists it in `libraries`, and has its own copy. Its code is kept in it once. Don't copy a library into each container as a component.
 - **class**: a class, interface or enum inside one component or library: C4's code level. Only model classes where a class diagram explains something tricky, as code changes far more often than the rest of the model.
 
 ### Relationships
@@ -142,7 +142,7 @@ When two elements call each other, either add a relationship each way, each with
 
 A library runs inside each container built with it, so views draw it as part of each one. A component view of a container built with a library draws the library inside the frame, like one of the container's components. Its relationships are drawn from every container built with it: in a container view, a library class's relationship to a log service is an arrow from each of those containers. A relationship to a library's code goes to the copy in the source's own container, so it's drawn only when that container is built with the library; `check` warns when it isn't. A component view of the library shows its components (and any classes directly in it) in the frame, and a class view of the library, or of one of its components, shows their classes. Neither is of any one container's copy, so everything outside the library is drawn as itself: a class as its component, except in a class view, where classes are always themselves.
 
-A relationship between two classes can have a `kind`, which says what it means in UML's terms. Class views draw each kind in UML's notation, as a separate arrow from relationships of other kinds between the same two classes. Every other view draws them all as ordinary arrows.
+A relationship between two classes can have a `kind`, which says what it means in UML's terms. Class views draw each kind in UML's notation, as a separate arrow from relationships of other kinds between the same two classes. So does a component view of a library, for the classes it holds directly, which it draws as themselves; its Mermaid diagram, which has no UML arrow ends, labels each with its kind and dashes dependencies and realizations. Every other view draws a class as its component, and its relationships as ordinary arrows.
 
 | `kind` | Means | Drawn as |
 |---|---|---|

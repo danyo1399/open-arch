@@ -98,10 +98,14 @@ export function renderMermaid(cv: ComputedView): string {
   }
   for (const node of outside.filter((n) => n.kind !== "person")) lines.push(`  ${nodeLine(node)}`);
 
+  // A flowchart has none of UML's arrow ends, so an arrow of another kind than association, as
+  // between two classes a library holds, says its kind, and a dependency or realization is dashed.
   for (const edge of cv.edges) {
-    const parts = [edge.description, edge.technology ? `[${edge.technology}]` : undefined].filter(Boolean) as string[];
+    const kind = edge.kind === "association" ? undefined : `(${edge.kind})`;
+    const parts = [kind, edge.description, edge.technology ? `[${edge.technology}]` : undefined].filter(Boolean) as string[];
     const label = parts.length ? `|"${parts.map(escape).join("<br/>")}"|` : "";
-    lines.push(`  ${mermaidId(edge.from)} ${edge.bidirectional ? "<-->" : "-->"}${label} ${mermaidId(edge.to)}`);
+    const line = edge.bidirectional ? "<-->" : edge.kind === "dependency" || edge.kind === "realization" ? "-.->" : "-->";
+    lines.push(`  ${mermaidId(edge.from)} ${line}${label} ${mermaidId(edge.to)}`);
   }
 
   if (cv.nodes.length) {
