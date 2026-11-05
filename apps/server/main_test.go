@@ -190,6 +190,10 @@ func TestTakesAForwardedAddressWithItsPort(t *testing.T) {
 		"[2001:db8::7]:4000":            "2001:db8::7",
 		"198.51.100.1, [2001:DB8::8]:1": "2001:db8::8",
 		"203.0.113.7:notaport":          "10.0.0.5",
+		// IPv6 in brackets without a port, as some proxies write it.
+		"[2001:DB8::9]":    "2001:db8::9",
+		"[not-an-address]": "10.0.0.5",
+		"[203.0.113.7":     "10.0.0.5",
 	} {
 		r.Header.Set("X-Forwarded-For", header)
 		expect(t, ClientOf(r, TrustForwarded).IP, want, header)

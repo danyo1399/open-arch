@@ -254,8 +254,9 @@ func (s *SQLStore) Create(ctx context.Context, w Workspace, file []byte, u Uploa
 // fails, it's a file nothing serves, and it's only logged.
 //
 // The workspace is checked in that transaction too, as it may have been deleted or taken down
-// since the handler looked. Then the new file goes, and for a deleted one, so does its folder: a
-// delete that ran first removed the folder before this file was put in it.
+// since the handler looked. Then what the update added is taken back (takeBack): for a deleted
+// workspace, its file and folder, as a delete that ran first removed the folder before this file
+// was put in it; for a taken-down one, its file, unless it's the latest version's, which it kept.
 func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload) error {
 	if err := s.putFile(id, u.Hash, file); err != nil {
 		// A delete that removed the folder while the file was being written leaves it nowhere to

@@ -36,13 +36,16 @@ func ClientOf(r *http.Request, trust TrustProxy) Client {
 	switch trust {
 	case TrustForwarded:
 		// The proxy appends the address it saw, so the last one is the only one it vouches for.
-		// Some add its port too, as "203.0.113.7:4000" or "[2001:db8::1]:4000".
+		// Some add its port too, as "203.0.113.7:4000" or "[2001:db8::1]:4000", and some put an
+		// IPv6 one in brackets without a port, as "[2001:db8::1]".
 		forwarded := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
 		last := strings.TrimSpace(forwarded[len(forwarded)-1])
 		if host, port, err := net.SplitHostPort(last); err == nil && valid(host) {
 			if _, err := strconv.ParseUint(port, 10, 16); err == nil {
 				last = host
 			}
+		} else if strings.HasPrefix(last, "[") && strings.HasSuffix(last, "]") && valid(last[1:len(last)-1]) {
+			last = last[1 : len(last)-1]
 		}
 		if valid(last) {
 			ip = last
