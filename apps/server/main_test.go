@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -149,4 +151,47 @@ func TestGroupsAddressesTheWayTheLimitsCountThem(t *testing.T) {
 	expect(t, ClientOf(r, TrustCloudflare).IP, "10.0.0.5", "cloudflare, not an address")
 	r.Header.Set("X-Forwarded-For", "203.0.113.9, 2001:DB8::2")
 	expect(t, ClientOf(r, TrustForwarded), Client{IP: "2001:db8::2", Group: "2001:db8::/64"}, "forwarded IPv6")
+}
+
+// unblock-ip says what it did, and says so when an address is still blocked by its network.
+func TestUnblockIPSaysWhatItDid(t *testing.T) {
+	data := t.TempDir()
+	run := func(args ...string) (string, error) {
+		inv, err := ReadInvocation(append(args, "--data", data), env(nil))
+		if err != nil {
+			return "", err
+		}
+		var out bytes.Buffer
+		err = admin(inv, &out)
+		return out.String(), err
+	}
+	out, _ := run("block-ip", "2001:db8:1:2::/64", "--reason", "spam")
+	expect(t, out, "Uploads from 2001:db8:1:2::/64 are refused.\n", "block a /64")
+
+	_, err := run("unblock-ip", "2001:db8:1:2::5")
+	expect(t, err != nil && err.Error() == "Uploads from 2001:db8:1:2::5 are still refused. There was no block on it, but its network 2001:db8:1:2::/64 is blocked: unblock-ip 2001:db8:1:2::/64 accepts the whole network again.", true, fmt.Sprint(err))
+	run("block-ip", "2001:db8:1:2::5", "--reason", "spam")
+	_, err = run("unblock-ip", "2001:db8:1:2::5")
+	expect(t, err != nil && strings.HasPrefix(err.Error(), "Uploads from 2001:db8:1:2::5 are still refused. Removed the block on it, but its network"), true, fmt.Sprint(err))
+
+	out, err = run("unblock-ip", "2001:db8:1:2::/64")
+	expect(t, err, nil, "unblock the /64")
+	expect(t, out, "Uploads from 2001:db8:1:2::/64 are accepted again.\n", "unblock the /64")
+	out, _ = run("unblock-ip", "2001:db8:1:2::5")
+	expect(t, out, "Uploads from 2001:db8:1:2::5 weren't blocked.\n", "nothing to unblock")
+}
+
+// Some proxies add the port to the address they pass on.
+func TestTakesAForwardedAddressWithItsPort(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.5:4000"
+	for header, want := range map[string]string{
+		"203.0.113.7:4000":              "203.0.113.7",
+		"[2001:db8::7]:4000":            "2001:db8::7",
+		"198.51.100.1, [2001:DB8::8]:1": "2001:db8::8",
+		"203.0.113.7:notaport":          "10.0.0.5",
+	} {
+		r.Header.Set("X-Forwarded-For", header)
+		expect(t, ClientOf(r, TrustForwarded).IP, want, header)
+	}
 }

@@ -402,13 +402,29 @@ func admin(inv Invocation, out io.Writer) error {
 		if inv.Command == "unblock-ip" {
 			reason = ""
 		}
-		if err := store.SetIPBlocked(ctx, inv.Target, reason, now); err != nil {
+		removed, err := store.SetIPBlocked(ctx, inv.Target, reason, now)
+		if err != nil {
 			return err
 		}
 		if reason != "" {
 			fmt.Fprintf(out, "Uploads from %s are refused.\n", inv.Target)
-		} else {
+			return nil
+		}
+		// An address can still be blocked by its IPv6 /64, which unblocking the address leaves.
+		network := AddressGroup(inv.Target)
+		if still, err := store.IPBlocked(ctx, inv.Target, network); err != nil {
+			return err
+		} else if still {
+			removedText := "There was no block on it, but its"
+			if removed {
+				removedText = "Removed the block on it, but its"
+			}
+			return usage("Uploads from %s are still refused. %s network %s is blocked: unblock-ip %s accepts the whole network again.", inv.Target, removedText, network, network)
+		}
+		if removed {
 			fmt.Fprintf(out, "Uploads from %s are accepted again.\n", inv.Target)
+		} else {
+			fmt.Fprintf(out, "Uploads from %s weren't blocked.\n", inv.Target)
 		}
 	}
 	return nil

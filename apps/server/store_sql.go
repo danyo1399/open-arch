@@ -124,7 +124,16 @@ func migrate(db *sql.DB) ([]string, error) {
 // the group the limits count it under, so the hour after an upgrade still counts them. It's Go's
 // work, not SQL's, as SQLite can't find an IPv6 address's /64. Once they all have one, it finds none.
 func groupAddresses(db *sql.DB) error {
-	rows, err := db.Query("SELECT id, ip FROM uploads WHERE ip_group IS NULL AND ip IS NOT NULL")
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// An IPv4 address is its own group, so SQL can do those; Go does IPv6's, all in one transaction.
+	if _, err := tx.Exec("UPDATE uploads SET ip_group = ip WHERE ip_group IS NULL AND ip NOT LIKE '%:%'"); err != nil {
+		return err
+	}
+	rows, err := tx.Query("SELECT id, ip FROM uploads WHERE ip_group IS NULL AND ip IS NOT NULL")
 	if err != nil {
 		return err
 	}
@@ -143,11 +152,11 @@ func groupAddresses(db *sql.DB) error {
 		return err
 	}
 	for id, group := range groups {
-		if _, err := db.Exec("UPDATE uploads SET ip_group = ? WHERE id = ?", group, id); err != nil {
+		if _, err := tx.Exec("UPDATE uploads SET ip_group = ? WHERE id = ?", group, id); err != nil {
 			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // null stores what a request didn't say as NULL, not as an empty string.
@@ -308,7 +317,16 @@ func (s *SQLStore) Remove(ctx context.Context, id string, at int64) error {
 	if !fileName.MatchString(id) {
 		return fmt.Errorf("not a workspace: %q", id)
 	}
-	return os.RemoveAll(filepath.Join(s.files, "workspaces", id))
+	// An update putting a file in as this empties the folder can leave it not empty for a moment:
+	// that update then finds the workspace deleted and removes its file, so try again.
+	var err error
+	for try := 0; try < 5; try++ {
+		if err = os.RemoveAll(filepath.Join(s.files, "workspaces", id)); err == nil {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return err
 }
 
 func (s *SQLStore) File(_ context.Context, id, hash string) ([]byte, error) {
@@ -387,12 +405,17 @@ func (s *SQLStore) SetBlocked(ctx context.Context, id, reason string, now int64)
 	return n > 0, err
 }
 
-// SetIPBlocked refuses uploads from an IP address, or accepts them again with an empty reason.
-func (s *SQLStore) SetIPBlocked(ctx context.Context, ip, reason string, now int64) error {
+// SetIPBlocked refuses uploads from an IP address or an IPv6 /64, or accepts them again with an
+// empty reason. Unblocking, it says whether there was a block on exactly that to remove.
+func (s *SQLStore) SetIPBlocked(ctx context.Context, ip, reason string, now int64) (bool, error) {
 	if reason == "" {
-		_, err := s.db.ExecContext(ctx, "DELETE FROM blocked_ips WHERE ip = ?", ip)
-		return err
+		result, err := s.db.ExecContext(ctx, "DELETE FROM blocked_ips WHERE ip = ?", ip)
+		if err != nil {
+			return false, err
+		}
+		n, err := result.RowsAffected()
+		return n > 0, err
 	}
 	_, err := s.db.ExecContext(ctx, "INSERT INTO blocked_ips (ip, reason, created_at) VALUES (?, ?, ?) ON CONFLICT (ip) DO UPDATE SET reason = excluded.reason", ip, reason, now)
-	return err
+	return true, err
 }

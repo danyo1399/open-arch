@@ -142,7 +142,7 @@ Each is a flag or an environment variable; the flag wins. `open-arch-share help`
 | `--host` | `HOST` | The address to listen on: all of them unless it's set |
 | `--data` | `DATA_DIR` | The folder for records and files: `./data` unless it's set (`/data` in the container) |
 | `--memory` | `DATA_DIR=:memory:` | Keeps everything in memory instead, and forgets it when the server stops |
-| `--trust-proxy` | `TRUST_PROXY` | Whose word to take for a request's IP address. `none`, the default: the connection's. `forwarded`: the last address in `X-Forwarded-For`, which a reverse proxy adds. `cloudflare`: `CF-Connecting-IP`, and the country from `CF-IPCountry`, behind Cloudflare's proxy. Only set it when that proxy is really in front: otherwise anyone can choose the address they're recorded with. Behind a proxy, do set it: otherwise every request comes from the proxy's address, and the per-address limits count everyone together. A header that doesn't hold an IP address is ignored, for the connection's address |
+| `--trust-proxy` | `TRUST_PROXY` | Whose word to take for a request's IP address. `none`, the default: the connection's. `forwarded`: the last address in `X-Forwarded-For`, which a reverse proxy adds. `cloudflare`: `CF-Connecting-IP`, and the country from `CF-IPCountry`, behind Cloudflare's proxy. Only set it when that proxy is really in front: otherwise anyone can choose the address they're recorded with. Behind a proxy, do set it: otherwise every request comes from the proxy's address, and the per-address limits count everyone together. A header that doesn't hold an IP address, with or without its port, is ignored, for the connection's address |
 | `--max-bytes` | `MAX_BYTES` | The largest encrypted workspace: 1000000 bytes unless it's set. At least 1 |
 | `--uploads-per-hour` | `UPLOADS_PER_HOUR` | How many files one IP address can upload in an hour: 60 unless it's set. At least 1 |
 | `--failed-lookups-per-hour` | `FAILED_LOOKUPS_PER_HOUR` | How many requests for workspaces that aren't there one IP address can make in an hour, before it can't look up any for the rest of it: 60 unless it's set. At least 1. It's counted in memory, so a restart starts it again |
@@ -226,7 +226,7 @@ open-arch-share block <id> --reason "<why>"
 open-arch-share block-ip <address or IPv6 /64> --reason "<why>"
 ```
 
-`unblock` and `unblock-ip` undo them. As the systemd service, run them as its user: `sudo -u open-arch-share open-arch-share block <id> --data /var/lib/open-arch-share --reason "<why>"`. As the launchd job on a Mac, give its folder: `--data ~/Library/Application\ Support/open-arch-share`. In a container, `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`.
+`unblock` and `unblock-ip` undo them. Unblocking an address in a blocked IPv6 /64 says the network is still blocked, and how to unblock it. As the systemd service, run them as its user: `sudo -u open-arch-share open-arch-share block <id> --data /var/lib/open-arch-share --reason "<why>"`. As the launchd job on a Mac, give its folder: `--data ~/Library/Application\ Support/open-arch-share`. In a container, `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`.
 
 A browser that cached a version's file can still open it offline. Online, opening a link asks the server first, so it won't open.
 

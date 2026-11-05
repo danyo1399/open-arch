@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -185,12 +186,14 @@ func TestBlocksAnIPv6Network(t *testing.T) {
 	h := &harness{t: t, store: s, ip: "2001:db8:5:6::1"}
 	h.server = &Server{Store: s}
 	ctx := context.Background()
-	expect(t, s.SetIPBlocked(ctx, "2001:db8:5:6::/64", "spam", 1), nil, "block a /64")
+	_, err := s.SetIPBlocked(ctx, "2001:db8:5:6::/64", "spam", 1)
+	expect(t, err, nil, "block a /64")
 	expect(t, h.send("POST", "/v1/workspaces", file(1, 48), nil).StatusCode, http.StatusForbidden, "an address in it")
 	h.ip = "2001:db8:5:7::1"
 	expect(t, h.send("POST", "/v1/workspaces", file(1, 48), nil).StatusCode, 201, "an address outside it")
 	// Blocking one address still blocks only it.
-	expect(t, s.SetIPBlocked(ctx, "2001:db8:5:7::1", "spam", 1), nil, "block one address")
+	_, err = s.SetIPBlocked(ctx, "2001:db8:5:7::1", "spam", 1)
+	expect(t, err, nil, "block one address")
 	expect(t, h.send("POST", "/v1/workspaces", file(2, 48), nil).StatusCode, http.StatusForbidden, "that address")
 	h.ip = "2001:db8:5:7::2"
 	expect(t, h.send("POST", "/v1/workspaces", file(2, 48), nil).StatusCode, 201, "its neighbour")
@@ -234,4 +237,43 @@ func TestUpgradesADatabaseToGroupAddresses(t *testing.T) {
 	var applied int
 	s.db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&applied)
 	expect(t, applied, 2, "both migrations recorded")
+}
+
+// A store that still says a workspace is shared after it was deleted: the handler's view of it,
+// a moment before the delete landed.
+type staleStore struct{ *SQLStore }
+
+func (s staleStore) Workspace(ctx context.Context, id string) (*Workspace, error) {
+	w, err := s.SQLStore.Workspace(ctx, id)
+	if w != nil {
+		w.Deleted = 0
+	}
+	return w, err
+}
+
+// An update that a delete overtook answers 410, whether its file went in before the delete
+// removed the folder, or couldn't be written because the folder had gone.
+func TestAnUpdateOvertakenByADeleteIsAnswered410(t *testing.T) {
+	for _, folderGone := range []bool{false, true} {
+		folder := t.TempDir()
+		s, _ := OpenStore(folder)
+		h := &harness{t: t, store: s, ip: "127.0.0.1"}
+		h.server = &Server{Store: s}
+		c := h.create(file(1, 48))
+		expect(t, s.Remove(context.Background(), c.ID, 1), nil, "remove")
+		workspace := filepath.Join(folder, "files", "workspaces", c.ID)
+		if folderGone {
+			// So the update can't make the workspace's folder to put its file in, as when the
+			// delete removed it in the middle of the update's write.
+			os.WriteFile(workspace, nil, 0o640)
+		}
+		h.server.Store = staleStore{s}
+		r := h.send("PUT", "/v1/workspaces/"+c.ID, file(2, 48), map[string]string{"Authorization": "Bearer " + c.Token})
+		expect(t, r.StatusCode, http.StatusGone, fmt.Sprintf("folder gone: %v", folderGone))
+		if !folderGone {
+			_, err := os.Stat(workspace)
+			expect(t, errors.Is(err, os.ErrNotExist), true, "nothing left")
+		}
+		s.Close()
+	}
 }
