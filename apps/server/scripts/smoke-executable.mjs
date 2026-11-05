@@ -1,7 +1,6 @@
 // Runs the executable that scripts/executable.mjs built for this machine, as someone would on a
-// Linux server:
-// it serves from a data folder, takes an upload, keeps it through a restart, takes it down with
-// a command, and stops cleanly on SIGTERM.
+// server: it serves from a data folder, takes an upload, keeps it through a restart, takes it
+// down with a command, and stops cleanly on SIGTERM.
 //
 //   node scripts/smoke-executable.mjs [executable]
 import { execFileSync, spawn } from "node:child_process";
@@ -11,11 +10,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const server = fileURLToPath(new URL("..", import.meta.url));
-const executable = process.argv[2] ?? join(server, "release", `open-arch-share-linux-${process.arch}`);
-if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch)) {
-  console.log("The executables are for Linux on x64 and arm64, so they aren't run on this machine.");
+const platform = { linux: "linux", darwin: "macos" }[process.platform];
+if (!process.argv[2] && (!platform || !["x64", "arm64"].includes(process.arch))) {
+  console.log("The executables are for Linux and macOS on x64 and arm64, so none is run on this machine.");
   process.exit(0);
 }
+const executable = process.argv[2] ?? join(server, "release", `open-arch-share-${platform}-${process.arch}`);
 const data = mkdtempSync(join(tmpdir(), "open-arch-share-smoke-"));
 let failed = false;
 
@@ -51,7 +51,7 @@ file[0] = 1;
 
 try {
   const helpText = execFileSync(executable, ["help"], { encoding: "utf8" });
-  check(helpText.includes("Usage: open-arch-share-linux-"), "help names the executable");
+  check(helpText.includes("Usage: open-arch-share-"), "help names the executable");
 
   let running = await start(["--data", data, "--port", "0"]);
   check(execFileSync(executable, ["version"], { encoding: "utf8" }).startsWith("open-arch-share "), "says its version");

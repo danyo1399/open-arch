@@ -1,4 +1,4 @@
-# The share server's Linux executable as a systemd service (README, "As a Linux executable").
+# The share server's Linux executable as a systemd service (README, "As an executable").
 #
 #   sudo cp open-arch-share-linux-x64 /usr/local/bin/open-arch-share
 #   sudo useradd --system --no-create-home --shell /usr/sbin/nologin open-arch-share

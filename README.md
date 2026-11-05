@@ -20,7 +20,7 @@ See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.opena
 | [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`: agents read with `show` and change the model only with commands. |
 | [`apps/web`](apps/web) | The designer as a static web app (React, React Flow, ELK). |
 | [`apps/desktop`](apps/desktop) | The same designer in Electron, for Windows, macOS and Linux. |
-| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. In Go: one executable for Linux, or a container. |
+| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. In Go: one executable for Linux or macOS, or a container. |
 
 ## The designer
 
@@ -141,15 +141,15 @@ Each is a flag or an environment variable; the flag wins. `open-arch-share help`
 | `--uploads-per-hour` | `UPLOADS_PER_HOUR` | How many files one IP address can upload in an hour: 60 unless it's set |
 | `--quiet` | `LOG=off` | Doesn't print a line for each request |
 
-### As a Linux executable
+### As an executable
 
-The executable runs on any Linux on x64 or arm64, Alpine and other musl ones too, and is about 11 MB. The [CI workflow](#ci) builds both and uploads each as an artifact of the run. To build them yourself, with Go 1.26+ on any system, into `apps/server/release/`:
+There's an executable for Linux and one for macOS, each on x64 and arm64 (Apple Silicon), of about 11 MB. The Linux ones run on any Linux, Alpine and other musl ones too. The [CI workflow](#ci) builds them all, and uploads them as artifacts of the run. To build them yourself, with Go 1.26+ on any system, into `apps/server/release/`:
 
 ```bash
 pnpm --filter @open-arch/server executable
 ```
 
-That writes `open-arch-share-linux-x64` and `open-arch-share-linux-arm64`, and on Linux runs the one for the machine to check it works. Run it with a data folder:
+That writes `open-arch-share-linux-x64`, `open-arch-share-linux-arm64`, `open-arch-share-macos-x64` and `open-arch-share-macos-arm64`. On Linux or a Mac, it then runs the one for the machine to check it works. Run it with a data folder:
 
 ```bash
 ./open-arch-share-linux-x64 --data /var/lib/open-arch-share --port 8787
@@ -157,7 +157,13 @@ That writes `open-arch-share-linux-x64` and `open-arch-share-linux-arm64`, and o
 
 Stop it with Ctrl+C or SIGTERM: it finishes the requests under way first.
 
-To run it as a service, [`apps/server/linux/open-arch-share.service`](apps/server/linux/open-arch-share.service) is a systemd unit. It runs as its own user, keeps its data in `/var/lib/open-arch-share`, and listens only on the machine, for a reverse proxy that does HTTPS in front:
+The macOS executables aren't signed with an Apple developer ID, so macOS won't open one a browser downloaded, which marks it as from the internet. Build it yourself, download it with `curl`, which doesn't mark it, or clear the mark once you trust it:
+
+```bash
+xattr -d com.apple.quarantine open-arch-share-macos-arm64
+```
+
+To run it as a service on Linux, [`apps/server/linux/open-arch-share.service`](apps/server/linux/open-arch-share.service) is a systemd unit. It runs as its own user, keeps its data in `/var/lib/open-arch-share`, and listens only on the machine, for a reverse proxy that does HTTPS in front:
 
 ```bash
 sudo cp open-arch-share-linux-x64 /usr/local/bin/open-arch-share
@@ -167,6 +173,17 @@ sudo systemctl enable --now open-arch-share
 ```
 
 `journalctl -u open-arch-share` shows its log. To update it, replace the file and `sudo systemctl restart open-arch-share`.
+
+On a Mac, [`apps/server/macos/open-arch-share.plist`](apps/server/macos/open-arch-share.plist) is a launchd job for your user. It starts when you log in, keeps its data in `~/Library/Application Support/open-arch-share`, and listens only on the Mac, for a reverse proxy in front too. launchd doesn't expand `~`, so `sed` puts your home folder in as it's installed:
+
+```bash
+sudo mkdir -p /usr/local/bin
+sudo cp open-arch-share-macos-arm64 /usr/local/bin/open-arch-share
+sed "s|__HOME__|$HOME|g" apps/server/macos/open-arch-share.plist > ~/Library/LaunchAgents/io.github.danyo1399.open-arch-share.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.danyo1399.open-arch-share.plist
+```
+
+Its log is `~/Library/Logs/open-arch-share.log`. To stop it, `launchctl bootout gui/$(id -u)/io.github.danyo1399.open-arch-share`. To update it, replace the file and `launchctl kickstart -k gui/$(id -u)/io.github.danyo1399.open-arch-share`.
 
 ### In a container
 
@@ -196,7 +213,7 @@ open-arch-share block <id> --reason "<why>"
 open-arch-share block-ip <address> --reason "<why>"
 ```
 
-`unblock` and `unblock-ip` undo them. As the systemd service, run them as its user: `sudo -u open-arch-share open-arch-share block <id> --data /var/lib/open-arch-share --reason "<why>"`. In a container, `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`.
+`unblock` and `unblock-ip` undo them. As the systemd service, run them as its user: `sudo -u open-arch-share open-arch-share block <id> --data /var/lib/open-arch-share --reason "<why>"`. As the launchd job on a Mac, give its folder: `--data ~/Library/Application\ Support/open-arch-share`. In a container, `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`.
 
 A browser that cached a version's file can still open it offline. Online, opening a link asks the server first, so it won't open.
 
@@ -304,4 +321,4 @@ It has three jobs:
 
 - **lint** (Ubuntu): typecheck, tests, the share server's Go tests, the CLI build, then `open-arch check`, `fmt --check` and `export --check` on the example.
 - **desktop** (macOS, Windows and Linux): the smoke test (under `xvfb-run` on Linux), then unsigned installers built with `dist`. The smoke screenshots and the installers (`.dmg`/`.zip`, `.exe`, `.AppImage`/`.deb`) are uploaded as artifacts of the run.
-- **share server** (Linux on x64 and arm64): builds the [share server's executables](#as-a-linux-executable), runs the one for each, and uploads it as a `.tar.gz` artifact of the run.
+- **share server** (Linux on x64 and arm64, and macOS on arm64): runs the share server's Go tests, builds [its executables](#as-an-executable), runs the one for each machine, and uploads them as `.tar.gz` artifacts of the run. There's no Intel Mac, so the macOS x64 executable is only checked to be one.

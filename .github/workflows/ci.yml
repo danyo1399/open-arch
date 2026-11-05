@@ -1,6 +1,6 @@
 name: CI
 
-# Six machines, two of them macOS and Windows, so not on every push: only when a release is
+# Seven machines, three of them macOS and Windows, so not on every push: only when a release is
 # published, or when started by hand (Actions, CI, Run workflow). Branches run the same checks
 # locally with pnpm verify before they're merged (AGENTS.md); macOS and Windows are checked only here.
 on:
@@ -109,18 +109,25 @@ jobs:
           # Installers are already compressed.
           compression-level: 0
 
-  # The share server's Linux executables, both built on each architecture, then the one for that
-  # architecture run as a server would run it. Each is uploaded as a .tar.gz artifact of the run.
+  # The share server's executables, all built on each machine, then the one for that machine run
+  # as a server would run it, after the Go tests. Each uploads its executables as .tar.gz
+  # artifacts of the run. The macOS x64 one has no Intel Mac to run on, so it's only checked to be
+  # a macOS executable for x64.
   server:
-    name: share server (linux-${{ matrix.arch }})
+    name: share server (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: x64
+          - platform: linux-x64
             runner: ubuntu-latest
-          - arch: arm64
+            upload: linux-x64
+          - platform: linux-arm64
             runner: ubuntu-24.04-arm
+            upload: linux-arm64
+          - platform: macos-arm64
+            runner: macos-latest
+            upload: macos-arm64 macos-x64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -132,14 +139,15 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/go
-      # Builds release/open-arch-share-linux-x64 and -arm64, then runs this machine's (scripts/smoke-executable.mjs).
+      - run: pnpm --filter @open-arch/server test
+      # Builds release/open-arch-share-<linux|macos>-<x64|arm64>, then runs this machine's (scripts/smoke-executable.mjs).
       - run: pnpm --filter @open-arch/server executable
-      - name: Pack the executable
-        run: tar -czf open-arch-share-linux-${{ matrix.arch }}.tar.gz -C apps/server/release open-arch-share-linux-${{ matrix.arch }}
+      - name: Pack the executables
+        run: for name in ${{ matrix.upload }}; do tar -czf "open-arch-share-$name.tar.gz" -C apps/server/release "open-arch-share-$name"; done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: share-server-linux-${{ matrix.arch }}
-          path: open-arch-share-linux-${{ matrix.arch }}.tar.gz
+          name: share-server-${{ matrix.platform }}
+          path: open-arch-share-*.tar.gz
           if-no-files-found: error
           retention-days: 14
           # Already compressed.
