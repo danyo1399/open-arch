@@ -1,4 +1,4 @@
-import { containerOf, isInside, kindList, libraryOf, PARENT_KINDS } from "./model.js";
+import { builtInto, containerOf, isInside, kindList, libraryOf, PARENT_KINDS } from "./model.js";
 import type { ArchElement, Diagnostic, ViewDef } from "./types.js";
 import { computeView, didYouMean, scopeProblems } from "./views.js";
 import type { Workspace } from "./workspace.js";
@@ -100,19 +100,30 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
         fix: "Remove kind, or point the relationship at a class.",
       });
     }
-    // Something uses the copy of a library built into its own container.
+    // Something uses the copy of a library built into its own container. A library's code uses
+    // it from each container built with both libraries.
     const library = libraryOf(ws, target.id);
-    const container = containerOf(ws, el.id);
-    if (library && libraryOf(ws, el.id)?.id !== library.id && !container?.libraries.includes(library.id)) {
-      const libraries = container && [...container.libraries, library.id].map((id) => ` --library ${id}`).join("");
-      const fix = container ? `Build ${container.id} with it: \`open-arch update-element ${container.id}${libraries}\`.` : "Point the relationship at something inside a container instead.";
-      out.push({
-        severity: "warning",
-        rule: "library-not-included",
-        message: `"${el.id}" uses "${target.id}", in the library "${library.id}", but ${container ? `its container "${container.id}" isn't built with that library` : "isn't inside a container, and only containers are built with libraries"}, so only class views draw it.`,
-        path,
-        fix,
-      });
+    const source = libraryOf(ws, el.id);
+    if (library && source?.id !== library.id) {
+      const container = containerOf(ws, el.id);
+      const missing = source ? builtInto(ws, source.id).filter((c) => !c.libraries.includes(library.id)) : container && !container.libraries.includes(library.id) ? [container] : [];
+      const build = (c: ArchElement) => `\`open-arch update-element ${c.id}${[...c.libraries, library.id].map((id) => ` --library ${id}`).join("")}\``;
+      const names = (cs: ArchElement[]) => cs.map((c) => `"${c.id}"`).join(", ");
+      const where = `"${el.id}" uses "${target.id}", in the library "${library.id}", but`;
+      const message = source
+        ? `${where} ${names(missing)}, built with the library "${source.id}", ${missing.length === 1 ? "isn't" : "aren't"} built with that one, so ${missing.length === 1 ? "its" : "their"} diagrams leave this out.`
+        : container
+          ? `${where} its container "${container.id}" isn't built with that library, so only class views draw it.`
+          : `${where} isn't inside a container, and only containers are built with libraries, so only class views draw it.`;
+      if (missing.length || (!source && !container)) {
+        out.push({
+          severity: "warning",
+          rule: "library-not-included",
+          message,
+          path,
+          fix: missing.length ? `Build ${missing.length === 1 ? missing[0]!.id : "each"} with it: ${missing.map(build).join(", ")}.` : "Point the relationship at something inside a container instead.",
+        });
+      }
     }
     if (rel.kind !== "association" && rel.bidirectional) {
       out.push({ severity: "error", rule: "relationship-kind-bidirectional", message: `Only associations go both ways, and this relationship is a ${rel.kind}.`, path: `${path}.bidirectional`, fix: "Remove bidirectional, or kind." });

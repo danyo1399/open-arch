@@ -66,6 +66,24 @@ describe("libraries", () => {
     ]);
   });
 
+  it("let one library's code use another's, and warn only about the containers built with the first and not the second", () => {
+    const doc = logging();
+    doc.elements["http-client"] = { kind: "library", name: "HTTP client" };
+    doc.elements.fetcher = { kind: "class", name: "Fetcher", parent: "http-client", uses: [{ to: "logger", description: "Logs with" }] };
+    doc.elements.api!.libraries = ["http-client", "logging"];
+    expect(rules(doc)).toEqual([]);
+    expect(arrows(doc, "logging-classes")).toContain("fetcher -> logger");
+    doc.elements.db!.libraries = ["http-client"];
+    const warnings = checkWorkspace(buildWorkspace(doc)).filter((d) => d.rule === "library-not-included");
+    expect(warnings.map((d) => [d.path, d.message, d.fix])).toEqual([
+      [
+        "elements.fetcher.uses[0]",
+        '"fetcher" uses "logger", in the library "logging", but "db", built with the library "http-client", isn\'t built with that one, so its diagrams leave this out.',
+        "Build db with it: `open-arch update-element db --library http-client --library logging`.",
+      ],
+    ]);
+  });
+
   it("warn about something that uses one its container isn't built with, and say how to build it in", () => {
     const doc = logging();
     doc.elements.api!.libraries = [];
