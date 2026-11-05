@@ -20,7 +20,7 @@ See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.opena
 | [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`: agents read with `show` and change the model only with commands. |
 | [`apps/web`](apps/web) | The designer as a static web app (React, React Flow, ELK). |
 | [`apps/desktop`](apps/desktop) | The same designer in Electron, for Windows, macOS and Linux. |
-| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. Runs on Cloudflare Workers, or on Node for development. |
+| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. Runs from a terminal, in a container, or on Cloudflare Workers. |
 
 ## The designer
 
@@ -114,9 +114,78 @@ A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID na
 
 An uploaded file is one byte for the format (`1`), AES-GCM's 12-byte IV, then the ciphertext of `{"name", "text"}`, the file name and the `.openarch` text, as JSON compressed with DEFLATE. The key is 256 random bits. The server only checks the format byte and the size: at most 1 MB.
 
-To find and stop abuse, the server keeps a record of every upload: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the country, the city and the network (from Cloudflare), the user agent, the `Origin` and `Referer` headers, and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour.
+To find and stop abuse, the server keeps a record of every upload: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, on Cloudflare, the country, the city, the network and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour.
 
-On Cloudflare, the files are in an R2 bucket and the records are in a D1 database ([`migrations/`](apps/server/migrations)). To deploy it, from `apps/server`:
+### Where it runs
+
+The same server runs in three places, and keeps the same records in the same tables ([`migrations/`](apps/server/migrations)):
+
+| | Records | Encrypted files |
+|---|---|---|
+| [From a terminal](#from-a-terminal), on any machine with Node.js 22.13+ | SQLite, in `data/shares.db` | `data/files/` |
+| [In a container](#in-a-container): Docker, Compose, or any host that runs one | SQLite, in `/data/shares.db` | `/data/files/` |
+| [On Cloudflare Workers](#on-cloudflare-workers) | D1 | R2 |
+
+Then build the designer with the server's address in `VITE_SHARE_SERVER`. The Pages and CI workflows take it from the repository's `SHARE_SERVER` variable (**Settings**, **Secrets and variables**, **Actions**, **Variables**), and the Cloudflare build from its build variables. Links made in the desktop app open in the web designer at `VITE_SHARE_APP_URL`, <https://danyo1399.github.io/open-arch/> unless it's set.
+
+The designer is served over HTTPS, and browsers only let it talk to a server over HTTPS too. Cloudflare does that for you. Anywhere else, put a reverse proxy that does HTTPS in front, such as Caddy, nginx, or a hosting platform's own, and tell the server to believe the address the proxy passes on (below).
+
+### Settings
+
+Each is a flag or an environment variable; the flag wins. `node apps/server/dist/main.js help` lists them.
+
+| Flag | Variable | Does |
+|---|---|---|
+| `--port` | `PORT` | The port to listen on: 8787 unless it's set |
+| `--host` | `HOST` | The address to listen on: all of them unless it's set |
+| `--data` | `DATA_DIR` | The folder for records and files: `./data` unless it's set (`/data` in the container) |
+| `--memory` | `DATA_DIR=:memory:` | Keeps everything in memory instead, and forgets it when the server stops |
+| `--trust-proxy` | `TRUST_PROXY` | Whose word to take for a request's IP address. `none`, the default: the connection's. `forwarded`: the last address in `X-Forwarded-For`, which a reverse proxy adds. `cloudflare`: `CF-Connecting-IP`, and the country from `CF-IPCountry`, behind Cloudflare's proxy. Only set it when that proxy is really in front: otherwise anyone can choose the address they're recorded with |
+| `--max-bytes` | `MAX_BYTES` | The largest encrypted workspace: 1000000 bytes unless it's set |
+| `--uploads-per-hour` | `UPLOADS_PER_HOUR` | How many files one IP address can upload in an hour: 60 unless it's set |
+| `--quiet` | `LOG=off` | Doesn't print a line for each request |
+
+### From a terminal
+
+Build it and start it from the repository's root. Stop it with Ctrl+C; it finishes the requests under way first.
+
+```bash
+pnpm install
+pnpm --filter @open-arch/server start
+```
+
+That keeps its records and files in `apps/server/data`. To run it from another folder, or as a service (systemd, launchd, pm2), it only needs Node.js and three things from `apps/server`, kept side by side: `dist`, `migrations` and `package.json`. It has no dependencies:
+
+```bash
+node apps/server/dist/main.js --data /var/lib/open-arch-share --port 8787 --trust-proxy forwarded
+```
+
+Behind Caddy, for example, which gets an HTTPS certificate for the domain by itself:
+
+```bash
+caddy reverse-proxy --from share.example.com --to localhost:8787
+```
+
+### In a container
+
+[`apps/server/Dockerfile`](apps/server/Dockerfile) builds an image of the server, with nothing in it but Node.js and the server. Build it from the repository's root, then run it with a volume for `/data`, so what's shared outlives the container:
+
+```bash
+docker build -f apps/server/Dockerfile -t open-arch-share .
+docker run -d --name open-arch-share -p 8787:8787 -v open-arch-share:/data open-arch-share
+```
+
+Or with Compose, from [`apps/server/compose.yaml`](apps/server/compose.yaml):
+
+```bash
+docker compose -f apps/server/compose.yaml up -d
+```
+
+Settings are environment variables (`-e TRUST_PROXY=forwarded`). The image runs as the unprivileged `node` user, checks its own health, and stops cleanly when the container is stopped. A hosting platform that runs containers runs it too, as long as it keeps `/data` on a disk that lasts: one without, such as a serverless container, forgets what's shared when it restarts.
+
+### On Cloudflare Workers
+
+The files are in an R2 bucket and the records are in a D1 database. To deploy it, from `apps/server`:
 
 ```bash
 npx wrangler r2 bucket create open-arch-shares
@@ -130,9 +199,20 @@ npx wrangler d1 migrations apply open-arch-shares --remote
 pnpm --filter @open-arch/server deploy
 ```
 
-`MAX_BYTES` and `UPLOADS_PER_HOUR` in `wrangler.jsonc` change the limits. Then build the designer with the server's address in `VITE_SHARE_SERVER`. The Pages and CI workflows take it from the repository's `SHARE_SERVER` variable (**Settings**, **Secrets and variables**, **Actions**, **Variables**), and the Cloudflare build from its build variables. Links made in the desktop app open in the web designer at `VITE_SHARE_APP_URL`, <https://danyo1399.github.io/open-arch/> unless it's set.
+`MAX_BYTES` and `UPLOADS_PER_HOUR` in `wrangler.jsonc` change the limits.
 
-To take a workspace down, find it by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too:
+### Taking down abuse
+
+Find a workspace by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too. On a server from a terminal, add `--data <folder>` if it isn't `./data`; in a container, run them with `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`:
+
+```bash
+node apps/server/dist/main.js uploads --workspace <id>
+node apps/server/dist/main.js uploads --ip <address>
+node apps/server/dist/main.js block <id> --reason "<why>"
+node apps/server/dist/main.js block-ip <address> --reason "<why>"
+```
+
+`unblock` and `unblock-ip` undo them. On Cloudflare, the same with SQL:
 
 ```bash
 npx wrangler d1 execute open-arch-shares --remote --command "SELECT * FROM uploads WHERE workspace_id = '<id>'"
@@ -142,7 +222,9 @@ npx wrangler d1 execute open-arch-shares --remote --command "INSERT INTO blocked
 
 A browser that cached a version's file can still open it offline. Online, opening a link asks the server first, so it won't open.
 
-To try sharing locally, run the share server on Node, with everything in memory, on <http://localhost:8787>:
+### Trying it locally
+
+Run the share server with everything in memory, on <http://localhost:8787>:
 
 ```bash
 pnpm --filter @open-arch/server dev

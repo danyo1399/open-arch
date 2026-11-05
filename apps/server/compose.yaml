@@ -1,0 +1,24 @@
+# The share server with Docker Compose, its data in a named volume. From the repository's root:
+#
+#   docker compose -f apps/server/compose.yaml up -d
+#
+# It answers on http://localhost:8787. Browsers only let the designer, served over HTTPS, talk
+# to a server over HTTPS too: put a reverse proxy in front (README, "The share server").
+services:
+  share:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    image: open-arch-share
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      # forwarded behind a reverse proxy, cloudflare behind Cloudflare's proxy.
+      TRUST_PROXY: none
+      UPLOADS_PER_HOUR: "60"
+    volumes:
+      - share-data:/data
+
+volumes:
+  share-data:

@@ -1,41 +1,20 @@
 /**
- * The Cloudflare store against the real schema, in SQLite (which D1 is), and a bucket in memory
- * standing in for R2.
+ * The Worker against the real schema, in SQLite (which D1 is), and a bucket in memory standing
+ * in for R2.
  */
-import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import worker, { cloudflareClient, CloudflareStore, type D1Database, type D1PreparedStatement, type R2Bucket } from "../src/cloudflare.js";
+import worker, { cloudflareClient } from "../src/cloudflare.js";
 import { FILE_FORMAT } from "../src/handler.js";
+import { SqlStore, type Bucket, type SqlDatabase } from "../src/sql.js";
+import { openDatabase } from "../src/sqlite.js";
 
-function d1(): { db: D1Database; sqlite: DatabaseSync } {
-  const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("../migrations/0001_shared_workspaces.sql", import.meta.url), "utf8"));
-  const statement = (sql: string, values: unknown[] = []): D1PreparedStatement & { exec(): unknown } => ({
-    bind: (...next) => statement(sql, next),
-    first: async <T,>() => (sqlite.prepare(sql).get(...(values as never[])) as T | undefined) ?? null,
-    run: async () => sqlite.prepare(sql).run(...(values as never[])),
-    exec: () => sqlite.prepare(sql).run(...(values as never[])),
-  });
-  const db: D1Database = {
-    prepare: (sql) => statement(sql),
-    batch: async (statements) => {
-      sqlite.exec("BEGIN");
-      try {
-        const results = statements.map((s) => (s as ReturnType<typeof statement>).exec());
-        sqlite.exec("COMMIT");
-        return results;
-      } catch (error) {
-        sqlite.exec("ROLLBACK");
-        throw error;
-      }
-    },
-  };
-  return { db, sqlite };
+function d1(): { db: SqlDatabase; sqlite: DatabaseSync } {
+  return openDatabase(":memory:");
 }
 
 /** A bucket that lists two keys at a time, so deleting a workspace's files takes more than one page. */
-function r2(): R2Bucket & { objects: Map<string, Uint8Array> } {
+function r2(): Bucket & { objects: Map<string, Uint8Array> } {
   const objects = new Map<string, Uint8Array>();
   return {
     objects,
@@ -99,7 +78,7 @@ describe("share server on Cloudflare", () => {
 
   it("refuses uploads from an address in blocked_ips, and serves nothing of a blocked workspace", async () => {
     const { db, sqlite } = d1();
-    const store = new CloudflareStore(r2(), db);
+    const store = new SqlStore(r2(), db);
     sqlite.prepare("INSERT INTO blocked_ips (ip, reason, created_at) VALUES (?, ?, ?)").run("203.0.113.7", "spam", 1);
     expect(await store.ipBlocked("203.0.113.7")).toBe(true);
     expect(await store.ipBlocked("198.51.100.1")).toBe(false);

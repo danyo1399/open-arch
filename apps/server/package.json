@@ -1,12 +1,20 @@
 {
   "name": "@open-arch/server",
   "version": "0.1.0",
-  "description": "Hosts shared workspaces for the designer, end-to-end encrypted: it only ever stores what the browser encrypted.",
+  "description": "Hosts shared workspaces for the designer, end-to-end encrypted: it only ever stores what the browser encrypted. Runs on Node, in a container, or on Cloudflare Workers.",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsc -b && node dist/node.js",
+    "start": "tsc -b && node dist/main.js",
+    "dev": "tsc -b && node dist/main.js --memory",
     "deploy": "npx wrangler deploy"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
   }
 }

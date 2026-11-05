@@ -1,8 +1,8 @@
 /**
  * Where the share server keeps shared workspaces: the encrypted files, one per version, and what
  * it knows about each workspace and each upload. The handler only talks to a ShareStore, so the
- * same server runs on Cloudflare (R2 and D1, cloudflare.ts) and on Node with everything in memory
- * (node.ts, and the tests).
+ * same server runs anywhere: SqlStore (sql.ts) keeps them in D1 and R2 on Cloudflare, or in SQLite
+ * and a folder on disk on Node, and MemoryStore keeps them in memory.
  */
 
 export interface WorkspaceRecord {
@@ -62,7 +62,7 @@ export interface ShareStore {
   ipBlocked(ip: string): Promise<boolean>;
 }
 
-/** Keeps everything in memory, for the local server and the tests. */
+/** Keeps everything in memory, for trying the server out (--memory) and the tests. */
 export class MemoryStore implements ShareStore {
   readonly workspaces = new Map<string, WorkspaceRecord>();
   readonly files = new Map<string, Uint8Array>();
