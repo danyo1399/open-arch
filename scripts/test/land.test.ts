@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { pushedToMain } from "../git-hooks/open-arch-pre-push.mjs";
-import { land, renderReview, reviewPrompt, Stop, VERDICT_SCHEMA, verdictFrom, writeChange } from "../land.mjs";
+import { claudeReview, defects, land, renderReview, reviewPrompt, Stop, VERDICT_SCHEMA, verdictFrom, wellFormed, writeChange } from "../land.mjs";
 import { approved, cmdArg, spawnArgs, verified } from "../lib.mjs";
 import { setupHooks } from "../setup-hooks.mjs";
 import { checks, onlyMarkdown } from "../verify.mjs";
@@ -111,12 +111,13 @@ describe("pnpm land", () => {
     const { remote, worktree, head } = repos();
     const before = remoteMain(remote);
     const fake = passing();
-    const requesting = { ...fake, review: async () => ({ approved: false, report: "Rename b." }) };
+    const rename = { severity: "defect", file: "b.txt", problem: "Rename b.", why: "The task asked for c." };
+    const requesting = { ...fake, review: async () => verdictFrom({ findings: [rename], summary: "Adds b." }) };
     await expect(land({ cwd: worktree, task: "Add b", ...requesting })).rejects.toThrow(Stop);
     expect(remoteMain(remote)).toBe(before);
 
     await land({ cwd: worktree, task: "Add b", note: "b is the name the task asked for.", ...fake });
-    expect(fake.reviews).toMatchObject([{ previous: { commit: head, approved: false, report: "Rename b." }, note: "b is the name the task asked for." }]);
+    expect(fake.reviews).toMatchObject([{ previous: { commit: head, approved: false, findings: [rename] }, note: "b is the name the task asked for." }]);
     // The files passed the checks the first time, so they aren't run again.
     expect(fake.checked).toEqual([head]);
     expect(remoteMain(remote)).toBe(head);
@@ -133,6 +134,19 @@ describe("pnpm land", () => {
     // The next review is told what the last one found, as for any review that asked for changes.
     await land({ cwd: worktree, task: "Add b", ...fake });
     expect(fake.reviews).toMatchObject([{ previous: { approved: false, findings: [defect] } }]);
+  });
+
+  it("counts a finding with a misspelled or missing severity as a defect", async () => {
+    expect(defects({ findings: [{ severity: "Defect" }, { severity: "blocker" }, {}, { severity: "suggestion" }] })).toHaveLength(3);
+    const { remote, worktree } = repos();
+    const before = remoteMain(remote);
+    const fake = passing();
+    const slip = { severity: "Defect", file: "b.txt", problem: "b breaks.", why: "It's wrong." };
+    const slipping = { ...fake, review: async () => verdictFrom({ findings: [slip], summary: "Adds b." }) };
+    await expect(land({ cwd: worktree, task: "Add b", ...slipping })).rejects.toThrow("1 defect must be fixed first.");
+    expect(remoteMain(remote)).toBe(before);
+    // And it's in the report, with the defects.
+    expect(verdictFrom({ findings: [slip], summary: "Adds b." }).report).toContain("Must be fixed:\n1. b.txt: b breaks. It's wrong.");
   });
 
   it("lands a branch whose review has only suggestions", async () => {
@@ -397,6 +411,40 @@ describe("running commands", () => {
     expect(prompt).toContain("don't call one a suggestion because it's small, rare, or could be fixed later");
     // The checks passing is context, not a reason to approve.
     expect(prompt).toContain("They only show what they test");
+  });
+
+  it("checks the shape of the reviewer's answer itself", () => {
+    const finding = { severity: "defect", file: "a.ts", line: 3, problem: "p", why: "w" };
+    expect(wellFormed({ findings: [finding], summary: "s" })).toBe(true);
+    expect(wellFormed({ findings: [], summary: "s" })).toBe(true);
+    for (const bad of [null, {}, { findings: [], summary: 1 }, { findings: "none", summary: "s" }, { findings: [null], summary: "s" }, { findings: [{ ...finding, severity: undefined }], summary: "s" }, { findings: [{ ...finding, line: "3" }], summary: "s" }]) {
+      expect(wellFormed(bad)).toBe(false);
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("reads the claude CLI's answer, and refuses one it can't read", async () => {
+    const { worktree } = repos();
+    const bin = mkdtempSync(join(tmpdir(), "open-arch-claude-"));
+    // A stand-in for the CLI: it reads the prompt, then answers with what's in answer.json.
+    writeFileSync(join(bin, "claude"), `#!/bin/sh\ncat > /dev/null\ncat "${join(bin, "answer.json")}"\n`, { mode: 0o755 });
+    const stub = (answer: unknown) => writeFileSync(join(bin, "answer.json"), JSON.stringify({ is_error: false, structured_output: answer }));
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    try {
+      const args = { cwd: worktree, branch: "feature", task: "Add b", log: () => {} };
+      stub({ findings: [{ severity: "defect", file: "b.txt", problem: "b breaks.", why: "It's wrong." }], summary: "Adds b." });
+      expect(await claudeReview(args)).toMatchObject({ approved: false, report: expect.stringContaining("Must be fixed:\n1. b.txt: b breaks.") });
+      stub({ findings: [{ severity: "suggestion", file: "b.txt", problem: "Name.", why: "Short." }], summary: "Adds b." });
+      expect(await claudeReview(args)).toMatchObject({ approved: true });
+      // A finding with no severity isn't an answer to land on.
+      stub({ findings: [{ file: "b.txt", problem: "b breaks.", why: "It's wrong." }], summary: "Adds b." });
+      await expect(claudeReview(args)).rejects.toThrow("The review didn't finish");
+      stub({ approved: true, report: "Fine." });
+      await expect(claudeReview(args)).rejects.toThrow("The review didn't finish");
+    } finally {
+      process.env.PATH = path;
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
 
   it("asks the reviewer for findings, not a verdict, and approves only with no defects", () => {

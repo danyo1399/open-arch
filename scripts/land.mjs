@@ -52,19 +52,29 @@ export const VERDICT_SCHEMA = {
   additionalProperties: false,
 };
 
-/** The findings that must be fixed before the branch is merged. */
-export const defects = (verdict) => (verdict.findings ?? []).filter((f) => f.severity === "defect");
+/**
+ * The findings that must be fixed before the branch is merged: every one that isn't a suggestion.
+ * One with a severity missing or misspelled counts as a defect, so a slip can't let a branch through.
+ */
+export const defects = (verdict) => (verdict.findings ?? []).filter((f) => f.severity !== "suggestion");
 
 /** The review as it's printed, and shown to the next review: the defects first, then the suggestions, then the summary. */
 export function renderReview({ findings, summary }) {
-  const list = (severity) =>
-    findings
-      .filter((f) => f.severity === severity)
-      .map((f, i) => `${i + 1}. ${f.file}${f.line ? `:${f.line}` : ""}: ${f.problem} ${f.why}`)
-      .join("\n");
-  const must = list("defect");
-  const may = list("suggestion");
+  const list = (some) => some.map((f, i) => `${i + 1}. ${f.file}${f.line ? `:${f.line}` : ""}: ${f.problem} ${f.why}`).join("\n");
+  const must = list(defects({ findings }));
+  const may = list(findings.filter((f) => f.severity === "suggestion"));
   return [must ? `Must be fixed:\n${must}` : "Nothing must be fixed.", ...(may ? [`Suggestions:\n${may}`] : []), summary].join("\n\n");
+}
+
+/** Whether the reviewer's answer has the shape VERDICT_SCHEMA asks for, checked here rather than trusted. */
+export function wellFormed(answer) {
+  const text = (value) => typeof value === "string";
+  return (
+    !!answer &&
+    Array.isArray(answer.findings) &&
+    text(answer.summary) &&
+    answer.findings.every((f) => !!f && text(f.severity) && text(f.file) && text(f.problem) && text(f.why) && (f.line === undefined || Number.isInteger(f.line)))
+  );
 }
 
 /** What a review's structured answer means: approved only with no defects. */
@@ -141,7 +151,7 @@ export function claudeReview({ cwd, branch, task, note, previous, log }) {
         // Reported below.
       }
       const verdict = result?.structured_output;
-      if (code !== 0 || result?.is_error || !Array.isArray(verdict?.findings) || typeof verdict?.summary !== "string") {
+      if (code !== 0 || result?.is_error || !wellFormed(verdict)) {
         const why = (typeof result?.result === "string" && result.result) || err || out;
         return reject(new Stop(`The review didn't finish: ${why.trim() || `claude exited with ${code}`}`));
       }
@@ -259,14 +269,12 @@ export async function land({ cwd, task, note, keepWorktree = false, review = cla
       // Its tools only read, but if something changed here anyway, landing it would skip the review.
       const changed = git(["status", "--porcelain"], root);
       if (changed || git(["rev-parse", "HEAD"], root) !== head) throw new Stop(`The reviewer changed the worktree, which it mustn't, so nothing was landed. Look at what it did:\n${changed || "HEAD moved"}`);
-      // Approved only with no defects, whatever else the review says.
+      // Approved only with no defects, counted here from the findings, whatever else the review says.
       const found = defects(verdict).length;
-      const ok = verdict.approved && found === 0;
-      lastReview.set(branch, { commit: head, ...verdict, approved: ok }, root);
-      log(`Review of ${head.slice(0, 7)}: ${ok ? "approved" : "changes requested"}\n\n${verdict.report}`);
-      if (!ok) {
-        const what = found ? `${found} defect${found === 1 ? "" : "s"} must be fixed first` : "Changes requested";
-        throw new Stop(`${what}. Fix them in a new commit, and run pnpm land again for a review of the whole branch. If you think a finding is wrong, say why with --note "...", and the reviewer decides.`);
+      lastReview.set(branch, { commit: head, ...verdict, approved: found === 0 }, root);
+      log(`Review of ${head.slice(0, 7)}: ${found === 0 ? "approved" : "changes requested"}\n\n${verdict.report}`);
+      if (found > 0) {
+        throw new Stop(`${found} defect${found === 1 ? "" : "s"} must be fixed first. Fix them in a new commit, and run pnpm land again for a review of the whole branch. If you think a finding is wrong, say why with --note "...", and the reviewer decides.`);
       }
       approved.add(head, root);
     }
