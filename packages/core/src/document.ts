@@ -19,8 +19,10 @@ import {
   type Position,
   type RelationshipData,
   type RelationshipKind,
+  type StateData,
   type StepData,
   type StickyData,
+  type TransitionData,
   type Tags,
   type ViewData,
 } from "./types.js";
@@ -56,9 +58,15 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "libraries", "tags", "notes", "members", "uses"];
 const RELATIONSHIP_KEYS = ["to", "kind", "bidirectional", "description", "technology", "tags", "notes"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "stickies", "layout"];
-/** Fields a sequence view doesn't take: its participants and their places come from its steps. */
-const NOT_ON_SEQUENCE = ["include", "exclude", "layout"];
+const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "stickies", "layout"];
+/** Fields only sequence views and state views take, and those they don't, with why. */
+const ONLY_ON: Record<string, "sequence" | "state"> = { steps: "sequence", initial: "state", states: "state", transitions: "state" };
+const NOT_ON: Record<"sequence" | "state", { fields: string[]; why: string }> = {
+  sequence: { fields: ["include", "exclude", "layout"], why: "they show the elements in their steps, in the order they first appear" },
+  state: { fields: ["include", "exclude", "layout"], why: "they show their states, each placed by its own `at`" },
+};
+const STATE_KEYS = ["name", "description", "final", "at"];
+const TRANSITION_KEYS = ["from", "to", "event", "guard", "action"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "color", "at"];
 
@@ -161,6 +169,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 6) out = { ...out, openarch: 7 };
   // Version 8 let libraries hold components, so a version 7 file means the same in it.
   if (out.openarch === 7) out = { ...out, openarch: 8 };
+  // Version 9 added state views, so a version 8 file means the same in it.
+  if (out.openarch === 8) out = { ...out, openarch: 9 };
   return out;
 }
 
@@ -307,22 +317,25 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   if (!title?.trim()) report(`${path}.title`, "field-required", "`title` is required.");
   const view: ViewData = { title: title?.trim() ? title : id, level: value.level as ViewData["level"] };
   const sequence = view.level === "sequence";
-  for (const key of sequence ? NOT_ON_SEQUENCE : ["steps"]) {
-    if (value[key] === undefined) continue;
-    report(
-      `${path}.${key}`,
-      "field-not-allowed",
-      sequence ? `Sequence views don't take \`${key}\`: they show the elements in their steps, in the order they first appear.` : `Only sequence views have \`steps\`.`,
-      `Remove \`${key}\`.`,
-    );
+  const statesView = view.level === "state";
+  // Boxes come from include and exclude, and are placed by layout, only on the other views.
+  const boxes = !sequence && !statesView;
+  for (const key of Object.keys(value)) {
+    const only = ONLY_ON[key];
+    const not = sequence || statesView ? NOT_ON[view.level as "sequence" | "state"] : undefined;
+    if (only && only !== view.level) {
+      report(`${path}.${key}`, "field-not-allowed", `Only ${only} views have \`${key}\`.`, `Remove \`${key}\`.`);
+    } else if (not?.fields.includes(key)) {
+      report(`${path}.${key}`, "field-not-allowed", `${sequence ? "Sequence" : "State"} views don't take \`${key}\`: ${not.why}.`, `Remove \`${key}\`.`);
+    }
   }
   const description = str(value.description, `${path}.description`, report);
   if (description !== undefined) view.description = description;
   const scope = str(value.scope, `${path}.scope`, report);
   if (scope !== undefined) view.scope = scope;
-  const include = sequence ? undefined : strList(value.include, `${path}.include`, report);
+  const include = boxes ? strList(value.include, `${path}.include`, report) : undefined;
   if (include) view.include = include;
-  const exclude = sequence ? undefined : strList(value.exclude, `${path}.exclude`, report);
+  const exclude = boxes ? strList(value.exclude, `${path}.exclude`, report) : undefined;
   if (exclude) view.exclude = exclude;
   const notes = str(value.notes, `${path}.notes`, report);
   if (notes !== undefined) view.notes = notes;
@@ -336,6 +349,30 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
       });
     }
   }
+  if (statesView) {
+    if (value.states !== undefined) {
+      if (!isObject(value.states)) report(`${path}.states`, "field-type", "Must be an object keyed by state ID.");
+      else {
+        view.states = {};
+        for (const [stateId, state] of Object.entries(value.states)) {
+          const s = readState(stateId, state, `${path}.states.${stateId}`, report);
+          if (s) view.states[stateId] = s;
+        }
+      }
+    }
+    const initial = str(value.initial, `${path}.initial`, report);
+    if (initial !== undefined) view.initial = initial;
+    if (value.transitions !== undefined) {
+      if (!Array.isArray(value.transitions)) report(`${path}.transitions`, "field-type", "Must be a list of transitions.");
+      else {
+        view.transitions = [];
+        value.transitions.forEach((item, i) => {
+          const t = readTransition(item, `${path}.transitions[${i}]`, report);
+          if (t) view.transitions!.push(t);
+        });
+      }
+    }
+  }
   if (value.stickies !== undefined) {
     if (!isObject(value.stickies)) report(`${path}.stickies`, "field-type", "Must be an object keyed by sticky note ID.");
     else {
@@ -346,7 +383,7 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
       }
     }
   }
-  if (!sequence && value.layout !== undefined) {
+  if (boxes && value.layout !== undefined) {
     if (!isObject(value.layout)) report(`${path}.layout`, "field-type", "Must be an object keyed by element ID.");
     else {
       view.layout = {};
@@ -384,6 +421,48 @@ function readStep(value: unknown, path: string, report: Report): StepData | unde
     } else report(`${path}.reply`, "field-type", "Must be true or false.");
   }
   return step;
+}
+
+function readState(id: string, value: unknown, path: string, report: Report): StateData | undefined {
+  if (!readId(id, path, report)) return undefined;
+  if (!isObject(value)) {
+    report(path, "field-type", 'A state must be an object like { "name": "Paid" }.');
+    return undefined;
+  }
+  unknownKeys(value, STATE_KEYS, path, report);
+  const name = str(value.name, `${path}.name`, report);
+  if (!name?.trim()) report(`${path}.name`, "field-required", "`name` is required.");
+  const state: StateData = { name: name?.trim() ? name : id };
+  const description = str(value.description, `${path}.description`, report);
+  if (description !== undefined) state.description = description;
+  if (value.final !== undefined) {
+    if (typeof value.final !== "boolean") report(`${path}.final`, "field-type", "Must be true or false.");
+    else if (value.final) state.final = true;
+  }
+  if (value.at !== undefined) {
+    if (Array.isArray(value.at) && value.at.length === 2 && value.at.every((n) => typeof n === "number" && Number.isFinite(n))) state.at = value.at as [number, number];
+    else report(`${path}.at`, "field-type", "Must be a position, [x, y].");
+  }
+  return state;
+}
+
+function readTransition(value: unknown, path: string, report: Report): TransitionData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A transition must be an object like { "from": "placed", "to": "paid" }.');
+    return undefined;
+  }
+  unknownKeys(value, TRANSITION_KEYS, path, report);
+  const from = str(value.from, `${path}.from`, report);
+  const to = str(value.to, `${path}.to`, report);
+  if (!from) report(`${path}.from`, "field-required", "`from` is required: the ID of the state it leaves.");
+  if (!to) report(`${path}.to`, "field-required", "`to` is required: the ID of the state it goes to.");
+  if (!from || !to) return undefined;
+  const transition: TransitionData = { from, to };
+  for (const key of ["event", "guard", "action"] as const) {
+    const v = str(value[key], `${path}.${key}`, report);
+    if (v !== undefined) transition[key] = v;
+  }
+  return transition;
 }
 
 function readSticky(id: string, value: unknown, path: string, report: Report): StickyData | undefined {
@@ -493,9 +572,11 @@ function viewText(v: ViewData, indent: string): string {
   if (present(v.description, (d) => d !== "")) entries.push(["description", JSON.stringify(v.description)]);
   entries.push(["level", JSON.stringify(v.level)]);
   const sequence = v.level === "sequence";
+  const statesView = v.level === "state";
+  const boxes = !sequence && !statesView;
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
-  if (!sequence) entries.push(["include", inline(v.include ?? ["*"])]);
-  if (!sequence && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
+  if (boxes) entries.push(["include", inline(v.include ?? ["*"])]);
+  if (boxes && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
   if (present(v.notes, (n) => n !== "")) entries.push(["notes", JSON.stringify(v.notes)]);
   if (sequence) {
     const steps = (v.steps ?? []).map((s) =>
@@ -503,12 +584,22 @@ function viewText(v: ViewData, indent: string): string {
     );
     entries.push(["steps", steps.length ? `[\n${steps.map((s) => `${indent}    ${s}`).join(",\n")}\n${indent}  ]` : "[]"]);
   }
+  if (statesView) {
+    if (present(v.initial, (i) => i !== "")) entries.push(["initial", JSON.stringify(v.initial)]);
+    const state = (s: StateData) => inline({ name: s.name, description: s.description || undefined, final: s.final || undefined, at: s.at?.map((n) => Math.round(n)) });
+    const ids = Object.keys(v.states ?? {}).sort();
+    entries.push(["states", block(ids.map((id) => [id, state(v.states![id]!)]), `${indent}  `)]);
+    const transitions = (v.transitions ?? []).map((t) =>
+      inline({ from: t.from, to: t.to, event: t.event || undefined, guard: t.guard || undefined, action: t.action || undefined }),
+    );
+    entries.push(["transitions", transitions.length ? `[\n${transitions.map((t) => `${indent}    ${t}`).join(",\n")}\n${indent}  ]` : "[]"]);
+  }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();
     const sticky = (s: StickyData) => inline({ text: s.text, color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)) });
     entries.push(["stickies", block(keys.map((k) => [k, sticky(v.stickies![k]!)]), `${indent}  `)]);
   }
-  if (!sequence && present(v.layout, (l) => Object.keys(l).length > 0)) {
+  if (boxes && present(v.layout, (l) => Object.keys(l).length > 0)) {
     const keys = Object.keys(v.layout).sort();
     entries.push(["layout", block(keys.map((k) => [k, inline(v.layout![k]!.map((n) => Math.round(n)))]), `${indent}  `)]);
   }

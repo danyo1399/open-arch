@@ -3,7 +3,7 @@
  * markdown viewers show a diagram without open-arch.
  */
 import { inFrame, kindLabel } from "./model.js";
-import type { ArchElement, RelationshipKind } from "./types.js";
+import type { ArchElement, RelationshipKind, Transition } from "./types.js";
 import type { ComputedView } from "./views.js";
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
@@ -83,6 +83,7 @@ function nodeLine(e: ArchElement): string {
 export function renderMermaid(cv: ComputedView): string {
   if (cv.view.level === "sequence") return renderSequence(cv);
   if (cv.view.level === "class") return renderClasses(cv);
+  if (cv.view.level === "state") return renderStates(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = cv.nodes.filter((n) => inFrame(boundary, n));
@@ -210,6 +211,52 @@ function renderClasses(cv: ComputedView): string {
     const text = [edge.description, edge.technology ? `[${edge.technology}]` : undefined].filter(Boolean).join(" ");
     lines.push(`  ${classId(edge.from)} ${arrow} ${classId(edge.to)}${text ? ` : ${escapeClass(text)}` : ""}`);
   }
+  return lines.join("\n");
+}
+
+/** Words a state diagram reads as keywords, beyond those in RESERVED. */
+const STATE_RESERVED = new Set(["state", "note", "as", "statediagram"]);
+
+/** Text for a state diagram's line, where a colon ends the name of what it describes. */
+function escapeState(text: string): string {
+  return escapeLine(text).replace(/:/g, "#58;");
+}
+
+/** A state's ID in a state diagram, which has keywords of its own. */
+function stateId(id: string): string {
+  const out = mermaidId(id);
+  return STATE_RESERVED.has(out) ? `${out}_` : out;
+}
+
+/** A transition's label as UML writes one: `event [guard] / action`, each part only when it has one. */
+export function transitionLabel(t: Pick<Transition, "event" | "guard" | "action">): string {
+  return [t.event, t.guard ? `[${t.guard}]` : undefined, t.action ? `/ ${t.action}` : undefined].filter(Boolean).join(" ");
+}
+
+/**
+ * A state view as a Mermaid state diagram: each state with its name and description, a start
+ * into the initial state, an end out of each final state, and each transition labelled
+ * `event [guard] / action`.
+ */
+function renderStates(cv: ComputedView): string {
+  const v = cv.view;
+  const lines = ["stateDiagram-v2"];
+  if (v.states.length === 0) {
+    lines.push("  %% This view has no states yet.");
+    return lines.join("\n");
+  }
+  const known = new Set(v.states.map((s) => s.id));
+  for (const s of v.states) {
+    lines.push(`  state "${escapeState(s.name)}" as ${stateId(s.id)}`);
+    if (s.description) lines.push(`  ${stateId(s.id)} : ${escapeState(s.description)}`);
+  }
+  if (v.initial && known.has(v.initial)) lines.push(`  [*] --> ${stateId(v.initial)}`);
+  for (const t of v.transitions) {
+    if (!known.has(t.from) || !known.has(t.to)) continue;
+    const label = transitionLabel(t);
+    lines.push(`  ${stateId(t.from)} --> ${stateId(t.to)}${label ? ` : ${escapeState(label)}` : ""}`);
+  }
+  for (const s of v.states) if (s.final) lines.push(`  ${stateId(s.id)} --> [*]`);
   return lines.join("\n");
 }
 

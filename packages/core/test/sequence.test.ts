@@ -63,7 +63,7 @@ describe("sequence views in the file", () => {
   it("reports fields a sequence view doesn't take, steps on other views, and malformed steps", () => {
     const result = parseDocument(
       JSON.stringify({
-        openarch: 8,
+        openarch: 9,
         name: "X",
         elements: {},
         views: {
@@ -192,7 +192,7 @@ describe("step operations", () => {
 
   it("checks steps sent as JSON", () => {
     expect(parseOperations({ op: "add-step", view: "v", from: "a", to: "b", step: 1, reply: true })).toHaveLength(1);
-    expect(() => parseOperations({ op: "remove-step", view: "v", step: 0 })).toThrow('remove-step: "step" must be a step\'s number, 1 or more.');
+    expect(() => parseOperations({ op: "remove-step", view: "v", step: 0 })).toThrow('remove-step: "step" must be a number, 1 or more: 1 is the first.');
     expect(() => parseOperations({ op: "update-step", view: "v", step: 1, index: 2 })).toThrow(/update-step has no field "index"/);
   });
 

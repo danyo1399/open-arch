@@ -6,8 +6,11 @@
 export const ELEMENT_KINDS = ["person", "system", "container", "component", "library", "class"] as const;
 export type ElementKind = (typeof ELEMENT_KINDS)[number];
 
-/** A sequence view isn't a C4 level of detail: it draws steps between elements, in order. */
-export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence"] as const;
+/**
+ * A sequence view isn't a C4 level of detail: it draws steps between elements, in order. Nor is
+ * a state view: it draws the states something can be in, and the transitions between them.
+ */
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -75,7 +78,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 8;
+export const FORMAT_VERSION = 9;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -149,6 +152,34 @@ export interface ViewData {
   layout?: Record<string, Position>;
   /** Sequence views only: what happens, in order. */
   steps?: StepData[];
+  /** State views only: the states, keyed by an ID unique within the view. */
+  states?: Record<string, StateData>;
+  /** State views only: the ID of the state it starts in. */
+  initial?: string;
+  /** State views only: the ways from one state to another, or back to itself. */
+  transitions?: TransitionData[];
+}
+
+/** One state of a state view, like "Paid". */
+export interface StateData {
+  name: string;
+  description?: string;
+  /** True when the state machine can end in this state. */
+  final?: boolean;
+  /** Top-left corner. Without it, the designer lays the state out. */
+  at?: [number, number];
+}
+
+/** A way from one state to another (or the same one), written in UML as `event [guard] / action`. */
+export interface TransitionData {
+  from: string;
+  to: string;
+  /** What makes it happen, e.g. "Payment taken". */
+  event?: string;
+  /** What has to be true for it to happen, e.g. "amount is paid in full". */
+  guard?: string;
+  /** What's done as it happens, e.g. "Send a receipt". */
+  action?: string;
 }
 
 /**
@@ -228,6 +259,34 @@ export interface ViewDef {
   layout: Record<string, Position>;
   /** Sequence views only, in order; empty on other views. */
   steps: Step[];
+  /** State views only, in reading order: the initial state, then the states its transitions lead to, then the rest by ID. */
+  states: State[];
+  /** State views only. */
+  initial?: string;
+  /** State views only, in the file's order; empty on other views. */
+  transitions: Transition[];
+}
+
+export interface State {
+  id: string;
+  /** Where it lives in the document, e.g. `views.order-states.states.paid`. */
+  path: string;
+  name: string;
+  description?: string;
+  final: boolean;
+  at?: [number, number];
+}
+
+export interface Transition {
+  /** Where it lives in the document, e.g. `views.order-states.transitions[0]`. */
+  path: string;
+  /** Its number: 1 is the first. */
+  number: number;
+  from: string;
+  to: string;
+  event?: string;
+  guard?: string;
+  action?: string;
 }
 
 export interface Step {

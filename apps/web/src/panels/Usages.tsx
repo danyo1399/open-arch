@@ -65,7 +65,7 @@ export function Usages({ ws, id, viewId, onGo, onClose }: UsagesProps) {
                 <button className="row" onClick={() => onGo(view.id, { kind: "element", id })}>
                   <span className="dot dot-view" />
                   <span className="grow">{view.title}</span>
-                  <span className="muted small">{as === "frame" ? `${view.level} · frame` : view.level}</span>
+                  <span className="muted small">{as === "frame" ? `${view.level} · frame` : as === "states" ? `${view.level} · its states` : view.level}</span>
                 </button>
               </li>
             ))}

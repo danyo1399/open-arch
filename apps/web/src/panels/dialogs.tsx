@@ -1,4 +1,4 @@
-import { kindList, LEVEL_TITLE, SCOPE_KINDS, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
+import { kindLabel, kindList, LEVEL_TITLE, SCOPE_KINDS, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
 import { deletePlan, idFromName, uniqueId } from "../model.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -72,18 +72,21 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   component: "Component: the parts of one container",
   class: "Class: the code inside one component or library",
   sequence: "Sequence: steps between elements, in order",
+  state: "State: the states something can be in, and how it moves between them",
 };
 
 export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
   const [level, setLevel] = useState<ViewLevel>("container");
   const scopeKinds = SCOPE_KINDS[level];
-  const scopeKind = scopeKinds.length ? kindList(scopeKinds) : undefined;
+  // A state view's scope is optional, and can be any element: the one whose states it shows.
+  const optional = level === "state";
+  const scopeKind = scopeKinds.length && !optional ? kindList(scopeKinds) : undefined;
   const scopes = [...ws.elements.values()].filter((e) => scopeKinds.includes(e.kind)).sort((a, b) => a.name.localeCompare(b.name));
   const [scope, setScope] = useState<string>("");
-  const scopeId = scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
+  const scopeId = optional ? scopes.find((s) => s.id === scope)?.id : scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
-  // A sequence has no scope to name it after, so it needs a title.
-  const defaultTitle = level === "sequence" ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
+  // A sequence, and a state view of nothing in particular, have no scope to name them after, so they need a title.
+  const defaultTitle = level === "sequence" || (optional && !scopeName) ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
   const [title, setTitle] = useState("");
   const finalTitle = title.trim() || defaultTitle;
   const canCreate = !!finalTitle && (!scopeKind || !!scopeId);
@@ -133,11 +136,25 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
           )}
         </label>
       )}
+      {optional && (
+        <label className="field">
+          <span className="field-label">The states of</span>
+          <select value={scopeId ?? ""} onChange={(e) => setScope(e.target.value)}>
+            <option value="">Nothing in particular</option>
+            {scopes.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} [{kindLabel(s)}]
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="field">
         <span className="field-label">Title</span>
         <input value={title} placeholder={defaultTitle ?? "e.g. Placing an order"} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
       {level === "class" && <p className="muted small">A class view draws the component's or library's classes as a UML class diagram, with their attributes and methods, and how they relate.</p>}
+      {level === "state" && <p className="muted small">A state view shows the states something can be in, like an order that's placed, paid or delivered, and the transitions between them.</p>}
       {level === "sequence" && <p className="muted small">Give it a title. A sequence shows what happens, step by step: who calls whom, and who answers. Each step goes along a relationship in the model.</p>}
     </Modal>
   );

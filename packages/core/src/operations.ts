@@ -22,6 +22,7 @@ import {
   type Position,
   type RelationshipData,
   type RelationshipKind,
+  type StateData,
   type StepData,
   type StickyColor,
   type StickyData,
@@ -104,6 +105,12 @@ export type Operation =
   | { op: "add-step"; view: string; from: string; to: string; description?: string; technology?: string; reply?: boolean; step?: number }
   | { op: "update-step"; view: string; step: number; from?: string; to?: string; description?: string | null; technology?: string | null; reply?: boolean; newStep?: number }
   | { op: "remove-step"; view: string; step: number }
+  | { op: "add-state"; view: string; id: string; name?: string; description?: string; initial?: boolean; final?: boolean; at?: [number, number] }
+  | { op: "update-state"; view: string; id: string; newId?: string; name?: string; description?: string | null; initial?: boolean; final?: boolean; at?: [number, number] | null }
+  | { op: "remove-state"; view: string; id: string }
+  | { op: "add-transition"; view: string; from: string; to: string; event?: string; guard?: string; action?: string; transition?: number }
+  | { op: "update-transition"; view: string; transition: number; from?: string; to?: string; event?: string | null; guard?: string | null; action?: string | null; newTransition?: number }
+  | { op: "remove-transition"; view: string; transition: number }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -190,6 +197,24 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
     fields: { view: "string", step: "number", from: "string", to: "string", description: "nullable-string", technology: "nullable-string", reply: "boolean", newStep: "number" },
   },
   "remove-step": { required: ["view", "step"], fields: { view: "string", step: "number" } },
+  "add-state": {
+    required: ["view", "id"],
+    fields: { view: "string", id: "string", name: "string", description: "string", initial: "boolean", final: "boolean", at: "point" },
+  },
+  "update-state": {
+    required: ["view", "id"],
+    fields: { view: "string", id: "string", newId: "string", name: "string", description: "nullable-string", initial: "boolean", final: "boolean", at: "nullable-point" },
+  },
+  "remove-state": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-transition": {
+    required: ["view", "from", "to"],
+    fields: { view: "string", from: "string", to: "string", event: "string", guard: "string", action: "string", transition: "number" },
+  },
+  "update-transition": {
+    required: ["view", "transition"],
+    fields: { view: "string", transition: "number", from: "string", to: "string", event: "nullable-string", guard: "nullable-string", action: "nullable-string", newTransition: "number" },
+  },
+  "remove-transition": { required: ["view", "transition"], fields: { view: "string", transition: "number" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
@@ -238,7 +263,7 @@ const TYPE_TEXT: Record<FieldType, string> = {
   tags: 'an object of tag names and string values, like { "owner": "payments" }',
   "nullable-tags": 'an object of tag names and string values, like { "owner": "payments" } (null removes a tag)',
   index: "a whole number, 0 or more",
-  number: "a step's number, 1 or more",
+  number: "a number, 1 or more: 1 is the first",
   positions: "an object of [x, y] positions (null removes one)",
   point: "a position, [x, y]",
   "nullable-point": "a position, [x, y], or null to let the designer place it",
@@ -370,6 +395,30 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       requireStep(view, op.view, op.step);
       view.steps!.splice(op.step - 1, 1);
       return `removed step ${op.step} from view ${op.view}`;
+    }
+    case "add-state":
+      return addState(doc, op);
+    case "update-state":
+      return updateState(doc, op);
+    case "remove-state": {
+      const view = requireStates(doc, op.view);
+      requireState(view, op.view, op.id);
+      delete view.states![op.id];
+      const before = view.transitions?.length ?? 0;
+      view.transitions = (view.transitions ?? []).filter((t) => t.from !== op.id && t.to !== op.id);
+      if (view.initial === op.id) delete view.initial;
+      const gone = before - view.transitions.length;
+      return `removed state ${op.id} from view ${op.view}${gone ? ` and ${count(gone, "transition")} to or from it` : ""}`;
+    }
+    case "add-transition":
+      return addTransition(doc, op);
+    case "update-transition":
+      return updateTransition(doc, op);
+    case "remove-transition": {
+      const view = requireStates(doc, op.view);
+      requireTransition(view, op.view, op.transition);
+      view.transitions!.splice(op.transition - 1, 1);
+      return `removed transition ${op.transition} from view ${op.view}`;
     }
     case "update-workspace":
       return updateWorkspace(doc, op);
@@ -582,26 +631,30 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   assertNewId(doc, op.id);
   if (!(VIEW_LEVELS as readonly string[]).includes(op.level)) throw new OpError(`Unknown level "${op.level}". Use one of: ${VIEW_LEVELS.join(", ")}.`);
   const ws = buildWorkspace(doc);
-  const draft = { id: op.id, path: `views.${op.id}`, title: "", level: op.level, scope: op.scope, include: ["*"], exclude: [], stickies: [], layout: {}, steps: [] };
+  const draft = { id: op.id, path: `views.${op.id}`, title: "", level: op.level, scope: op.scope, include: ["*"], exclude: [], stickies: [], layout: {}, steps: [], states: [], transitions: [] };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
   const sequence = op.level === "sequence";
+  const statesView = op.level === "state";
   if (sequence && (op.include || op.exclude)) throw new OpError(SEQUENCE_PARTICIPANTS);
+  if (statesView && (op.include || op.exclude)) throw new OpError(STATE_BOXES);
   checkIds(doc, op.include, "include");
   checkIds(doc, op.exclude, "exclude");
   const scope = op.scope ? doc.elements[op.scope] : undefined;
   const title =
     op.title?.trim() ||
-    (sequence ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : "System landscape");
+    (sequence ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView ? titleFromId(op.id) : "System landscape");
   doc.views[op.id] = clean<ViewData>({
     title,
     description: op.description?.trim(),
     level: op.level,
     scope: op.scope,
-    include: sequence ? undefined : op.include ? [...op.include] : ["*"],
+    include: sequence || statesView ? undefined : op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
     notes: op.notes?.trim(),
     steps: sequence ? [] : undefined,
+    states: statesView ? {} : undefined,
+    transitions: statesView ? [] : undefined,
   });
   return `added view ${op.id}`;
 }
@@ -614,6 +667,7 @@ export const LEVEL_TITLE: Record<ViewLevel, string> = {
   component: "components",
   class: "classes",
   sequence: "sequence",
+  state: "states",
 };
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
@@ -638,6 +692,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
     else view[key] = value.trim();
   }
   if (view.level === "sequence" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(SEQUENCE_PARTICIPANTS);
+  if (view.level === "state" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(STATE_BOXES);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -685,6 +740,7 @@ function shows(doc: OpenArchDocument, viewId: string, id: string): boolean {
 function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
   const view = requireView(doc, viewId);
   if (view.level === "sequence") throw new OpError(SEQUENCE_PARTICIPANTS);
+  if (view.level === "state") throw new OpError(STATE_BOXES);
   requireElement(doc, id);
   if (shows(doc, viewId, id)) return `${id} is already in view ${viewId}`;
   if (view.exclude?.includes(id)) {
@@ -701,6 +757,7 @@ function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
 function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
   const view = requireView(doc, viewId);
   if (view.level === "sequence") throw new OpError(SEQUENCE_PARTICIPANTS);
+  if (view.level === "state") throw new OpError(STATE_BOXES);
   requireElement(doc, id);
   if (!shows(doc, viewId, id)) throw new OpError(`"${id}" isn't a box in view "${viewId}".`);
   if (view.include?.includes(id)) view.include = view.include.filter((x) => x !== id);
@@ -711,6 +768,7 @@ function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
 function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<string, Position | null>): string {
   const view = requireView(doc, viewId);
   if (view.level === "sequence") throw new OpError("A sequence view is laid out from its steps, so it has no box positions.");
+  if (view.level === "state") throw new OpError("A state view has no boxes. Move a state with update-state --at.");
   const layout: Record<string, Position> = { ...view.layout };
   for (const [id, pos] of Object.entries(positions)) {
     if (pos === null) {
@@ -819,6 +877,118 @@ function checkStep(doc: OpenArchDocument, step: StepData): void {
 }
 
 const countSteps = (n: number) => `${n} step${n === 1 ? "" : "s"}`;
+const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** Why a state view can't be given elements to show or hide. */
+const STATE_BOXES = "A state view draws its states, not elements, so it takes no include or exclude list. Add a state with add-state, or remove one with remove-state.";
+
+function addState(doc: OpenArchDocument, op: Extract<Operation, { op: "add-state" }>): string {
+  const view = requireStates(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. IDs are lowercase kebab-case, like "awaiting-payment".`);
+  if (view.states?.[op.id]) throw new OpError(`View "${op.view}" already has a state "${op.id}".`);
+  view.states = {
+    ...view.states,
+    [op.id]: clean<StateData>({ name: op.name?.trim() || titleFromId(op.id), description: op.description?.trim(), final: op.final || undefined, at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])] }),
+  };
+  if (op.initial) view.initial = op.id;
+  return `added state ${op.id} to view ${op.view}${op.initial ? ", where it starts" : ""}`;
+}
+
+function updateState(doc: OpenArchDocument, op: Extract<Operation, { op: "update-state" }>): string {
+  const view = requireStates(doc, op.view);
+  const state = requireState(view, op.view, op.id);
+  const fields = ["newId", "name", "description", "initial", "final", "at"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on state "${op.id}": ${fields.join(", ")}.`);
+  if (op.name !== undefined) {
+    if (!op.name.trim()) throw new OpError("A state's name can't be empty.");
+    state.name = op.name.trim();
+  }
+  if (op.description !== undefined) {
+    if (op.description === null || !op.description.trim()) delete state.description;
+    else state.description = op.description.trim();
+  }
+  if (op.final !== undefined) {
+    if (op.final) state.final = true;
+    else delete state.final;
+  }
+  if (op.at === null) delete state.at;
+  else if (op.at !== undefined) state.at = [Math.round(op.at[0]), Math.round(op.at[1])];
+  if (op.initial === true) view.initial = op.id;
+  else if (op.initial === false && view.initial === op.id) delete view.initial;
+  if (op.newId === undefined || op.newId === op.id) return `updated state ${op.id} in view ${op.view}`;
+  // A new ID keeps the state where it is in the file, and its transitions follow it.
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. IDs are lowercase kebab-case, like "awaiting-payment".`);
+  if (view.states![op.newId]) throw new OpError(`View "${op.view}" already has a state "${op.newId}".`);
+  view.states = renameKey(view.states!, op.id, op.newId);
+  for (const t of view.transitions ?? []) {
+    if (t.from === op.id) t.from = op.newId;
+    if (t.to === op.id) t.to = op.newId;
+  }
+  if (view.initial === op.id) view.initial = op.newId;
+  return `renamed state ${op.id} to ${op.newId} in view ${op.view}`;
+}
+
+function addTransition(doc: OpenArchDocument, op: Extract<Operation, { op: "add-transition" }>): string {
+  const view = requireStates(doc, op.view);
+  requireState(view, op.view, op.from);
+  requireState(view, op.view, op.to);
+  const transitions = view.transitions ?? [];
+  const at = op.transition ?? transitions.length + 1;
+  if (at > transitions.length + 1) throw new OpError(`View "${op.view}" has ${count(transitions.length, "transition")}, so a new one can be transition 1 to ${transitions.length + 1}.`);
+  const transition = clean({ from: op.from, to: op.to, event: op.event?.trim(), guard: op.guard?.trim(), action: op.action?.trim() });
+  view.transitions = [...transitions.slice(0, at - 1), transition, ...transitions.slice(at - 1)];
+  return `added transition ${at} to view ${op.view}: ${op.from} -> ${op.to}`;
+}
+
+function updateTransition(doc: OpenArchDocument, op: Extract<Operation, { op: "update-transition" }>): string {
+  const view = requireStates(doc, op.view);
+  const transition = requireTransition(view, op.view, op.transition);
+  const fields = ["from", "to", "event", "guard", "action", "newTransition"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on transition ${op.transition}: ${fields.join(", ")}.`);
+  for (const end of ["from", "to"] as const) {
+    const id = op[end];
+    if (id === undefined) continue;
+    requireState(view, op.view, id);
+    transition[end] = id;
+  }
+  for (const key of ["event", "guard", "action"] as const) {
+    const value = op[key];
+    if (value === undefined) continue;
+    if (value === null || !value.trim()) delete transition[key];
+    else transition[key] = value.trim();
+  }
+  const transitions = view.transitions!;
+  if (op.newTransition !== undefined && op.newTransition !== op.transition) {
+    if (op.newTransition > transitions.length) throw new OpError(`View "${op.view}" has ${count(transitions.length, "transition")}, so "newTransition" must be 1 to ${transitions.length}.`);
+    transitions.splice(op.transition - 1, 1);
+    transitions.splice(op.newTransition - 1, 0, transition);
+    return `moved transition ${op.transition} to ${op.newTransition} in view ${op.view}`;
+  }
+  return `updated transition ${op.transition} in view ${op.view}`;
+}
+
+function requireStates(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "state") throw new OpError(`View "${id}" is a ${view.level} view. Only state views have states and transitions.`);
+  return view;
+}
+
+function requireState(view: ViewData, viewId: string, id: string): StateData {
+  const state = view.states?.[id];
+  if (!state) {
+    const ids = Object.keys(view.states ?? {});
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no state "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its states: ${ids.join(", ")}.` : " Add one with add-state."}`);
+  }
+  return state;
+}
+
+function requireTransition(view: ViewData, viewId: string, number: number) {
+  const transitions = view.transitions ?? [];
+  const transition = transitions[number - 1];
+  if (!transition) throw new OpError(transitions.length ? `View "${viewId}" has ${count(transitions.length, "transition")}: "transition" must be 1 to ${transitions.length}.` : `View "${viewId}" has no transitions yet.`);
+  return transition;
+}
 
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {
   if (op.name === undefined && op.description === undefined && op.docs === undefined) throw new OpError("Say what to change: name, description or docs.");

@@ -6,6 +6,7 @@ import {
   suggest,
   tagEntries,
   tagText,
+  transitionLabel,
   type ArchElement,
   type ComputedView,
   type NewElements,
@@ -81,7 +82,7 @@ export function show(io: Io, opts: ShowOptions): number {
     if (d.contentsUsedBy.length) {
       lines.push("", "Its contents are used by:", ...relTable(d.contentsUsedBy.map(({ from, rel }) => [rel, `  ${arrow(from.id, rel)}`, relLabel(rel)])));
     }
-    lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => (v.as === "frame" ? `${v.view.id} (as the frame)` : v.view.id)).join(", ")}` : "  (none)");
+    lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => (v.as === "frame" ? `${v.view.id} (as the frame)` : v.as === "states" ? `${v.view.id} (its states)` : v.view.id)).join(", ")}` : "  (none)");
     print(json, lines.join("\n") + "\n");
     return 0;
   }
@@ -93,6 +94,10 @@ export function show(io: Io, opts: ShowOptions): number {
     const cv = computeView(ws, view);
     if (view.level === "sequence") {
       print(sequenceJson(cv), sequenceText(ws, cv));
+      return 0;
+    }
+    if (view.level === "state") {
+      print(statesJson(cv), statesText(ws, cv));
       return 0;
     }
     const json = {
@@ -197,6 +202,45 @@ function sequenceText(ws: Workspace, cv: ComputedView): string {
           ]),
         )
       : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function statesJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    notes: view.notes,
+    initial: view.initial,
+    states: view.states.map((s) => ({ id: s.id, name: s.name, description: s.description, final: s.final || undefined, at: s.at })),
+    transitions: view.transitions.map((t) => ({ transition: t.number, from: t.from, to: t.to, event: t.event, guard: t.guard, action: t.action })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function statesText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        state view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "States:",
+    ...(view.states.length
+      ? table(view.states.map((s) => [`  ${s.id}`, s.name, [s.id === view.initial ? "(starts here)" : "", s.final ? "(can end here)" : "", s.description ?? ""].filter(Boolean).join(" ")]))
+      : ["  (none)"]),
+    "",
+    "Transitions:",
+    ...(view.transitions.length ? table(view.transitions.map((t) => [`  ${t.number}.`, `${t.from} -> ${t.to}`, transitionLabel(t) || "(no event)"])) : ["  (none)"]),
     ...(view.stickies.length
       ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
       : []),

@@ -1,5 +1,5 @@
 {
-  "openarch": 8,
+  "openarch": 9,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -214,6 +214,29 @@
         "orders": [50, 300],
         "postgres-orders": [50, 60]
       }
+    },
+    "order-states": {
+      "title": "Order states",
+      "description": "What an order goes through, from being placed to being delivered.",
+      "level": "state",
+      "scope": "order",
+      "initial": "placed",
+      "states": {
+        "cancelled": { "name": "Cancelled", "final": true },
+        "delivered": { "name": "Delivered", "final": true },
+        "paid": { "name": "Paid", "description": "The card was charged, and the stock reserved." },
+        "placed": { "name": "Placed", "description": "Waiting for payment." },
+        "refunded": { "name": "Refunded", "final": true },
+        "shipped": { "name": "Shipped", "description": "On its way to the customer." }
+      },
+      "transitions": [
+        { "from": "placed", "to": "paid", "event": "Payment taken", "guard": "paid in full", "action": "Reserve the stock" },
+        { "from": "placed", "to": "placed", "event": "Payment fails", "action": "Ask for another card" },
+        { "from": "placed", "to": "cancelled", "event": "Customer cancels" },
+        { "from": "paid", "to": "shipped", "event": "Warehouse ships it", "action": "Email the tracking link" },
+        { "from": "paid", "to": "refunded", "event": "Customer cancels", "action": "Refund the card" },
+        { "from": "shipped", "to": "delivered", "event": "Courier delivers it" }
+      ]
     },
     "place-order": {
       "title": "Placing an order",

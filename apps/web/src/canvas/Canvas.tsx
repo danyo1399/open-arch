@@ -50,6 +50,9 @@ export type Selection =
   | { kind: "sticky"; id: string }
   /** A sequence view's step, by its number: 1 is the first. */
   | { kind: "step"; number: number }
+  /** A state view's state, and its transition, by its number: 1 is the first. */
+  | { kind: "state"; id: string }
+  | { kind: "transition"; number: number }
   | { kind: "several"; elements: string[]; stickies: string[] }
   | { kind: "workspace" }
   | null;

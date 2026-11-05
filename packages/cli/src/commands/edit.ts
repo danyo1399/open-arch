@@ -112,12 +112,18 @@ function notes(io: Io, v: Values): string | null | undefined {
   }
 }
 
-/** A step's number, from `--<name> <n>` or a positional argument: 1 is the first. */
-function stepNumber(v: Values[string], name: string): number | undefined {
+/** A step's or transition's number, from `--<name> <n>` or a positional argument: 1 is the first. */
+function stepNumber(v: Values[string], name: string, what = "step"): number | undefined {
   if (v === undefined) return undefined;
   const n = Number(v);
-  if (typeof v !== "string" || !Number.isInteger(n) || n < 1) throw new CliError(`${name} must be a step's number: 1 is the first.`, 2);
+  if (typeof v !== "string" || !Number.isInteger(n) || n < 1) throw new CliError(`${name} must be a ${what}'s number: 1 is the first.`, 2);
   return n;
+}
+
+/** `--yes` or `--not-yes`, as true or false, or undefined for neither. */
+function either(v: Values, yes: string, no: string): boolean | undefined {
+  if (v[yes] === true && v[no] === true) throw new CliError(`Pass --${yes} or --${no}, not both.`, 2);
+  return v[yes] === true ? true : v[no] === true ? false : undefined;
 }
 
 function index(v: Values[string]): number | undefined {
@@ -231,7 +237,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class or sequence.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence or state.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",
@@ -299,6 +305,54 @@ export const BUILDERS: Record<string, Builder> = {
   "remove-step": (_io, _v, p, usage) => {
     const [view, n] = need(p, ["<view>", "<n>"], usage);
     return [{ op: "remove-step", view: view!, step: stepNumber(n, "<n>")! }];
+  },
+  "add-state": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "add-state", view: view!, id: id!, name: text(v.name), description: text(v.description), initial: v.initial === true || undefined, final: v.final === true || undefined, at: point(v.at) ?? undefined }];
+  },
+  "update-state": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "update-state",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        name: text(v.name),
+        description: clearable(v.description),
+        initial: either(v, "initial", "not-initial"),
+        final: either(v, "final", "not-final"),
+        at: point(v.at),
+      },
+    ];
+  },
+  "remove-state": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-state", view: view!, id: id! }];
+  },
+  "add-transition": (_io, v, p, usage) => {
+    const [view, from, to] = need(p, ["<view>", "<from>", "<to>"], usage);
+    return [{ op: "add-transition", view: view!, from: from!, to: to!, event: text(v.event), guard: text(v.guard), action: text(v.action), transition: stepNumber(v.transition, "--transition", "transition") }];
+  },
+  "update-transition": (_io, v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [
+      {
+        op: "update-transition",
+        view: view!,
+        transition: stepNumber(n, "<n>", "transition")!,
+        from: text(v.from),
+        to: text(v.to),
+        event: clearable(v.event),
+        guard: clearable(v.guard),
+        action: clearable(v.action),
+        newTransition: stepNumber(v["move-to"], "--move-to", "transition"),
+      },
+    ];
+  },
+  "remove-transition": (_io, _v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [{ op: "remove-transition", view: view!, transition: stepNumber(n, "<n>", "transition")! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

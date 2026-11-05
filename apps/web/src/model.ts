@@ -12,8 +12,10 @@ import {
   type Operation,
   type Relationship,
   type RelationshipKind,
+  type State,
   type Step,
   type Sticky,
+  type Transition,
   type ViewData,
   type ViewDef,
   type Workspace,
@@ -26,6 +28,13 @@ export const PLACEHOLDER_ID = /^new-(person|system|container|component|library|c
 /** `base`, or `base-2`, `base-3`, ... whichever isn't taken by an element or view other than `self`. */
 export function uniqueId(ws: Workspace, base: string, self?: string): string {
   const taken = (id: string) => id !== self && (ws.elements.has(id) || ws.views.has(id));
+  if (!taken(base)) return base;
+  for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
+}
+
+/** `base`, or `base-2`, `base-3`, ... whichever isn't the ID of another of the view's states than `self`. */
+export function uniqueStateId(view: ViewDef, base: string, self?: string): string {
+  const taken = (id: string) => id !== self && view.states.some((s) => s.id === id);
   if (!taken(base)) return base;
   for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
 }
@@ -98,8 +107,8 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  // A sequence view shows the elements in its steps, so it has nothing to show or hide.
-  if (!view || !computed || !element || view.level === "sequence" || computed.boundary?.id === id) return null;
+  // A sequence view shows the elements in its steps, and a state view its states, so they have nothing to show or hide.
+  if (!view || !computed || !element || view.level === "sequence" || view.level === "state" || computed.boundary?.id === id) return null;
   if (computed.nodes.some((n) => n.id === id)) return "hide";
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
@@ -195,7 +204,7 @@ export interface Usages {
   /** Relationships to the element or to something inside it, each with an arrow that draws it, if any view does. */
   relationships: { from: ArchElement; rel: Relationship; arrow?: { view: string; from: string; to: string; relation?: RelationshipKind } }[];
   /** Views that draw the element, as a box or as the frame around the view, by title. */
-  views: { view: ViewDef; as: "box" | "frame" }[];
+  views: { view: ViewDef; as: "box" | "frame" | "states" }[];
 }
 
 /** What refers to an element, for "Find usages". Arrows are looked for in `preferView` first. */
@@ -257,6 +266,8 @@ export type Shown =
   | { kind: "arrow"; from: string; to: string; relation?: RelationshipKind }
   | { kind: "sticky"; view: ViewDef; sticky: Sticky }
   | { kind: "step"; view: ViewDef; step: Step }
+  | { kind: "state"; view: ViewDef; state: State }
+  | { kind: "transition"; view: ViewDef; transition: Transition }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
@@ -277,6 +288,10 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
   if (view && sticky) return { kind: "sticky", view, sticky };
   const step = selection?.kind === "step" ? view?.steps[selection.number - 1] : undefined;
   if (view && step) return { kind: "step", view, step };
+  const state = selection?.kind === "state" ? view?.states.find((s) => s.id === selection.id) : undefined;
+  if (view && state) return { kind: "state", view, state };
+  const transition = selection?.kind === "transition" ? view?.transitions[selection.number - 1] : undefined;
+  if (view && transition) return { kind: "transition", view, transition };
   return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
 }
 
@@ -413,6 +428,13 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "update-sticky":
       case "remove-sticky":
       case "remove-step":
+      // A state's ID, and the ends of its transitions, are its view's own.
+      case "add-state":
+      case "update-state":
+      case "remove-state":
+      case "add-transition":
+      case "update-transition":
+      case "remove-transition":
         return { ...op, view: follow(op.view) };
       case "add-step":
         return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };

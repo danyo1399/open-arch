@@ -10,6 +10,7 @@ An online shop, used as the open-arch example.
 - [System landscape](views/landscape.md) – Every person and system, and how they connect.
 - [Logging classes](views/logging-classes.md) – The shared logging code, and what logs with it.
 - [Order Repository classes](views/order-repository-classes.md) – The classes that store orders, and how they fit together.
+- [Order states](views/order-states.md) – What an order goes through, from being placed to being delivered.
 - [Placing an order](views/place-order.md) – What happens, in order, when a customer places an order.
 - [Shop containers](views/shop-containers.md) – What runs inside the shop.
 - [Shop context](views/shop-context.md) – Who uses the shop, and which systems it depends on.

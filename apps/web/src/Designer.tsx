@@ -15,6 +15,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
+import { StateDiagram } from "./canvas/StateDiagram.js";
 import { BrowserHost, copyText, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
@@ -51,6 +52,8 @@ function detailsName(ws: Workspace, view: ViewDef | null, computed: ComputedView
   if (shown.kind === "arrow") return `${name(shown.from)} ${findArrow(computed, shown.from, shown.to, shown.relation)?.bidirectional ? "↔" : "→"} ${name(shown.to)}`;
   if (shown.kind === "sticky") return "Sticky note";
   if (shown.kind === "step") return `Step ${shown.step.number}`;
+  if (shown.kind === "state") return shown.state.name;
+  if (shown.kind === "transition") return `Transition ${shown.transition.number}`;
   if (shown.kind === "several") return shapesLabel(shown.elements.length, shown.stickies.length);
   return shown.kind === "view" ? "This view" : "Workspace";
 }
@@ -146,6 +149,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "element" && ws && !ws.elements.has(selection.id)) setSelection(null);
     if (selection?.kind === "sticky" && ws && !ws.views.get(viewId ?? "")?.stickies.some((s) => s.id === selection.id)) setSelection(null);
     if (selection?.kind === "step" && ws && selection.number > (ws.views.get(viewId ?? "")?.steps.length ?? 0)) setSelection(null);
+    if (selection?.kind === "state" && ws && !ws.views.get(viewId ?? "")?.states.some((s) => s.id === selection.id)) setSelection(null);
+    if (selection?.kind === "transition" && ws && selection.number > (ws.views.get(viewId ?? "")?.transitions.length ?? 0)) setSelection(null);
   }, [ws, selection, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
@@ -238,6 +243,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "sticky" && view) void edit([{ op: "remove-sticky", view: view.id, id: selection.id }]).then(() => select(null));
     // A step is one line of a sequence, and Undo brings it back, so it goes without asking too.
     if (selection?.kind === "step" && view) void edit([{ op: "remove-step", view: view.id, step: selection.number }]).then(() => select(null));
+    // So does a state, with its transitions, and a transition: Undo brings them back.
+    if (selection?.kind === "state" && view) void edit([{ op: "remove-state", view: view.id, id: selection.id }]).then(() => select(null));
+    if (selection?.kind === "transition" && view) void edit([{ op: "remove-transition", view: view.id, transition: selection.number }]).then(() => select(null));
     if (selection?.kind === "arrow" && ws) {
       const ops = arrowDeleteOps(ws, computed, selection.from, selection.to, selection.relation);
       if (ops.length) void edit(ops).then(() => select(null));
@@ -504,6 +512,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             />
           ) : (
             <div className="canvas-message">This view can't be drawn: {view && scopeProblems(ws, view)[0]?.message}</div>
+          )
+        ) : view?.level === "state" ? (
+          computed ? (
+            <ReactFlowProvider key={view.id}>
+              <StateDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} />
+            </ReactFlowProvider>
+          ) : (
+            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
           )
         ) : view ? (
           <ReactFlowProvider key={view.id}>

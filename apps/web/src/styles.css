@@ -1567,6 +1567,65 @@ button.heading {
   stroke: var(--accent);
   stroke-width: 2.5;
 }
+/* A state view's state: a rounded box, in the same light colours as a class (see StateNode). */
+.state-box {
+  position: relative;
+  width: 180px;
+  min-height: 46px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--class);
+  border: 1.5px solid var(--class-line);
+  color: #0b1f33;
+  text-align: center;
+  box-shadow: var(--shadow);
+  outline: 3px solid transparent;
+  outline-offset: 2px;
+}
+.state-box.selected {
+  outline-color: var(--accent);
+}
+.state-name {
+  font-weight: 650;
+  font-size: 14px;
+}
+.state-desc {
+  font-size: 12px;
+  margin-top: 6px;
+  line-height: 1.35;
+}
+/* The start dot, pointing into the state from its left, and the end, a bullseye out of its right. */
+.state-start,
+.state-end {
+  position: absolute;
+  top: calc(50% - 8px);
+  overflow: visible;
+  pointer-events: none;
+}
+.state-start {
+  left: -47px;
+}
+.state-end {
+  right: -51px;
+  top: calc(50% - 9px);
+}
+.state-start circle,
+.state-start path,
+.state-end path,
+.state-end circle {
+  fill: var(--edge);
+  stroke: var(--edge);
+  stroke-width: 1.5;
+}
+.state-end circle.ring {
+  fill: var(--canvas);
+}
+.badge-state {
+  background: var(--class);
+  color: #0b1f33;
+  box-shadow: inset 0 0 0 1px var(--class-line);
+}
+
 /* UML arrow ends, on a class view's arrows (see UmlMarker). */
 .uml-marker {
   stroke: var(--edge);

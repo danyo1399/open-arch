@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 7 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 8 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -196,6 +196,41 @@ describe("changing", () => {
     expect(cli(dir, "add-element", "--help").out).toContain("components a container or library");
   });
 
+  it("adds a state view, its states and transitions, and shows them and their Mermaid diagram", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "order-lifecycle", "--level", "state", "--scope", "order", "--title", "Order lifecycle").code).toBe(0);
+    const added = cli(dir, "add-state", "order-lifecycle", "paid", "--description", "The card was charged.");
+    expect(added.out).toContain("warning: views.order-lifecycle.initial: warning [state-initial-missing]");
+    expect(cli(dir, "add-state", "order-lifecycle", "placed", "--initial").code).toBe(0);
+    expect(cli(dir, "add-state", "order-lifecycle", "delivered", "--final", "--at", "0,300").code).toBe(0);
+    expect(cli(dir, "add-transition", "order-lifecycle", "placed", "paid", "--event", "Payment taken", "--guard", "paid in full").code).toBe(0);
+    expect(cli(dir, "add-transition", "order-lifecycle", "paid", "delivered").code).toBe(0);
+    expect(cli(dir, "show", "order-lifecycle").out).toBe(`order-lifecycle: Order lifecycle
+  level:        state view of order (Order)
+
+States:
+  placed     Placed     (starts here)
+  paid       Paid       The card was charged.
+  delivered  Delivered  (can end here)
+
+Transitions:
+  1.  placed -> paid     Payment taken [paid in full]
+  2.  paid -> delivered  (no event)
+`);
+    expect(JSON.parse(cli(dir, "show", "order-lifecycle", "--json").out).transitions[0]).toEqual({ transition: 1, from: "placed", to: "paid", event: "Payment taken", guard: "paid in full" });
+    expect(read(dir, "docs/views/order-lifecycle.md")).toContain("  placed --> paid : Payment taken [paid in full]\n");
+
+    expect(cli(dir, "update-transition", "order-lifecycle", "2", "--event", "Delivered", "--move-to", "1").code).toBe(0);
+    expect(JSON.parse(read(dir)).views["order-lifecycle"].transitions[0]).toEqual({ from: "paid", to: "delivered", event: "Delivered" });
+    expect(cli(dir, "update-state", "order-lifecycle", "placed", "--new-id", "new", "--name", "New").code).toBe(0);
+    expect(JSON.parse(read(dir)).views["order-lifecycle"].initial).toBe("new");
+    expect(cli(dir, "remove-transition", "order-lifecycle", "1").code).toBe(0);
+    expect(cli(dir, "remove-state", "order-lifecycle", "paid").out).toContain("removed state paid from view order-lifecycle and 1 transition to or from it");
+    expect(cli(dir, "update-state", "order-lifecycle", "new", "--final", "--not-final").err).toContain("Pass --final or --not-final, not both.");
+    expect(cli(dir, "remove-transition", "order-lifecycle", "x").err).toContain("<n> must be a transition's number");
+    expect(cli(dir, "add-view", "--help").out).toContain("A state view shows the states something can be in");
+  });
+
   it("removes fields with empty values and hides elements from views", () => {
     const dir = example();
     expect(cli(dir, "update-element", "web-app", "--technology", "", "--tag", "frontend").code).toBe(0);
@@ -348,22 +383,22 @@ describe("changing", () => {
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 8', '"openarch": 1')
+      .replace('"openarch": 9', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 8, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 9, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7])("reads a version %i file, and writes it back as version 8", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8])("reads a version %i file, and writes it back as version 9", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 8', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 9', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 8,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 9,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -396,7 +431,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 8, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 9, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

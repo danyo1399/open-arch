@@ -28,5 +28,6 @@
 ## Shown in
 
 - [Order Repository classes](../views/order-repository-classes.md)
+- [Order states](../views/order-states.md) (its states)
 
 [All views and elements](../README.md)

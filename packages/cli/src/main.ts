@@ -70,7 +70,7 @@ Without an id: the model as a tree, and the list of views.
 With an element id: its fields, notes, what it uses and what uses it (with those
 relationships' notes), and the views showing it.
 With a view id: its description and notes, and the boxes and arrows the view draws, or for
-a sequence view, its steps in order. A class's members, a relationship's kind when it isn't
+a sequence view, its steps in order, or for a state view, its states and transitions. A class's members, a relationship's kind when it isn't
 an association, a container's libraries and the containers a library is built into are shown
 too.
 `,
@@ -104,7 +104,8 @@ command, e.g. [{ "op": "add-element", "id": "cache", "kind": "container", "paren
 Operations: add-element, update-element, remove-element, rename, add-relationship,
 update-relationship, remove-relationship, add-view, update-view, remove-view, show-in-view,
 hide-in-view, set-layout, add-sticky, update-sticky, remove-sticky, add-step, update-step,
-remove-step, update-workspace.
+remove-step, add-state, update-state, remove-state, add-transition, update-transition,
+remove-transition, update-workspace.
 In updates, null removes a field.
 `,
     {},
@@ -210,12 +211,15 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state> [options]
 
 A class view shows a component's or library's classes, with their members, as a UML class
 diagram.
 A sequence view shows steps between elements, in order: add them with add-step. It takes no
 scope, include or exclude.
+A state view shows the states something can be in, and the transitions between them: add
+them with add-state and add-transition. Its scope, if any, is the element whose states they
+are, of any kind. It takes no include or exclude.
   --scope <id>           A system for context and container views, a container or library
                          for component views, a component or library for class views
   --title <title>        Default: from the scope and level, or for a sequence view, from the id
@@ -284,6 +288,52 @@ An empty value removes a field.
     { from: s, to: s, description: s, technology: s, reply: b, call: b, "move-to": s },
   ),
   "remove-step": writer(`Usage: open-arch remove-step <view> <n>\n\nRemoves a sequence view's step <n>; the steps after it move up one.\n`, {}),
+  "add-state": writer(
+    `Usage: open-arch add-state <view> <id> [--name <name>] [--description <text>] [--initial] [--final] [--at <x,y>]
+
+Adds a state to a state view, like "paid". The id must be unique within the view.
+  --name <name>          Display name (default: from the id)
+  --description <text>   One sentence, shown in the state
+  --initial              It's the state the view starts in (another one stops being it)
+  --final                The state machine can end in this state
+  --at <x,y>             Top-left corner (default: the designer lays it out)
+`,
+    { name: s, description: s, initial: b, final: b, at: s },
+  ),
+  "update-state": writer(
+    `Usage: open-arch update-state <view> <id> [--name <name>] [--new-id <id>] [--description <text>]
+                             [--initial | --not-initial] [--final | --not-final] [--at <x,y>]
+
+--new-id changes its ID, and its transitions follow it.
+--at "" lets the designer lay it out again.
+An empty value removes a field.
+`,
+    { name: s, "new-id": s, description: s, initial: b, "not-initial": b, final: b, "not-final": b, at: s },
+  ),
+  "remove-state": writer(`Usage: open-arch remove-state <view> <id>\n\nRemoves a state, and the transitions to and from it.\n`, {}),
+  "add-transition": writer(
+    `Usage: open-arch add-transition <view> <from> <to> [--event <text>] [--guard <text>] [--action <text>] [--transition <n>]
+
+Adds a transition from one state of a state view to another, or back to the same one. It's
+labelled as UML writes it: event [guard] / action.
+  --event <text>         What makes it happen, e.g. "Payment taken"
+  --guard <text>         What has to be true for it to happen, e.g. "paid in full"
+  --action <text>        What's done as it happens, e.g. "Send a receipt"
+  --transition <n>       Its number: 1 is the first (default: after the last)
+`,
+    { event: s, guard: s, action: s, transition: s },
+  ),
+  "update-transition": writer(
+    `Usage: open-arch update-transition <view> <n> [--from <id>] [--to <id>] [--event <text>] [--guard <text>]
+                                  [--action <text>] [--move-to <n>]
+
+<n> is the transition's number, as show prints it: 1 is the first.
+  --move-to <n>          Give it another number; the ones between move up or down one
+An empty value removes a field.
+`,
+    { from: s, to: s, event: s, guard: s, action: s, "move-to": s },
+  ),
+  "remove-transition": writer(`Usage: open-arch remove-transition <view> <n>\n\nRemoves transition <n>; the ones after it move up one.\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -310,6 +360,8 @@ Change (each change is checked first; nothing is saved if it would break the mod
   show-in-view <view> <id>...     hide-in-view <view> <id>...     update-workspace
   add-sticky <view> <id>          update-sticky <view> <id>       remove-sticky <view> <id>
   add-step <view> <from> <to>     update-step <view> <n>          remove-step <view> <n>
+  add-state <view> <id>           update-state <view> <id>        remove-state <view> <id>
+  add-transition <view> <from> <to>   update-transition <view> <n>   remove-transition <view> <n>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

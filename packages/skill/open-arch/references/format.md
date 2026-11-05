@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 8)
+# The open-arch workspace (format version 9)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 8,
+  "openarch": 9,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -75,14 +75,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `8` |
+| `openarch` | Format version, always `9` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 7 files too, and write them back as version 8. Version 7 is the same, but a library can't hold components. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 8 files too, and write them back as version 9. Version 8 is the same, but without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view.
 
@@ -161,14 +161,17 @@ Only associations go both ways. A relationship with a kind needs no description,
 |---|---|
 | `title` | Diagram title |
 | `description` | One sentence, shown under the title on the diagram |
-| `level` | `landscape`, `context`, `container`, `component`, `class` or `sequence` |
-| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, none for landscape and sequence |
-| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence views |
-| `exclude` | IDs to hide. Not used on sequence views |
+| `level` | `landscape`, `context`, `container`, `component`, `class`, `sequence` or `state` |
+| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, optionally any element for state views (the one whose states they are), none for landscape and sequence |
+| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence and state views |
+| `exclude` | IDs to hide. Not used on sequence and state views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
 | `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside the diagram) |
-| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence views |
+| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence and state views |
 | `steps` | Sequence views only: what happens, in order (see below) |
+| `states` | State views only: the states, keyed by an ID unique within the view (see below) |
+| `initial` | State views only: the ID of the state it starts in |
+| `transitions` | State views only: the ways from one state to another, in order (see below) |
 
 | Level | Boxes | `"*"` includes |
 |---|---|---|
@@ -190,6 +193,42 @@ A `sequence` view isn't a level of detail: it shows what happens, in order, like
 
 Steps go along the model's relationships: a call from A to B needs a relationship from A, or something inside A, to B, or something inside B, or one between them that goes both ways, and a reply from B to A goes back along one of those. Elements at any level of detail can be in the same sequence: a person, a container and a component. Commands refuse a step the model has no relationship for, and `check` warns when one loses its relationship, for example when the relationship is removed. Removing an element removes its steps.
 
+A `state` view isn't a level of detail either: it shows the states something can be in, and how it moves between them, like a UML state machine diagram. Its `scope`, if it has one, is the element whose states they are, of any kind, such as a class or a system; the designer draws it as a frame round the states. Its states and transitions belong to the view, not the model:
+
+```json
+"order-states": {
+  "title": "Order states",
+  "level": "state",
+  "scope": "order",
+  "initial": "placed",
+  "states": {
+    "delivered": { "name": "Delivered", "final": true },
+    "paid": { "name": "Paid", "description": "The card was charged." },
+    "placed": { "name": "Placed", "at": [0, 0] }
+  },
+  "transitions": [
+    { "from": "placed", "to": "paid", "event": "Payment taken", "guard": "paid in full", "action": "Send a receipt" },
+    { "from": "paid", "to": "delivered", "event": "Courier delivers it" }
+  ]
+}
+```
+
+| State field | Meaning |
+|---|---|
+| `name` | Display name |
+| `description` | One sentence, shown in the state |
+| `final` | `true` when the state machine can end in this state, drawn with an arrow out of it to a bullseye |
+| `at` | `[x, y]`, the top-left corner. Without it, the designer lays the state out |
+
+| Transition field | Meaning |
+|---|---|
+| `from`, `to` | The IDs of the states it leaves and goes to: the same one for a transition back to itself |
+| `event` | What makes it happen, e.g. "Payment taken" |
+| `guard` | What has to be true for it to happen, e.g. "paid in full" |
+| `action` | What's done as it happens, e.g. "Send a receipt" |
+
+A transition is labelled as UML writes it: `event [guard] / action`. Transitions are numbered from 1, in order, as `show <view>` prints them; the order doesn't change what the diagram means. The `initial` state gets a dot with an arrow into it.
+
 Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside them.
 
 Each element is drawn at the level of detail the view allows: in a container view of `shop`, a component inside `checkout-api` appears as `checkout-api`, and a container of another system appears as that system. Relationships move up with their elements, and several relationships between the same two boxes become one arrow.
@@ -199,7 +238,7 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions.
 - `elements/<id>.md`: the element's details, notes, members (for a class), libraries (for a container), the containers built with it (for a library), relationships (with their notes), contents and the views showing it.
 
 Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite or delete pages with that marker, so other files in the folder are safe. Don't edit generated pages: the next change rewrites them.
@@ -211,9 +250,9 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `8` (or `1` to `7`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `9` (or `1` to `8`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
-| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence view, or `steps` on another view |
+| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence or state view, `steps` on another view than a sequence, or `states`, `initial` or `transitions` on another view than a state view |
 | `field-type` | error | A field has the wrong type |
 | `field-required` | error | A required field is missing |
 | `id-format` | error | An ID isn't kebab-case |
@@ -254,6 +293,9 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | `step-unknown-element` | error | A step's `from` or `to` isn't an element |
 | `step-self` | error | A step goes from an element to itself |
 | `step-relationship-missing` | warning | The model has no relationship for a step to go along |
+| `state-initial-unknown` | error | A state view's `initial` isn't one of its states |
+| `state-initial-missing` | warning | A state view with states has no `initial` state |
+| `transition-unknown-state` | error | A transition's `from` or `to` isn't one of its view's states |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |
 
 The first thirteen are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.

@@ -17,8 +17,8 @@ export interface ElementDescription {
   libraries: ArchElement[];
   /** A library's containers: those built with it. */
   builtInto: ArchElement[];
-  /** Views that draw this element, as a box or as the frame around the view. */
-  views: { view: ViewDef; as: "box" | "frame" }[];
+  /** Views that draw this element: as a box, as the frame around the view, or as what a state view shows the states of. */
+  views: { view: ViewDef; as: "box" | "frame" | "states" }[];
 }
 
 export function describeElement(ws: Workspace, id: string): ElementDescription | undefined {
@@ -38,7 +38,7 @@ export function describeElement(ws: Workspace, id: string): ElementDescription |
   }
   const views: ElementDescription["views"] = [];
   for (const cv of computeAllViews(ws)) {
-    if (cv.boundary?.id === id) views.push({ view: cv.view, as: "frame" });
+    if (cv.boundary?.id === id) views.push({ view: cv.view, as: cv.view.level === "state" ? "states" : "frame" });
     else if (cv.nodes.some((n) => n.id === id)) views.push({ view: cv.view, as: "box" });
   }
   return {

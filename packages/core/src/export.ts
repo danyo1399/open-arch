@@ -3,7 +3,7 @@
  * element and one per view with its Mermaid diagram. They're output only:
  * every page says so, and tools rewrite them freely.
  */
-import { renderMermaid } from "./mermaid.js";
+import { renderMermaid, transitionLabel } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
 import { SHAPE_LABELS, type ArchElement, type Relationship, type RelationshipKind } from "./types.js";
@@ -109,6 +109,24 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     lines.push("", "```mermaid", renderMermaid(cv), "```");
     // The diagram's sticky notes, as quotes in reading order.
     if (v.stickies.length) lines.push("", "## Sticky notes", ...v.stickies.flatMap((s) => ["", ...s.text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd())]));
+    if (v.level === "state") {
+      const name = (id: string) => cell(v.states.find((s) => s.id === id)?.name ?? id);
+      lines.push("", "## States", "");
+      if (v.states.length) {
+        lines.push("| State | Description |", "|---|---|");
+        for (const s of v.states) {
+          const marks = [s.id === v.initial ? "starts here" : "", s.final ? "can end here" : ""].filter(Boolean).join(", ");
+          lines.push(`| ${cell(s.name)}${marks ? ` (${marks})` : ""} | ${cell(s.description)} |`);
+        }
+      } else lines.push("None yet.");
+      if (v.transitions.length) {
+        lines.push("", "## Transitions", "", "| # | From | To | Event [guard] / action |", "|---|---|---|---|");
+        for (const t of v.transitions) lines.push(`| ${t.number} | ${name(t.from)} | ${name(t.to)} | ${cell(transitionLabel(t))} |`);
+      }
+      lines.push("", `[All views and elements](../README.md)`, "");
+      files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
+      continue;
+    }
     lines.push("", "## Elements", "");
     if (cv.nodes.length) {
       lines.push("| Element | Kind | Technology | Description |", "|---|---|---|---|");
@@ -178,7 +196,7 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     const tags = tagEntries(e.tags);
     if (tags.length) lines.push("", "## Tags", "", "| Tag | Value |", "|---|---|", ...tags.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
     if (d.views.length) {
-      lines.push("", "## Shown in", "", ...d.views.map(({ view, as }) => `- [${view.title}](../views/${view.id}.md)${as === "frame" ? " (as the frame)" : ""}`));
+      lines.push("", "## Shown in", "", ...d.views.map(({ view, as }) => `- [${view.title}](../views/${view.id}.md)${as === "frame" ? " (as the frame)" : as === "states" ? " (its states)" : ""}`));
     }
     lines.push("", `[All views and elements](../README.md)`, "");
     files.push({ path: `elements/${e.id}.md`, content: lines.join("\n") });

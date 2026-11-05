@@ -6,7 +6,7 @@
 import type { Workspace } from "./workspace.js";
 import { builtInto, childrenOf, compareElements, containerOf, kindList, libraryOf, lineage, topLevel } from "./model.js";
 import { suggest } from "./suggest.js";
-import { RELATIONSHIP_KINDS, type ArchElement, type Diagnostic, type ElementKind, type RelationshipKind, type Step, type ViewDef, type ViewLevel } from "./types.js";
+import { ELEMENT_KINDS, RELATIONSHIP_KINDS, type ArchElement, type Diagnostic, type ElementKind, type RelationshipKind, type Step, type ViewDef, type ViewLevel } from "./types.js";
 
 export interface ViewEdge {
   from: string;
@@ -66,6 +66,8 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   component: ["container", "library"],
   class: ["component", "library"],
   sequence: [],
+  // Optional: the element whose states the view shows, of any kind.
+  state: ELEMENT_KINDS,
 };
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
@@ -79,6 +81,7 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
   }
   if (view.scope === undefined) {
+    if (view.level === "state") return [];
     return [{ ...at, severity: "error", rule: "view-scope-required", message: `A ${view.level} view needs \`scope\`: the ID of the ${wanted} it shows.` }];
   }
   const scope = ws.elements.get(view.scope);
@@ -113,7 +116,7 @@ export function representative(ws: Workspace, view: ViewDef): (id: string, copy?
   // The container whose copy of a library is drawn as the library's own box.
   const home = view.level === "component" ? scope : view.level === "class" ? scopeContainer : undefined;
   const plain = plainRepresentative(ws, view, scope, scopeSystem, scopeContainer);
-  if (scope && view.level !== "sequence" && libraryOf(ws, scope.id)) return libraryViewRepresentative(ws, view, scope);
+  if (scope && view.level !== "sequence" && view.level !== "state" && libraryOf(ws, scope.id)) return libraryViewRepresentative(ws, view, scope);
   return (id, copy) => {
     const library = libraryOf(ws, id);
     if (!library || view.level === "sequence") return plain(id);
@@ -173,6 +176,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
         if (chain.some((e) => e.id === scopeSystem.id)) return childOf(scopeSystem.id);
         return top.id;
       case "sequence":
+      case "state":
         return id;
     }
   };
@@ -181,6 +185,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
 /** Compute a view. Call `scopeProblems` first: this assumes the scope is valid. */
 export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   if (view.level === "sequence") return computeSequence(ws, view);
+  if (view.level === "state") return computeStates(ws, view);
   const diagnostics: Diagnostic[] = [];
   const rep = representative(ws, view);
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
@@ -400,6 +405,39 @@ function computeSequence(ws: Workspace, view: ViewDef): ComputedView {
     });
   }
   return { view, nodes: participants, edges: [], steps, diagnostics };
+}
+
+/**
+ * A state view: it draws its states, not boxes, so it has none, and the element whose states they
+ * are, if it says, as its frame. Its problems are transitions and an initial state that name no
+ * state, and states with no initial one.
+ */
+function computeStates(ws: Workspace, view: ViewDef): ComputedView {
+  const diagnostics: Diagnostic[] = [];
+  const ids = view.states.map((s) => s.id);
+  const near = (id: string) => {
+    const match = suggest(id, ids);
+    return match ? `Did you mean "${match}"?` : undefined;
+  };
+  if (view.initial !== undefined && !ids.includes(view.initial)) {
+    diagnostics.push({ severity: "error", rule: "state-initial-unknown", message: `The initial state "${view.initial}" isn't a state of this view.`, path: `${view.path}.initial`, fix: near(view.initial) });
+  } else if (view.initial === undefined && ids.length) {
+    diagnostics.push({
+      severity: "warning",
+      rule: "state-initial-missing",
+      message: "This state view has no initial state, so it doesn't say where it starts.",
+      path: `${view.path}.initial`,
+      fix: `Mark one with \`open-arch update-state ${view.id} <state> --initial\`.`,
+    });
+  }
+  for (const t of view.transitions) {
+    for (const end of ["from", "to"] as const) {
+      if (ids.includes(t[end])) continue;
+      diagnostics.push({ severity: "error", rule: "transition-unknown-state", message: `Transition ${t.number}: "${t[end]}" isn't a state of this view.`, path: `${t.path}.${end}`, fix: near(t[end]) });
+    }
+  }
+  const boundary = view.scope ? ws.elements.get(view.scope) : undefined;
+  return { view, boundary, nodes: [], edges: [], steps: [], diagnostics };
 }
 
 function joinLabels(values: (string | undefined)[], separator: string): string | undefined {

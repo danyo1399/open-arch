@@ -7,12 +7,15 @@ import {
   RELATIONSHIP_KINDS,
   SHAPE_LABELS,
   STICKY_COLORS,
+  transitionLabel,
   type ArchElement,
   type ComputedView,
   type NewElements,
   type Operation,
   type Relationship,
   type RelationshipKind,
+  type State,
+  type Transition,
   type Step,
   type Sticky,
   type ViewDef,
@@ -20,7 +23,7 @@ import {
 } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, viewAction } from "../model.js";
+import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, uniqueStateId, viewAction } from "../model.js";
 import type { Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
 
@@ -71,6 +74,8 @@ export function Properties(props: PropertiesProps) {
   else if (shown.kind === "arrow") body = <ArrowProperties {...props} from={shown.from} to={shown.to} relation={shown.relation} />;
   else if (shown.kind === "sticky") body = <StickyProperties {...props} view={shown.view} sticky={shown.sticky} />;
   else if (shown.kind === "step") body = <StepProperties {...props} view={shown.view} step={shown.step} />;
+  else if (shown.kind === "state") body = <StateProperties {...props} view={shown.view} state={shown.state} />;
+  else if (shown.kind === "transition") body = <TransitionProperties {...props} view={shown.view} transition={shown.transition} />;
   else if (shown.kind === "several") body = <SeveralProperties {...props} elements={shown.elements} stickies={shown.stickies} />;
   else if (shown.kind === "view") body = <ViewProperties {...props} view={shown.view} />;
   else body = <WorkspaceProperties {...props} />;
@@ -480,6 +485,126 @@ function StepProperties({ ws, view, computed, step, edit, onSelect }: Properties
   );
 }
 
+function StateProperties({ view, state, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; state: State }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-state" }>, "op" | "view" | "id">) => void edit([{ op: "update-state", view: view.id, id: state.id, ...fields }]);
+  // An ID made from the name keeps following it, as an element's does; the selection follows the ID.
+  const rename = (name: string) => {
+    const base = idFromName(name);
+    const newId = base && followsName(state.id, state.name) ? uniqueStateId(view, base, state.id) : state.id;
+    void edit([{ op: "update-state", view: view.id, id: state.id, name, ...(newId !== state.id && { newId }) }]).then((ok) => ok && newId !== state.id && onSelect({ kind: "state", id: newId }));
+  };
+  const changeId = (text: string) => {
+    const newId = idFromName(text);
+    if (!newId || newId === state.id) return;
+    void edit([{ op: "update-state", view: view.id, id: state.id, newId }]).then((ok) => ok && onSelect({ kind: "state", id: newId }));
+  };
+  const name = (id: string) => view.states.find((s) => s.id === id)?.name ?? id;
+  const out = view.transitions.filter((t) => t.from === state.id);
+  const into = view.transitions.filter((t) => t.to === state.id && t.from !== state.id);
+  const transitionLink = (t: Transition, other: string, arrow: string) => (
+    <li key={t.number}>
+      <button className="link" onClick={() => onSelect({ kind: "transition", number: t.number })}>
+        {arrow} {name(other)}
+      </button>{" "}
+      <span className="muted small">{transitionLabel(t)}</span>
+    </li>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge badge-state">State</span>
+      </header>
+      <Field label="Name" value={state.name} onCommit={(n) => n.trim() && rename(n)} autoFocus={isNew} />
+      <Field label="ID" value={state.id} onCommit={changeId} hint={idHint(followsName(state.id, state.name))} />
+      <Field label="Description" value={state.description ?? ""} multiline placeholder="One sentence, shown in the state" onCommit={(description) => set({ description: description || null })} />
+      <label className="check">
+        <input type="checkbox" checked={view.initial === state.id} onChange={(e) => set({ initial: e.target.checked })} />
+        It starts here (the initial state)
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={state.final} onChange={(e) => set({ final: e.target.checked })} />
+        It can end here (a final state)
+      </label>
+      <h3>Transitions</h3>
+      {out.length + into.length === 0 && <p className="muted small">None yet. Drag from the dot under this state to another state to add one.</p>}
+      <ul className="plain">
+        {out.map((t) => transitionLink(t, t.to, t.to === state.id ? "↻" : "→"))}
+        {into.map((t) => transitionLink(t, t.from, "←"))}
+      </ul>
+      <label className="field">
+        <span className="field-label">Add a transition to</span>
+        <select
+          value=""
+          onChange={(e) => {
+            const to = e.target.value;
+            if (!to) return;
+            const number = view.transitions.length + 1;
+            void edit([{ op: "add-transition", view: view.id, from: state.id, to }]).then((ok) => ok && onSelect({ kind: "transition", number }));
+          }}
+        >
+          <option value="">Choose a state…</option>
+          {view.states.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.id === state.id ? `${s.name} (itself)` : s.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="actions">
+        {state.at && <button onClick={() => set({ at: null })}>Lay out again</button>}
+        <button className="danger" onClick={() => void edit([{ op: "remove-state", view: view.id, id: state.id }]).then(() => onSelect(null))}>
+          Delete state
+        </button>
+      </div>
+    </>
+  );
+}
+
+function TransitionProperties({ view, transition, edit, onSelect }: PropertiesProps & { view: ViewDef; transition: Transition }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-transition" }>, "op" | "view" | "transition">) =>
+    void edit([{ op: "update-transition", view: view.id, transition: transition.number, ...fields }]);
+  const count = view.transitions.length;
+  const move = (to: number) => void edit([{ op: "update-transition", view: view.id, transition: transition.number, newTransition: to }]).then((ok) => ok && onSelect({ kind: "transition", number: to }));
+  const end = (field: "from" | "to", label: string) => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={transition[field]} onChange={(e) => set({ [field]: e.target.value })}>
+        {!view.states.some((s) => s.id === transition[field]) && <option value={transition[field]}>{transition[field]} (not a state)</option>}
+        {view.states.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Transition {transition.number}</span>
+        <span className="muted small">of {count}</span>
+      </header>
+      {end("from", "From")}
+      {end("to", "To")}
+      <Field label="Event" value={transition.event ?? ""} autoFocus={!transition.event} placeholder="What makes it happen, e.g. Payment taken" onCommit={(event) => set({ event: event || null })} />
+      <Field label="Guard" value={transition.guard ?? ""} placeholder="What has to be true, e.g. paid in full" onCommit={(guard) => set({ guard: guard || null })} />
+      <Field label="Action" value={transition.action ?? ""} placeholder="What's done as it happens, e.g. Send a receipt" onCommit={(action) => set({ action: action || null })} />
+      <p className="muted small">The arrow is labelled as UML writes it: event [guard] / action.</p>
+      <div className="actions">
+        <button disabled={transition.number === 1} onClick={() => move(transition.number - 1)}>
+          Move up
+        </button>
+        <button disabled={transition.number === count} onClick={() => move(transition.number + 1)}>
+          Move down
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-transition", view: view.id, transition: transition.number }]).then(() => onSelect(null))}>
+          Delete transition
+        </button>
+      </div>
+    </>
+  );
+}
+
 function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
   return (
     <>
@@ -554,8 +679,28 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
         placeholder="Longer documentation, in markdown"
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
       />
-      {view.level !== "sequence" && <NewElementsField view={view} edit={edit} />}
-      {view.level === "sequence" ? (
+      {view.level !== "sequence" && view.level !== "state" && <NewElementsField view={view} edit={edit} />}
+      {view.level === "state" ? (
+        <>
+          <dl className="facts">
+            <dt>Level</dt>
+            <dd>state</dd>
+            {scope && (
+              <>
+                <dt>The states of</dt>
+                <dd>{scope.name}</dd>
+              </>
+            )}
+            <dt>States</dt>
+            <dd>{view.states.length}</dd>
+            <dt>Transitions</dt>
+            <dd>{view.transitions.length}</dd>
+          </dl>
+          <p className="muted small">
+            A state view shows the states something can be in, and the transitions between them. Use + Add to add a state, and drag from the dot under a state to another to add a transition. Select a state or a transition to change it.
+          </p>
+        </>
+      ) : view.level === "sequence" ? (
         <>
           <dl className="facts">
             <dt>Level</dt>
