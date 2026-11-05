@@ -70,8 +70,9 @@ Without an id: the model as a tree, and the list of views.
 With an element id: its fields, notes, what it uses and what uses it (with those
 relationships' notes), and the views showing it.
 With a view id: its description and notes, and the boxes and arrows the view draws, or for
-a sequence view, its steps in order. A class's members, and a relationship's kind when it
-isn't an association, are shown too.
+a sequence view, its steps in order. A class's members, a relationship's kind when it isn't
+an association, a container's libraries and the containers a library is built into are shown
+too.
 `,
     options: { ...FILE, json: b },
     run: (io, v, p) => show(io, { file: str(v.file), json: bool(v.json), id: p[0] }),
@@ -109,9 +110,12 @@ In updates, null removes a field.
     {},
   ),
   "add-element": writer(
-    `Usage: open-arch add-element <id> --kind <person|system|container|component|class> [options]
+    `Usage: open-arch add-element <id> --kind <person|system|container|component|library|class> [options]
 
-  --parent <id>          Containers need a system, components a container, classes a component
+A library is a component shared by several containers, such as a logging library: each
+container built with it lists it with --library, and its classes are kept in one place.
+  --parent <id>          Containers need a system, components a container, and classes a
+                         component or library. People, systems and libraries have none
   --name <name>          Display name (default: from the id)
   --description <text>   One sentence, shown in the box
   --technology <text>    e.g. Node.js, PostgreSQL
@@ -124,10 +128,11 @@ In updates, null removes a field.
                          or enum. Drawn as «interface»
   --member <text>        Classes only: an attribute or method, in UML's notation, like
                          --member "+id: OrderId" --member "+total(): Money". Repeat for more
+  --library <id>         Containers only: a library built into it. Repeat for more
   --tag <name[=value]>   Repeat for more, e.g. --tag owner=payments --tag pii
   --notes <markdown>     Longer documentation (or --notes-file <path>, - for stdin)
 `,
-    { kind: s, parent: s, name: s, description: s, technology: s, external: b, shape: s, stereotype: s, member: many, tag: many, notes: s, "notes-file": s },
+    { kind: s, parent: s, name: s, description: s, technology: s, external: b, shape: s, stereotype: s, member: many, library: many, tag: many, notes: s, "notes-file": s },
   ),
   "update-element": writer(
     `Usage: open-arch update-element <id> [options]
@@ -135,18 +140,20 @@ In updates, null removes a field.
 Changes only the fields given. An empty value removes a field, e.g. --technology "".
   --name, --description, --technology, --notes, --notes-file
   --parent <id>          Move it into another system (or container, for a component, or
-                         component, for a class)
+                         component or library, for a class)
   --external, --internal Mark a person or system as outside your organisation, or not
   --shape <shape>        box, database, queue, folder, document, web-browser, mobile-app,
                          desktop-app, terminal, server, email or scheduled-job
   --stereotype <text>    Classes only, e.g. interface
   --member <text>        Classes only: replaces its members with these; repeat for more.
                          --member "" removes them all
+  --library <id>         Containers only: replaces the libraries built into it with these;
+                         repeat for more. --library "" removes them all
   --tag <name[=value]>   Add a tag or change its value; repeat for more. Without a value
                          (--tag pii or --tag pii=) it's a plain label, not a removal
   --remove-tag <name>    Remove a tag; repeat for more
 `,
-    { name: s, parent: s, description: s, technology: s, external: b, internal: b, shape: s, stereotype: s, member: many, tag: many, "remove-tag": many, notes: s, "notes-file": s },
+    { name: s, parent: s, description: s, technology: s, external: b, internal: b, shape: s, stereotype: s, member: many, library: many, tag: many, "remove-tag": many, notes: s, "notes-file": s },
   ),
   "remove-element": writer(
     `Usage: open-arch remove-element <id>
@@ -205,11 +212,12 @@ An empty value removes a field.
   "add-view": writer(
     `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence> [options]
 
-A class view shows a component's classes, with their members, as a UML class diagram.
+A class view shows a component's or library's classes, with their members, as a UML class
+diagram.
 A sequence view shows steps between elements, in order: add them with add-step. It takes no
 scope, include or exclude.
   --scope <id>           A system for context and container views, a container for component
-                         views, a component for class views
+                         views, a component or library for class views
   --title <title>        Default: from the scope and level, or for a sequence view, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)

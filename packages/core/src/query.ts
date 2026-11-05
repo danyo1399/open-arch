@@ -1,6 +1,6 @@
 /** Read-only questions about the model, used by `show` and later by the designer. */
 import type { Workspace } from "./workspace.js";
-import { childrenOf, compareElements, isInside } from "./model.js";
+import { builtInto, childrenOf, compareElements, isInside } from "./model.js";
 import type { ArchElement, Relationship, ViewDef } from "./types.js";
 import { computeView, scopeProblems, type ComputedView } from "./views.js";
 
@@ -13,6 +13,10 @@ export interface ElementDescription {
   /** Relationships of elements inside this one, to or from elements outside it. */
   contentsUse: { from: ArchElement; rel: Relationship }[];
   contentsUsedBy: { from: ArchElement; rel: Relationship }[];
+  /** A container's libraries. */
+  libraries: ArchElement[];
+  /** A library's containers: those built with it. */
+  builtInto: ArchElement[];
   /** Views that draw this element, as a box or as the frame around the view. */
   views: { view: ViewDef; as: "box" | "frame" }[];
 }
@@ -45,6 +49,8 @@ export function describeElement(ws: Workspace, id: string): ElementDescription |
     usedBy,
     contentsUse,
     contentsUsedBy,
+    libraries: element.libraries.flatMap((l) => ws.elements.get(l) ?? []).sort(compareElements),
+    builtInto: element.kind === "library" ? builtInto(ws, id) : [],
     views,
   };
 }

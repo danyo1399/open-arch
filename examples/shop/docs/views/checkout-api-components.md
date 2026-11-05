@@ -14,11 +14,13 @@ flowchart TB
     checkout_controller["Checkout Controller<br/>[Component: Express]"]
     order_repository["Order Repository<br/>[Component: TypeScript]"]
     payment_client["Payment Client<br/>[Component: TypeScript]"]
+    logging["Logging<br/>[Library: TypeScript]"]
   end
   payment_provider["Payment Provider<br/>[External System]"]
   warehouse["Warehouse<br/>[System]"]
   orders_db[("Orders DB<br/>[Container: PostgreSQL]")]
   web_app["Web App<br/>[Container: React]"]
+  checkout_controller -->|"Logs each request with"| logging
   checkout_controller -->|"Saves orders"| order_repository
   checkout_controller -->|"Takes payment"| payment_client
   checkout_controller -->|"Reserves stock<br/>[gRPC]"| warehouse
@@ -30,10 +32,12 @@ flowchart TB
   classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
   classDef component fill:#85bbf0,stroke:#5d82a8,color:#000000
   classDef external fill:#999999,stroke:#6b6b6b,color:#ffffff
+  classDef library fill:#85bbf0,stroke:#5d82a8,color:#000000,stroke-dasharray:5 5
   class payment_provider external
   class warehouse system
   class orders_db,web_app container
   class checkout_controller,order_repository,payment_client component
+  class logging library
   style checkout_api_boundary fill:none,stroke:#444444,stroke-dasharray:5 5
 ```
 
@@ -48,11 +52,13 @@ flowchart TB
 | [Checkout Controller](../elements/checkout-controller.md) | Component | Express | Handles checkout requests from the web app. |
 | [Order Repository](../elements/order-repository.md) | Component | TypeScript | Reads and writes orders. |
 | [Payment Client](../elements/payment-client.md) | Component | TypeScript | Wraps the payment provider's API. |
+| [Logging](../elements/logging.md) | Library | TypeScript | Structured logs, written the same way in every part of the shop. |
 
 ## Relationships
 
 | From | To | Description | Technology |
 |---|---|---|---|
+| [Checkout Controller](../elements/checkout-controller.md) | [Logging](../elements/logging.md) | Logs each request with |  |
 | [Checkout Controller](../elements/checkout-controller.md) | [Order Repository](../elements/order-repository.md) | Saves orders |  |
 | [Checkout Controller](../elements/checkout-controller.md) | [Payment Client](../elements/payment-client.md) | Takes payment |  |
 | [Checkout Controller](../elements/checkout-controller.md) | [Warehouse](../elements/warehouse.md) | Reserves stock | gRPC |

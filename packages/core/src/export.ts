@@ -163,6 +163,12 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     if (d.children.length) {
       lines.push("", "## Contains", "", ...d.children.map((c) => `- ${link(c, "elements")} (${kindLabel(c).toLowerCase()})${c.description ? ` – ${c.description}` : ""}`));
     }
+    if (d.libraries.length) {
+      lines.push("", "## Libraries", "", ...d.libraries.map((l) => `- ${link(l, "elements")}${l.description ? ` – ${l.description}` : ""}`));
+    }
+    if (e.kind === "library") {
+      lines.push("", "## Built into", "", ...(d.builtInto.length ? d.builtInto.map((c) => `- ${link(c, "elements")}`) : ["No container yet."]));
+    }
     if (d.uses.length) {
       lines.push("", "## Uses", "", ...relTable(ws, d.uses.map(({ rel }) => ({ other: rel.to, rel }))), ...relNotes(ws, d.uses.map(({ rel }) => ({ from: e.id, rel }))));
     }

@@ -8,11 +8,16 @@ The storefront customers use.
 
 Single-page app served from a CDN.
 
+## Libraries
+
+- [Logging](logging.md) – Structured logs, written the same way in every part of the shop.
+
 ## Uses
 
 | Element | Description | Technology |
 |---|---|---|
 | [Checkout Controller](checkout-controller.md) | Places orders | HTTPS/JSON |
+| [Logger](logger.md) | Logs errors with |  |
 
 ## Used by
 
@@ -23,6 +28,7 @@ Single-page app served from a CDN.
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)
+- [Logging classes](../views/logging-classes.md)
 - [Placing an order](../views/place-order.md)
 - [Shop containers](../views/shop-containers.md)
 

@@ -1,4 +1,4 @@
-import { isInside, PARENT_KIND } from "./model.js";
+import { containerOf, isInside, kindList, libraryOf, PARENT_KINDS } from "./model.js";
 import type { ArchElement, Diagnostic, ViewDef } from "./types.js";
 import { computeView, didYouMean, scopeProblems } from "./views.js";
 import type { Workspace } from "./workspace.js";
@@ -22,22 +22,24 @@ export function errorCount(diagnostics: Diagnostic[]): number {
 
 function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
   const at = (field: string) => `${el.path}.${field}`;
-  const wantedParent = PARENT_KIND[el.kind];
+  const parentKinds = PARENT_KINDS[el.kind];
+  const wantedParent = kindList(parentKinds);
 
-  if (!wantedParent && el.parent !== undefined) {
-    out.push({ severity: "error", rule: "parent-not-allowed", message: `A ${el.kind} is top-level, so it can't have a parent.`, path: at("parent"), fix: "Remove the parent." });
-  } else if (wantedParent && el.parent === undefined) {
+  if (!parentKinds.length && el.parent !== undefined) {
+    const message = el.kind === "library" ? "A library belongs to no one container, so it can't have a parent. Containers list the libraries built into them." : `A ${el.kind} is top-level, so it can't have a parent.`;
+    out.push({ severity: "error", rule: "parent-not-allowed", message, path: at("parent"), fix: "Remove the parent." });
+  } else if (parentKinds.length && el.parent === undefined) {
     out.push({ severity: "error", rule: "parent-required", message: `A ${el.kind} needs a parent: the ID of the ${wantedParent} it belongs to.`, path: at("parent") });
-  } else if (wantedParent && el.parent !== undefined) {
+  } else if (parentKinds.length && el.parent !== undefined) {
     const parent = ws.elements.get(el.parent);
     if (!parent) {
       out.push({ severity: "error", rule: "parent-unknown", message: `Parent "${el.parent}" isn't an element.`, path: at("parent"), fix: didYouMean(ws, el.parent) });
-    } else if (parent.kind !== wantedParent) {
+    } else if (!parentKinds.includes(parent.kind)) {
       out.push({ severity: "error", rule: "parent-kind", message: `A ${el.kind}'s parent must be a ${wantedParent}, but "${parent.id}" is a ${parent.kind}.`, path: at("parent") });
     }
   }
 
-  if (el.external && wantedParent) {
+  if (el.external && el.kind !== "person" && el.kind !== "system") {
     out.push({ severity: "warning", rule: "external-ignored", message: "Only people and systems can be external.", path: at("external"), fix: "Remove external." });
   }
   // The workspace draws people as people and classes as classes, so look at what the file says.
@@ -46,6 +48,15 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
     const message = el.kind === "person" ? "People are always drawn as a person." : "Classes are always drawn as a class.";
     out.push({ severity: "warning", rule: "shape-ignored", message, path: at("shape"), fix: "Remove shape." });
   }
+  if (el.kind !== "container" && data?.libraries?.length) {
+    out.push({ severity: "warning", rule: "libraries-ignored", message: "Only containers are built with libraries.", path: at("libraries"), fix: "Remove libraries." });
+  }
+  el.libraries.forEach((id) => {
+    const path = at(`libraries[${data!.libraries!.indexOf(id)}]`);
+    const library = ws.elements.get(id);
+    if (!library) out.push({ severity: "error", rule: "library-unknown", message: `"${id}" in \`libraries\` isn't an element.`, path, fix: didYouMean(ws, id) });
+    else if (library.kind !== "library") out.push({ severity: "error", rule: "library-kind", message: `"${id}" in \`libraries\` is a ${library.kind}, not a library.`, path });
+  });
   if (el.kind !== "class") {
     if (data?.members?.length) out.push({ severity: "warning", rule: "members-ignored", message: "Only classes have members.", path: at("members"), fix: "Remove members." });
     if (data?.stereotype) out.push({ severity: "warning", rule: "stereotype-ignored", message: "Only classes have a stereotype.", path: at("stereotype"), fix: "Remove stereotype." });
@@ -87,6 +98,20 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
         message: `Only relationships between classes can be of the kind "${rel.kind}", and "${el.kind === "class" ? target.id : el.id}" is a ${el.kind === "class" ? target.kind : el.kind}.`,
         path: `${path}.kind`,
         fix: "Remove kind, or point the relationship at a class.",
+      });
+    }
+    // Something uses the copy of a library built into its own container.
+    const library = libraryOf(ws, target.id);
+    const container = containerOf(ws, el.id);
+    if (library && libraryOf(ws, el.id)?.id !== library.id && !container?.libraries.includes(library.id)) {
+      const libraries = container && [...container.libraries, library.id].map((id) => ` --library ${id}`).join("");
+      const fix = container ? `Build ${container.id} with it: \`open-arch update-element ${container.id}${libraries}\`.` : "Point the relationship at something inside a container instead.";
+      out.push({
+        severity: "warning",
+        rule: "library-not-included",
+        message: `"${el.id}" uses "${target.id}", in the library "${library.id}", but ${container ? `its container "${container.id}" isn't built with that library` : "isn't inside a container, and only containers are built with libraries"}, so only class views draw it.`,
+        path,
+        fix,
       });
     }
     if (rel.kind !== "association" && rel.bidirectional) {

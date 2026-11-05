@@ -2,7 +2,7 @@ import {
   describeElement,
   ELEMENT_SHAPES,
   kindLabel,
-  PARENT_KIND,
+  PARENT_KINDS,
   RELATIONSHIP_KIND_LABELS,
   RELATIONSHIP_KINDS,
   SHAPE_LABELS,
@@ -93,8 +93,13 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
     if (!to || to === element.id) return;
     void edit([{ op: "rename", id: element.id, to }]);
   };
-  const parentKind = PARENT_KIND[element.kind];
-  const parents = parentKind ? [...ws.elements.values()].filter((e) => e.kind === parentKind).sort((a, b) => a.name.localeCompare(b.name)) : [];
+  const parentKinds = PARENT_KINDS[element.kind];
+  const parents = [...ws.elements.values()].filter((e) => parentKinds.includes(e.kind)).sort((a, b) => a.name.localeCompare(b.name));
+  const libraries = [...ws.elements.values()].filter((e) => e.kind === "library").sort(byName);
+  const containers = [...ws.elements.values()].filter((e) => e.kind === "container").sort(byName);
+  /** Builds a container with a library, or takes it out. */
+  const build = (container: ArchElement, library: string, built: boolean) =>
+    void edit([{ op: "update-element", id: container.id, libraries: built ? [...container.libraries, library] : container.libraries.filter((l) => l !== library) }]);
   const canHide = viewAction(ws, view, computed, element.id) === "hide";
 
   return (
@@ -132,7 +137,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           </select>
         </label>
       )}
-      {parentKind && (
+      {parentKinds.length > 0 && (
         <label className="field">
           <span className="field-label">Inside</span>
           <select value={element.parent ?? ""} onChange={(e) => set({ parent: e.target.value })}>
@@ -145,11 +150,36 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           </select>
         </label>
       )}
-      {!parentKind && (
+      {(element.kind === "person" || element.kind === "system") && (
         <label className="check">
           <input type="checkbox" checked={element.external} onChange={(e) => set({ external: e.target.checked })} />
           Outside our organisation (external)
         </label>
+      )}
+      {element.kind === "container" && libraries.length > 0 && (
+        <fieldset className="field">
+          <legend className="field-label">Libraries</legend>
+          {libraries.map((l) => (
+            <label key={l.id} className="check">
+              <input type="checkbox" checked={element.libraries.includes(l.id)} onChange={(e) => build(element, l.id, e.target.checked)} />
+              {l.name}
+            </label>
+          ))}
+          <span className="field-hint">The shared libraries built into it. Its component views draw each one inside the frame.</span>
+        </fieldset>
+      )}
+      {element.kind === "library" && (
+        <fieldset className="field">
+          <legend className="field-label">Built into</legend>
+          {containers.length === 0 && <span className="muted small">There are no containers yet.</span>}
+          {containers.map((c) => (
+            <label key={c.id} className="check">
+              <input type="checkbox" checked={c.libraries.includes(element.id)} onChange={(e) => build(c, element.id, e.target.checked)} />
+              {c.name}
+            </label>
+          ))}
+          <span className="field-hint">Each container built with it has its own copy, drawn inside that container's component views. Its classes are kept here, once.</span>
+        </fieldset>
       )}
       <Field label="Notes" value={element.notes ?? ""} onCommit={(notes) => set({ notes: notes || null })} multiline rows={6} placeholder="Longer documentation, in markdown" />
 

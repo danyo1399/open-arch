@@ -14,6 +14,10 @@ Its relationships are listed on its components, so container views show them as 
 - [Order Repository](order-repository.md) (component) – Reads and writes orders.
 - [Payment Client](payment-client.md) (component) – Wraps the payment provider's API.
 
+## Libraries
+
+- [Logging](logging.md) – Structured logs, written the same way in every part of the shop.
+
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md) (as the frame)

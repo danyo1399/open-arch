@@ -1,6 +1,7 @@
 import {
   computeView,
   diagnosticTarget,
+  inFrame,
   isInside,
   KIND_RANK,
   kindLabel,
@@ -116,8 +117,11 @@ interface CanvasProps {
   exportItems: MenuItem[];
 }
 
-/** Element kinds that can be added to a view at its level, and the parent each gets. */
-export function addableKinds(ws: Workspace, view: ViewDef): { kind: ElementKind; parent?: string; label: string }[] {
+/**
+ * Element kinds that can be added to a view at its level, and the parent each gets. A library
+ * added to a component view is built into the view's container: `builtInto`.
+ */
+export function addableKinds(ws: Workspace, view: ViewDef): { kind: ElementKind; parent?: string; builtInto?: string; label: string }[] {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const top = [
     { kind: "person" as const, label: "Person" },
@@ -128,10 +132,12 @@ export function addableKinds(ws: Workspace, view: ViewDef): { kind: ElementKind;
     const system = scope.parent ? ws.elements.get(scope.parent) : undefined;
     return [
       { kind: "component", parent: scope.id, label: `Component in ${scope.name}` },
+      { kind: "library", builtInto: scope.id, label: `Library built into ${scope.name}` },
       ...(system ? [{ kind: "container" as const, parent: system.id, label: `Container in ${system.name}` }] : []),
       ...top,
     ];
   }
+  if (view.level === "class" && scope?.kind === "library") return [{ kind: "class", parent: scope.id, label: `Class in ${scope.name}` }, ...top];
   if (view.level === "class" && scope) {
     const container = scope.parent ? ws.elements.get(scope.parent) : undefined;
     return [
@@ -220,7 +226,7 @@ export function reconnectOps(ws: Workspace, edge: ViewEdge, end: ArrowEnd, box: 
 export function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined, selected?: boolean): FlowNode[] {
   const elements = nodes.filter((n): n is ElementFlowNode => n.type === "element");
   const rest = nodes.filter((n) => n.type !== "frame");
-  const inside = boundary ? elements.filter((n) => n.data.element.parent === boundary.id) : [];
+  const inside = elements.filter((n) => inFrame(boundary, n.data.element));
   if (!boundary || inside.length === 0) return rest;
   // Whole pixels: fractional sizes from high-DPI screens would make the frame resize itself forever.
   const left = Math.round(Math.min(...inside.map((n) => n.position.x)) - FRAME_PAD.x);
@@ -334,9 +340,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   useEffect(() => {
     if (!cv || !missing) return;
     let cancelled = false;
-    const boundary = cv.boundary?.id;
     void layOut(
-      cv.nodes.map((n) => ({ id: n.id, inside: !!boundary && n.parent === boundary, height: n.kind === "class" ? classHeight(n) : undefined })),
+      cv.nodes.map((n) => ({ id: n.id, inside: inFrame(cv.boundary, n), height: n.kind === "class" ? classHeight(n) : undefined })),
       cv.edges,
     ).then(({ positions, failed }) => {
       if (cancelled) return;
@@ -658,13 +663,15 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   };
 
-  const add = (kind: ElementKind, parent?: string, at?: Point) => {
+  const add = (kind: ElementKind, parent?: string, at?: Point, builtInto?: string) => {
     const center = addPoint(at);
     const id = uniqueId(ws, `new-${kind}`);
     const existing = currentLayout();
     const spot = freeSpotAmong({ x: center.x - NODE_W / 2, y: center.y - NODE_H / 2 }, Object.values(existing).map(([x, y]) => ({ x, y })));
+    const container = builtInto ? ws.elements.get(builtInto) : undefined;
     void edit([
       { op: "add-element", id, kind, parent, name: `New ${kind}` },
+      ...(container ? [{ op: "update-element" as const, id: container.id, libraries: [...container.libraries, id] }] : []),
       { op: "show-in-view", view: view.id, id },
       { op: "set-layout", view: view.id, positions: { ...existing, [id]: [spot.x, spot.y] } },
     ]).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
@@ -684,7 +691,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
 
   /** What can be added to this view, by + Add and the diagram's right-click menu, centred on a point on the diagram or else in the middle. */
   const addItems = (at?: Point): MenuAction[] => [
-    ...addableKinds(ws, view).map((k) => ({ label: k.label, onSelect: () => add(k.kind, k.parent, at) })),
+    ...addableKinds(ws, view).map((k) => ({ label: k.label, onSelect: () => add(k.kind, k.parent, at, k.builtInto) })),
     { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
   ];
 

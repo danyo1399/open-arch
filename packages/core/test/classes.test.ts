@@ -93,8 +93,8 @@ describe("classes", () => {
     expect(fails(doc, { op: "add-element", id: "x", kind: "container", parent: "shop", members: ["+a"] })).toBe("Only classes have members, and this is a container.");
     expect(fails(doc, { op: "update-element", id: "api", stereotype: "service" })).toBe("Only classes have a stereotype, and this is a container.");
     expect(fails(doc, { op: "update-element", id: "money", shape: "database" })).toBe("Classes are always drawn as a class, so they don't take a shape.");
-    expect(fails(doc, { op: "add-element", id: "y", kind: "class", parent: "api" })).toBe('A class\'s parent must be a component, but "api" is a container.');
-    expect(fails(doc, { op: "add-element", id: "y", kind: "class" })).toBe('A class needs a parent component: set "parent".');
+    expect(fails(doc, { op: "add-element", id: "y", kind: "class", parent: "api" })).toBe('A class\'s parent must be a component or library, but "api" is a container.');
+    expect(fails(doc, { op: "add-element", id: "y", kind: "class" })).toBe('A class needs a parent component or library: set "parent".');
   });
 
   it("take members as JSON, as a list or null", () => {
@@ -158,7 +158,7 @@ describe("classes", () => {
   });
 
   it("need a component as a class view's scope", () => {
-    expect(fails(code(), { op: "add-view", id: "v", level: "class", scope: "api" })).toBe('A class view\'s scope must be a component, but "api" is a container.');
+    expect(fails(code(), { op: "add-view", id: "v", level: "class", scope: "api" })).toBe('A class view\'s scope must be a component or library, but "api" is a container.');
     expect(apply(code(), { op: "add-view", id: "v", level: "class", scope: "store" }).views.v).toEqual({ title: "Store classes", level: "class", scope: "store", include: ["*"] });
   });
 

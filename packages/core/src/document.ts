@@ -54,7 +54,7 @@ export function parseDocument(text: string): ParseResult {
 type Report = (path: string, rule: string, message: string, fix?: string) => void;
 
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
-const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "tags", "notes", "members", "uses"];
+const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "libraries", "tags", "notes", "members", "uses"];
 const RELATIONSHIP_KEYS = ["to", "kind", "bidirectional", "description", "technology", "tags", "notes"];
 const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "stickies", "layout"];
 /** Fields a sequence view doesn't take: its participants and their places come from its steps. */
@@ -157,6 +157,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 4) out = { ...out, openarch: 5 };
   // Version 6 added classes, class views and kinds of relationship, so a version 5 file means the same in it.
   if (out.openarch === 5) out = { ...out, openarch: 6 };
+  // Version 7 added libraries, so a version 6 file means the same in it.
+  if (out.openarch === 6) out = { ...out, openarch: 7 };
   return out;
 }
 
@@ -233,6 +235,8 @@ function readElement(id: string, value: unknown, path: string, report: Report): 
   }
   const members = strList(value.members, `${path}.members`, report);
   if (members) element.members = members;
+  const libraries = strList(value.libraries, `${path}.libraries`, report);
+  if (libraries) element.libraries = libraries;
   if (value.external !== undefined) {
     if (typeof value.external === "boolean") element.external = value.external;
     else report(`${path}.external`, "field-type", "Must be true or false.");
@@ -459,6 +463,7 @@ function elementText(e: ElementData, indent: string): string {
   if (e.external) entries.push(["external", "true"]);
   if (present(e.shape, (v) => v !== "box")) entries.push(["shape", JSON.stringify(e.shape)]);
   if (present(e.stereotype, (v) => v !== "")) entries.push(["stereotype", JSON.stringify(e.stereotype)]);
+  if (present(e.libraries, (v) => v.length > 0)) entries.push(["libraries", inline([...e.libraries].sort())]);
   if (present(e.tags, (v) => Object.keys(v).length > 0)) {
     entries.push(["tags", block(tagEntries(e.tags).map(([k, v]) => [k, JSON.stringify(v)]), `${indent}  `)]);
   }

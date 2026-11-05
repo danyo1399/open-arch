@@ -28,6 +28,7 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
       external: e.external ?? false,
       shape: e.kind === "person" || e.kind === "class" ? "box" : (e.shape ?? "box"),
       stereotype: e.stereotype || undefined,
+      libraries: e.kind === "container" ? [...new Set(e.libraries ?? [])] : [],
       tags: e.tags ?? {},
       notes: e.notes || undefined,
       members: e.members ?? [],

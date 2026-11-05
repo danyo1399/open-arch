@@ -1,16 +1,42 @@
 import type { Workspace } from "./workspace.js";
 import type { ArchElement, ElementKind, Tags } from "./types.js";
 
-export const KIND_RANK: Record<ElementKind, number> = { person: 0, system: 1, container: 2, component: 3, class: 4 };
+export const KIND_RANK: Record<ElementKind, number> = { person: 0, system: 1, container: 2, component: 3, library: 4, class: 5 };
 
-/** The kind a parent must have, or undefined when the kind is top-level. */
-export const PARENT_KIND: Record<ElementKind, ElementKind | undefined> = {
-  person: undefined,
-  system: undefined,
-  container: "system",
-  component: "container",
-  class: "component",
+/** The kinds a parent can have, or none when the kind is top-level. A library belongs to no container: containers list it instead. */
+export const PARENT_KINDS: Record<ElementKind, readonly ElementKind[]> = {
+  person: [],
+  system: [],
+  container: ["system"],
+  component: ["container"],
+  library: [],
+  class: ["component", "library"],
 };
+
+/** "a component or library": the kinds in a list, for messages. */
+export function kindList(kinds: readonly string[], joiner = "or"): string {
+  return kinds.length < 2 ? (kinds[0] ?? "") : `${kinds.slice(0, -1).join(", ")} ${joiner} ${kinds[kinds.length - 1]}`;
+}
+
+/** The library `id` is, or is inside, if it's in one. */
+export function libraryOf(ws: Workspace, id: string): ArchElement | undefined {
+  return lineage(ws, id).find((e) => e.kind === "library");
+}
+
+/** The container `id` is, or is inside, if it's in one. */
+export function containerOf(ws: Workspace, id: string): ArchElement | undefined {
+  return lineage(ws, id).find((e) => e.kind === "container");
+}
+
+/** The containers built with this library, in the model's order. */
+export function builtInto(ws: Workspace, library: string): ArchElement[] {
+  return [...ws.elements.values()].filter((e) => e.kind === "container" && e.libraries.includes(library)).sort(compareElements);
+}
+
+/** Whether a view's frame draws this element inside it: the frame's own contents, and the libraries a container is built with. */
+export function inFrame(boundary: ArchElement | undefined, element: ArchElement): boolean {
+  return !!boundary && (element.parent === boundary.id || (boundary.kind === "container" && boundary.libraries.includes(element.id)));
+}
 
 /** The element followed by its ancestors, nearest first. Stops at unknown parents and cycles. */
 export function lineage(ws: Workspace, id: string): ArchElement[] {

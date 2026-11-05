@@ -1,5 +1,9 @@
-/** C4's four levels of detail, people aside: a class is code inside a component. */
-export const ELEMENT_KINDS = ["person", "system", "container", "component", "class"] as const;
+/**
+ * C4's four levels of detail, people aside: a class is code inside a component. A library is a
+ * component shared by several containers, such as a logging library: it holds classes like a
+ * component, and each container that lists it in `libraries` is built with its own copy.
+ */
+export const ELEMENT_KINDS = ["person", "system", "container", "component", "library", "class"] as const;
 export type ElementKind = (typeof ELEMENT_KINDS)[number];
 
 /** A sequence view isn't a C4 level of detail: it draws steps between elements, in order. */
@@ -71,7 +75,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 6;
+export const FORMAT_VERSION = 7;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -100,6 +104,8 @@ export interface ElementData {
   shape?: ElementShape;
   /** Classes only: what sort of class it is, e.g. interface, abstract or enum. Drawn as «interface». */
   stereotype?: string;
+  /** Containers only: the IDs of the libraries built into it. */
+  libraries?: string[];
   /** Free-form facts, e.g. owner or repository. */
   tags?: Tags;
   /** Longer documentation, as markdown. */
@@ -197,6 +203,8 @@ export interface ArchElement {
   shape: ElementShape;
   /** Classes only. */
   stereotype?: string;
+  /** Containers only: the libraries built into it; empty on other elements. */
+  libraries: string[];
   tags: Tags;
   notes?: string;
   /** Classes only; empty on other elements. */

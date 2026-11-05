@@ -63,7 +63,7 @@ describe("sequence views in the file", () => {
   it("reports fields a sequence view doesn't take, steps on other views, and malformed steps", () => {
     const result = parseDocument(
       JSON.stringify({
-        openarch: 6,
+        openarch: 7,
         name: "X",
         elements: {},
         views: {

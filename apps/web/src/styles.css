@@ -567,6 +567,10 @@ button.pane-tab.active {
 .dot-component {
   background: var(--component);
 }
+.dot-library {
+  background: var(--component);
+  box-shadow: inset 0 0 0 1px var(--class-line);
+}
 .dot-class {
   background: var(--class);
   box-shadow: inset 0 0 0 1px var(--class-line);
@@ -649,6 +653,11 @@ button.heading {
 .badge-component {
   background: var(--component);
   color: #0b1f33;
+}
+.badge-library {
+  background: var(--component);
+  color: #0b1f33;
+  box-shadow: inset 0 0 0 1px var(--class-line);
 }
 .badge-class {
   background: var(--class);
@@ -1151,6 +1160,12 @@ button.heading {
 .c4-component {
   background: var(--component);
   color: #0b1f33;
+}
+/* A library is a component shared by several containers: dashed, as each is built with a copy. */
+.c4-library {
+  background: var(--component);
+  color: #0b1f33;
+  border: 2px dashed var(--class-line);
 }
 .c4-external {
   background: var(--external);

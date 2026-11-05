@@ -8,6 +8,7 @@ An online shop, used as the open-arch example.
 
 - [Checkout API components](views/checkout-api-components.md) – How a checkout request is handled.
 - [System landscape](views/landscape.md) – Every person and system, and how they connect.
+- [Logging classes](views/logging-classes.md) – The shared logging code, and what logs with it.
 - [Order Repository classes](views/order-repository-classes.md) – The classes that store orders, and how they fit together.
 - [Placing an order](views/place-order.md) – What happens, in order, when a customer places an order.
 - [Shop containers](views/shop-containers.md) – What runs inside the shop.
@@ -29,3 +30,6 @@ An online shop, used as the open-arch example.
   - [Orders DB](elements/orders-db.md) (container, PostgreSQL) – Stores orders and their status.
   - [Web App](elements/web-app.md) (container, React) – The storefront customers use.
 - [Warehouse](elements/warehouse.md) (system) – Tracks stock and ships orders.
+- [Logging](elements/logging.md) (library, TypeScript) – Structured logs, written the same way in every part of the shop.
+  - [JsonLogger](elements/json-logger.md) (class) – Writes one JSON line per message.
+  - [Logger](elements/logger.md) (class)

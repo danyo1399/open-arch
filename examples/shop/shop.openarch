@@ -1,5 +1,5 @@
 {
-  "openarch": 6,
+  "openarch": 7,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -32,6 +32,7 @@
       "parent": "shop",
       "description": "Validates carts, reserves stock and takes payment.",
       "technology": "Node.js",
+      "libraries": ["logging"],
       "notes": "Its relationships are listed on its components, so container views show them as arrows from the Checkout API."
     },
     "checkout-controller": {
@@ -43,7 +44,8 @@
       "uses": [
         { "to": "order-repository", "description": "Saves orders" },
         { "to": "payment-client", "description": "Takes payment" },
-        { "to": "warehouse", "description": "Reserves stock", "technology": "gRPC" }
+        { "to": "warehouse", "description": "Reserves stock", "technology": "gRPC" },
+        { "to": "logger", "description": "Logs each request with" }
       ]
     },
     "order-repository": {
@@ -133,9 +135,11 @@
       "parent": "shop",
       "description": "The storefront customers use.",
       "technology": "React",
+      "libraries": ["logging"],
       "notes": "Single-page app served from a CDN.",
       "uses": [
-        { "to": "checkout-controller", "description": "Places orders", "technology": "HTTPS/JSON" }
+        { "to": "checkout-controller", "description": "Places orders", "technology": "HTTPS/JSON" },
+        { "to": "logger", "description": "Logs errors with" }
       ]
     },
     "warehouse": {
@@ -143,6 +147,37 @@
       "name": "Warehouse",
       "description": "Tracks stock and ships orders.",
       "notes": "Run by the Fulfilment team. The shop only talks to it to reserve stock."
+    },
+    "logging": {
+      "kind": "library",
+      "name": "Logging",
+      "description": "Structured logs, written the same way in every part of the shop.",
+      "technology": "TypeScript",
+      "notes": "Shared by the web app and the Checkout API. Each is built with its own copy, so it's drawn inside each one's component view."
+    },
+    "json-logger": {
+      "kind": "class",
+      "name": "JsonLogger",
+      "parent": "logging",
+      "description": "Writes one JSON line per message.",
+      "members": [
+        "-service: string",
+        "+info(message: string, fields?: Fields): void",
+        "+error(message: string, error: Error): void"
+      ],
+      "uses": [
+        { "to": "logger", "kind": "realization" }
+      ]
+    },
+    "logger": {
+      "kind": "class",
+      "name": "Logger",
+      "parent": "logging",
+      "stereotype": "interface",
+      "members": [
+        "+info(message: string, fields?: Fields): void",
+        "+error(message: string, error: Error): void"
+      ]
     }
   },
   "views": {
@@ -158,6 +193,13 @@
       "title": "System landscape",
       "description": "Every person and system, and how they connect.",
       "level": "landscape",
+      "include": ["*"]
+    },
+    "logging-classes": {
+      "title": "Logging classes",
+      "description": "The shared logging code, and what logs with it.",
+      "level": "class",
+      "scope": "logging",
       "include": ["*"]
     },
     "order-repository-classes": {

@@ -4,9 +4,9 @@
  * A sequence view shows the elements in its steps instead, and its steps in order.
  */
 import type { Workspace } from "./workspace.js";
-import { childrenOf, compareElements, lineage, PARENT_KIND, topLevel } from "./model.js";
+import { builtInto, childrenOf, compareElements, containerOf, kindList, libraryOf, lineage, topLevel } from "./model.js";
 import { suggest } from "./suggest.js";
-import { RELATIONSHIP_KINDS, type ArchElement, type Diagnostic, type RelationshipKind, type Step, type ViewDef, type ViewLevel } from "./types.js";
+import { RELATIONSHIP_KINDS, type ArchElement, type Diagnostic, type ElementKind, type RelationshipKind, type Step, type ViewDef, type ViewLevel } from "./types.js";
 
 export interface ViewEdge {
   from: string;
@@ -46,7 +46,7 @@ export interface ComputedStep extends Step {
 
 export interface ComputedView {
   view: ViewDef;
-  /** The system (container view), container (component view) or component (class view) drawn as a frame. */
+  /** The system (container view), container (component view), or component or library (class view) drawn as a frame. */
   boundary?: ArchElement;
   /** Boxes, in display order. A sequence view's are its participants, in the order they first appear in its steps. */
   nodes: ArchElement[];
@@ -58,21 +58,22 @@ export interface ComputedView {
   diagnostics: Diagnostic[];
 }
 
-/** The kind a view's scope must have, or undefined when the level takes no scope. */
-export const SCOPE_KIND: Record<ViewLevel, "system" | "container" | "component" | undefined> = {
-  landscape: undefined,
-  context: "system",
-  container: "system",
-  component: "container",
-  class: "component",
-  sequence: undefined,
+/** The kinds a view's scope can have: none when the level takes no scope. */
+export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
+  landscape: [],
+  context: ["system"],
+  container: ["system"],
+  component: ["container"],
+  class: ["component", "library"],
+  sequence: [],
 };
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
 export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
   const at = { path: `${view.path}.${view.scope === undefined ? "level" : "scope"}` };
-  const wanted = SCOPE_KIND[view.level];
-  if (!wanted) {
+  const kinds = SCOPE_KINDS[view.level];
+  const wanted = kindList(kinds);
+  if (!kinds.length) {
     const message =
       view.level === "sequence" ? "Sequence views show the elements in their steps, so they don't take a `scope`." : "Landscape views show every person and system, so they don't take a `scope`.";
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
@@ -84,20 +85,49 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
   if (!scope) {
     return [{ ...at, severity: "error", rule: "view-scope-unknown", message: `Scope "${view.scope}" isn't an element.`, fix: didYouMean(ws, view.scope) }];
   }
-  if (scope.kind !== wanted) {
+  if (!kinds.includes(scope.kind)) {
     return [{ ...at, severity: "error", rule: "view-scope-kind", message: `A ${view.level} view's scope must be a ${wanted}, but "${scope.id}" is a ${scope.kind}.` }];
   }
   return [];
 }
 
 /**
- * Maps any element to the box that represents it in this view, or null when
- * it is the view's boundary, or holds it, and so has no box.
+ * Which container's copy of a library a relationship's end is in: a container's ID, or null when
+ * it's in no container's copy, as a relationship from something not built with the library.
+ * Left out, it's the copy in the container the view is of, if that's built with the library.
  */
-function representative(ws: Workspace, view: ViewDef): (id: string) => string | null {
+export type LibraryCopy = string | null | undefined;
+
+/**
+ * Maps any element to the box that represents it in this view, or null when it is the view's
+ * boundary, or holds it, and so has no box. Something in a library is drawn as part of the
+ * container whose copy of the library it's in: in a component view of that container, as the
+ * library's own box, inside the frame; elsewhere, as that container is. A class is always itself
+ * in a class view, and a class view of a library draws everything else as itself.
+ */
+export function representative(ws: Workspace, view: ViewDef): (id: string, copy?: LibraryCopy) => string | null {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const scopeSystem = scope ? topLevel(ws, scope.id) : undefined;
   const scopeContainer = scope?.kind === "component" && scope.parent ? ws.elements.get(scope.parent) : undefined;
+  // The container whose copy of a library is drawn as the library's own box.
+  const home = view.level === "component" ? scope : view.level === "class" ? scopeContainer : undefined;
+  const plain = plainRepresentative(ws, view, scope, scopeSystem, scopeContainer);
+  return (id, copy) => {
+    const library = libraryOf(ws, id);
+    if (!library || view.level === "sequence") return plain(id);
+    if (view.level === "class") {
+      if (ws.elements.get(id)!.kind === "class") return id;
+      if (library.id === scope?.id) return null;
+    }
+    const at = copy === undefined ? (home?.libraries.includes(library.id) ? home.id : null) : copy;
+    if (view.level === "class") return at === null || at === home?.id ? library.id : plain(at);
+    if (view.level === "component") return at !== null && at === home?.id ? library.id : at === null ? null : plain(at);
+    return at === null ? null : plain(at);
+  };
+}
+
+/** The box for an element that isn't in a library (see representative). */
+function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, scopeSystem?: ArchElement, scopeContainer?: ArchElement): (id: string) => string | null {
   return (id) => {
     const chain = lineage(ws, id);
     const top = chain[chain.length - 1];
@@ -117,7 +147,8 @@ function representative(ws: Workspace, view: ViewDef): (id: string) => string | 
         return top.id;
       case "class":
         // A class anywhere is drawn as itself. Anything else is drawn as in a component view of
-        // the scope's container.
+        // the scope's container, or for a library, which is in no container, as itself.
+        if (scope?.kind === "library") return id;
         if (!scope || !scopeSystem) return top.id;
         if (chain.some((e) => e.id === scope.id)) return childOf(scope.id);
         if (chain[0]!.kind === "class") return chain[0]!.id;
@@ -139,13 +170,13 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
 
   const inner: ArchElement[] =
     view.level === "landscape"
-      ? [...ws.elements.values()].filter((e) => PARENT_KIND[e.kind] === undefined)
+      ? [...ws.elements.values()].filter((e) => e.kind === "person" || e.kind === "system")
       : view.level === "context"
         ? scope
           ? [scope]
           : []
         : scope
-          ? childrenOf(ws, scope.id)
+          ? [...childrenOf(ws, scope.id), ...(view.level === "component" ? scope.libraries.flatMap((id) => (ws.elements.get(id)?.kind === "library" ? [ws.elements.get(id)!] : [])) : [])]
           : [];
   const innerIds = new Set(inner.map((e) => e.id));
 
@@ -155,9 +186,15 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   for (const element of ws.elements.values()) {
     element.uses.forEach((rel, index) => {
       if (!ws.elements.has(rel.to)) return;
-      const from = rep(element.id);
-      const to = rep(rel.to);
-      if (from && to && from !== to) lifted.push({ from, to, element: element.id, index, both: rel.bidirectional, kind: classes ? rel.kind : "association" });
+      // One for each container whose copy of a library it's in, once for each pair of boxes.
+      const pairs = new Set<string>();
+      for (const [fromCopy, toCopy] of libraryCopies(ws, element.id, rel.to)) {
+        const from = rep(element.id, fromCopy);
+        const to = rep(rel.to, toCopy);
+        if (!from || !to || from === to || pairs.has(`${from}\u0000${to}`)) continue;
+        pairs.add(`${from}\u0000${to}`);
+        lifted.push({ from, to, element: element.id, index, both: rel.bidirectional, kind: classes ? rel.kind : "association" });
+      }
     });
   }
 
@@ -177,6 +214,17 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
       return;
     }
     const r = rep(entry);
+    const library = libraryOf(ws, entry);
+    if (r === null && library && library.id !== view.scope) {
+      diagnostics.push({
+        severity: "warning",
+        rule: "view-include-library",
+        message: `"${entry}" is in the library "${library.id}", which a ${view.level} view draws only as part of the containers built with it.`,
+        path,
+        fix: `Remove "${entry}" from \`include\`.`,
+      });
+      return;
+    }
     if (r === null) {
       diagnostics.push({ severity: "warning", rule: "view-include-boundary", message: `"${entry}" is this view's scope, so it's drawn as the frame, not a box.`, path, fix: `Remove "${entry}" from \`include\`.` });
       return;
@@ -237,6 +285,25 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
 
   const boundary = view.level === "container" || view.level === "component" || view.level === "class" ? scope : undefined;
   return { view, boundary, nodes, edges, steps: [], diagnostics };
+}
+
+/**
+ * The copies of libraries a relationship from `from` to `to` joins, as pairs of the container
+ * each end's copy is in (see LibraryCopy), with undefined for an end in no library. Something in
+ * a library uses what it uses from inside each container built with it; something outside uses
+ * the copy in its own container, and none when its container isn't built with the library.
+ */
+export function libraryCopies(ws: Workspace, from: string, to: string): [LibraryCopy, LibraryCopy][] {
+  const fromLibrary = libraryOf(ws, from);
+  const toLibrary = libraryOf(ws, to);
+  if (!fromLibrary && !toLibrary) return [[undefined, undefined]];
+  if (!fromLibrary) {
+    const container = containerOf(ws, from);
+    return [[undefined, container?.libraries.includes(toLibrary!.id) ? container.id : null]];
+  }
+  const containers = builtInto(ws, fromLibrary.id).filter((c) => !toLibrary || c.libraries.includes(toLibrary.id));
+  if (containers.length === 0) return [[null, toLibrary ? null : undefined]];
+  return containers.map((c) => [c.id, toLibrary ? c.id : undefined]);
 }
 
 /** `id` itself or anything inside it. */

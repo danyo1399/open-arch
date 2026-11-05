@@ -5,7 +5,7 @@
  * would end up with new errors. Nothing edits the document any other way.
  */
 import { checkWorkspace } from "./check.js";
-import { isInside, PARENT_KIND } from "./model.js";
+import { isInside, kindList, PARENT_KINDS } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
   ELEMENT_KINDS,
@@ -54,6 +54,7 @@ export type Operation =
       shape?: ElementShape;
       stereotype?: string;
       members?: string[];
+      libraries?: string[];
       tags?: Tags;
       notes?: string;
     }
@@ -68,6 +69,8 @@ export type Operation =
       shape?: ElementShape | null;
       stereotype?: string | null;
       members?: string[] | null;
+      /** Replaces the container's list of libraries. */
+      libraries?: string[] | null;
       tags?: TagChanges;
       notes?: string | null;
     }
@@ -133,6 +136,7 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
       shape: "string",
       stereotype: "string",
       members: "strings",
+      libraries: "strings",
       tags: "tags",
       notes: "string",
     },
@@ -149,6 +153,7 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
       shape: "nullable-string",
       stereotype: "nullable-string",
       members: "nullable-strings",
+      libraries: "nullable-strings",
       tags: "nullable-tags",
       notes: "nullable-string",
     },
@@ -375,9 +380,10 @@ function addElement(doc: OpenArchDocument, op: Extract<Operation, { op: "add-ele
   assertNewId(doc, op.id);
   if (!(ELEMENT_KINDS as readonly string[]).includes(op.kind)) throw new OpError(`Unknown kind "${op.kind}". Use one of: ${ELEMENT_KINDS.join(", ")}.`);
   checkParent(doc, op.kind, op.parent);
-  if (op.external && PARENT_KIND[op.kind]) throw new OpError("Only people and systems can be external.");
+  if (op.external && !canBeExternal(op.kind)) throw new OpError("Only people and systems can be external.");
   checkShape(op.kind, op.shape);
   checkClassFields(op.kind, op);
+  const libraries = libraryList(doc, op.kind, op.libraries);
   doc.elements[op.id] = clean<ElementData>({
     kind: op.kind,
     name: op.name?.trim() || titleFromId(op.id),
@@ -387,6 +393,7 @@ function addElement(doc: OpenArchDocument, op: Extract<Operation, { op: "add-ele
     external: op.external || undefined,
     shape: op.shape === "box" ? undefined : op.shape,
     stereotype: op.stereotype?.trim(),
+    libraries,
     tags: changeTags(undefined, op.tags ?? {}),
     notes: op.notes?.trim(),
     members: memberLines(op.members),
@@ -396,7 +403,7 @@ function addElement(doc: OpenArchDocument, op: Extract<Operation, { op: "add-ele
 
 function updateElement(doc: OpenArchDocument, op: Extract<Operation, { op: "update-element" }>): string {
   const e = requireElement(doc, op.id);
-  const fields = ["name", "parent", "description", "technology", "external", "shape", "stereotype", "members", "tags", "notes"] as const;
+  const fields = ["name", "parent", "description", "technology", "external", "shape", "stereotype", "members", "libraries", "tags", "notes"] as const;
   if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on "${op.id}": ${fields.join(", ")}.`);
   if (op.name !== undefined) {
     if (!op.name.trim()) throw new OpError("The name can't be empty.");
@@ -418,8 +425,13 @@ function updateElement(doc: OpenArchDocument, op: Extract<Operation, { op: "upda
     if (members) e.members = members;
     else delete e.members;
   }
+  if (op.libraries !== undefined) {
+    const libraries = libraryList(doc, e.kind, op.libraries ?? undefined);
+    if (libraries) e.libraries = libraries;
+    else delete e.libraries;
+  }
   if (op.external !== undefined) {
-    if (op.external && PARENT_KIND[e.kind]) throw new OpError("Only people and systems can be external.");
+    if (op.external && !canBeExternal(e.kind)) throw new OpError("Only people and systems can be external.");
     if (op.external) e.external = true;
     else delete e.external;
   }
@@ -442,6 +454,10 @@ function removeElement(doc: OpenArchDocument, id: string): string {
   const gone = new Set([id, ...[...ws.elements.keys()].filter((other) => isInside(ws, other, id))]);
   for (const g of gone) delete doc.elements[g];
   for (const e of Object.values(doc.elements)) {
+    if (e.libraries) {
+      e.libraries = e.libraries.filter((l) => !gone.has(l));
+      if (e.libraries.length === 0) delete e.libraries;
+    }
     if (!e.uses) continue;
     e.uses = e.uses.filter((r) => !gone.has(r.to));
     if (e.uses.length === 0) delete e.uses;
@@ -475,6 +491,7 @@ function rename(doc: OpenArchDocument, from: string, to: string): string {
   doc.elements = renameKey(doc.elements, from, to);
   for (const e of Object.values(doc.elements)) {
     if (e.parent === from) e.parent = to;
+    if (e.libraries) e.libraries = e.libraries.map((l) => (l === from ? to : l));
     for (const r of e.uses ?? []) if (r.to === from) r.to = to;
   }
   for (const v of Object.values(doc.views)) {
@@ -934,12 +951,29 @@ function assertNewId(doc: OpenArchDocument, id: string): void {
 }
 
 function checkParent(doc: OpenArchDocument, kind: ElementKind, parentId: string | undefined): void {
-  const wanted = PARENT_KIND[kind];
-  if (!wanted && parentId !== undefined) throw new OpError(`A ${kind} is top-level, so it can't have a parent.`);
-  if (wanted && parentId === undefined) throw new OpError(`A ${kind} needs a parent ${wanted}: set "parent".`);
+  const kinds = PARENT_KINDS[kind];
+  const wanted = kindList(kinds);
+  if (!kinds.length && parentId !== undefined) {
+    throw new OpError(kind === "library" ? "A library belongs to no one container, so it can't have a parent. List it in the libraries of each container built with it." : `A ${kind} is top-level, so it can't have a parent.`);
+  }
+  if (kinds.length && parentId === undefined) throw new OpError(`A ${kind} needs a parent ${wanted}: set "parent".`);
   if (parentId === undefined) return;
   const parent = requireElement(doc, parentId);
-  if (parent.kind !== wanted) throw new OpError(`A ${kind}'s parent must be a ${wanted}, but "${parentId}" is a ${parent.kind}.`);
+  if (!kinds.includes(parent.kind)) throw new OpError(`A ${kind}'s parent must be a ${wanted}, but "${parentId}" is a ${parent.kind}.`);
+}
+
+const canBeExternal = (kind: ElementKind) => kind === "person" || kind === "system";
+
+/** A container's libraries, each once and in order, or undefined when there are none. Refuses them on anything else, and anything that isn't a library. */
+function libraryList(doc: OpenArchDocument, kind: ElementKind, libraries: string[] | undefined): string[] | undefined {
+  const ids = [...new Set((libraries ?? []).map((l) => l.trim()).filter(Boolean))].sort();
+  if (ids.length === 0) return undefined;
+  if (kind !== "container") throw new OpError(`Only containers are built with libraries, and this is a ${kind}.`);
+  for (const id of ids) {
+    const library = requireElement(doc, id);
+    if (library.kind !== "library") throw new OpError(`"${id}" is a ${library.kind}, not a library. Add a library with add-element ${id} --kind library.`);
+  }
+  return ids;
 }
 
 function checkIds(doc: OpenArchDocument, ids: string[] | undefined, field: string): void {

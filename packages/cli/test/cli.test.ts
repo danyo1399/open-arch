@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 14 elements, 6 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 7 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -145,7 +145,7 @@ describe("changing", () => {
     const moved = cli(dir, "update-relationship", "checkout-controller", "warehouse", "--new-from", "order-repository", "--new-to", "payment-provider");
     expect(moved).toMatchObject({ code: 0, out: expect.stringContaining("moved relationship checkout-controller -> warehouse to order-repository -> payment-provider\n") });
     const doc = JSON.parse(read(dir));
-    expect(doc.elements["checkout-controller"].uses.map((u: { to: string }) => u.to)).toEqual(["order-repository", "payment-client"]);
+    expect(doc.elements["checkout-controller"].uses.map((u: { to: string }) => u.to)).toEqual(["order-repository", "payment-client", "logger"]);
     expect(doc.elements["order-repository"].uses[1]).toEqual({ to: "payment-provider", description: "Reserves stock", technology: "gRPC" });
     expect(read(dir, "docs/views/checkout-api-components.md")).toContain('order_repository -->|"Reserves stock<br/>[gRPC]"| payment_provider');
     expect(cli(dir, "update-relationship", "web-app", "checkout-controller", "--new-to", "web-app").err).toBe("open-arch: An element can't use itself.\n");
@@ -175,7 +175,21 @@ describe("changing", () => {
     expect(cli(dir, "update-element", "web-app", "--member", "+x").err).toBe("open-arch: Only classes have members, and this is a container.\n");
     expect(cli(dir, "add-relationship", "order", "orders-db", "--kind", "inheritance").err).toContain('Only relationships between classes can be of the kind "inheritance"');
     expect(cli(dir, "add-view", "money-classes", "--level", "class", "--scope", "order-repository").code).toBe(0);
-    expect(cli(dir, "add-view", "--help").out).toContain("a component for class views");
+    expect(cli(dir, "add-view", "--help").out).toContain("a component or library for class views");
+  });
+
+  it("adds a library, builds containers with it, and shows it on both", () => {
+    const dir = example();
+    expect(cli(dir, "add-element", "metrics", "--kind", "library", "--name", "Metrics").code).toBe(0);
+    expect(cli(dir, "update-element", "checkout-api", "--library", "metrics", "--library", "logging").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements["checkout-api"].libraries).toEqual(["logging", "metrics"]);
+    expect(cli(dir, "show", "checkout-api").out).toContain("Libraries:\n  logging  library  Logging [TypeScript]\n  metrics  library  Metrics\n");
+    expect(cli(dir, "show", "metrics").out).toContain("Built into:\n  checkout-api  container  Checkout API [Node.js]\n");
+    expect(JSON.parse(cli(dir, "show", "metrics", "--json").out).builtInto).toEqual(["checkout-api"]);
+    expect(cli(dir, "update-element", "checkout-api", "--library", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).elements["checkout-api"]).not.toHaveProperty("libraries");
+    expect(cli(dir, "update-element", "orders-db", "--library", "nope").err).toContain('No element has the ID "nope".');
+    expect(cli(dir, "add-element", "x", "--kind", "library", "--parent", "checkout-api").err).toContain("A library belongs to no one container");
   });
 
   it("removes fields with empty values and hides elements from views", () => {
@@ -330,22 +344,22 @@ describe("changing", () => {
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 6', '"openarch": 1')
+      .replace('"openarch": 7', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 6, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 7, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5])("reads a version %i file, and writes it back as version 6", (version) => {
+  it.each([2, 3, 4, 5, 6])("reads a version %i file, and writes it back as version 7", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 6', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 7', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 6,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 7,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -378,7 +392,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 6, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 7, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

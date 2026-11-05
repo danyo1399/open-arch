@@ -13,6 +13,7 @@ Handles checkout requests from the web app.
 | [Order Repository](order-repository.md) | Saves orders |  |
 | [Payment Client](payment-client.md) | Takes payment |  |
 | [Warehouse](warehouse.md) | Reserves stock | gRPC |
+| [Logger](logger.md) | Logs each request with |  |
 
 ## Used by
 
@@ -23,6 +24,7 @@ Handles checkout requests from the web app.
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)
+- [Logging classes](../views/logging-classes.md)
 - [Placing an order](../views/place-order.md)
 
 [All views and elements](../README.md)

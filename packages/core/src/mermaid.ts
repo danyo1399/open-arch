@@ -2,11 +2,14 @@
  * The generated Mermaid preview stored in each view file, so GitHub and other
  * markdown viewers show a diagram without open-arch.
  */
-import { kindLabel } from "./model.js";
+import { inFrame, kindLabel } from "./model.js";
 import type { ArchElement, RelationshipKind } from "./types.js";
 import type { ComputedView } from "./views.js";
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
+
+/** Only in a diagram with a library, so diagrams without one read as they did before there were libraries. */
+const LIBRARY_DEF = "classDef library fill:#85bbf0,stroke:#5d82a8,color:#000000,stroke-dasharray:5 5";
 
 const CLASS_DEFS = [
   "classDef person fill:#08427b,stroke:#052e56,color:#ffffff",
@@ -82,7 +85,7 @@ export function renderMermaid(cv: ComputedView): string {
   if (cv.view.level === "class") return renderClasses(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
-  const inside = boundary ? cv.nodes.filter((n) => n.parent === boundary.id) : [];
+  const inside = cv.nodes.filter((n) => inFrame(boundary, n));
   const outside = cv.nodes.filter((n) => !inside.includes(n));
 
   if (cv.nodes.length === 0) lines.push("  %% This view has no elements yet.");
@@ -103,6 +106,7 @@ export function renderMermaid(cv: ComputedView): string {
 
   if (cv.nodes.length) {
     lines.push(...CLASS_DEFS.map((c) => `  ${c}`));
+    if (cv.nodes.some((n) => n.kind === "library")) lines.push(`  ${LIBRARY_DEF}`);
     const byClass = new Map<string, string[]>();
     for (const node of cv.nodes) {
       const cls = node.external ? "external" : node.kind;

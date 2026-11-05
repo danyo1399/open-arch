@@ -94,11 +94,13 @@ function tags(v: Values): TagChanges | undefined {
   return out.size ? Object.fromEntries(out) : undefined;
 }
 
-/** A class's members, from `--member` repeated; `--member ""` on its own means "remove them". */
-function members(v: Values): string[] | null | undefined {
-  if (!Array.isArray(v.member)) return undefined;
-  return v.member.every((m) => m.trim() === "") ? null : v.member;
+/** A list from an option repeated, like `--member`, that replaces the old one; `--member ""` on its own means "remove them". */
+function replacing(value: Values[string]): string[] | null | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.every((m) => m.trim() === "") ? null : value;
 }
+
+const members = (v: Values) => replacing(v.member);
 
 function notes(io: Io, v: Values): string | null | undefined {
   const file = text(v["notes-file"]);
@@ -140,7 +142,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-element": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const kind = text(v.kind);
-    if (!kind) throw new CliError(`Pass --kind: person, system, container, component or class.\n\n${usage}`, 2);
+    if (!kind) throw new CliError(`Pass --kind: person, system, container, component, library or class.\n\n${usage}`, 2);
     return [
       {
         op: "add-element",
@@ -154,6 +156,7 @@ export const BUILDERS: Record<string, Builder> = {
         shape: text(v.shape) as never,
         stereotype: text(v.stereotype),
         members: members(v) ?? undefined,
+        libraries: replacing(v.library) ?? undefined,
         tags: tags(v) as Tags | undefined,
         notes: notes(io, v) ?? undefined,
       },
@@ -174,6 +177,7 @@ export const BUILDERS: Record<string, Builder> = {
         shape: clearable(v.shape) as never,
         stereotype: clearable(v.stereotype),
         members: members(v),
+        libraries: replacing(v.library),
         tags: tags(v),
         notes: notes(io, v),
       },

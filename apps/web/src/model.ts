@@ -1,8 +1,10 @@
 /** Small questions about the model that the designer's UI asks. */
 import {
+  builtInto,
   computeAllViews,
   describeElement,
   isInside,
+  representative,
   VIEW_LEVELS,
   type ArchElement,
   type ComputedView,
@@ -19,7 +21,7 @@ import {
 import type { Selection } from "./canvas/Canvas.js";
 
 /** IDs the designer gives new elements before they have a name. */
-export const PLACEHOLDER_ID = /^new-(person|system|container|component|class)(-\d+)?$/;
+export const PLACEHOLDER_ID = /^new-(person|system|container|component|library|class)(-\d+)?$/;
 
 /** `base`, or `base-2`, `base-3`, ... whichever isn't taken by an element or view other than `self`. */
 export function uniqueId(ws: Workspace, base: string, self?: string): string {
@@ -73,35 +75,20 @@ export function relationshipRef(element: ArchElement, position: number): { from:
   return { from: element.id, to, index: element.uses.slice(0, position).filter((r) => r.to === to).length };
 }
 
-/** What deleting an element would remove, for the confirmation dialog. */
-export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; views: ViewDef[]; affected: ArchElement[] } {
+/** What deleting an element would remove, for the confirmation dialog: `builtWith` are the containers built with a library being deleted. */
+export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; views: ViewDef[]; affected: ArchElement[]; builtWith: ArchElement[] } {
   const gone = new Set([id, ...[...ws.elements.keys()].filter((e) => isInside(ws, e, id))]);
   return {
     inside: [...gone].filter((e) => e !== id).map((e) => ws.elements.get(e)!),
     views: [...ws.views.values()].filter((v) => v.scope !== undefined && gone.has(v.scope)),
     affected: [...ws.elements.values()].filter((e) => !gone.has(e.id) && e.uses.some((r) => gone.has(r.to))),
+    builtWith: ws.elements.get(id)?.kind === "library" ? builtInto(ws, id).filter((c) => !gone.has(c.id)) : [],
   };
 }
 
-/** Whether a view can draw this element as its own box (rather than as the system or container around it). */
+/** Whether a view can draw this element as its own box: it does when the view would draw it as itself, as show-in-view checks. */
 function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boolean {
-  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
-  // A class view's scope is a component: the container and system it's in.
-  const container = view.level === "class" && scope?.parent ? ws.elements.get(scope.parent) : undefined;
-  if (element.kind === "person" || element.kind === "system") {
-    // The frame's own system has no box of its own.
-    const frameSystem = view.level === "container" ? scope?.id : view.level === "component" ? scope?.parent : view.level === "class" ? container?.parent : undefined;
-    return element.id !== frameSystem;
-  }
-  if (view.level === "container") return element.parent === scope?.id;
-  if (view.level === "component") return element.parent === scope?.id || (element.kind === "container" && element.parent === scope?.parent && element.id !== scope?.id);
-  if (view.level === "class") {
-    // A class anywhere is drawn as itself; other components of its container, and other containers of its system, as boxes.
-    if (element.kind === "class") return true;
-    if (element.kind === "component") return element.parent === container?.id && element.id !== scope?.id;
-    return element.kind === "container" && element.parent === container?.parent && element.id !== container?.id;
-  }
-  return false;
+  return representative(ws, view)(element.id) === element.id;
 }
 
 /**
@@ -349,7 +336,7 @@ export function renamesBetween(before: Workspace, after: Workspace): Rename[] {
 
   /** What an element is, apart from its ID and name, in the IDs of `after`. */
   const element = ({ name: _, ...e }: ElementData, at: string[], to: (id: string) => string) =>
-    canonical({ ...e, parent: e.parent && to(e.parent), uses: e.uses?.map((r) => ({ ...r, to: to(r.to) })), at });
+    canonical({ ...e, parent: e.parent && to(e.parent), libraries: e.libraries?.map(to).sort(), uses: e.uses?.map((r) => ({ ...r, to: to(r.to) })), at });
   /** What a view is, apart from its ID and title, in the IDs of `after`. */
   const view = ({ title: _, ...v }: ViewData, to: (id: string) => string) =>
     canonical({
@@ -401,9 +388,9 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
   const followed = ops.map((op): Operation => {
     switch (op.op) {
       case "add-element":
-        return op.parent ? { ...op, parent: follow(op.parent) } : op;
+        return { ...op, ...(op.parent && { parent: follow(op.parent) }), ...(op.libraries && { libraries: op.libraries.map(follow) }) };
       case "update-element":
-        return { ...op, id: follow(op.id), ...(op.parent && { parent: follow(op.parent) }) };
+        return { ...op, id: follow(op.id), ...(op.parent && { parent: follow(op.parent) }), ...(op.libraries && { libraries: op.libraries.map(follow) }) };
       case "remove-element":
       case "remove-view":
       case "rename":

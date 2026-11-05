@@ -1,4 +1,4 @@
-import { LEVEL_TITLE, SCOPE_KIND, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
+import { kindList, LEVEL_TITLE, SCOPE_KINDS, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
 import { deletePlan, idFromName, uniqueId } from "../model.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -40,6 +40,7 @@ export function DeleteElementDialog({ ws, id, inView, onHide, onDelete, onClose 
         {inside.length > 0 && <li>Also deletes what's inside it: {inside.map((e) => e.name).join(", ")}.</li>}
         {plan.views.length > 0 && <li>Also deletes these views: {plan.views.map((v) => v.title).join(", ")}.</li>}
         {plan.affected.length > 0 && <li>Removes relationships to it from: {plan.affected.map((e) => e.name).join(", ")}.</li>}
+        {plan.builtWith.length > 0 && <li>Takes it out of the containers built with it: {plan.builtWith.map((e) => e.name).join(", ")}.</li>}
       </ul>
     </Modal>
   );
@@ -69,14 +70,15 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   context: "Context: one system and what it connects to",
   container: "Container: the parts of one system",
   component: "Component: the parts of one container",
-  class: "Class: the code inside one component",
+  class: "Class: the code inside one component or library",
   sequence: "Sequence: steps between elements, in order",
 };
 
 export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
   const [level, setLevel] = useState<ViewLevel>("container");
-  const scopeKind = SCOPE_KIND[level];
-  const scopes = scopeKind ? [...ws.elements.values()].filter((e) => e.kind === scopeKind).sort((a, b) => a.name.localeCompare(b.name)) : [];
+  const scopeKinds = SCOPE_KINDS[level];
+  const scopeKind = scopeKinds.length ? kindList(scopeKinds) : undefined;
+  const scopes = [...ws.elements.values()].filter((e) => scopeKinds.includes(e.kind)).sort((a, b) => a.name.localeCompare(b.name));
   const [scope, setScope] = useState<string>("");
   const scopeId = scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
@@ -127,7 +129,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
               ))}
             </select>
           ) : (
-            <span className="muted small">There are no {scopeKind}s yet. Add one to another view first.</span>
+            <span className="muted small">There are no {kindList(scopeKinds.map((k) => (k === "library" ? "libraries" : `${k}s`)))} yet. Add one to another view first.</span>
           )}
         </label>
       )}
@@ -135,7 +137,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
         <span className="field-label">Title</span>
         <input value={title} placeholder={defaultTitle ?? "e.g. Placing an order"} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
-      {level === "class" && <p className="muted small">A class view draws the component's classes as a UML class diagram, with their attributes and methods, and how they relate.</p>}
+      {level === "class" && <p className="muted small">A class view draws the component's or library's classes as a UML class diagram, with their attributes and methods, and how they relate.</p>}
       {level === "sequence" && <p className="muted small">Give it a title. A sequence shows what happens, step by step: who calls whom, and who answers. Each step goes along a relationship in the model.</p>}
     </Modal>
   );

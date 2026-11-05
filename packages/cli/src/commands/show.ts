@@ -43,6 +43,8 @@ export function show(io: Io, opts: ShowOptions): number {
       shape: element.shape === "box" ? undefined : element.shape,
       stereotype: element.stereotype,
       members: element.kind === "class" ? element.members : undefined,
+      libraries: element.kind === "container" ? element.libraries : undefined,
+      builtInto: element.kind === "library" ? d.builtInto.map((c) => c.id) : undefined,
       tags: element.tags,
       notes: element.notes,
       children: d.children.map((c) => c.id),
@@ -65,6 +67,8 @@ export function show(io: Io, opts: ShowOptions): number {
     if (tags.length) lines.push("", "Tags:", ...table(tags.map(([name, value]) => [`  ${name}`, value])));
     if (element.notes) lines.push("", "Notes:", ...indented(element.notes, "  "));
     if (d.children.length) lines.push("", "Contains:", ...table(d.children.map(row)));
+    if (d.libraries.length) lines.push("", "Libraries:", ...table(d.libraries.map(row)));
+    if (element.kind === "library") lines.push("", "Built into:", ...(d.builtInto.length ? table(d.builtInto.map(row)) : ["  (no container yet)"]));
     lines.push("", "Uses:");
     if (d.uses.length === 0) lines.push("  (nothing)");
     lines.push(...relTable(d.uses.map(({ rel, target }) => [rel, `  ${rel.bidirectional ? "<->" : "->"} ${rel.to}`, relLabel(rel) + (target ? "" : "  (not an element!)")])));
