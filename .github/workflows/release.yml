@@ -1,0 +1,141 @@
+name: Release
+
+# Publishes a release of open-arch on GitHub, with the desktop app's installers and the share
+# server's executables, and the share server's Docker image on GitHub's container registry, when
+# started by hand (Actions, Release, Run workflow) with its version. It runs CI first, with that
+# version: every check, then each installer and executable built and run on its own machine. The
+# release has the files those jobs built, with their checksums, and a tag v<version> on the
+# commit it ran on. The image has the Linux executables those jobs built and ran.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version, like 1.2.0, or 1.2.0-rc.1 for a pre-release"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One release at a time. CI, which it runs, has a group of its own.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # Before the hour CI takes: a version that's well formed, with no release or tag yet.
+      - id: version
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${VERSION#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::The version must be like 1.2.0, or 1.2.0-rc.1 for a pre-release, not \"$VERSION\"."
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" > /dev/null 2>&1; then
+            echo "::error::There's already a tag v$version. Choose another version."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  release:
+    needs: [version, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # To read CI's artifacts, to create the release and its tag, and to publish the image.
+      actions: read
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # The installers and the executables CI built in this run, from its artifacts.
+      - name: Download what CI built
+        run: |
+          mkdir -p assets
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | test("^(installers|share-server)-")) | "\(.id) \(.name)"' |
+            while read -r id name; do
+              echo "Downloading $name"
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/$name.zip"
+              unzip -o -q "$RUNNER_TEMP/$name.zip" -d assets
+            done
+          ls -l assets
+      # Checks every file is there, and writes SHA256SUMS and the notes.
+      - name: Get the release ready
+        run: node scripts/release-assets.mjs assets "$VERSION" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/files"
+      # ghcr.io/<owner>/open-arch-share:<version>, for x64 and arm64, and :latest unless it's a
+      # pre-release. Each architecture's image is apps/server/Dockerfile with the executable CI
+      # built and ran in place of its build stage, so nothing is built again here.
+      - name: Publish the share server's image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/open-arch-share"
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          for arch in amd64 arm64; do
+            [[ "$arch" == amd64 ]] && name=linux-x64 || name=linux-arm64
+            context="$RUNNER_TEMP/image-$arch"
+            mkdir -p "$context/out/data"
+            tar -xzf "assets/open-arch-share-$name.tar.gz" -C "$context/out"
+            mv "$context/out/open-arch-share-$name" "$context/out/open-arch-share"
+            # One image, not an index with attestations, so the two join under one tag below.
+            docker buildx build --platform "linux/$arch" --build-context build="$context" \
+              --provenance=false --sbom=false \
+              --label org.opencontainers.image.source="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --label org.opencontainers.image.version="$VERSION" \
+              --label org.opencontainers.image.revision="$GITHUB_SHA" \
+              --tag "$image:$VERSION-$arch" --push apps/server
+          done
+          tags=(--tag "$image:$VERSION")
+          [[ "$VERSION" != *-* ]] && tags+=(--tag "$image:latest")
+          docker buildx imagetools create "${tags[@]}" "$image:$VERSION-amd64" "$image:$VERSION-arm64"
+          docker buildx imagetools inspect "$image:$VERSION"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Publish the release
+        run: |
+          flags=()
+          [[ "$VERSION" == *-* ]] && flags+=(--prerelease)
+          mapfile -t files < "$RUNNER_TEMP/files"
+          gh release create "v$VERSION" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "open-arch $VERSION" \
+            --notes-file assets/notes.md \
+            "${flags[@]}"
+          echo "Released v$VERSION: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$VERSION" >> "$GITHUB_STEP_SUMMARY"
+      # A new package on ghcr.io starts out private, and a workflow can't change that: its owner
+      # makes it public once, in the package's settings. Until then, say so.
+      - name: Check anyone can pull the image
+        run: |
+          path="${IMAGE#ghcr.io/}"
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:$path:pull" | jq -r .token) || token=""
+          if [[ -n "$token" ]] && curl -fsS -o /dev/null -H "Authorization: Bearer $token" \
+              -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json" \
+              "https://ghcr.io/v2/$path/manifests/$VERSION"; then
+            echo "Published $IMAGE:$VERSION, for anyone to pull." >> "$GITHUB_STEP_SUMMARY"
+          else
+            message="$IMAGE is private, so only you can pull it. Make it public once: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY_OWNER?tab=packages, open-arch-share, Package settings, Change visibility."
+            echo "::warning::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -4,14 +4,16 @@
 //   pnpm --filter @open-arch/server executable
 //
 // It writes release/open-arch-share-<linux|macos>-<x64|arm64>, then scripts/smoke-executable.mjs
-// runs the one for this machine, when there is one.
+// runs the one for this machine, when there is one. Each says its version: OPEN_ARCH_VERSION, or
+// package.json's.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const server = fileURLToPath(new URL("..", import.meta.url));
-const { version } = JSON.parse(readFileSync(join(server, "package.json"), "utf8"));
+// A release names its version (.github/workflows/release.yml); otherwise it's package.json's.
+const version = process.env.OPEN_ARCH_VERSION || JSON.parse(readFileSync(join(server, "package.json"), "utf8")).version;
 mkdirSync(join(server, "release"), { recursive: true });
 
 /** Each executable: its name's platform and architecture, and Go's. */

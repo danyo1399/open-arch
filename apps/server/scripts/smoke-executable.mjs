@@ -4,7 +4,7 @@
 //
 //   node scripts/smoke-executable.mjs [executable]
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,7 +54,8 @@ try {
   check(helpText.includes("Usage: open-arch-share-"), "help names the executable");
 
   let running = await start(["--data", data, "--port", "0"]);
-  check(execFileSync(executable, ["version"], { encoding: "utf8" }).startsWith("open-arch-share "), "says its version");
+  const version = process.env.OPEN_ARCH_VERSION || JSON.parse(readFileSync(join(server, "package.json"), "utf8")).version;
+  check(execFileSync(executable, ["version"], { encoding: "utf8" }).trim() === `open-arch-share ${version}`, `says it's version ${version}`);
   const created = await fetch(`${running.url}/v1/workspaces`, { method: "POST", body: file });
   check(created.status === 201, "takes an upload");
   const { id, hash } = await created.json();
