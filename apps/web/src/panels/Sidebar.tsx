@@ -41,7 +41,6 @@ export function Sidebar(props: SidebarProps) {
       <section>
         <header>
           <h2>Views</h2>
-          <span className="spacer" />
           <select className="view-order" value={props.viewOrder} onChange={(e) => props.onViewOrder(e.target.value as ViewOrder)} aria-label="Sort views" title="Sort views">
             <option value="name">By name</option>
             <option value="level">By level</option>

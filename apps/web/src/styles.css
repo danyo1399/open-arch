@@ -304,6 +304,9 @@ code {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  /* Room for the scrollbar whether the lists need it or not, so the panel's width doesn't change
+     as they grow past its height: that would rewrap its header and resize the canvas beside it. */
+  scrollbar-gutter: stable;
 }
 .properties {
   border-left: 1px solid var(--border);
@@ -455,10 +458,19 @@ button.pane-tab.active {
 }
 .sidebar header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 2px 6px;
   padding: 0 6px 6px;
+}
+/* The title on the left, and what follows it on the right. */
+.sidebar header h2 {
+  margin-right: auto;
+}
+/* Where the header is too narrow, + New view goes on a line of its own, rather than breaking in two. */
+.sidebar header button.link {
+  white-space: nowrap;
 }
 /* How the Views list is sorted: a menu that sits quietly beside + New view. The background stays
    the panel's, as the list it opens takes its colours. */
