@@ -20,7 +20,7 @@ See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.opena
 | [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`: agents read with `show` and change the model only with commands. |
 | [`apps/web`](apps/web) | The designer as a static web app (React, React Flow, ELK). |
 | [`apps/desktop`](apps/desktop) | The same designer in Electron, for Windows, macOS and Linux. |
-| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. Runs from a terminal, in a container, or on Cloudflare Workers. |
+| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. Runs from a terminal, as a Linux executable, in a container, or on Cloudflare Workers. |
 
 ## The designer
 
@@ -118,11 +118,12 @@ To find and stop abuse, the server keeps a record of every upload: the workspace
 
 ### Where it runs
 
-The same server runs in three places, and keeps the same records in the same tables ([`migrations/`](apps/server/migrations)):
+The same server runs in four ways, and keeps the same records in the same tables ([`migrations/`](apps/server/migrations)):
 
 | | Records | Encrypted files |
 |---|---|---|
 | [From a terminal](#from-a-terminal), on any machine with Node.js 22.13+ | SQLite, in `data/shares.db` | `data/files/` |
+| [As a Linux executable](#as-a-linux-executable), with nothing to install | SQLite, in `data/shares.db` | `data/files/` |
 | [In a container](#in-a-container): Docker, Compose, or any host that runs one | SQLite, in `/data/shares.db` | `/data/files/` |
 | [On Cloudflare Workers](#on-cloudflare-workers) | D1 | R2 |
 
@@ -166,6 +167,35 @@ Behind Caddy, for example, which gets an HTTPS certificate for the domain by its
 caddy reverse-proxy --from share.example.com --to localhost:8787
 ```
 
+### As a Linux executable
+
+The share server can be built as one file that runs on Linux with nothing installed, not even Node.js. It is Node's own binary with the server inside it, a [single executable application](https://nodejs.org/api/single-executable-applications.html), so it's about 125 MB (42 MB compressed). It runs on any Linux with glibc 2.28 or later: Debian 10, Ubuntu 20.04, RHEL and Rocky 8, Amazon Linux 2023 and later. Alpine uses musl instead, so use the container there.
+
+Build it on Linux, for the machine's architecture (x64 or arm64), with Node.js 22.13+. It's built in `apps/server/release/`, then run to check it works:
+
+```bash
+pnpm install
+pnpm --filter @open-arch/server executable
+```
+
+The [CI workflow](#ci) builds it for x64 and arm64, and uploads each as an artifact of the run. It takes the same commands and [settings](#settings) as `node dist/main.js`:
+
+```bash
+./open-arch-share-linux-x64 --data /var/lib/open-arch-share --port 8787
+./open-arch-share-linux-x64 help
+```
+
+To run it as a service, [`apps/server/linux/open-arch-share.service`](apps/server/linux/open-arch-share.service) is a systemd unit. It runs as its own user, keeps its data in `/var/lib/open-arch-share`, and listens only on the machine, for a reverse proxy that does HTTPS in front:
+
+```bash
+sudo cp open-arch-share-linux-x64 /usr/local/bin/open-arch-share
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin open-arch-share
+sudo cp apps/server/linux/open-arch-share.service /etc/systemd/system/
+sudo systemctl enable --now open-arch-share
+```
+
+`journalctl -u open-arch-share` shows its log. To update it, replace the file and `sudo systemctl restart open-arch-share`.
+
 ### In a container
 
 [`apps/server/Dockerfile`](apps/server/Dockerfile) builds an image of the server, with nothing in it but Node.js and the server. Build it from the repository's root, then run it with a volume for `/data`, so what's shared outlives the container:
@@ -203,7 +233,7 @@ pnpm --filter @open-arch/server deploy
 
 ### Taking down abuse
 
-Find a workspace by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too. On a server from a terminal, add `--data <folder>` if it isn't `./data`; in a container, run them with `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`:
+Find a workspace by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too. On a server from a terminal, add `--data <folder>` if it isn't `./data`. With the executable, run `open-arch-share` in place of `node apps/server/dist/main.js`; as the systemd service, as its user: `sudo -u open-arch-share open-arch-share block <id> --data /var/lib/open-arch-share --reason "<why>"`. In a container, run them with `docker exec open-arch-share open-arch-share …`, or with Compose, `docker compose -f apps/server/compose.yaml exec share open-arch-share …`:
 
 ```bash
 node apps/server/dist/main.js uploads --workspace <id>
@@ -320,7 +350,8 @@ pnpm open-arch show --file examples/shop/shop.openarch
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs when a release is published, or when you start it from the Actions tab (**CI**, then **Run workflow**). It doesn't run on pushes or pull requests: `pnpm verify` runs the same checks before merging. They test the desktop app only on your own system, so start a run on `main` by hand to check macOS and Windows before a release.
 
-It has two jobs:
+It has three jobs:
 
 - **lint** (Ubuntu): typecheck, tests, the CLI build, then `open-arch check`, `fmt --check` and `export --check` on the example.
 - **desktop** (macOS, Windows and Linux): the smoke test (under `xvfb-run` on Linux), then unsigned installers built with `dist`. The smoke screenshots and the installers (`.dmg`/`.zip`, `.exe`, `.AppImage`/`.deb`) are uploaded as artifacts of the run.
+- **share server** (Linux on x64 and arm64): builds the [share server's executable](#as-a-linux-executable) for each, runs it, and uploads it as a `.tar.gz` artifact of the run.

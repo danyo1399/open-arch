@@ -302,7 +302,7 @@ describe("pnpm verify", () => {
   });
 
   it("runs every check AGENTS.md lists, on every example", () => {
-    const commands = checks({ examples: ["examples/a/a.openarch", "examples/b/b.openarch"], smoke: true }).map(([c, args]: [string, string[]]) => [c, ...args].join(" "));
+    const commands = checks({ examples: ["examples/a/a.openarch", "examples/b/b.openarch"], smoke: true, executable: true }).map(([c, args]: [string, string[]]) => [c, ...args].join(" "));
     expect(commands).toEqual([
       "pnpm install --frozen-lockfile",
       "pnpm typecheck",
@@ -315,6 +315,7 @@ describe("pnpm verify", () => {
       "pnpm open-arch fmt --check --file examples/b/b.openarch",
       "pnpm open-arch export --check --file examples/b/b.openarch",
       "pnpm --filter @open-arch/desktop smoke",
+      "pnpm --filter @open-arch/server executable",
     ]);
     expect(checks({ examples: [], smoke: false }).map(([, args]: [string, string[]]) => args[0])).not.toContain("--filter");
   });

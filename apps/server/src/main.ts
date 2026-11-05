@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * The share server from the terminal, or as a container's command (Dockerfile):
+ * The share server from the terminal, as a container's command (Dockerfile), or as the Linux
+ * executable that scripts/executable.mjs builds, which takes the same commands:
  *
  *   node dist/main.js                 serve, keeping records and files in ./data
  *   node dist/main.js --memory        serve, keeping them in memory, for trying it out
@@ -10,8 +11,9 @@
  * each version's encrypted file in data/files/.
  */
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { HELP, readInvocation, UsageError, type Invocation } from "./config.js";
+import { basename, join } from "node:path";
+import { help, readInvocation, UsageError, type Invocation } from "./config.js";
+import type { Migration } from "./sqlite.js";
 import { MemoryStore, type ShareStore } from "./store.js";
 
 // node:sqlite still calls itself experimental in Node 22, and says so on every start. Other warnings still show.
@@ -21,6 +23,18 @@ process.on("warning", (warning) => {
   if (warning.name === "ExperimentalWarning" && /SQLite/.test(warning.message)) return;
   showWarning?.(warning);
 });
+
+/** The executable, when this is one: Node's single executable application, with the server inside it. */
+async function executable(): Promise<typeof import("node:sea") | null> {
+  const sea = await import("node:sea").catch(() => null);
+  return sea?.isSea() ? sea : null;
+}
+
+/** The migrations inside the executable, which has no migrations/ folder beside it. Otherwise undefined: the folder's. */
+async function bundledMigrations(): Promise<Migration[] | undefined> {
+  const sea = await executable();
+  return sea ? (JSON.parse(sea.getAsset("migrations.json", "utf8")) as Migration[]) : undefined;
+}
 
 /** The database and the files, in the data folder. node:sqlite is loaded only when it's needed, to say clearly if this Node is too old for it. */
 async function openData(folder: string) {
@@ -32,7 +46,7 @@ async function openData(folder: string) {
   }
   const [{ SqlStore }, { diskBucket }] = await Promise.all([import("./sql.js"), import("./disk.js")]);
   mkdirSync(folder, { recursive: true });
-  const { sqlite: database, db } = sqlite.openDatabase(join(folder, "shares.db"));
+  const { sqlite: database, db } = sqlite.openDatabase(join(folder, "shares.db"), await bundledMigrations());
   return { db, store: new SqlStore(diskBucket(join(folder, "files")), db), close: () => database.close() };
 }
 
@@ -75,13 +89,18 @@ async function admin(invocation: Invocation): Promise<void> {
   }
 }
 
-try {
-  const invocation = readInvocation(process.argv.slice(2), process.env);
-  if (invocation.command === "help") console.log(HELP);
-  else if (invocation.command === "serve") await serve(invocation);
-  else await admin(invocation);
-} catch (error) {
-  if (!(error instanceof UsageError)) throw error;
-  console.error(error.message);
-  process.exitCode = 1;
+// Not top-level await: the executable is built from this as CommonJS, which has none.
+async function main(): Promise<void> {
+  try {
+    const invocation = readInvocation(process.argv.slice(2), process.env);
+    if (invocation.command === "help") console.log(help((await executable()) ? basename(process.execPath) : "node dist/main.js"));
+    else if (invocation.command === "serve") await serve(invocation);
+    else await admin(invocation);
+  } catch (error) {
+    if (!(error instanceof UsageError)) throw error;
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }
+
+void main();

@@ -36,9 +36,10 @@ export interface Invocation {
 
 export class UsageError extends Error {}
 
-export const HELP = `open-arch share server: keeps workspaces shared from the designer, encrypted.
+/** What the commands and options are, for the program as it was run: `node dist/main.js`, or the executable. */
+export const help = (program: string) => `open-arch share server: keeps workspaces shared from the designer, encrypted.
 
-Usage: node dist/main.js [command] [options]
+Usage: ${program} [command] [options]
 
 Commands:
   serve                     Answer requests (the default)

@@ -7,3 +7,5 @@ apps/server/data
 apps/desktop/release
 apps/desktop/smoke
 apps/desktop/user-data
+apps/server/build
+apps/server/release
