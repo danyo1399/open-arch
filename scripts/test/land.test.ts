@@ -73,7 +73,8 @@ function passing() {
   return {
     reviews,
     checked,
-    review: async (args: unknown) => (reviews.push(args), { approved: true, report: "Looks right." }),
+    // The shape claudeReview gives, so a fake can't pass only because it has no findings.
+    review: async (args: unknown) => (reviews.push(args), verdictFrom({ findings: [], summary: "Looks right." })),
     verify: (root: string) => {
       checked.push(git(root, "rev-parse", "HEAD"));
       verified.add(git(root, "rev-parse", "HEAD^{tree}"), root);
@@ -245,7 +246,7 @@ describe("pnpm land", () => {
     const { remote, worktree } = repos();
     const before = remoteMain(remote);
     const fake = passing();
-    const writing = { ...fake, review: async () => (writeFileSync(join(worktree, "diff.txt"), "oops\n"), { approved: true, report: "Fine." }) };
+    const writing = { ...fake, review: async () => (writeFileSync(join(worktree, "diff.txt"), "oops\n"), verdictFrom({ findings: [], summary: "Fine." })) };
     await expect(land({ cwd: worktree, task: "Add b", ...writing })).rejects.toThrow(/reviewer changed the worktree[\s\S]*diff\.txt/);
     expect(remoteMain(remote)).toBe(before);
     expect(approved.has(git(worktree, "rev-parse", "HEAD"), worktree)).toBe(false);

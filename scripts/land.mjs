@@ -54,7 +54,8 @@ export const VERDICT_SCHEMA = {
 
 /**
  * The findings that must be fixed before the branch is merged: every one that isn't a suggestion.
- * One with a severity missing or misspelled counts as a defect, so a slip can't let a branch through.
+ * One with a misspelled severity counts as a defect, so a slip can't let a branch through. One
+ * with none at all doesn't get here: claudeReview refuses the whole answer (wellFormed).
  */
 export const defects = (verdict) => (verdict.findings ?? []).filter((f) => f.severity !== "suggestion");
 
