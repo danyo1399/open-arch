@@ -196,11 +196,14 @@ export class ShareClient {
   }
 
   /**
-   * Opens the latest version of a shared workspace. Offline, or if the server can't say which
-   * version is the latest, it opens the link's version, which the browser may have cached.
-   * Its errors give the reason alone, as the designer says it couldn't open the workspace.
+   * Opens the latest version of a shared workspace, and says which that is. A link to an earlier
+   * version opens the latest: the server deletes a version once there's a newer one, and sends a
+   * request for it on to the latest. If the server can't say which version is the latest, as
+   * offline, it asks for the link's version: a browser that cached it opens that, and the server
+   * sends it on. Its errors give the reason alone, as the designer says it couldn't open the
+   * workspace.
    */
-  async open(link: LinkParts): Promise<SharedFile> {
+  async open(link: LinkParts): Promise<SharedFile & { hash: string }> {
     let hash = link.hash;
     let latest: Response | null = null;
     try {
@@ -211,7 +214,10 @@ export class ShareClient {
     if (latest?.ok) hash = ((await latest.json()) as { hash: string }).hash;
     else if (latest && (latest.status === 404 || latest.status === 410)) throw await problem(latest, null);
     const response = await this.send(`/${link.id}/${hash}`, {}, null);
-    return unseal(new Uint8Array(await response.arrayBuffer()), link.key);
+    // Where a redirect led, if one did.
+    const opened = response.url.split("/").pop() ?? "";
+    const file = await unseal(new Uint8Array(await response.arrayBuffer()), link.key);
+    return { ...file, hash: HASH.test(opened) ? opened : hash };
   }
 }
 

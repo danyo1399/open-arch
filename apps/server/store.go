@@ -53,7 +53,8 @@ type Store interface {
 	Workspace(ctx context.Context, id string) (*Workspace, error)
 	// Stores a new workspace's first version.
 	Create(ctx context.Context, w Workspace, file []byte, u Upload) error
-	// Stores a new version of a workspace, and makes it the latest.
+	// Stores a new version of a workspace, makes it the latest, and deletes the version it
+	// replaces: a link to that one is sent on to this one (handler.go).
 	Update(ctx context.Context, id string, file []byte, u Upload) error
 	// Deletes a workspace's files, and marks it deleted. What's known about its uploads is kept.
 	Remove(ctx context.Context, id string, at int64) error
@@ -102,6 +103,9 @@ func (m *MemoryStore) Update(_ context.Context, id string, file []byte, u Upload
 	defer m.mu.Unlock()
 	m.files[id+"/"+u.Hash] = file
 	w := m.workspaces[id]
+	if w.Latest != u.Hash {
+		delete(m.files, id+"/"+w.Latest)
+	}
 	w.Latest, w.Updated = u.Hash, u.At
 	m.workspaces[id] = w
 	m.uploads = append(m.uploads, u)

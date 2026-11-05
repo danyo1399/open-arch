@@ -55,7 +55,7 @@ export function ShareDialog({ client, workspace, file, designer, settings = user
   };
 
   const create = () => attempt(async () => keep(await client.create(file), "Made a link. Copy it, and send it to whoever should see this workspace."));
-  const update = () => attempt(async () => keep(await client.update(share!, file), "Updated the link. It opens this version now, and so do links you already sent."));
+  const update = () => attempt(async () => keep(await client.update(share!, file), "Updated the link. It opens this version now, and so do links you already sent. The version before is deleted."));
   const stop = () =>
     attempt(async () => {
       await client.remove(share!);

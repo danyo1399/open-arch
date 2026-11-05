@@ -9,10 +9,13 @@ package main
 //	PUT    /v1/workspaces/:id          upload a new version (token)    → 200 {id, hash}
 //	DELETE /v1/workspaces/:id          stop sharing it (token)         → 204
 //	GET    /v1/workspaces/:id          its latest version              → 200 {id, hash, updated}
-//	GET    /v1/workspaces/:id/:hash    one version's encrypted file    → 200 bytes
+//	GET    /v1/workspaces/:id/:hash    the latest version's file       → 200 bytes
+//	                                   an earlier version's            → 302 to the latest's
 //
 // A version's file never changes, as its hash is the hash of its bytes, so browsers and proxies
 // can cache it for good. Only the small answer naming the latest version is checked each time.
+// A new version replaces the one before: its file is deleted, and its URL sends whoever asks for
+// it on to the latest version's. That answer changes with each version, so it's never cached.
 //
 // Every upload is kept with what the request said about who sent it (client.go), so abuse can
 // be found and taken down, and uploads from one address are limited per hour.
@@ -293,6 +296,16 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request, client Client) er
 			return nil
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "hash": workspace.Latest, "updated": workspace.Updated})
+		return nil
+	}
+
+	// An earlier version, or one there never was: on to the latest. Before If-None-Match, so a
+	// browser with an earlier version cached isn't told its copy is still good.
+	if hash != workspace.Latest {
+		latest := "/v1/workspaces/" + id + "/" + workspace.Latest
+		w.Header().Set("Location", latest)
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusFound, map[string]string{"id": id, "hash": workspace.Latest})
 		return nil
 	}
 

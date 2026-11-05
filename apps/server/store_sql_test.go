@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -102,4 +105,29 @@ func TestDataFolderWithAnyName(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
+}
+
+func TestUpdatesAtOnceLeaveOnlyTheLatest(t *testing.T) {
+	folder := t.TempDir()
+	s, _ := OpenStore(folder)
+	defer s.Close()
+	h := &harness{t: t, store: s, ip: "127.0.0.1"}
+	h.server = &Server{Store: s, UploadsPerHour: 1000}
+	c := h.create(file(1, 48))
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(fill byte) {
+			defer wg.Done()
+			r := httptest.NewRequest("PUT", "/v1/workspaces/"+c.ID, bytes.NewReader(file(fill, 48)))
+			r.RemoteAddr = "127.0.0.1:5555"
+			r.Header.Set("Authorization", "Bearer "+c.Token)
+			h.server.ServeHTTP(httptest.NewRecorder(), r)
+		}(byte(10 + i))
+	}
+	wg.Wait()
+	w, _ := s.Workspace(context.Background(), c.ID)
+	entries, _ := os.ReadDir(filepath.Join(folder, "files", "workspaces", c.ID))
+	expect(t, len(entries), 1, "files left")
+	expect(t, entries[0].Name(), w.Latest, "the one left is the latest")
 }

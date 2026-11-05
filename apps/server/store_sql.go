@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -198,17 +199,33 @@ func (s *SQLStore) Create(ctx context.Context, w Workspace, file []byte, u Uploa
 	)
 }
 
+// The version it replaces is read in the same transaction that replaces it, so of two updates at
+// once, each deletes the one it replaced. Its file goes once the new one is the latest: if that
+// fails, it's a file nothing serves, and it's only logged.
 func (s *SQLStore) Update(ctx context.Context, id string, file []byte, u Upload) error {
 	if err := s.putFile(id, u.Hash, file); err != nil {
 		return err
 	}
-	return s.inTx(ctx,
+	var previous string
+	err := s.inTx(ctx,
+		func(tx *sql.Tx) error {
+			return tx.QueryRowContext(ctx, "SELECT latest FROM workspaces WHERE id = ?", id).Scan(&previous)
+		},
 		func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, "UPDATE workspaces SET latest = ?, updated_at = ? WHERE id = ?", u.Hash, u.At, id)
 			return err
 		},
 		func(tx *sql.Tx) error { _, err := tx.ExecContext(ctx, insertUpload, uploadValues(u)...); return err },
 	)
+	if err != nil || previous == u.Hash {
+		return err
+	}
+	if path, err := s.path(id, previous); err == nil {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			log.Printf("couldn't delete %s's previous version %s: %v", id, previous, err)
+		}
+	}
+	return nil
 }
 
 // Marked deleted first, so nothing serves a version while its files go.

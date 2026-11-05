@@ -82,7 +82,7 @@ A state view shows the states something can be in, and how it moves between them
 
 The workspace is compressed and encrypted on your device before it's uploaded, with a new random key. The key is in the link, after the `#`, which browsers never send to a server, so the share server only has a file it can't read. Nobody signs in: anyone with the link can open the workspace.
 
-Only you can change what you shared, from the browser or the computer you shared it from, which keeps the link with a token from the server. Changes you make aren't in the link until you choose **Update link**. Links you already sent open the latest version. **Stop sharing** deletes the copy on the server, and the links stop working. Do that before deleting the workspace: deleting it leaves its link working.
+Only you can change what you shared, from the browser or the computer you shared it from, which keeps the link with a token from the server. Changes you make aren't in the link until you choose **Update link**, which replaces the version you shared before: the server deletes it. Links you already sent open the latest version, and the address in the browser becomes its link. **Stop sharing** deletes the copy on the server, and the links stop working. Do that before deleting the workspace: deleting it leaves its link working.
 
 Sharing needs a [share server](#the-share-server). The designer only offers it when it was built with one.
 
@@ -102,19 +102,19 @@ OpenCode's default model is used. To use another, start the app with `OPEN_ARCH_
 
 [`apps/server`](apps/server) keeps the workspaces shared as links. It never has their keys, so it can't read them.
 
-A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID names the shared workspace, and the hash names one version of it: the first 128 bits of the SHA-256 of its encrypted file. So a new version has a new URL, and each version's file is served with `Cache-Control: public, max-age=31536000, immutable`, for browsers and proxies to cache for good. Opening a link first asks which version is the latest, a small answer that's checked each time (`no-cache`, with an ETag), so old links open new versions. Offline, the link's own version opens, if the browser cached it.
+A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID names the shared workspace, and the hash names one version of it: the first 128 bits of the SHA-256 of its encrypted file. So a new version has a new URL, and the version's file is served with `Cache-Control: public, max-age=31536000, immutable`, for browsers and proxies to cache for good. A new version replaces the one before: the server deletes its file, and a request for it is redirected (`302`, never cached) to the latest version's. Opening a link first asks which version is the latest, a small answer that's checked each time (`no-cache`, with an ETag), so a browser that cached an earlier version opens the latest too. Offline, the link's own version opens, if the browser cached it.
 
 | Request | Does |
 |---|---|
 | `POST /v1/workspaces` | Uploads a new workspace. Answers with its `id`, the `hash` of the version, and the `token` that changes it |
-| `PUT /v1/workspaces/<id>` | Uploads a new version, with `Authorization: Bearer <token>` |
+| `PUT /v1/workspaces/<id>` | Uploads a new version, with `Authorization: Bearer <token>`. The version before is deleted |
 | `DELETE /v1/workspaces/<id>` | Stops sharing it, with the token. Its files are deleted |
 | `GET /v1/workspaces/<id>` | Its latest version's `hash` |
-| `GET /v1/workspaces/<id>/<hash>` | That version's encrypted file |
+| `GET /v1/workspaces/<id>/<hash>` | The latest version's encrypted file. For an earlier version, a redirect to it |
 
 An uploaded file is one byte for the format (`1`), AES-GCM's 12-byte IV, then the ciphertext of `{"name", "text"}`, the file name and the `.openarch` text, as JSON compressed with DEFLATE. The key is 256 random bits. The server only checks the format byte and the size: at most 1 MB.
 
-To find and stop abuse, the server keeps a record of every upload: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, behind Cloudflare's proxy, the country and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour.
+To find and stop abuse, the server keeps a record of every upload, even of versions it has since deleted: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the user agent, the `Origin` and `Referer` headers, and, behind Cloudflare's proxy, the country and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour.
 
 The server is written in Go, and builds to one static executable with nothing to install where it runs, not even a C library: its SQLite is pure Go. It keeps its records in SQLite, in `<data>/shares.db`, and each version's encrypted file in `<data>/files/`. It brings the database's tables ([`migrations/`](apps/server/migrations)) up to date as it opens it.
 

@@ -51,10 +51,15 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A link to an earlier version of a shared workspace opens the latest, and the URL becomes its link.
   useEffect(() => {
     if (desktop || restoring) return;
-    const url = urlFor(host);
-    if (location.pathname + location.search + location.hash !== url) history.replaceState(null, "", url);
+    const follow = () => {
+      const url = urlFor(host);
+      if (location.pathname + location.search + location.hash !== url) history.replaceState(null, "", url);
+    };
+    follow();
+    return host instanceof SharedHost ? host.onLinkChange(follow) : undefined;
   }, [desktop, host, restoring]);
 
   if (host) {

@@ -65,13 +65,13 @@ describe("sharing a link", () => {
     expect(strFromU8(stored, true)).not.toContain("Shop");
 
     const link = readLink(linkTo("https://designer.example/", share))!;
-    expect(await client().open(link)).toEqual(await shop());
+    expect(await client().open(link)).toEqual({ ...(await shop()), hash: share.hash });
     // The key never went to the server, nor the token in a URL.
     expect(requested.some((url) => url.includes(share.key) || url.includes(share.token))).toBe(false);
     expect(requested).toEqual([`${server.url}/v1/workspaces`, `${server.url}/v1/workspaces/${share.id}`, `${server.url}/v1/workspaces/${share.id}/${share.hash}`]);
   });
 
-  it("opens the latest version from a link to an older one, or the link's own when offline", async () => {
+  it("replaces the version before, and opens the latest from a link to an older one", async () => {
     const first = await client().create(await shop());
     const changed = { name: "shop.openarch", text: (await shop()).text.replace('"Shop"', '"Shop, changed"') };
     const second = await client().update(first, changed);
@@ -79,15 +79,41 @@ describe("sharing a link", () => {
     expect(second.key).toBe(first.key);
     expect(second.hash).not.toBe(first.hash);
 
-    expect((await client().open(first)).text).toBe(changed.text);
+    expect(await client().open(first)).toEqual({ ...changed, hash: second.hash });
 
-    // Offline, the server can't say which is the latest: the link's version is what the browser may have cached.
+    // The first version is gone: its URL sends whoever asks for it on to the latest's.
+    const old = await fetch(`${server.url}/v1/workspaces/${first.id}/${first.hash}`, { redirect: "manual" });
+    expect(old.status).toBe(302);
+    expect(old.headers.get("Location")).toBe(`/v1/workspaces/${first.id}/${second.hash}`);
+    expect(old.headers.get("Cache-Control")).toBe("no-store");
+
+    // When the server can't say which is the latest, as offline, the link's version is asked for:
+    // a browser that cached it would open that, and the server sends it on to the latest.
     let calls = 0;
     const flaky = new ShareClient(server.url, async (input, init) => {
       if (calls++ === 0) throw new TypeError("Failed to fetch");
       return fetch(input, init);
     });
-    expect((await flaky.open(first)).text).toBe((await shop()).text);
+    expect(await flaky.open(first)).toEqual({ ...changed, hash: second.hash });
+  });
+
+  it("changes the link of a workspace opened from an older one to the latest's", async () => {
+    const first = await client().create(await shop());
+    const changed = { name: "shop.openarch", text: (await shop()).text.replace('"Shop"', '"Shop, changed"') };
+    const second = await client().update(first, changed);
+    const host = new SharedHost(client(), first);
+    const changes: string[] = [];
+    host.onLinkChange(() => changes.push(host.link.hash));
+    expect(host.link.hash).toBe(first.hash);
+    expect(await host.load()).toBe(changed.text);
+    expect(host.link).toMatchObject({ id: first.id, hash: second.hash, key: first.key });
+    expect(changes).toEqual([second.hash]);
+
+    // Opened from the latest's link, it stays as it is.
+    const current = new SharedHost(client(), second);
+    current.onLinkChange(() => changes.push("changed"));
+    await current.load();
+    expect(changes).toEqual([second.hash]);
   });
 
   it("lets only whoever shared it update it, and stops the links when they stop sharing", async () => {

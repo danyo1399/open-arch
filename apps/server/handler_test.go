@@ -148,9 +148,67 @@ func TestLatestVersion(t *testing.T) {
 		changed := h.send("GET", "/v1/workspaces/"+c.ID, nil, map[string]string{"If-None-Match": `"` + c.Hash + `"`})
 		expect(t, changed.StatusCode, 200, "changed")
 		expect(t, decode[created](t, changed).Hash, next, "latest after update")
-		// A link to the old version still opens it: its URL's content never changes.
-		expect(t, h.send("GET", "/v1/workspaces/"+c.ID+"/"+c.Hash, nil, nil).StatusCode, 200, "old version")
 	})
+}
+
+func TestReplacesTheVersionBefore(t *testing.T) {
+	eachStore(t, func(t *testing.T, h *harness) {
+		c := h.create(file(7, 64))
+		auth := map[string]string{"Authorization": "Bearer " + c.Token}
+		second := decode[created](t, h.send("PUT", "/v1/workspaces/"+c.ID, file(8, 64), auth)).Hash
+		third := decode[created](t, h.send("PUT", "/v1/workspaces/"+c.ID, file(9, 64), auth)).Hash
+
+		// Only the latest version's file is kept.
+		for _, hash := range []string{c.Hash, second} {
+			f, err := h.store.File(context.Background(), c.ID, hash)
+			expect(t, err, nil, "file")
+			expect(t, f == nil, true, "earlier version deleted")
+		}
+		latest, _ := h.store.File(context.Background(), c.ID, third)
+		expect(t, bytes.Equal(latest, file(9, 64)), true, "latest kept")
+
+		// A link to an earlier version is sent on to the latest, every time: never from a cache.
+		for _, hash := range []string{c.Hash, second} {
+			for _, method := range []string{"GET", "HEAD"} {
+				r := h.send(method, "/v1/workspaces/"+c.ID+"/"+hash, nil, map[string]string{"If-None-Match": `"` + hash + `"`})
+				expect(t, r.StatusCode, http.StatusFound, method+" earlier version")
+				expect(t, r.Header.Get("Location"), "/v1/workspaces/"+c.ID+"/"+third, "location")
+				expect(t, r.Header.Get("Cache-Control"), "no-store", "redirect cache")
+				expect(t, r.Header.Get("Access-Control-Allow-Origin"), "*", "cors")
+			}
+		}
+
+		// The same file again is the same version, so nothing is deleted.
+		h.send("PUT", "/v1/workspaces/"+c.ID, file(9, 64), auth)
+		expect(t, h.send("GET", "/v1/workspaces/"+c.ID+"/"+third, nil, nil).StatusCode, 200, "same version again")
+	})
+}
+
+func TestFollowsTheRedirectToTheLatest(t *testing.T) {
+	server := httptest.NewServer(&Server{Store: NewMemoryStore()})
+	defer server.Close()
+	post := func(method, path string, body []byte, token string) *http.Response {
+		r, _ := http.NewRequest(method, server.URL+path, bytes.NewReader(body))
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		response, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	c := decode[created](t, post("POST", "/v1/workspaces", file(1, 48), ""))
+	post("PUT", "/v1/workspaces/"+c.ID, file(2, 48), c.Token)
+	// As a browser does: it asks for the old version, and gets the latest.
+	r, err := http.Get(server.URL + "/v1/workspaces/" + c.ID + "/" + c.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(r.Body)
+	expect(t, r.StatusCode, 200, "followed")
+	expect(t, bytes.Equal(body, file(2, 48)), true, "latest file")
+	expect(t, r.Request.URL.Path, "/v1/workspaces/"+c.ID+"/"+FileHash(file(2, 48)), "final URL")
 }
 
 func TestOnlyTheTokenChangesIt(t *testing.T) {
@@ -258,7 +316,8 @@ func TestWhatsWrongWithARequest(t *testing.T) {
 		expect(t, h.send("GET", "/elsewhere", nil, nil).StatusCode, 404, "elsewhere")
 		expect(t, h.send("GET", "/", nil, nil).StatusCode, 200, "front page")
 		c := h.create(file(7, 64))
-		expect(t, h.send("GET", "/v1/workspaces/"+c.ID+"/AAAAAAAAAAAAAAAAAAAAAA", nil, nil).StatusCode, 404, "unknown hash")
+		// A version there never was is sent on to the latest, as an earlier one is.
+		expect(t, h.send("GET", "/v1/workspaces/"+c.ID+"/AAAAAAAAAAAAAAAAAAAAAA", nil, nil).StatusCode, 302, "unknown hash")
 		wrong := h.send("POST", "/v1/workspaces/"+c.ID, nil, nil)
 		expect(t, wrong.StatusCode, 405, "method")
 		expect(t, wrong.Header.Get("Allow"), "GET, HEAD, PUT, DELETE, OPTIONS", "allow")
