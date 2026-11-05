@@ -60,7 +60,7 @@ Drag from the dot under a class to another to relate them, then pick the relatio
 
 ### Shared libraries
 
-A library is code built into several containers, such as a logging library. Add one to a component view with **+ Add** and **Library built into …**, or tick the containers built with it under **Built into** in its details (a container's details list its **Libraries** too). Each of those containers' component views draws the library inside its frame, with a dashed outline. Its classes are kept in one place: make a class view of the library to draw them. What the library's code uses is drawn from every container built with it.
+A library is code built into several containers, such as a logging library. Add one to a component view with **+ Add** and **Library built into …**, or tick the containers built with it under **Built into** in its details (a container's details list its **Libraries** too). Each of those containers' component views draws the library inside its frame, with a dashed outline. Its code is kept in one place. A small library holds classes; a bigger one, like an SDK, can hold components, each with its own classes. Make a component view of the library to draw its components, and a class view of the library or of one of its components to draw their classes. What the library's code uses is drawn from every container built with it.
 
 ### Exporting one view
 

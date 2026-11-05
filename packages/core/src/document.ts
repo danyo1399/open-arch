@@ -159,6 +159,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 5) out = { ...out, openarch: 6 };
   // Version 7 added libraries, so a version 6 file means the same in it.
   if (out.openarch === 6) out = { ...out, openarch: 7 };
+  // Version 8 let libraries hold components, so a version 7 file means the same in it.
+  if (out.openarch === 7) out = { ...out, openarch: 8 };
   return out;
 }
 

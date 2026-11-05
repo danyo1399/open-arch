@@ -142,7 +142,7 @@ describe("importing", () => {
   });
 
   it("refuses workspaces with problems that stop them being edited", () => {
-    const text = JSON.stringify({ openarch: 7, name: "A", elements: {}, views: {}, extra: true });
+    const text = JSON.stringify({ openarch: 8, name: "A", elements: {}, views: {}, extra: true });
     expect(importProblem({ name: "a.openarch", text })).toMatch(/^a\.openarch has problems that stop it being edited \(at extra\): Unknown field "extra"\. .*import it again\.$/);
   });
 

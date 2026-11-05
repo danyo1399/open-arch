@@ -8,7 +8,7 @@ export const PARENT_KINDS: Record<ElementKind, readonly ElementKind[]> = {
   person: [],
   system: [],
   container: ["system"],
-  component: ["container"],
+  component: ["container", "library"],
   library: [],
   class: ["component", "library"],
 };

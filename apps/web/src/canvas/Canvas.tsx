@@ -128,6 +128,9 @@ export function addableKinds(ws: Workspace, view: ViewDef): { kind: ElementKind;
     { kind: "system" as const, label: "Software system" },
   ];
   if (view.level === "container" && scope) return [{ kind: "container", parent: scope.id, label: `Container in ${scope.name}` }, ...top];
+  if (view.level === "component" && scope?.kind === "library") {
+    return [{ kind: "component", parent: scope.id, label: `Component in ${scope.name}` }, { kind: "class", parent: scope.id, label: `Class in ${scope.name}` }, ...top];
+  }
   if (view.level === "component" && scope) {
     const system = scope.parent ? ws.elements.get(scope.parent) : undefined;
     return [

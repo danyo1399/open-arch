@@ -1,7 +1,7 @@
 /**
- * C4's four levels of detail, people aside: a class is code inside a component. A library is a
- * component shared by several containers, such as a logging library: it holds classes like a
- * component, and each container that lists it in `libraries` is built with its own copy.
+ * C4's four levels of detail, people aside: a class is code inside a component. A library is
+ * code shared by several containers, such as a logging library: it holds components and classes,
+ * and each container that lists it in `libraries` is built with its own copy.
  */
 export const ELEMENT_KINDS = ["person", "system", "container", "component", "library", "class"] as const;
 export type ElementKind = (typeof ELEMENT_KINDS)[number];
@@ -75,7 +75,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 7;
+export const FORMAT_VERSION = 8;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------

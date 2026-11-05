@@ -12,7 +12,7 @@ import { checkbox, choose, click, mount } from "./dom.js";
 
 /** A shop whose API is built with a logging library, and whose web app isn't. */
 const shop: OpenArchDocument = {
-  openarch: 7,
+  openarch: 8,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },
@@ -113,6 +113,12 @@ describe("a library's details", () => {
     const inside = [...host.querySelectorAll("label.field")].find((l) => l.querySelector(".field-label")?.textContent === "Inside")!;
     expect([...inside.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Logging", "Orders"]);
   });
+
+  it("offer a library as a component's parent", () => {
+    const { host } = panel("orders");
+    const inside = [...host.querySelectorAll("label.field")].find((l) => l.querySelector(".field-label")?.textContent === "Inside")!;
+    expect([...inside.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["API", "Logging", "Web app"]);
+  });
 });
 
 describe("the New view dialog", () => {
@@ -126,5 +132,32 @@ describe("the New view dialog", () => {
     await choose(scope, "logging");
     await click([...host.querySelectorAll("button")].find((b) => b.textContent === "Create view")!);
     expect(created).toEqual([{ op: "add-view", id: "logging-classes", level: "class", scope: "logging", title: "Logging classes" }]);
+  });
+});
+
+describe("a library with components", () => {
+  const sdk = buildWorkspace({
+    ...shop,
+    elements: { ...shop.elements, sdk: { kind: "library", name: "SDK" }, http: { kind: "component", name: "HTTP", parent: "sdk" }, fetcher: { kind: "class", name: "Fetcher", parent: "http" } },
+    views: { ...shop.views, "sdk-components": { title: "SDK components", level: "component", scope: "sdk" }, "http-classes": { title: "HTTP classes", level: "class", scope: "http" } },
+  });
+
+  it("adds components and classes on its component view, and components on its components' class views", () => {
+    expect(addableKinds(sdk, sdk.views.get("sdk-components")!).slice(0, 2)).toEqual([
+      { kind: "component", parent: "sdk", label: "Component in SDK" },
+      { kind: "class", parent: "sdk", label: "Class in SDK" },
+    ]);
+    expect(addableKinds(sdk, sdk.views.get("http-classes")!).slice(0, 2)).toEqual([
+      { kind: "class", parent: "http", label: "Class in HTTP" },
+      { kind: "component", parent: "sdk", label: "Component in SDK" },
+    ]);
+  });
+
+  it("hides its components on its component view, and shows what's outside as itself", () => {
+    const view = sdk.views.get("sdk-components")!;
+    const action = (id: string) => viewAction(sdk, view, computeView(sdk, view), id);
+    expect(action("http")).toBe("hide");
+    expect(["orders", "api"].map(action)).toEqual(["show", "show"]);
+    expect(["sdk", "fetcher"].map(action)).toEqual([null, null]);
   });
 });

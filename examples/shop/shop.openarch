@@ -1,5 +1,5 @@
 {
-  "openarch": 7,
+  "openarch": 8,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },

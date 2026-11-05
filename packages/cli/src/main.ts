@@ -112,10 +112,10 @@ In updates, null removes a field.
   "add-element": writer(
     `Usage: open-arch add-element <id> --kind <person|system|container|component|library|class> [options]
 
-A library is a component shared by several containers, such as a logging library: each
-container built with it lists it with --library, and its classes are kept in one place.
-  --parent <id>          Containers need a system, components a container, and classes a
-                         component or library. People, systems and libraries have none
+A library is code shared by several containers, such as a logging library: each container
+built with it lists it with --library, and its components and classes are kept in one place.
+  --parent <id>          Containers need a system, components a container or library, and
+                         classes a component or library. People, systems and libraries have none
   --name <name>          Display name (default: from the id)
   --description <text>   One sentence, shown in the box
   --technology <text>    e.g. Node.js, PostgreSQL
@@ -139,8 +139,8 @@ container built with it lists it with --library, and its classes are kept in one
 
 Changes only the fields given. An empty value removes a field, e.g. --technology "".
   --name, --description, --technology, --notes, --notes-file
-  --parent <id>          Move it into another system (or container, for a component, or
-                         component or library, for a class)
+  --parent <id>          Move it into another system (or container or library, for a
+                         component, or component or library, for a class)
   --external, --internal Mark a person or system as outside your organisation, or not
   --shape <shape>        box, database, queue, folder, document, web-browser, mobile-app,
                          desktop-app, terminal, server, email or scheduled-job
@@ -216,8 +216,8 @@ A class view shows a component's or library's classes, with their members, as a 
 diagram.
 A sequence view shows steps between elements, in order: add them with add-step. It takes no
 scope, include or exclude.
-  --scope <id>           A system for context and container views, a container for component
-                         views, a component or library for class views
+  --scope <id>           A system for context and container views, a container or library
+                         for component views, a component or library for class views
   --title <title>        Default: from the scope and level, or for a sequence view, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)

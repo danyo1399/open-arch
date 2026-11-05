@@ -190,6 +190,10 @@ describe("changing", () => {
     expect(JSON.parse(read(dir)).elements["checkout-api"]).not.toHaveProperty("libraries");
     expect(cli(dir, "update-element", "orders-db", "--library", "nope").err).toContain('No element has the ID "nope".');
     expect(cli(dir, "add-element", "x", "--kind", "library", "--parent", "checkout-api").err).toContain("A library belongs to no one container");
+    expect(cli(dir, "add-element", "formatter", "--kind", "component", "--parent", "logging").code).toBe(0);
+    expect(cli(dir, "add-view", "logging-components", "--level", "component", "--scope", "logging").code).toBe(0);
+    expect(cli(dir, "show", "logging-components").out).toContain("component view of logging (Logging)");
+    expect(cli(dir, "add-element", "--help").out).toContain("components a container or library");
   });
 
   it("removes fields with empty values and hides elements from views", () => {
@@ -344,22 +348,22 @@ describe("changing", () => {
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 7', '"openarch": 1')
+      .replace('"openarch": 8', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 7, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 8, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6])("reads a version %i file, and writes it back as version 7", (version) => {
+  it.each([2, 3, 4, 5, 6, 7])("reads a version %i file, and writes it back as version 8", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 7', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 8', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 7,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 8,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -392,7 +396,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 7, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 8, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

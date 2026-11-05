@@ -6,7 +6,7 @@ import { followRenames, renamesBetween, shownInProperties, viewAction } from "..
 /** A shop whose web app calls an API, which has a controller inside it that uses a database. */
 function shop(): OpenArchDocument {
   return {
-    openarch: 7,
+    openarch: 8,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web-app", description: "Buys things" }] },

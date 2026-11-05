@@ -46,7 +46,7 @@ export interface ComputedStep extends Step {
 
 export interface ComputedView {
   view: ViewDef;
-  /** The system (container view), container (component view), or component or library (class view) drawn as a frame. */
+  /** The system (container view), container or library (component view), or component or library (class view) drawn as a frame. */
   boundary?: ArchElement;
   /** Boxes, in display order. A sequence view's are its participants, in the order they first appear in its steps. */
   nodes: ArchElement[];
@@ -63,7 +63,7 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   landscape: [],
   context: ["system"],
   container: ["system"],
-  component: ["container"],
+  component: ["container", "library"],
   class: ["component", "library"],
   sequence: [],
 };
@@ -103,7 +103,8 @@ export type LibraryCopy = string | null | undefined;
  * boundary, or holds it, and so has no box. Something in a library is drawn as part of the
  * container whose copy of the library it's in: in a component view of that container, as the
  * library's own box, inside the frame; elsewhere, as that container is. A class is always itself
- * in a class view, and a class view of a library draws everything else as itself.
+ * in a class view. A view of a library, or of a component in one, is of no container's copy: see
+ * libraryViewRepresentative.
  */
 export function representative(ws: Workspace, view: ViewDef): (id: string, copy?: LibraryCopy) => string | null {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
@@ -112,17 +113,34 @@ export function representative(ws: Workspace, view: ViewDef): (id: string, copy?
   // The container whose copy of a library is drawn as the library's own box.
   const home = view.level === "component" ? scope : view.level === "class" ? scopeContainer : undefined;
   const plain = plainRepresentative(ws, view, scope, scopeSystem, scopeContainer);
+  if (scope && view.level !== "sequence" && libraryOf(ws, scope.id)) return libraryViewRepresentative(ws, view, scope);
   return (id, copy) => {
     const library = libraryOf(ws, id);
     if (!library || view.level === "sequence") return plain(id);
-    if (view.level === "class") {
-      if (ws.elements.get(id)!.kind === "class") return id;
-      if (library.id === scope?.id) return null;
-    }
+    if (view.level === "class" && ws.elements.get(id)!.kind === "class") return id;
     const at = copy === undefined ? (home?.libraries.includes(library.id) ? home.id : null) : copy;
     if (view.level === "class") return at === null || at === home?.id ? library.id : plain(at);
     if (view.level === "component") return at !== null && at === home?.id ? library.id : at === null ? null : plain(at);
     return at === null ? null : plain(at);
+  };
+}
+
+/**
+ * The box for an element in a view of a library, or of a component in one. What's in the scope is
+ * drawn as it is; in a class view of a library's component, so is the rest of the library, as a
+ * component view of the library would draw it. Everything else is drawn as itself, a class as
+ * its component (or library) except in a class view, where a class is always itself.
+ */
+function libraryViewRepresentative(ws: Workspace, view: ViewDef, scope: ArchElement): (id: string) => string | null {
+  const holder = scope.kind === "library" ? undefined : scope.parent;
+  return (id) => {
+    const chain = lineage(ws, id);
+    if (chain.length === 0) return null;
+    const childOf = (parent: string) => chain.find((e) => e.parent === parent)?.id ?? null;
+    if (view.level === "class" && chain[0]!.kind === "class") return id;
+    if (chain.some((e) => e.id === scope.id)) return childOf(scope.id);
+    if (holder && chain.some((e) => e.id === holder)) return childOf(holder);
+    return (chain.find((e) => e.kind !== "class") ?? chain[0]!).id;
   };
 }
 
@@ -147,8 +165,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
         return top.id;
       case "class":
         // A class anywhere is drawn as itself. Anything else is drawn as in a component view of
-        // the scope's container, or for a library, which is in no container, as itself.
-        if (scope?.kind === "library") return id;
+        // the scope's container.
         if (!scope || !scopeSystem) return top.id;
         if (chain.some((e) => e.id === scope.id)) return childOf(scope.id);
         if (chain[0]!.kind === "class") return chain[0]!.id;
@@ -180,7 +197,9 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
           : [];
   const innerIds = new Set(inner.map((e) => e.id));
 
-  // Every model relationship, lifted to the boxes of this view. Only a class view tells kinds apart.
+  // Every model relationship, lifted to the boxes of this view. A class view tells kinds apart, as
+  // does any view that draws a relationship's two classes as themselves, such as a component view
+  // of a library that holds classes.
   const classes = view.level === "class";
   const lifted: { from: string; to: string; element: string; index: number; both: boolean; kind: RelationshipKind }[] = [];
   for (const element of ws.elements.values()) {
@@ -193,7 +212,8 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
         const to = rep(rel.to, toCopy);
         if (!from || !to || from === to || pairs.has(`${from}\u0000${to}`)) continue;
         pairs.add(`${from}\u0000${to}`);
-        lifted.push({ from, to, element: element.id, index, both: rel.bidirectional, kind: classes ? rel.kind : "association" });
+        const own = from === element.id && to === rel.to;
+        lifted.push({ from, to, element: element.id, index, both: rel.bidirectional, kind: classes || own ? rel.kind : "association" });
       }
     });
   }
@@ -215,7 +235,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
     }
     const r = rep(entry);
     const library = libraryOf(ws, entry);
-    if (r === null && library && library.id !== view.scope) {
+    if (r === null && library && !libraryOf(ws, view.scope ?? "")) {
       diagnostics.push({
         severity: "warning",
         rule: "view-include-library",

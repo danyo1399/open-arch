@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 7)
+# The open-arch workspace (format version 8)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 7,
+  "openarch": 8,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -75,14 +75,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `7` |
+| `openarch` | Format version, always `8` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 6 files too, and write them back as version 7. Version 6 is the same, but without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 7 files too, and write them back as version 8. Version 7 is the same, but a library can't hold components. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view.
 
@@ -92,7 +92,7 @@ IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elem
 |---|---|
 | `kind` | `person`, `system`, `container`, `component`, `library` or `class` |
 | `name` | Display name |
-| `parent` | Containers: the system they belong to. Components: their container. Classes: their component or library. Not used on people, systems and libraries |
+| `parent` | Containers: the system they belong to. Components: their container or library. Classes: their component or library. Not used on people, systems and libraries |
 | `description` | One sentence, shown in the box |
 | `technology` | e.g. `Node.js`, `PostgreSQL` |
 | `external` | `true` for people and systems outside your organisation |
@@ -129,7 +129,7 @@ Mermaid has only some of these, so the generated docs draw a database as a cylin
 - **system**: something that delivers value to people and is owned by one team, e.g. "Shop", or a third-party service ("Payment Provider", external).
 - **container**: something inside a system that runs or stores data on its own and is deployed separately: a web app, API, worker, database, queue, bucket.
 - **component**: a major building block inside one container, such as a module, service class or controller. Only model components when they help explain the container.
-- **library**: a component shared by several containers, such as a logging or validation library. It belongs to no container: each container built with it lists it in `libraries`, and has its own copy. Its classes are kept in it once. Don't copy a library into each container as a component.
+- **library**: code shared by several containers, such as a logging library or an SDK. A small one holds classes directly; a bigger one holds components, each with its classes. It belongs to no container: each container built with it lists it in `libraries`, and has its own copy. Its classes are kept in it once. Don't copy a library into each container as a component.
 - **class**: a class, interface or enum inside one component or library: C4's code level. Only model classes where a class diagram explains something tricky, as code changes far more often than the rest of the model.
 
 ### Relationships
@@ -140,7 +140,7 @@ When two elements call each other, either add a relationship each way, each with
 
 ### Libraries
 
-A library runs inside each container built with it, so views draw it as part of each one. A component view of a container built with a library draws the library inside the frame, like one of the container's components. Its relationships are drawn from every container built with it: in a container view, a library class's relationship to a log service is an arrow from each of those containers. A relationship to a library's code goes to the copy in the source's own container, so it's drawn only when that container is built with the library; `check` warns when it isn't. A class view of the library shows its classes in the frame, and what uses them or what they use as themselves.
+A library runs inside each container built with it, so views draw it as part of each one. A component view of a container built with a library draws the library inside the frame, like one of the container's components. Its relationships are drawn from every container built with it: in a container view, a library class's relationship to a log service is an arrow from each of those containers. A relationship to a library's code goes to the copy in the source's own container, so it's drawn only when that container is built with the library; `check` warns when it isn't. A component view of the library shows its components (and any classes directly in it) in the frame, and a class view of the library, or of one of its components, shows their classes. Neither is of any one container's copy, so everything outside the library is drawn as itself: a class as its component, except in a class view, where classes are always themselves.
 
 A relationship between two classes can have a `kind`, which says what it means in UML's terms. Class views draw each kind in UML's notation, as a separate arrow from relationships of other kinds between the same two classes. Every other view draws them all as ordinary arrows.
 
@@ -162,7 +162,7 @@ Only associations go both ways. A relationship with a kind needs no description,
 | `title` | Diagram title |
 | `description` | One sentence, shown under the title on the diagram |
 | `level` | `landscape`, `context`, `container`, `component`, `class` or `sequence` |
-| `scope` | A system for context and container views, a container for component views, a component or library for class views, none for landscape and sequence |
+| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, none for landscape and sequence |
 | `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence views |
 | `exclude` | IDs to hide. Not used on sequence views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
@@ -175,7 +175,7 @@ Only associations go both ways. A relationship with a kind needs no description,
 | `landscape` | People and systems | Every person and system |
 | `context` | People and systems | The scope system, plus every person and system connected to it |
 | `container` | The scope's containers inside a frame; people and other systems outside it | The scope's containers, plus everything connected to them |
-| `component` | The scope's components, and the libraries it's built with, inside a frame; sibling containers; people and other systems | The scope's components and libraries, plus everything connected to them |
+| `component` | The scope's components, and the libraries it's built with, inside a frame; sibling containers; people and other systems. For a library: its components inside the frame, and everything else as itself | The scope's components and libraries, plus everything connected to them |
 | `class` | The scope's classes inside a frame, drawn as UML classes with their members; classes elsewhere, as themselves; sibling components and containers; people and other systems | The scope's classes, plus everything connected to them |
 
 A `sequence` view isn't a level of detail: it shows what happens, in order, like a UML sequence diagram. Each element in its steps gets a lifeline, left to right in the order it first appears, and each step is a numbered arrow, top to bottom. A step has:
@@ -211,7 +211,7 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `7` (or `1` to `6`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `8` (or `1` to `7`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
 | `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence view, or `steps` on another view |
 | `field-type` | error | A field has the wrong type |

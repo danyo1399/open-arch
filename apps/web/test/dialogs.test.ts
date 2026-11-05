@@ -6,7 +6,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { button, choose, click, key, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 7,
+  openarch: 8,
   name: "Shop",
   elements: { customer: { kind: "person", name: "Customer" }, shop: { kind: "system", name: "Shop" } },
   views: {},
@@ -61,7 +61,7 @@ describe("NewViewDialog", () => {
   it("creates nothing when the level needs a scope the model doesn't have", async () => {
     const { host, created, level, title, create } = dialog();
     await choose(level, "component");
-    expect(host.textContent).toContain("There are no containers yet.");
+    expect(host.textContent).toContain("There are no containers or libraries yet.");
     expect(create.disabled).toBe(true);
     await type(title, "Parts");
     expect(create.disabled).toBe(true);

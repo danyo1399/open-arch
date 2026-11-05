@@ -147,12 +147,70 @@ describe("libraries", () => {
     expect(apply(shop(), { op: "add-element", id: "x", kind: "library" }, { op: "add-element", id: "c", kind: "container", parent: "shop", libraries: ["x"] }).elements.c!.libraries).toEqual(["x"]);
   });
 
+  describe("with components", () => {
+    /** A shared SDK with an HTTP part and an auth part, each a component holding a class, built into the API. */
+    function sdk(): OpenArchDocument {
+      const doc = logging();
+      doc.elements.sdk = { kind: "library", name: "SDK" };
+      doc.elements["sdk-http"] = { kind: "component", name: "HTTP", parent: "sdk" };
+      doc.elements["sdk-auth"] = { kind: "component", name: "Auth", parent: "sdk" };
+      doc.elements.fetcher = { kind: "class", name: "Fetcher", parent: "sdk-http", uses: [{ to: "token", kind: "dependency", description: "Signs requests with" }] };
+      doc.elements.token = { kind: "class", name: "Token", parent: "sdk-auth", uses: [{ to: "payments", description: "Gets tokens from" }] };
+      doc.elements.api!.libraries = ["logging", "sdk"];
+      doc.elements.controller!.uses!.push({ to: "fetcher", description: "Fetches with" });
+      doc.views["sdk-components"] = { title: "SDK components", level: "component", scope: "sdk" };
+      doc.views["http-classes"] = { title: "HTTP classes", level: "class", scope: "sdk-http" };
+      return doc;
+    }
+
+    it("are allowed, and checked like any other", () => {
+      expect(rules(sdk())).toEqual([]);
+      expect(apply(sdk(), { op: "add-element", id: "retry", kind: "component", parent: "sdk" }).elements.retry).toEqual({ kind: "component", name: "Retry", parent: "sdk" });
+      expect(fails(sdk(), { op: "add-element", id: "retry", kind: "component", parent: "payments" })).toBe('A component\'s parent must be a container or library, but "payments" is a system.');
+    });
+
+    it("are drawn as the library's one box in a component view of a container built with it", () => {
+      const cv = view(sdk(), "api-components");
+      expect(cv.nodes.map((n) => n.id)).toContain("sdk");
+      expect(cv.nodes.map((n) => n.id)).not.toContain("sdk-http");
+      expect(arrows(sdk(), "api-components")).toEqual(expect.arrayContaining(["controller -> sdk (implied)", "sdk -> payments (implied)"]));
+    });
+
+    it("are drawn in the frame of a component view of the library, with what uses them and what they use as themselves", () => {
+      const cv = view(sdk(), "sdk-components");
+      expect(cv.boundary?.id).toBe("sdk");
+      expect(cv.nodes.filter((n) => inFrame(cv.boundary, n)).map((n) => n.id)).toEqual(["sdk-auth", "sdk-http"]);
+      expect(arrows(sdk(), "sdk-components")).toEqual(["controller -> payments", "controller -> sdk-http (implied)", "sdk-auth -> payments (implied)", "sdk-http -> sdk-auth (implied)"]);
+      expect(renderMermaid(cv)).toMatch(/subgraph sdk_boundary\["SDK \[Library\]"\]\n {4}sdk_auth\[[^\n]*\n {4}sdk_http\[/);
+    });
+
+    it("keep the kinds of relationships between classes held directly in the library, on its component view", () => {
+      const doc = apply(logging(), { op: "add-view", id: "logging-components", level: "component", scope: "logging" });
+      expect(view(doc, "logging-components").edges.find((e) => e.from === "json-logger" && e.to === "logger")).toMatchObject({ kind: "realization", implied: false });
+    });
+
+    it("have class views, with the rest of the library drawn as its component view would", () => {
+      const doc = sdk();
+      doc.elements.fetcher!.uses!.push({ to: "sdk-auth", description: "Asks" });
+      const cv = view(doc, "http-classes");
+      expect(cv.boundary?.id).toBe("sdk-http");
+      expect(cv.nodes.map((n) => n.id).sort()).toEqual(["controller", "fetcher", "sdk-auth", "token"]);
+      expect(arrows(doc, "http-classes")).toEqual(["controller -> fetcher", "fetcher -> sdk-auth", "fetcher -> token"]);
+    });
+
+    it("hold classes that something outside the library uses only where its container is built with it", () => {
+      const doc = sdk();
+      doc.elements.api!.libraries = ["logging"];
+      expect(rules(doc)).toEqual(["library-not-included"]);
+    });
+  });
+
   it("are refused where they don't fit", () => {
     expect(fails(logging(), { op: "add-element", id: "x", kind: "library", parent: "api" })).toMatch(/^A library belongs to no one container, so it can't have a parent\./);
     expect(fails(logging(), { op: "update-element", id: "controller", libraries: ["logging"] })).toBe("Only containers are built with libraries, and this is a component.");
     expect(fails(logging(), { op: "update-element", id: "api", libraries: ["controller"] })).toBe('"controller" is a component, not a library. Add a library with add-element controller --kind library.');
     expect(fails(logging(), { op: "add-element", id: "x", kind: "library", external: true })).toBe("Only people and systems can be external.");
-    expect(fails(logging(), { op: "add-view", id: "v", level: "component", scope: "logging" })).toBe('A component view\'s scope must be a container, but "logging" is a library.');
+    expect(fails(logging(), { op: "add-view", id: "v", level: "container", scope: "logging" })).toBe('A container view\'s scope must be a system, but "logging" is a library.');
   });
 
   it("warn when a view's include names one it can't draw", () => {
