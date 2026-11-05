@@ -181,8 +181,8 @@ func TestUnblockIPSaysWhatItDid(t *testing.T) {
 	expect(t, out, "Uploads from 2001:db8:1:2::5 weren't blocked.\n", "nothing to unblock")
 }
 
-// Some proxies add the port to the address they pass on.
-func TestTakesAForwardedAddressWithItsPort(t *testing.T) {
+// Some proxies add the port to the address they pass on, and some put IPv6 in brackets without one.
+func TestTakesAForwardedAddressWithItsPortOrBrackets(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.0.0.5:4000"
 	for header, want := range map[string]string{
@@ -194,6 +194,7 @@ func TestTakesAForwardedAddressWithItsPort(t *testing.T) {
 		"[2001:DB8::9]":    "2001:db8::9",
 		"[not-an-address]": "10.0.0.5",
 		"[203.0.113.7":     "10.0.0.5",
+		"[203.0.113.7]":    "10.0.0.5",
 	} {
 		r.Header.Set("X-Forwarded-For", header)
 		expect(t, ClientOf(r, TrustForwarded).IP, want, header)

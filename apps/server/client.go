@@ -44,8 +44,9 @@ func ClientOf(r *http.Request, trust TrustProxy) Client {
 			if _, err := strconv.ParseUint(port, 10, 16); err == nil {
 				last = host
 			}
-		} else if strings.HasPrefix(last, "[") && strings.HasSuffix(last, "]") && valid(last[1:len(last)-1]) {
-			last = last[1 : len(last)-1]
+		} else if inner := strings.TrimSuffix(strings.TrimPrefix(last, "["), "]"); len(inner) == len(last)-2 && strings.Contains(inner, ":") && valid(inner) {
+			// Only IPv6 goes in brackets: "[203.0.113.7]" isn't how anyone writes IPv4.
+			last = inner
 		}
 		if valid(last) {
 			ip = last
