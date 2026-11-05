@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // handler.ts, store.ts and cloudflare.ts use only web APIs (fetch's Request and Response, Web Crypto),
+    // as a Worker has. Node's types declare those too, and node.ts, the local server, needs the rest.
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

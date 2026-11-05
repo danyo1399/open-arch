@@ -20,6 +20,7 @@ See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.opena
 | [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`: agents read with `show` and change the model only with commands. |
 | [`apps/web`](apps/web) | The designer as a static web app (React, React Flow, ELK). |
 | [`apps/desktop`](apps/desktop) | The same designer in Electron, for Windows, macOS and Linux. |
+| [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. Runs on Cloudflare Workers, or on Node for development. |
 
 ## The designer
 
@@ -31,6 +32,7 @@ One UI, two ways to run it.
 | Docs | **Export docs** downloads them as a .zip | Every save rewrites the docs folder the workspace names |
 | Notices outside edits | Edits to the same workspace in another tab, and deleting it there: it stays open, and **Save** keeps it again | Watches the file, so an agent's or editor's changes show up |
 | Try without a file | The bundled examples (the tour and the shop); **Save** keeps a copy in the browser | The bundled examples |
+| Share a link | **Share** makes a link that opens a copy; clicking it opens the workspace | The same, and links open in the web designer; **Open link…** opens one |
 | Ask AI | | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
 | Install | Installable as an app (Chrome, Edge, Safari's **Add to Dock** or **Add to Home Screen**) that opens offline | An installer per OS |
 
@@ -74,6 +76,16 @@ A state view shows the states something can be in, and how it moves between them
 - **Save as Markdown…** saves a markdown file with the view's title, its description and the diagram in Mermaid. Unlike the pages in the generated docs, it links to no other page, so it reads the same wherever you put it.
 - **Save as PNG…**, **Save as SVG…** and **Save as PDF…** save a picture of the diagram as the designer draws it: all of it, not just the part on the screen, without the selection, and in light colours on white even in dark mode, to suit a document or a slide. The PNG and the PDF are drawn at twice the screen's resolution, so they stay sharp in print. The SVG draws the boxes as web page content inside the SVG, which browsers show but some drawing programs can't edit. The PDF is one page the size of the diagram, holding the PNG picture, so its text can't be selected.
 
+### Sharing a link
+
+**Share**, in the top bar, makes a link to the open workspace, for anyone to open. On a phone, it's **Share a link…** in the top bar's menu. An example is only in its tab until it's saved, so save it first. Whoever clicks the link sees the workspace in the designer, in their browser, with nothing to install. Their edits stay in that tab until they choose **Save**, which keeps a copy in their browser. In the desktop app, **Save as…** saves it as a file. To open a link in the desktop app, or in the installed web app, paste it into **Open link…** on the start page.
+
+The workspace is compressed and encrypted on your device before it's uploaded, with a new random key. The key is in the link, after the `#`, which browsers never send to a server, so the share server only has a file it can't read. Nobody signs in: anyone with the link can open the workspace.
+
+Only you can change what you shared, from the browser or the computer you shared it from, which keeps the link with a token from the server. Changes you make aren't in the link until you choose **Update link**. Links you already sent open the latest version. **Stop sharing** deletes the copy on the server, and the links stop working. Do that before deleting the workspace: deleting it leaves its link working.
+
+Sharing needs a [share server](#the-share-server). The designer only offers it when it was built with one.
+
 ### The Views and Model lists
 
 The Model list has every element in alphabetical order, with the contents of each system and container below it, in alphabetical order too. The menu beside **+ New view** sorts the Views list by name, or by level from landscape down to class, with sequence and state views last. To keep a view at the top of the list, select the pin by its name; select it again to unpin the view. The designer opens the first view in the list. The order and the pins are yours: they're kept in the browser's storage on this computer, in the desktop app too, not in the .openarch file.
@@ -85,6 +97,62 @@ The Model list has every element in alphabetical order, with the contents of eac
 The agent changes the model only by running the CLI bundled with the app, which checks every change. It asks before running any other command or editing any other file, and it can't edit the .openarch file directly. Approve or deny its requests in the panel. **Undo AI change** puts the file back as it was before the request.
 
 OpenCode's default model is used. To use another, start the app with `OPEN_ARCH_AGENT_MODEL=<provider>/<model>`.
+
+## The share server
+
+[`apps/server`](apps/server) keeps the workspaces shared as links. It never has their keys, so it can't read them.
+
+A link looks like `https://<designer>/?share=<ID>&v=<hash>#key=<key>`. The ID names the shared workspace, and the hash names one version of it: the first 128 bits of the SHA-256 of its encrypted file. So a new version has a new URL, and each version's file is served with `Cache-Control: public, max-age=31536000, immutable`, for browsers and proxies to cache for good. Opening a link first asks which version is the latest, a small answer that's checked each time (`no-cache`, with an ETag), so old links open new versions. Offline, the link's own version opens, if the browser cached it.
+
+| Request | Does |
+|---|---|
+| `POST /v1/workspaces` | Uploads a new workspace. Answers with its `id`, the `hash` of the version, and the `token` that changes it |
+| `PUT /v1/workspaces/<id>` | Uploads a new version, with `Authorization: Bearer <token>` |
+| `DELETE /v1/workspaces/<id>` | Stops sharing it, with the token. Its files are deleted |
+| `GET /v1/workspaces/<id>` | Its latest version's `hash` |
+| `GET /v1/workspaces/<id>/<hash>` | That version's encrypted file |
+
+An uploaded file is one byte for the format (`1`), AES-GCM's 12-byte IV, then the ciphertext of `{"name", "text"}`, the file name and the `.openarch` text, as JSON compressed with DEFLATE. The key is 256 random bits. The server only checks the format byte and the size: at most 1 MB.
+
+To find and stop abuse, the server keeps a record of every upload: the workspace, the version's hash and size, the time, and what the request said about who sent it. That's the IP address, the country, the city and the network (from Cloudflare), the user agent, the `Origin` and `Referer` headers, and Cloudflare's request ID. It keeps only a hash of each token. One IP address can upload 60 files an hour.
+
+On Cloudflare, the files are in an R2 bucket and the records are in a D1 database ([`migrations/`](apps/server/migrations)). To deploy it, from `apps/server`:
+
+```bash
+npx wrangler r2 bucket create open-arch-shares
+npx wrangler d1 create open-arch-shares
+```
+
+Put the database's ID in [`wrangler.jsonc`](apps/server/wrangler.jsonc), then:
+
+```bash
+npx wrangler d1 migrations apply open-arch-shares --remote
+pnpm --filter @open-arch/server deploy
+```
+
+`MAX_BYTES` and `UPLOADS_PER_HOUR` in `wrangler.jsonc` change the limits. Then build the designer with the server's address in `VITE_SHARE_SERVER`. The Pages and CI workflows take it from the repository's `SHARE_SERVER` variable (**Settings**, **Secrets and variables**, **Actions**, **Variables**), and the Cloudflare build from its build variables. Links made in the desktop app open in the web designer at `VITE_SHARE_APP_URL`, <https://danyo1399.github.io/open-arch/> unless it's set.
+
+To take a workspace down, find it by its ID (the `share` in its link), or by who uploaded it, then block it. Its files are kept, but no longer served. To stop an address uploading, block it too:
+
+```bash
+npx wrangler d1 execute open-arch-shares --remote --command "SELECT * FROM uploads WHERE workspace_id = '<id>'"
+npx wrangler d1 execute open-arch-shares --remote --command "UPDATE workspaces SET blocked_at = unixepoch() * 1000, blocked_reason = '<why>' WHERE id = '<id>'"
+npx wrangler d1 execute open-arch-shares --remote --command "INSERT INTO blocked_ips (ip, reason, created_at) VALUES ('<ip>', '<why>', unixepoch() * 1000)"
+```
+
+A browser that cached a version's file can still open it offline. Online, opening a link asks the server first, so it won't open.
+
+To try sharing locally, run the share server on Node, with everything in memory, on <http://localhost:8787>:
+
+```bash
+pnpm --filter @open-arch/server dev
+```
+
+Then run the designer against it:
+
+```bash
+VITE_SHARE_SERVER=http://localhost:8787 pnpm --filter @open-arch/web dev
+```
 
 ## Using it in a project
 

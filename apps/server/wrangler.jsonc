@@ -1,0 +1,22 @@
+// The share server (src/cloudflare.ts) on Cloudflare Workers: encrypted files in R2, records in D1.
+// The README's "The share server" section says how to create the bucket and the database and deploy it.
+{
+  "name": "open-arch-share",
+  "main": "src/cloudflare.ts",
+  "compatibility_date": "2026-10-30",
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "open-arch-shares" }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "open-arch-shares",
+      // The ID `npx wrangler d1 create open-arch-shares` prints.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // The largest encrypted file accepted, in bytes, and how many files one IP address can upload in an hour.
+    "MAX_BYTES": "1000000",
+    "UPLOADS_PER_HOUR": "60"
+  }
+}

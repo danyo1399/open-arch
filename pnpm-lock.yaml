@@ -36,6 +36,8 @@ importers:
         specifier: ^0.28.2
         version: 0.28.2
 
+  apps/server: {}
+
   apps/web:
     dependencies:
       '@open-arch/core':

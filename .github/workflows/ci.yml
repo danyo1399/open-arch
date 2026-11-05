@@ -54,6 +54,8 @@ jobs:
     env:
       # Build unsigned installers; don't look for a signing identity in the keychain.
       CSC_IDENTITY_AUTO_DISCOVERY: false
+      # The share server the app shares links to (README, The share server). Unset, it doesn't offer sharing.
+      VITE_SHARE_SERVER: ${{ vars.SHARE_SERVER }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

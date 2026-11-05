@@ -1,19 +1,23 @@
 /**
  * The designer's settings for the person using it: how the Views list is sorted,
- * which views they pinned to the top of it in each workspace, and whether they
- * turned down the web app's offer to install it. They're kept in
+ * which views they pinned to the top of it in each workspace, the link of each
+ * workspace they shared, and whether they turned down the web app's offer to
+ * install it. They're kept in
  * IndexedDB, in the desktop app too, not in the .openarch file, so everyone who
  * opens a workspace has their own.
  */
 import { useCallback, useEffect, useState } from "react";
 import { committed, done } from "./library.js";
 import { renamedId, type Rename, type ViewOrder } from "./model.js";
+import type { Share } from "./share.js";
 
 const STORE = "settings";
 const VIEW_ORDER = "view-order";
 const INSTALL_PROMPT = "install-prompt";
 /** Where a workspace's pins are kept. `workspace` is its host's key. */
 const pinsKey = (workspace: string) => `pinned-views/${workspace}`;
+/** Where the link a workspace was shared as is kept, with the token that changes it. */
+const shareKey = (workspace: string) => `share/${workspace}`;
 
 export class Settings {
   private db: Promise<IDBDatabase> | null = null;
@@ -109,9 +113,20 @@ export class Settings {
     await this.update<string>(INSTALL_PROMPT, () => "dismissed");
   }
 
-  /** Removes what's kept for a workspace that's gone. */
+  /** The link a workspace was shared as, from this browser or this computer. */
+  async share(workspace: string): Promise<Share | undefined> {
+    return this.get<Share>(shareKey(workspace));
+  }
+
+  /** Keeps the link a workspace was shared as, or forgets it once it isn't shared. */
+  async setShare(workspace: string, share: Share | undefined): Promise<void> {
+    await this.update<Share>(shareKey(workspace), () => share);
+  }
+
+  /** Removes what's kept for a workspace that's gone. Its link, if it had one, keeps working. */
   async forget(workspace: string): Promise<void> {
     await this.update<string[]>(pinsKey(workspace), () => undefined);
+    await this.update<Share>(shareKey(workspace), () => undefined);
   }
 }
 

@@ -1,0 +1,12 @@
+{
+  "name": "@open-arch/server",
+  "version": "0.1.0",
+  "description": "Hosts shared workspaces for the designer, end-to-end encrypted: it only ever stores what the browser encrypted.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b && node dist/node.js",
+    "deploy": "npx wrangler deploy"
+  }
+}

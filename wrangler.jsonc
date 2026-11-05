@@ -1,5 +1,6 @@
 // Hosts the static web designer (apps/web) on Cloudflare Workers as an assets-only Worker.
 // Cloudflare's build runs `pnpm --filter @open-arch/web build`, then `npx wrangler deploy`.
+// Set VITE_SHARE_SERVER in the build's variables to the share server (apps/server) for it to offer sharing.
 {
   "name": "open-arch",
   "compatibility_date": "2026-10-30",

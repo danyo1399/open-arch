@@ -1,18 +1,33 @@
 import { useEffect, useState } from "react";
 import { Designer } from "./Designer.js";
-import { BrowserHost, desktopBridge, DesktopHost, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, desktopBridge, DesktopHost, SharedHost, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { LibraryPage } from "./LibraryPage.js";
+import { linkSuffix, readLink, shareClient } from "./share.js";
 import { DesktopStart } from "./Start.js";
 
 /** The web app names the open workspace in the URL, so reloading the page reopens it. */
 const idInUrl = () => location.hash.slice(1);
 
+/** The URL for what's open: a shared workspace's link, a workspace in this browser's ID, or nothing. */
+function urlFor(host: WorkspaceHost | null): string {
+  const query = new URLSearchParams(location.search);
+  query.delete("share");
+  query.delete("v");
+  const page = location.pathname + (query.size ? `?${query}` : "");
+  if (host instanceof SharedHost) return location.pathname + linkSuffix(host.link);
+  return host instanceof BrowserHost ? `${page}#${host.id}` : page;
+}
+
 export function App() {
   const desktop = desktopBridge();
-  const [host, setHost] = useState<WorkspaceHost | null>(null);
+  // A share link opens the workspace it names.
+  const [host, setHost] = useState<WorkspaceHost | null>(() => {
+    const link = desktop ? null : readLink(location.href);
+    return link ? new SharedHost(shareClient, link) : null;
+  });
   // Until the workspace in the URL is found, show nothing rather than flash the list.
-  const [restoring, setRestoring] = useState(() => !desktop && idInUrl() !== "");
+  const [restoring, setRestoring] = useState(() => !desktop && !host && idInUrl() !== "");
 
   useEffect(() => {
     let cancelled = false;
@@ -38,12 +53,12 @@ export function App() {
 
   useEffect(() => {
     if (desktop || restoring) return;
-    const id = host instanceof BrowserHost ? host.id : "";
-    if (idInUrl() !== id) history.replaceState(null, "", id ? `#${id}` : location.pathname + location.search);
+    const url = urlFor(host);
+    if (location.pathname + location.search + location.hash !== url) history.replaceState(null, "", url);
   }, [desktop, host, restoring]);
 
   if (host) {
-    const key = host instanceof BrowserHost ? host.id : host.name + host.storage;
+    const key = host instanceof BrowserHost ? host.id : host.key;
     return <Designer key={key} host={host} onClose={() => setHost(null)} onHostChange={setHost} />;
   }
   if (restoring) return null;

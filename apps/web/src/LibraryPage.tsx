@@ -1,12 +1,14 @@
 /** The web app's start page: the workspaces kept in this browser, and the ways to add one. */
 import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BrowserHost, browserKey, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, browserKey, SharedHost, type WorkspaceHost } from "./hosts.js";
 import { InstallPrompt } from "./InstallPrompt.js";
 import { importFiles, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
 import { ConfirmDialog } from "./panels/dialogs.js";
+import { OpenLinkDialog } from "./panels/ShareDialog.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
 import { userSettings } from "./settings.js";
+import { shareClient } from "./share.js";
 import { StartPage } from "./Start.js";
 
 const edited = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -16,6 +18,7 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [removing, setRemoving] = useState<StoredWorkspace | null>(null);
+  const [openingLink, setOpeningLink] = useState(false);
 
   const refresh = useCallback(() => library.list().then(setRecords, (e: Error) => setError(e.message)), [library]);
 
@@ -62,6 +65,11 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
               {provider.importLabel}
             </button>
           ))}
+          {shareClient && (
+            <button className="big" onClick={() => setOpeningLink(true)}>
+              Open link…
+            </button>
+          )}
         </>
       }
     >
@@ -102,10 +110,11 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
           Workspaces save in this browser as you work, on this device only, and clearing the site's data deletes them. Export a copy of any you want to keep or share. To import, you can also drop .openarch files here.
         </p>
       </section>
+      {openingLink && <OpenLinkDialog onClose={() => setOpeningLink(false)} onOpen={(link) => onOpen(new SharedHost(shareClient, link))} />}
       {removing && (
         <ConfirmDialog
           title={`Delete “${titles.get(removing.id)}”?`}
-          text="This deletes it from this browser for good. Export it first if you might want it again."
+          text={`This deletes it from this browser for good. Export it first if you might want it again.${shareClient ? " If you shared a link to it, stop sharing first: deleting it here leaves the link working." : ""}`}
           confirm="Delete"
           onClose={() => setRemoving(null)}
           onConfirm={() => {
