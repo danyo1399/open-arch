@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The share server's macOS executable as a launchd job, for your user (README, "As an executable").
+  It starts when you log in, and again if it stops. launchd doesn't expand ~, so replace __HOME__
+  with your home folder as you install it:
+
+    sudo mkdir -p /usr/local/bin
+    sudo cp open-arch-share-macos-arm64 /usr/local/bin/open-arch-share
+    sed "s|__HOME__|$HOME|g" open-arch-share.plist > ~/Library/LaunchAgents/io.github.danyo1399.open-arch-share.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.danyo1399.open-arch-share.plist
+
+  It listens only on this Mac, for the reverse proxy in front that does HTTPS, and believes the
+  address that proxy passes on. Without a proxy, set HOST to 0.0.0.0 and TRUST_PROXY to none.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.danyo1399.open-arch-share</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/open-arch-share</string>
+    <string>serve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PORT</key>
+    <string>8787</string>
+    <key>HOST</key>
+    <string>127.0.0.1</string>
+    <key>TRUST_PROXY</key>
+    <string>forwarded</string>
+    <key>DATA_DIR</key>
+    <string>__HOME__/Library/Application Support/open-arch-share</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- launchd stops it with SIGTERM, which lets it finish the requests under way, then close the database. -->
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/open-arch-share.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/open-arch-share.log</string>
+</dict>
+</plist>

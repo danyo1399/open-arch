@@ -1868,6 +1868,14 @@ button.heading {
   gap: 8px;
   margin-top: 16px;
 }
+.share-link {
+  display: flex;
+  gap: 8px;
+}
+.share-link input {
+  flex: 1;
+  min-width: 0;
+}
 
 .start {
   min-height: 100%;

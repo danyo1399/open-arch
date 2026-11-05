@@ -19,19 +19,25 @@ function changedSinceMain(cwd) {
   return [...tracked.split("\n"), ...untracked.split("\n")].filter(Boolean);
 }
 
-/** The checks, as commands to run in order. */
+/** The checks, as commands to run in order. `smoke` also builds the share server's executables, and runs the one for this machine. */
 export function checks({ examples, smoke }) {
   return [
     ["pnpm", ["install", "--frozen-lockfile"]],
     ["pnpm", ["typecheck"]],
     ["pnpm", ["test"]],
+    ["pnpm", ["--filter", "@open-arch/server", "test"]],
     ["pnpm", ["build"]],
     ...examples.flatMap((file) => [
       ["pnpm", ["open-arch", "check", "--file", file]],
       ["pnpm", ["open-arch", "fmt", "--check", "--file", file]],
       ["pnpm", ["open-arch", "export", "--check", "--file", file]],
     ]),
-    ...(smoke ? [["pnpm", ["--filter", "@open-arch/desktop", "smoke"]]] : []),
+    ...(smoke
+      ? [
+          ["pnpm", ["--filter", "@open-arch/desktop", "smoke"]],
+          ["pnpm", ["--filter", "@open-arch/server", "executable"]],
+        ]
+      : []),
   ];
 }
 
@@ -47,7 +53,7 @@ export function verify(cwd = process.cwd()) {
     .sort();
   const changed = changedSinceMain(cwd);
   const smoke = !(changed && onlyMarkdown(changed));
-  if (!smoke) console.log("Only Markdown changed since main, so the desktop smoke test is skipped.");
+  if (!smoke) console.log("Only Markdown changed since main, so the desktop smoke test and the share server's executables are skipped.");
 
   for (const [command, args] of checks({ examples, smoke })) {
     if (run(command, args, { cwd }) !== 0) {

@@ -1,7 +1,9 @@
 /** The start page, before a workspace is open: the desktop app's here, the web app's in LibraryPage.tsx. */
 import { useState, type DragEvent, type ReactNode } from "react";
 import type { DesktopBridge } from "./bridge.js";
-import { DesktopHost, exampleHost, tourHost, type WorkspaceHost } from "./hosts.js";
+import { DesktopHost, exampleHost, SharedHost, tourHost, type WorkspaceHost } from "./hosts.js";
+import { OpenLinkDialog } from "./panels/ShareDialog.js";
+import { shareClient } from "./share.js";
 
 interface StartPageProps {
   /** Buttons before the examples. */
@@ -60,6 +62,7 @@ export function StartPage({ actions, error, onOpen, onDropFiles, children }: Sta
 
 export function DesktopStart({ desktop, onOpen }: { desktop: DesktopBridge; onOpen(host: WorkspaceHost): void }) {
   const [error, setError] = useState<string | null>(null);
+  const [openingLink, setOpeningLink] = useState(false);
 
   const attempt = (task: () => Promise<void>) => {
     setError(null);
@@ -90,10 +93,16 @@ export function DesktopStart({ desktop, onOpen }: { desktop: DesktopBridge; onOp
           <button className="big" onClick={create}>
             New workspace
           </button>
+          {shareClient && (
+            <button className="big" onClick={() => setOpeningLink(true)}>
+              Open link…
+            </button>
+          )}
         </>
       }
     >
       <p className="muted small">Changes save to the file as you work, and the docs folder it names is kept up to date.</p>
+      {openingLink && <OpenLinkDialog onClose={() => setOpeningLink(false)} onOpen={(link) => onOpen(new SharedHost(shareClient, link))} />}
     </StartPage>
   );
 }

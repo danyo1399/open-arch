@@ -1,0 +1,50 @@
+# The share server's Linux executable as a systemd service (README, "As an executable").
+#
+#   sudo cp open-arch-share-linux-x64 /usr/local/bin/open-arch-share
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin open-arch-share
+#   sudo cp open-arch-share.service /etc/systemd/system/
+#   sudo systemctl enable --now open-arch-share
+#
+# It listens only on this machine, for the reverse proxy in front that does HTTPS, and believes
+# the address that proxy passes on. Without a proxy, set HOST to 0.0.0.0 and TRUST_PROXY to none.
+
+[Unit]
+Description=open-arch share server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/open-arch-share serve
+Environment=PORT=8787
+Environment=HOST=127.0.0.1
+Environment=TRUST_PROXY=forwarded
+# systemd makes /var/lib/open-arch-share, owned by the service's user.
+Environment=DATA_DIR=/var/lib/open-arch-share
+StateDirectory=open-arch-share
+User=open-arch-share
+Group=open-arch-share
+Restart=on-failure
+# SIGTERM lets it finish the requests under way, then close the database.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# It needs nothing but its port and its data folder.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# Go compiles ahead of time, so nothing needs memory that's both writable and runnable.
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

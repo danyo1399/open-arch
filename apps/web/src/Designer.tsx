@@ -24,15 +24,17 @@ import { arrowDeleteOps, arrowRemovals, findArrow, followRenames, renamedId, ren
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
+import { ShareDialog } from "./panels/ShareDialog.js";
 import { Properties, shapesLabel } from "./panels/Properties.js";
 import { MARKDOWN_FILE, PDF_FILE, PNG_FILE, providers, saveFile, SVG_FILE, type FileProvider, type FileType } from "./providers.js";
 import { diagramImage, nextPaint, type ImageFormat } from "./image.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
 import { userSettings, useViewSettings } from "./settings.js";
+import { PUBLIC_DESIGNER, shareClient } from "./share.js";
 import { useWorkspace, type Edit } from "./state.js";
 
-type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | null;
+type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | { kind: "share" } | null;
 
 /** What a right-click menu is for, and where it opened on the screen. */
 type Menu = ({ kind: "element"; id: string } | { kind: "arrow"; from: string; to: string; relation?: RelationshipKind }) & { x: number; y: number };
@@ -357,6 +359,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         : state.unsaved
           ? "Not saved"
           : "Only in this tab";
+  // A workspace kept in the browser or a file can be shared. One that's only in this tab, like an example, is saved first.
+  const canShare = !!shareClient && state.storage !== "memory";
+  // Links made in the desktop app open in the web designer; the web designer's open in itself.
+  const designer = desktop || !location.protocol.startsWith("http") ? PUBLIC_DESIGNER : location.origin + location.pathname;
   const exportDocs = () => download(`${host.name.replace(/\.openarch$/, "")}-docs.zip`, docsZip(ws, host.name) as BlobPart, "application/zip");
   const toggleAsk = () => {
     setAskOpen((o) => !o);
@@ -405,6 +411,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const moreItems: MenuItem[] = [
     ...(desktop ? [] : providers.map((provider) => ({ label: provider.exportLabel, onSelect: () => exportTo(provider) }))),
     ...(host.syncsDocs ? [] : [{ label: "Export docs", onSelect: exportDocs }]),
+    ...(canShare ? [{ label: "Share a link…", onSelect: () => setDialog({ kind: "share" }) }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
     ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
@@ -478,6 +485,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         {!narrow && !host.syncsDocs && (
           <button onClick={exportDocs} title="Markdown pages with Mermaid diagrams">
             Export docs
+          </button>
+        )}
+        {!narrow && canShare && (
+          <button onClick={() => setDialog({ kind: "share" })} title="Share a link that opens a copy of this workspace">
+            Share
           </button>
         )}
         {!narrow && agent && (
@@ -667,6 +679,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             void edit([op]).then((ok) => ok && showView(id));
           }}
         />
+      )}
+      {dialog?.kind === "share" && shareClient && (
+        <ShareDialog client={shareClient} workspace={host.key} file={{ name: host.name, text: state.text }} designer={designer} onClose={() => setDialog(null)} />
       )}
     </div>
   );

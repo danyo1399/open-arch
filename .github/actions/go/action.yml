@@ -1,0 +1,25 @@
+name: Go
+description: Installs Go for the share server (apps/server) on Linux or macOS, from go.dev, checked against the checksum go.dev publishes.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        # https://go.dev/dl/: the version, and each archive's SHA-256.
+        version=1.27.3
+        case "$(uname -s)-$(uname -m)" in
+          Linux-x86_64) archive=linux-amd64 sum=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 ;;
+          Linux-aarch64) archive=linux-arm64 sum=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 ;;
+          Darwin-x86_64) archive=darwin-amd64 sum=b6f8e931e4ab497fcde6da8ae4499a58f9d258e55c8a80824a516eae5950a750 ;;
+          Darwin-arm64) archive=darwin-arm64 sum=dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2 ;;
+          *) echo "No Go for $(uname -s) on $(uname -m) here." && exit 1 ;;
+        esac
+        curl -sSfL -o "$RUNNER_TEMP/go.tar.gz" "https://go.dev/dl/go$version.$archive.tar.gz"
+        # shasum is on both Linux and macOS; sha256sum isn't on macOS.
+        echo "$sum  $RUNNER_TEMP/go.tar.gz" | shasum -a 256 -c -
+        tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/go.tar.gz"
+        rm "$RUNNER_TEMP/go.tar.gz"
+        echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+        # Use this Go, rather than download the one go.mod names.
+        echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"

@@ -8,7 +8,8 @@ import { strToU8, zipSync } from "fflate";
 import exampleText from "../../../examples/shop/shop.openarch?raw";
 import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw";
 import type { DesktopBridge, DocsSummary } from "./bridge.js";
-import type { WorkspaceLibrary } from "./library.js";
+import { importProblem, type WorkspaceLibrary } from "./library.js";
+import type { LinkParts, ShareClient } from "./share.js";
 
 export interface WorkspaceHost {
   /** File name, shown in the title bar. */
@@ -88,6 +89,67 @@ export function docsZip(ws: Workspace, fileName: string): Uint8Array {
   const entries: Record<string, Uint8Array> = {};
   for (const f of exportDocs(ws, fileName)) entries[`${folder}/${f.path}`] = strToU8(f.content);
   return zipSync(entries);
+}
+
+// --- Shared as a link ---------------------------------------------------------------
+
+/**
+ * A workspace someone shared as a link (share.ts). It's downloaded and decrypted when it's
+ * opened, and edits stay in this tab, as an example's do: Save keeps a copy, in the browser or
+ * as a file on desktop. Its name is the file name it was shared with, once it's loaded. A link to
+ * an earlier version opens the latest, and the link becomes the latest version's.
+ */
+export class SharedHost implements WorkspaceHost {
+  readonly storage = "memory";
+  name = `shared${FILE_EXTENSION}`;
+  private text: Promise<string> | null = null;
+  private current: LinkParts;
+  private readonly listeners = new Set<() => void>();
+
+  /** `client` is null when this build has no share server. */
+  constructor(
+    private readonly client: ShareClient | null,
+    link: LinkParts,
+  ) {
+    this.current = link;
+  }
+
+  /** The link to the version that's open: the one it was opened with, until it's loaded. */
+  get link(): LinkParts {
+    return this.current;
+  }
+
+  get key(): string {
+    return `shared/${this.current.id}`;
+  }
+
+  /** Calls `listener` when the link changes to the version that opened. Returns a function that stops it. */
+  onLinkChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  load(): Promise<string> {
+    this.text ??= this.download();
+    return this.text;
+  }
+
+  private async download(): Promise<string> {
+    if (!this.client) throw new Error("This designer can't open shared links: it wasn't built with a share server.");
+    const file = await this.client.open(this.current);
+    const problem = importProblem(file);
+    if (problem) throw new Error(problem);
+    this.name = file.name;
+    if (file.hash !== this.current.hash) {
+      this.current = { ...this.current, hash: file.hash };
+      for (const listener of this.listeners) listener();
+    }
+    return file.text;
+  }
+
+  async save(text: string): Promise<void> {
+    this.text = Promise.resolve(text);
+  }
 }
 
 // --- In the browser's storage ------------------------------------------------------
