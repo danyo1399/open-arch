@@ -299,7 +299,10 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
     const corner = all.length ? [{ x: Math.max(...all.map((b) => b.x + b.w)) - NODE_W, y: Math.min(...all.map((b) => b.y)) }] : [];
     const stickyAt = placeStickies(view.stickies, corner, stickySize);
     setNodes((previous) => [
-      ...out,
+      // Each keeps what React Flow measured of it. Given a node without `measured`, React Flow starts
+      // watching its size again, and when that happens inside a resize callback the browser reports
+      // a resize loop.
+      ...out.map((n) => ({ ...n, measured: previous.find((p) => p.id === n.id)?.measured })),
       ...view.stickies.map(
         (sticky): StickyFlowNode => ({
           id: stickyNodeId(sticky.id),

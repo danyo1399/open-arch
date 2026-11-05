@@ -4,6 +4,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { act, createElement, useState } from "react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Canvas, type Selection } from "../src/canvas/Canvas.js";
+import { DeploymentDiagram } from "../src/canvas/DeploymentDiagram.js";
 import { StateDiagram } from "../src/canvas/StateDiagram.js";
 import { mount } from "./dom.js";
 
@@ -12,14 +13,16 @@ import { mount } from "./dom.js";
  * it's given one without `measured`. When that happens inside a resize callback, the browser reports
  * "ResizeObserver loop completed with undelivered notifications". So once the frame round a
  * diagram has been measured, it's watched from then on, not started again each time it's rebuilt.
+ * The same goes for every node of a deployment diagram, which draws them all again on a click.
  *
  * This page has no layout, so a stand-in ResizeObserver keeps what it's asked to watch, and when
  * the test asks, says each node is 200 by 100 and anything else 1000 by 800.
  */
 /** Each element observe() was called with, every time. */
 const observed: Element[] = [];
-/** How many times React Flow started watching the frame's size. */
-const frameObserved = () => observed.filter((el) => el.getAttribute("data-id") === "__frame").length;
+/** How many times React Flow started watching the size of the node with this ID. */
+const timesObserved = (id: string) => observed.filter((el) => el.getAttribute("data-id") === id).length;
+const frameObserved = () => timesObserved("__frame");
 
 const observers: FakeResizeObserver[] = [];
 class FakeResizeObserver {
@@ -91,6 +94,11 @@ const shop: OpenArchDocument = {
       states: { placed: { name: "Placed", at: [0, 0] }, paid: { name: "Paid", final: true, at: [0, 300] } },
       transitions: [{ from: "placed", to: "paid", event: "Payment taken" }],
     },
+    production: {
+      title: "Production",
+      level: "deployment",
+      nodes: { cloud: { name: "Cloud" }, cluster: { name: "Cluster", parent: "cloud", runs: ["web", "api"] } },
+    },
   },
 };
 
@@ -152,5 +160,37 @@ describe("the frame round a diagram", () => {
     await resized();
     expect(host.querySelector(".frame-label")?.textContent).toContain("Orders");
     expect(frameObserved()).toBe(1);
+  });
+
+  it("is watched once on a deployment diagram, as is each of its nodes, however often they're drawn", async () => {
+    const ws = buildWorkspace(shop);
+    let select: (s: Selection) => void = () => {};
+    function Designer() {
+      const [selection, setSelection] = useState<Selection>(null);
+      select = setSelection;
+      return createElement(DeploymentDiagram, {
+        ws,
+        computed: computeView(ws, ws.views.get("production")!),
+        selection,
+        onSelect: setSelection,
+        edit: async () => true,
+        onError() {},
+        exportItems: [],
+      });
+    }
+    observed.length = 0;
+    const host = mount(createElement(ReactFlowProvider, null, createElement(Designer)));
+    // ELK lays it out a moment later.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    await resized();
+    const ids = [...host.querySelectorAll(".react-flow__node")].map((n) => n.getAttribute("data-id")!);
+    // The cloud and the cluster are frames, each with its label, and the cluster runs two containers.
+    expect(ids).toHaveLength(6);
+    // Selecting a node, then another, draws them all again.
+    await act(async () => select({ kind: "node", id: "cluster" }));
+    await act(async () => select({ kind: "node", id: "cloud" }));
+    await resized();
+    expect(host.querySelector(".deployment-frame.selected")).not.toBeNull();
+    expect(ids.map((id) => [id, timesObserved(id)])).toEqual(ids.map((id) => [id, 1]));
   });
 });
