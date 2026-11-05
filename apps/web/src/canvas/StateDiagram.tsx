@@ -221,6 +221,9 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     return out;
   }, [nodes]);
 
+  /** The frame's size as React Flow last measured it. */
+  const frameMeasured = useRef<FrameFlowNode["measured"]>(undefined);
+
   // The frame round the states, for the element they're the states of.
   const frame = useMemo((): FrameFlowNode | null => {
     if (!cv.boundary || boxes.size === 0) return null;
@@ -234,6 +237,9 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     const width = Math.round(Math.max(...all.map(([id, b]) => b.x + b.w + (state(id)?.final ? 52 : 0))) + FRAME_PAD.x) - left;
     const height = Math.round(Math.max(...all.map(([, b]) => b.y + b.h)) + FRAME_PAD.bottom) - top;
     return {
+      // A frame without `measured` makes React Flow start watching its size again, and when
+      // that happens inside a resize callback the browser reports a resize loop.
+      measured: frameMeasured.current,
       id: FRAME_ID,
       type: "frame",
       position: { x: left, y: top },
@@ -308,7 +314,10 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     return nodesRef.current.flatMap((n) => (n.type === "state" && !n.data.state.at ? [{ op: "update-state" as const, view: view.id, id: n.id, at: [Math.round(n.position.x), Math.round(n.position.y)] as [number, number] }] : []));
   }, [view.id]);
 
-  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(changes.filter((c) => !("id" in c) || c.id !== FRAME_ID), nds)), []);
+  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => {
+    for (const c of changes) if (c.type === "dimensions" && c.id === FRAME_ID && c.dimensions) frameMeasured.current = c.dimensions;
+    setNodes((nds) => applyNodeChanges(changes.filter((c) => !("id" in c) || c.id !== FRAME_ID), nds));
+  }, []);
 
   const onNodeDragStop = useCallback(
     (_: unknown, _node: FlowNode, dragged: FlowNode[]) => {

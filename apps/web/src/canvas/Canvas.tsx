@@ -247,6 +247,8 @@ export function withFrame(nodes: FlowNode[], boundary: ArchElement | undefined, 
   const highlighted = selected ?? previous?.data.selected ?? false;
   // Reuse the frame when nothing about it changed. A new object without `measured`
   // makes React Flow measure it again, which updates the nodes, which rebuilds the frame...
+  // React Flow also starts watching its size again, and when that happens inside a resize
+  // callback the browser reports a resize loop. So pass the frame drawn now in `nodes`.
   if (
     previous &&
     previous.data.element === boundary &&
@@ -399,15 +401,19 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     if (!cv || !positions) return setNodes([]);
     const stickyAt = placeStickies(view.stickies, Object.values(positions), stickySize);
     setNodes((previous) => [
+      // With the frame drawn now, so the new one keeps what React Flow measured of it (see withFrame).
       ...withFrame(
-        inNodeOrder(cv.nodes, nodeIdOf).map((element) => ({
-          id: nodeIdOf.get(element.id)!,
-          type: "element",
-          position: positions[element.id]!,
-          data: { element, problems: problemCounts.get(element.id) ?? 0 },
-          selected: picked.elements.includes(element.id),
-          measured: previous.find((p) => p.id === nodeIdOf.get(element.id))?.measured,
-        })),
+        [
+          ...previous.filter((n) => n.type === "frame"),
+          ...inNodeOrder(cv.nodes, nodeIdOf).map((element) => ({
+            id: nodeIdOf.get(element.id)!,
+            type: "element" as const,
+            position: positions[element.id]!,
+            data: { element, problems: problemCounts.get(element.id) ?? 0 },
+            selected: picked.elements.includes(element.id),
+            measured: previous.find((p) => p.id === nodeIdOf.get(element.id))?.measured,
+          })),
+        ],
         cv.boundary,
         selection?.kind === "element" && selection.id === cv.boundary?.id,
       ),
