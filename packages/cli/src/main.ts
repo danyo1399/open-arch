@@ -70,9 +70,9 @@ Without an id: the model as a tree, and the list of views.
 With an element id: its fields, notes, what it uses and what uses it (with those
 relationships' notes), and the views showing it.
 With a view id: its description and notes, and the boxes and arrows the view draws, or for
-a sequence view, its steps in order, or for a state view, its states and transitions. A class's members, a relationship's kind when it isn't
-an association, a container's libraries and the containers a library is built into are shown
-too.
+a sequence view, its steps in order, or for a state view, its states and transitions.
+A class's members, a relationship's kind when it isn't an association, a container's
+libraries and the containers a library is built into are shown too.
 `,
     options: { ...FILE, json: b },
     run: (io, v, p) => show(io, { file: str(v.file), json: bool(v.json), id: p[0] }),
@@ -221,8 +221,10 @@ A state view shows the states something can be in, and the transitions between t
 them with add-state and add-transition. Its scope, if any, is the element whose states they
 are, of any kind. It takes no include or exclude.
   --scope <id>           A system for context and container views, a container or library
-                         for component views, a component or library for class views
-  --title <title>        Default: from the scope and level, or for a sequence view, from the id
+                         for component views, a component or library for class views, and
+                         for state views, if any, the element of any kind they're the states of
+  --title <title>        Default: from the scope and level, or for a sequence view or a state
+                         view without a scope, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
