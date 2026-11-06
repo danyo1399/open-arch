@@ -52,12 +52,11 @@ describe("the hint on an empty view", () => {
     expect(document.querySelector(".context-menu")).toBeNull();
   });
 
-  it("is under the toolbars that open over the diagram", () => {
+  it("is under a sequence view's toolbar, so the + Add step form opens over it", () => {
+    // The hint and the toolbar are drawn in the same layer, so the higher z-index is on top.
+    // Read from the stylesheet, as this page draws nothing.
     const css = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
     const z = (selector: string) => Number(new RegExp(`\\n${selector.replace(/\./g, "\\.")} \\{[^}]*z-index: (\\d+)`).exec(css)?.[1]);
-    // A sequence view's toolbar, whose + Add step form opens over the hint.
     expect(z(".empty-hint")).toBeLessThan(z(".sequence-toolbar"));
-    // React Flow's panels, such as a diagram's toolbar, are at 5.
-    expect(z(".empty-hint")).toBeLessThan(5);
   });
 });

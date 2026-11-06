@@ -816,10 +816,14 @@ button.heading {
   /* Inside the canvas, less React Flow's 15px panel margins, so a long title shrinks, not + Add. */
   max-width: calc(100% - 30px);
 }
-/* A long title shortens; + Add keeps its size. Its menu opens under the toolbar's left end, not
-   its own: from the button it ran past the canvas's right edge, which cuts it off. */
-.toolbar > .menu {
+/* A long title shortens; + Add keeps its size. */
+.toolbar > .menu,
+.toolbar > button.primary {
   flex-shrink: 0;
+}
+/* A sequence view's + Add step form opens under the toolbar's left end, not its own: from the
+   button it ran past the canvas's right edge, which cuts it off. */
+.toolbar > .menu {
   position: static;
 }
 /* A phone has no room for it beside + Add: the top bar's More menu has it instead. */
@@ -962,8 +966,10 @@ button.heading {
   border-top: 1px solid var(--border);
   margin: 4px 0;
 }
-/* Over the diagram, but under its toolbar (React Flow's panels and the sequence toolbar
-   are at 5), so a form or menu that opens from the toolbar covers it. */
+/* Over the diagram. In a sequence view it's under the toolbar (at 5), so the + Add step form
+   covers it. On the other diagrams it's over all of React Flow, toolbar included, whatever
+   z-index is used inside it: React Flow draws in a layer of its own (z-index 0). So their menus
+   open on the page, not inside React Flow. */
 .empty-hint {
   position: absolute;
   top: 90px;
