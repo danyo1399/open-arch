@@ -962,12 +962,14 @@ button.heading {
   border-top: 1px solid var(--border);
   margin: 4px 0;
 }
+/* Over the diagram, but under its toolbar (React Flow's panels and the sequence toolbar
+   are at 5), so a form or menu that opens from the toolbar covers it. */
 .empty-hint {
   position: absolute;
   top: 90px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 5;
+  z-index: 4;
   pointer-events: none;
   background: var(--panel);
   border: 1px solid var(--border);

@@ -32,7 +32,7 @@ import {
   type FitViewOptions,
   type NodeChange,
 } from "@xyflow/react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { arrowRelation, isArrow, relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
@@ -645,7 +645,6 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
    */
   const clickPane = (event: MouseEvent) => {
     if (!(event.target instanceof Element) || !event.target.classList.contains("react-flow__pane")) return;
-    setMenuOpen(false);
     const frame = frameAt(nodesRef.current, rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
     onSelect(frame ? { kind: "element", id: elementOfNode(frame) } : null);
   };
@@ -711,7 +710,6 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
   ];
 
-  const [menuOpen, setMenuOpen] = useState(false);
   /** The diagram's right-click menu: where it opened on the screen, and that point on the diagram. */
   const [paneMenu, setPaneMenu] = useState<{ x: number; y: number; at: Point } | null>(null);
   const closePaneMenu = useCallback(() => setPaneMenu(null), []);
@@ -756,7 +754,6 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         // clicked. On the frame, it's the menu for the element the frame is.
         onPaneContextMenu={(event) => {
           event.preventDefault();
-          setMenuOpen(false);
           const point = { x: event.clientX, y: event.clientY };
           const at = rf.screenToFlowPosition(point);
           const frame = frameAt(nodesRef.current, at);
@@ -817,29 +814,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
               </span>
             )}
           </div>
-          <div className="menu">
-            <button className="primary" onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen}>
-              + Add
-            </button>
-            {menuOpen && (
-              <div className="menu-items" role="menu">
-                {addItems().map((item) => (
-                  <Fragment key={item.label}>
-                    {item.divider && <hr />}
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        item.onSelect();
-                      }}
-                    >
-                      {item.label}
-                    </button>
-                  </Fragment>
-                ))}
-              </div>
-            )}
-          </div>
+          <MenuButton className="primary" items={addItems()}>
+            + Add
+          </MenuButton>
           {exportItems.length > 0 && (
             <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
               Export
