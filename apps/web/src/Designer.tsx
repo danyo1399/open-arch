@@ -21,7 +21,22 @@ import { StateDiagram } from "./canvas/StateDiagram.js";
 import { BrowserHost, copyText, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
-import { arrowDeleteOps, arrowRemovals, findArrow, followRenames, renamedId, renamedSelection, renamesIn, selectShapes, shownInProperties, viewAction, viewList, type Rename } from "./model.js";
+import {
+  arrowDeleteOps,
+  arrowRemovals,
+  eventDeleteOps,
+  eventSelectionGone,
+  findArrow,
+  followRenames,
+  renamedId,
+  renamedSelection,
+  renamesIn,
+  selectShapes,
+  shownInProperties,
+  viewAction,
+  viewList,
+  type Rename,
+} from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
@@ -49,7 +64,7 @@ const NARROW = "(max-width: 640px), (max-height: 500px) and (max-width: 1000px)"
 type Pane = "diagram" | "browse" | "details";
 
 /** What the details panel shows, in a few words. */
-function detailsName(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, selection: Selection): string {
+export function detailsName(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, selection: Selection): string {
   const shown = shownInProperties(ws, view, selection);
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   if (shown.kind === "element") return shown.element.name;
@@ -164,9 +179,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "node" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.id)) setSelection(null);
     if (selection?.kind === "connection" && ws && selection.number > (ws.views.get(viewId ?? "")?.connections.length ?? 0)) setSelection(null);
     if (selection?.kind === "instance" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.node && n.runs.includes(selection.element))) setSelection(null);
-    if (selection?.kind === "lane" && ws && !ws.views.get(viewId ?? "")?.lanes.some((l) => l.id === selection.id)) setSelection(null);
-    if (selection?.kind === "card" && ws && !ws.views.get(viewId ?? "")?.cards.some((c) => c.id === selection.id)) setSelection(null);
-    if (selection?.kind === "cardArrow" && ws && !ws.views.get(viewId ?? "")?.cards.some((c) => c.id === selection.to && c.from.includes(selection.from))) setSelection(null);
+    if (ws && eventSelectionGone(ws.views.get(viewId ?? ""), selection)) setSelection(null);
   }, [ws, selection, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
@@ -271,11 +284,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       if (node) void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== current(selection.element)) }]).then(() => select(null));
     }
     // A lane, a card and an arrow between two cards are only this view's too. A lane's cards stay, in no lane.
-    if (selection?.kind === "lane" && view) void edit([{ op: "remove-lane", view: view.id, id: selection.id }]).then(() => select(null));
-    if (selection?.kind === "card" && view) void edit([{ op: "remove-card", view: view.id, id: selection.id }]).then(() => select(null));
-    if (selection?.kind === "cardArrow" && view) {
-      const to = view.cards.find((c) => c.id === selection.to);
-      if (to) void edit([{ op: "update-card", view: view.id, id: to.id, from: to.from.filter((id) => id !== selection.from) }]).then(() => select(null));
+    if (view) {
+      const ops = eventDeleteOps(view, selection);
+      if (ops.length) void edit(ops).then(() => select(null));
     }
     if (selection?.kind === "arrow" && ws) {
       const ops = arrowDeleteOps(ws, computed, selection.from, selection.to, selection.relation);

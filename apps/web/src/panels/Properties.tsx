@@ -32,7 +32,7 @@ import {
 } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueAmong, uniqueId, uniqueNodeId, uniqueStateId, viewAction } from "../model.js";
+import { byName, cardArrowDeleteOps, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueAmong, uniqueId, uniqueNodeId, uniqueStateId, viewAction } from "../model.js";
 import type { Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
 
@@ -1027,7 +1027,7 @@ function CardArrowProperties({ view, from, to, edit, onSelect }: PropertiesProps
         {to.name} comes from {from.name}. The arrow belongs to this view, not the model.
       </p>
       <div className="actions">
-        <button className="danger" onClick={() => void edit([{ op: "update-card", view: view.id, id: to.id, from: to.from.filter((id) => id !== from.id) }]).then(() => onSelect(null))}>
+        <button className="danger" onClick={() => void edit(cardArrowDeleteOps(view, from.id, to.id)).then(() => onSelect(null))}>
           Delete arrow
         </button>
       </div>

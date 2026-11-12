@@ -815,7 +815,8 @@ function viewText(v: ViewData, indent: string): string {
   if (events) {
     const list = (items: string[]) => (items.length ? `[\n${items.map((item) => `${indent}    ${item}`).join(",\n")}\n${indent}  ]` : "[]");
     entries.push(["lanes", list((v.lanes ?? []).map((l) => inline({ id: l.id, name: l.name, description: l.description || undefined })))]);
-    const card = (c: CardData) => inline({ id: c.id, kind: c.kind, name: c.name, description: c.description || undefined, lane: c.lane || undefined, from: c.from?.length ? c.from : undefined });
+    // A card comes from each card once, however often the file names it.
+    const card = (c: CardData) => inline({ id: c.id, kind: c.kind, name: c.name, description: c.description || undefined, lane: c.lane || undefined, from: c.from?.length ? [...new Set(c.from)] : undefined });
     entries.push(["cards", list((v.cards ?? []).map(card))]);
   }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {

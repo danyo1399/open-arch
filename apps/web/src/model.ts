@@ -284,6 +284,32 @@ export function toggleShape(selection: Selection, boxes: ReadonlySet<string>, sh
   return selectShapes(shape.kind === "element" ? { elements: toggle(elements), stickies } : { elements, stickies: toggle(stickies) });
 }
 
+/** The edit that removes the arrow from one card of an event view to another: none when there isn't one. */
+export function cardArrowDeleteOps(view: ViewDef, from: string, to: string): Operation[] {
+  const card = view.cards.find((c) => c.id === to);
+  if (!card?.from.includes(from)) return [];
+  return [{ op: "update-card", view: view.id, id: card.id, from: card.from.filter((id) => id !== from) }];
+}
+
+/**
+ * The edit that deletes what's selected on an event view: a lane, whose cards stay, in no lane; a
+ * card, with its arrows; or the arrow from one card to another. None for any other selection.
+ */
+export function eventDeleteOps(view: ViewDef, selection: Selection): Operation[] {
+  if (selection?.kind === "lane") return [{ op: "remove-lane", view: view.id, id: selection.id }];
+  if (selection?.kind === "card") return [{ op: "remove-card", view: view.id, id: selection.id }];
+  if (selection?.kind === "cardArrow") return cardArrowDeleteOps(view, selection.from, selection.to);
+  return [];
+}
+
+/** Whether a selected lane, card or arrow between cards is no longer in the view, as after an Undo or a change to the file. */
+export function eventSelectionGone(view: ViewDef | undefined, selection: Selection): boolean {
+  if (selection?.kind === "lane") return !view?.lanes.some((l) => l.id === selection.id);
+  if (selection?.kind === "card") return !view?.cards.some((c) => c.id === selection.id);
+  if (selection?.kind === "cardArrow") return !view?.cards.some((c) => c.id === selection.to && c.from.includes(selection.from));
+  return false;
+}
+
 /** What the details panel shows. */
 export type Shown =
   | { kind: "element"; element: ArchElement }

@@ -345,8 +345,9 @@ const CARD_DEFS: Record<CardKind, [name: string, style: string]> = {
 /**
  * An event view as a Mermaid flowchart, left to right: each lane as a subgraph, with its cards
  * inside, each card in its kind's colour, and an arrow to each card from the cards it comes from.
- * Cards in no lane are outside the subgraphs. A link that isn't drawn joins each card to the next
- * one, where no arrow does, which keeps them in their order along the timeline.
+ * Cards in no lane are outside the subgraphs, and a lane with no cards is a subgraph with nothing
+ * in it, which Mermaid draws as a box with the lane's name. A link that isn't drawn joins each card
+ * to the next one, where no arrow does, which keeps them in their order along the timeline.
  */
 function renderEvents(cv: ComputedView): string {
   const v = cv.view;
@@ -361,8 +362,10 @@ function renderEvents(cv: ComputedView): string {
   const card = (c: (typeof v.cards)[number]) => `${mermaidId(c.id)}["${escape(c.name)}<br/>[${CARD_KIND_LABELS[c.kind]}]"]`;
   for (const c of v.cards) if (c.lane === undefined || !lanes.has(c.lane)) lines.push(`  ${card(c)}`);
   for (const lane of v.lanes) {
-    lines.push(`  subgraph ${laneId(lane.id)}["${escape(lane.name)}"]`, "    direction LR");
-    for (const c of v.cards) if (c.lane === lane.id) lines.push(`    ${card(c)}`);
+    const inside = v.cards.filter((c) => c.lane === lane.id);
+    lines.push(`  subgraph ${laneId(lane.id)}["${escape(lane.name)}"]`);
+    // The direction is for the cards: a lane without any has only its name.
+    if (inside.length) lines.push("    direction LR", ...inside.map((c) => `    ${card(c)}`));
     lines.push("  end");
   }
   const arrows = cardArrows(v);

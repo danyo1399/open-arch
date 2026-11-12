@@ -58,6 +58,13 @@ describe("event views", () => {
     expect(rules(ordering())).toEqual([]);
   });
 
+  it("are written with each card a card comes from once, however often the file names it", () => {
+    const doc = ordering();
+    doc.views.ordering!.cards![4]!.from = ["order-placed", "pay-when-placed", "order-placed"];
+    expect(parseDocument(JSON.stringify(doc)).diagnostics).toEqual([]);
+    expect(serializeDocument(doc)).toContain(`"lane": "customer", "from": ["order-placed", "pay-when-placed"] }`);
+  });
+
   it("are written with empty lists when they have no lanes or cards yet", () => {
     const doc = apply(shop(), { op: "add-view", id: "refunds", level: "event" });
     expect(doc.views.refunds).toEqual({ title: "Refunds", level: "event", lanes: [], cards: [] });
@@ -205,6 +212,17 @@ describe("event views", () => {
     expect(text).toContain("  class end_ eventCard");
   });
 
+  it("show a lane with no cards in Mermaid as a subgraph with nothing in it, which Mermaid draws as a box with its name", () => {
+    // Drawn with Mermaid 11: the empty lane is a box named after it, and the other lanes are frames as before.
+    const doc = apply(ordering(), { op: "add-lane", view: "ordering", id: "warehouse", position: 2 });
+    const text = renderMermaid(view(doc));
+    expect(text).toContain('  end\n  subgraph lane__warehouse["Warehouse"]\n  end\n  subgraph lane__shop["Shop"]\n    direction LR\n');
+    expect(text).toContain("  style lane__warehouse fill:none,stroke:#8a94a6");
+    const page = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "views/ordering.md")!.content;
+    expect(page).toContain('  subgraph lane__warehouse["Warehouse"]\n  end\n');
+    expect(page).toContain("| Customer |  |\n| Warehouse |  |\n| Shop | Everything the shop's own software does. |");
+  });
+
   it("are documented with tables of their lanes and cards", () => {
     const page = exportDocs(buildWorkspace(ordering()), "shop.openarch").find((f) => f.path === "views/ordering.md")!.content;
     expect(page).toContain("\nEvent view.\n");
@@ -229,6 +247,9 @@ describe("event operations", () => {
     doc = apply(doc, { op: "add-card", view: "ordering", id: "place-order", kind: "command", lane: "customer" });
     const moved = applyOperations(doc, [{ op: "update-lane", view: "ordering", id: "customer", position: 2 }]);
     expect(moved.summary).toEqual(["moved lane customer to lane 2 in view ordering"]);
+    const stayed = applyOperations(doc, [{ op: "update-lane", view: "ordering", id: "customer", position: 1 }, { op: "update-lane", view: "ordering", id: "shop", newId: "shop" }]);
+    expect(stayed.summary).toEqual(["lane customer is already lane 1 in view ordering", 'lane shop is already "shop" in view ordering']);
+    expect(stayed.doc).toEqual(doc);
     expect(lanes(moved.doc)).toEqual(["shop", "customer"]);
     const renamed = applyOperations(doc, [{ op: "update-lane", view: "ordering", id: "customer", newId: "buyer", name: "Buyer", description: null, position: 2 }]);
     expect(renamed.summary).toEqual(["renamed lane customer to buyer in view ordering, and moved it to lane 2"]);
@@ -269,8 +290,11 @@ describe("event operations", () => {
     const moved = applyOperations(doc, [{ op: "update-card", view: "ordering", id: "c", position: 1 }]);
     expect(moved.summary).toEqual(["moved card c to card 1 in view ordering"]);
     expect(cards(moved.doc)).toEqual(["c", "a", "b"]);
-    // Where it already is, it doesn't move.
-    expect(applyOperations(doc, [{ op: "update-card", view: "ordering", id: "c", position: 3 }]).summary).toEqual(["updated card c in view ordering"]);
+    // Where it already is, it doesn't move, and the answer says so. The same goes for the ID it has.
+    const stayed = applyOperations(doc, [{ op: "update-card", view: "ordering", id: "c", position: 3 }, { op: "update-card", view: "ordering", id: "c", newId: "c" }]);
+    expect(stayed.summary).toEqual(["card c is already card 3 in view ordering", 'card c is already "c" in view ordering']);
+    expect(stayed.doc).toEqual(doc);
+    expect(applyOperations(doc, [{ op: "update-card", view: "ordering", id: "c", name: "Sea", position: 3 }]).summary).toEqual(["updated card c in view ordering"]);
     const renamed = applyOperations(doc, [{ op: "update-card", view: "ordering", id: "a", newId: "start", lane: "shop", position: 2 }]);
     expect(renamed.summary).toEqual(["renamed card a to start in view ordering, and moved it to card 2"]);
     expect(renamed.doc.views.ordering!.cards).toEqual([

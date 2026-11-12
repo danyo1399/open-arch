@@ -1755,13 +1755,17 @@ button.heading {
   padding: 8px 10px;
   border-radius: 2px;
   color: #1d1a12;
-  overflow: hidden;
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08), 0 6px 12px -6px rgba(0, 0, 0, 0.3);
   outline: 3px solid transparent;
   outline-offset: 2px;
 }
 .event-card.selected {
   outline-color: var(--accent);
+}
+/* Text that doesn't fit is cut off here, not by the card, which would cut the dot at its edge in half. */
+.event-card-text {
+  height: 100%;
+  overflow: hidden;
 }
 .event-card-kind {
   font-size: 10px;

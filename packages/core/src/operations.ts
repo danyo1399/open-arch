@@ -1469,8 +1469,11 @@ function updateLane(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   const moved = moveTo(lanes, lanes.indexOf(lane), op.position, op.view, "lane");
   const where = moved ? `, and moved it to lane ${op.position}` : "";
   if (op.newId === undefined || op.newId === op.id) {
-    const onlyMoved = moved && fields.every((f) => f === "position" || op[f] === undefined);
-    return onlyMoved ? `moved lane ${op.id} to lane ${op.position} in view ${op.view}` : `updated lane ${op.id} in view ${op.view}${where}`;
+    // Asked only for the place, or the ID, it has already: say so, as nothing changed.
+    if (fields.every((f) => f === "position" || f === "newId" || op[f] === undefined)) {
+      return moved ? `moved lane ${op.id} to lane ${op.position} in view ${op.view}` : `lane ${op.id} is already ${op.position === undefined ? `"${op.id}"` : `lane ${op.position}`} in view ${op.view}`;
+    }
+    return `updated lane ${op.id} in view ${op.view}${where}`;
   }
   // A new ID keeps the lane where it is, and its cards follow it.
   if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. IDs are lowercase kebab-case, like "customer".`);
@@ -1545,8 +1548,11 @@ function updateCard(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   const moved = moveTo(cards, cards.indexOf(card), op.position, op.view, "card");
   const where = moved ? `, and moved it to card ${op.position}` : "";
   if (op.newId === undefined || op.newId === op.id) {
-    const onlyMoved = moved && fields.every((f) => f === "position" || op[f] === undefined);
-    return onlyMoved ? `moved card ${op.id} to card ${op.position} in view ${op.view}` : `updated card ${op.id} in view ${op.view}${where}`;
+    // Asked only for the place, or the ID, it has already: say so, as nothing changed.
+    if (fields.every((f) => f === "position" || f === "newId" || op[f] === undefined)) {
+      return moved ? `moved card ${op.id} to card ${op.position} in view ${op.view}` : `card ${op.id} is already ${op.position === undefined ? `"${op.id}"` : `card ${op.position}`} in view ${op.view}`;
+    }
+    return `updated card ${op.id} in view ${op.view}${where}`;
   }
   // A new ID keeps the card where it is, and the cards that come from it follow it.
   if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. IDs are lowercase kebab-case, like "order-placed".`);

@@ -78,9 +78,12 @@ function CardNode({ id, data, selected }: NodeProps<CardFlowNode>) {
   return (
     <div className={`event-card event-card-${card.kind}${selected ? " selected" : ""}`} title={card.description ? `${card.name}\n${card.description}` : card.name}>
       <Handle type="target" position={Position.Left} className={dropTarget ? "handle-drop" : "handle-hidden"} isConnectableStart={false} />
-      <div className="event-card-kind">{CARD_KIND_LABELS[card.kind]}</div>
-      <div className="event-card-name">{card.name}</div>
-      {card.description && <div className="event-card-desc">{card.description}</div>}
+      {/* The text is cut off at the card's edge. The dot to drag an arrow from sits half outside it, so it's outside this. */}
+      <div className="event-card-text">
+        <div className="event-card-kind">{CARD_KIND_LABELS[card.kind]}</div>
+        <div className="event-card-name">{card.name}</div>
+        {card.description && <div className="event-card-desc">{card.description}</div>}
+      </div>
       <Handle type="source" position={Position.Right} className="handle-source" title="Drag to another card to add an arrow to it" />
     </div>
   );

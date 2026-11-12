@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
 import { addCardOp, cardConnectOps } from "../src/canvas/EventDiagram.js";
 import { dropOps, dropSpot, eventLayout, EVT } from "../src/canvas/eventLayout.js";
-import { followRenames, shownInProperties, uniqueAmong, viewAction } from "../src/model.js";
+import { cardArrowDeleteOps, eventDeleteOps, eventSelectionGone, followRenames, shownInProperties, uniqueAmong, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import type { Edit } from "../src/state.js";
@@ -171,6 +171,39 @@ describe("an event view's edits", () => {
     expect(addCardOp(ws.views.get("storm")!, "command", null)).toEqual({ op: "add-card", view: "storm", id: "new-command", kind: "command", name: "New command" });
     const again = changed((v) => void v.cards!.push({ id: "new-event", kind: "event", name: "New event" }));
     expect(addCardOp(again, "event", null).id).toBe("new-event-2");
+  });
+});
+
+describe("an event view's selection", () => {
+  it("is deleted with its own edit: a lane, a card, or the arrow from one card to another", () => {
+    expect(eventDeleteOps(view, { kind: "lane", id: "shop" })).toEqual([{ op: "remove-lane", view: "ordering", id: "shop" }]);
+    expect(eventDeleteOps(view, { kind: "card", id: "order-placed" })).toEqual([{ op: "remove-card", view: "ordering", id: "order-placed" }]);
+    expect(eventDeleteOps(view, { kind: "cardArrow", from: "place-order", to: "order-placed" })).toEqual([{ op: "update-card", view: "ordering", id: "order-placed", from: [] }]);
+    // Anything else is deleted another way, or not at all.
+    expect(eventDeleteOps(view, { kind: "sticky", id: "note" })).toEqual([]);
+    expect(eventDeleteOps(view, { kind: "element", id: "shop" })).toEqual([]);
+    expect(eventDeleteOps(view, null)).toEqual([]);
+  });
+
+  it("removes an arrow by taking its start out of what the card it goes to comes from, and keeps the others", () => {
+    const two = changed((v) => void (v.cards![2]!.from = ["place-order", "order-placed"]));
+    expect(cardArrowDeleteOps(two, "place-order", "order-status")).toEqual([{ op: "update-card", view: "ordering", id: "order-status", from: ["order-placed"] }]);
+    // No arrow goes that way, or to a card that isn't there.
+    expect(cardArrowDeleteOps(two, "order-status", "place-order")).toEqual([]);
+    expect(cardArrowDeleteOps(two, "place-order", "gone")).toEqual([]);
+  });
+
+  it("is gone once its lane, card or arrow is, and no other selection is", () => {
+    expect(eventSelectionGone(view, { kind: "lane", id: "shop" })).toBe(false);
+    expect(eventSelectionGone(view, { kind: "lane", id: "warehouse" })).toBe(true);
+    expect(eventSelectionGone(view, { kind: "card", id: "order-placed" })).toBe(false);
+    expect(eventSelectionGone(view, { kind: "card", id: "order-shipped" })).toBe(true);
+    expect(eventSelectionGone(view, { kind: "cardArrow", from: "place-order", to: "order-placed" })).toBe(false);
+    expect(eventSelectionGone(view, { kind: "cardArrow", from: "order-placed", to: "place-order" })).toBe(true);
+    // In a view that's gone too, or that another view replaced.
+    expect(eventSelectionGone(undefined, { kind: "card", id: "order-placed" })).toBe(true);
+    expect(eventSelectionGone(view, { kind: "element", id: "gone" })).toBe(false);
+    expect(eventSelectionGone(view, null)).toBe(false);
   });
 });
 
