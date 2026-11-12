@@ -74,6 +74,7 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   sequence: "Sequence: steps between elements, in order",
   state: "State: the states something can be in, and how it moves between them",
   deployment: "Deployment: where containers run, like Production",
+  event: "Event: commands and events in order, in swimlanes, as in event storming",
 };
 
 export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
@@ -86,8 +87,8 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
   const [scope, setScope] = useState<string>("");
   const scopeId = optional ? scopes.find((s) => s.id === scope)?.id : scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
-  // A sequence, a deployment view, and a state view of nothing in particular, have no scope to name them after, so they need a title.
-  const defaultTitle = level === "sequence" || level === "deployment" || (optional && !scopeName) ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
+  // A sequence, a deployment view, an event view, and a state view of nothing in particular, have no scope to name them after, so they need a title.
+  const defaultTitle = level === "sequence" || level === "deployment" || level === "event" || (optional && !scopeName) ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
   const [title, setTitle] = useState("");
   const finalTitle = title.trim() || defaultTitle;
   const canCreate = !!finalTitle && (!scopeKind || !!scopeId);
@@ -158,6 +159,11 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       {level === "state" && <p className="muted small">A state view shows the states something can be in, like an order that's placed, paid or delivered, and the transitions between them.</p>}
       {level === "deployment" && (
         <p className="muted small">Give it a title, such as the environment it shows. A deployment view shows the servers, clusters and cloud services things run on, nested, and the containers running in each.</p>
+      )}
+      {level === "event" && (
+        <p className="muted small">
+          Give it a title, such as the process it shows. An event view shows what happens in a business process, as event storming does: commands, events and the other notes, in order along a timeline, in a swimlane for each actor, team or system.
+        </p>
       )}
       {level === "sequence" && <p className="muted small">Give it a title. A sequence shows what happens, step by step: who calls whom, and who answers. Each step goes along a relationship in the model.</p>}
     </Modal>

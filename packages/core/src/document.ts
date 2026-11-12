@@ -5,6 +5,7 @@
  */
 import { KIND_RANK, tagEntries } from "./model.js";
 import {
+  CARD_KINDS,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
   FORMAT_VERSION,
@@ -12,11 +13,14 @@ import {
   RELATIONSHIP_KINDS,
   STICKY_COLORS,
   VIEW_LEVELS,
+  type CardData,
+  type CardKind,
   type ConnectionData,
   type DeploymentNodeData,
   type Diagnostic,
   type ElementData,
   type ElementShape,
+  type LaneData,
   type OpenArchDocument,
   type Position,
   type RelationshipData,
@@ -60,21 +64,33 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "libraries", "tags", "notes", "members", "uses"];
 const RELATIONSHIP_KEYS = ["to", "kind", "bidirectional", "description", "technology", "tags", "notes"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "nodes", "connections", "stickies", "layout"];
+const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "nodes", "connections", "lanes", "cards", "stickies", "layout"];
 /** Views that draw something other than boxes picked from the model. */
-type OwnLevel = "sequence" | "state" | "deployment";
-/** Fields only sequence, state and deployment views take, and those they don't, with why. */
-const ONLY_ON: Record<string, OwnLevel> = { steps: "sequence", initial: "state", states: "state", transitions: "state", nodes: "deployment", connections: "deployment" };
+type OwnLevel = "sequence" | "state" | "deployment" | "event";
+/** Fields only sequence, state, deployment and event views take, and those they don't, with why. */
+const ONLY_ON: Record<string, OwnLevel> = {
+  steps: "sequence",
+  initial: "state",
+  states: "state",
+  transitions: "state",
+  nodes: "deployment",
+  connections: "deployment",
+  lanes: "event",
+  cards: "event",
+};
 const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   sequence: { fields: ["include", "exclude", "layout"], why: "they show the elements in their steps, in the order they first appear" },
   state: { fields: ["include", "exclude", "layout"], why: "they show their states, each placed by its own `at`" },
   deployment: { fields: ["scope", "include", "exclude", "layout"], why: "they show their nodes and what runs in them, laid out automatically" },
+  event: { fields: ["scope", "include", "exclude", "layout"], why: "they show their cards in order, each in its lane" },
 };
-const LEVEL_NAME: Record<OwnLevel, string> = { sequence: "Sequence", state: "State", deployment: "Deployment" };
+const LEVEL_NAME: Record<OwnLevel, string> = { sequence: "Sequence", state: "State", deployment: "Deployment", event: "Event" };
 const STATE_KEYS = ["name", "description", "final", "at"];
 const TRANSITION_KEYS = ["from", "to", "event", "guard", "action"];
 const NODE_KEYS = ["name", "parent", "description", "technology", "infrastructure", "instances", "shape", "runs"];
 const CONNECTION_KEYS = ["from", "to", "description", "technology"];
+const LANE_KEYS = ["id", "name", "description"];
+const CARD_KEYS = ["id", "kind", "name", "description", "lane", "from"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "color", "at"];
 
@@ -181,6 +197,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 8) out = { ...out, openarch: 9 };
   // Version 10 added deployment views, so a version 9 file means the same in it.
   if (out.openarch === 9) out = { ...out, openarch: 10 };
+  // Version 11 added event views, so a version 10 file means the same in it.
+  if (out.openarch === 10) out = { ...out, openarch: 11 };
   return out;
 }
 
@@ -329,8 +347,9 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   const sequence = view.level === "sequence";
   const statesView = view.level === "state";
   const deployment = view.level === "deployment";
+  const events = view.level === "event";
   // Boxes come from include and exclude, and are placed by layout, only on the other views.
-  const boxes = !sequence && !statesView && !deployment;
+  const boxes = !sequence && !statesView && !deployment && !events;
   const own = boxes ? undefined : (view.level as OwnLevel);
   for (const key of Object.keys(value)) {
     const only = ONLY_ON[key];
@@ -342,7 +361,7 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   }
   const description = str(value.description, `${path}.description`, report);
   if (description !== undefined) view.description = description;
-  const scope = deployment ? undefined : str(value.scope, `${path}.scope`, report);
+  const scope = deployment || events ? undefined : str(value.scope, `${path}.scope`, report);
   if (scope !== undefined) view.scope = scope;
   const include = boxes ? strList(value.include, `${path}.include`, report) : undefined;
   if (include) view.include = include;
@@ -402,6 +421,33 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
         value.connections.forEach((item, i) => {
           const c = readConnection(item, `${path}.connections[${i}]`, report);
           if (c) view.connections!.push(c);
+        });
+      }
+    }
+  }
+  if (events) {
+    // A lane or card with the ID of one before it is left out: every reference to it would mean the first.
+    if (value.lanes !== undefined) {
+      if (!Array.isArray(value.lanes)) report(`${path}.lanes`, "field-type", "Must be a list of lanes.");
+      else {
+        view.lanes = [];
+        value.lanes.forEach((item, i) => {
+          const lane = readLane(item, `${path}.lanes[${i}]`, report);
+          if (!lane) return;
+          if (view.lanes!.some((l) => l.id === lane.id)) report(`${path}.lanes[${i}].id`, "id-duplicate", `"${lane.id}" is the ID of two lanes of this view.`, "Give one of them another ID.");
+          else view.lanes!.push(lane);
+        });
+      }
+    }
+    if (value.cards !== undefined) {
+      if (!Array.isArray(value.cards)) report(`${path}.cards`, "field-type", "Must be a list of cards.");
+      else {
+        view.cards = [];
+        value.cards.forEach((item, i) => {
+          const card = readCard(item, `${path}.cards[${i}]`, report);
+          if (!card) return;
+          if (view.cards!.some((c) => c.id === card.id)) report(`${path}.cards[${i}].id`, "id-duplicate", `"${card.id}" is the ID of two cards of this view.`, "Give one of them another ID.");
+          else view.cards!.push(card);
         });
       }
     }
@@ -549,6 +595,54 @@ function readConnection(value: unknown, path: string, report: Report): Connectio
   return connection;
 }
 
+function readLane(value: unknown, path: string, report: Report): LaneData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A lane must be an object like { "id": "customer", "name": "Customer" }.');
+    return undefined;
+  }
+  unknownKeys(value, LANE_KEYS, path, report);
+  const id = str(value.id, `${path}.id`, report);
+  if (!id) {
+    report(`${path}.id`, "field-required", "`id` is required: an ID unique among the view's lanes.");
+    return undefined;
+  }
+  if (!readId(id, `${path}.id`, report)) return undefined;
+  const name = str(value.name, `${path}.name`, report);
+  if (!name?.trim()) report(`${path}.name`, "field-required", "`name` is required.");
+  const lane: LaneData = { id, name: name?.trim() ? name : id };
+  const description = str(value.description, `${path}.description`, report);
+  if (description !== undefined) lane.description = description;
+  return lane;
+}
+
+function readCard(value: unknown, path: string, report: Report): CardData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A card must be an object like { "id": "order-placed", "kind": "event", "name": "Order placed" }.');
+    return undefined;
+  }
+  unknownKeys(value, CARD_KEYS, path, report);
+  const id = str(value.id, `${path}.id`, report);
+  if (!id) {
+    report(`${path}.id`, "field-required", "`id` is required: an ID unique among the view's cards.");
+    return undefined;
+  }
+  if (!readId(id, `${path}.id`, report)) return undefined;
+  if (!(CARD_KINDS as readonly unknown[]).includes(value.kind)) {
+    report(`${path}.kind`, value.kind === undefined ? "field-required" : "card-kind-invalid", `\`kind\` must be one of: ${CARD_KINDS.join(", ")}.`);
+    return undefined;
+  }
+  const name = str(value.name, `${path}.name`, report);
+  if (!name?.trim()) report(`${path}.name`, "field-required", "`name` is required.");
+  const card: CardData = { id, kind: value.kind as CardKind, name: name?.trim() ? name : id };
+  for (const key of ["description", "lane"] as const) {
+    const v = str(value[key], `${path}.${key}`, report);
+    if (v !== undefined) card[key] = v;
+  }
+  const from = strList(value.from, `${path}.from`, report);
+  if (from) card.from = from;
+  return card;
+}
+
 function readSticky(id: string, value: unknown, path: string, report: Report): StickyData | undefined {
   if (!readId(id, path, report)) return undefined;
   if (!isObject(value)) {
@@ -680,7 +774,8 @@ function viewText(v: ViewData, indent: string): string {
   const sequence = v.level === "sequence";
   const statesView = v.level === "state";
   const deployment = v.level === "deployment";
-  const boxes = !sequence && !statesView && !deployment;
+  const events = v.level === "event";
+  const boxes = !sequence && !statesView && !deployment && !events;
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
   if (boxes) entries.push(["include", inline(v.include ?? ["*"])]);
   if (boxes && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
@@ -716,6 +811,12 @@ function viewText(v: ViewData, indent: string): string {
     entries.push(["nodes", block(nodeOrder(v.nodes ?? {}).map((id) => [id, node(v.nodes![id]!)]), `${indent}  `)]);
     const connections = (v.connections ?? []).map((c) => inline({ from: c.from, to: c.to, description: c.description || undefined, technology: c.technology || undefined }));
     entries.push(["connections", connections.length ? `[\n${connections.map((c) => `${indent}    ${c}`).join(",\n")}\n${indent}  ]` : "[]"]);
+  }
+  if (events) {
+    const list = (items: string[]) => (items.length ? `[\n${items.map((item) => `${indent}    ${item}`).join(",\n")}\n${indent}  ]` : "[]");
+    entries.push(["lanes", list((v.lanes ?? []).map((l) => inline({ id: l.id, name: l.name, description: l.description || undefined })))]);
+    const card = (c: CardData) => inline({ id: c.id, kind: c.kind, name: c.name, description: c.description || undefined, lane: c.lane || undefined, from: c.from?.length ? c.from : undefined });
+    entries.push(["cards", list((v.cards ?? []).map(card))]);
   }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();

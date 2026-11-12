@@ -112,7 +112,7 @@ function notes(io: Io, v: Values): string | null | undefined {
   }
 }
 
-/** A step's, transition's or connection's number, from `--<name> <n>` or a positional argument: 1 is the first. */
+/** A step's, transition's or connection's number, or a lane's or card's position, from `--<name> <n>` or a positional argument: 1 is the first. */
 function stepNumber(v: Values[string], name: string, what = "step"): number | undefined {
   if (v === undefined) return undefined;
   const n = Number(v);
@@ -246,7 +246,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state or deployment.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment or event.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",
@@ -426,6 +426,55 @@ export const BUILDERS: Record<string, Builder> = {
   "remove-connection": (_io, _v, p, usage) => {
     const [view, n] = need(p, ["<view>", "<n>"], usage);
     return [{ op: "remove-connection", view: view!, connection: stepNumber(n, "<n>", "connection")! }];
+  },
+  "add-lane": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "add-lane", view: view!, id: id!, name: text(v.name), description: text(v.description), position: stepNumber(v.position, "--position", "lane") }];
+  },
+  "update-lane": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "update-lane", view: view!, id: id!, newId: text(v["new-id"]), name: text(v.name), description: clearable(v.description), position: stepNumber(v.position, "--position", "lane") }];
+  },
+  "remove-lane": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-lane", view: view!, id: id! }];
+  },
+  "add-card": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "add-card",
+        view: view!,
+        id: id!,
+        kind: text(v.kind) as never,
+        name: text(v.name),
+        description: text(v.description),
+        lane: text(v.lane),
+        from: replacing(v.from) ?? undefined,
+        position: stepNumber(v.position, "--position", "card"),
+      },
+    ];
+  },
+  "update-card": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "update-card",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        kind: text(v.kind) as never,
+        name: text(v.name),
+        description: clearable(v.description),
+        lane: clearable(v.lane),
+        from: replacing(v.from),
+        position: stepNumber(v.position, "--position", "card"),
+      },
+    ];
+  },
+  "remove-card": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-card", view: view!, id: id! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

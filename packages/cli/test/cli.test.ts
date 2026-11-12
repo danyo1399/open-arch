@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 9 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 10 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -274,6 +274,71 @@ Arrows:
     expect(cli(dir, "add-view", "--help").out).toContain("A deployment view shows where containers and systems run");
   });
 
+  it("adds an event view, its lanes and cards, and shows them in order with what each comes from", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "returns", "--level", "event", "--title", "Returning an order").code).toBe(0);
+    expect(cli(dir, "add-lane", "returns", "shop").code).toBe(0);
+    expect(cli(dir, "add-lane", "returns", "customer", "--description", "Whoever bought it.", "--position", "1").out).toContain("added lane customer to view returns, as lane 1");
+    expect(cli(dir, "add-card", "returns", "ask-for-return", "--kind", "command", "--name", "Ask for a return", "--lane", "customer").out).toContain("added command ask-for-return to view returns");
+    expect(cli(dir, "add-card", "returns", "return-asked-for", "--lane", "shop", "--from", "ask-for-return", "--description", "Within 30 days.").out).toContain("added event return-asked-for to view returns");
+    expect(cli(dir, "add-card", "returns", "refund-policy", "--kind", "policy", "--name", "Whenever a return arrives, refund it", "--from", "return-asked-for").code).toBe(0);
+    expect(cli(dir, "add-card", "returns", "who-pays", "--kind", "hotspot", "--name", "Who pays the postage?", "--position", "1").code).toBe(0);
+    expect(cli(dir, "show", "returns").out).toBe(`returns: Returning an order
+  level:        event view
+
+Lanes:
+  1.  customer  Customer  Whoever bought it.
+  2.  shop      Shop
+
+Cards:
+  1.  who-pays          hotspot  Who pays the postage?                 (no lane)
+  2.  ask-for-return    command  Ask for a return                      in customer
+  3.  return-asked-for  event    Return Asked For                      in shop  <- ask-for-return  Within 30 days.
+  4.  refund-policy     policy   Whenever a return arrives, refund it  (no lane)  <- return-asked-for
+`);
+    const json = JSON.parse(cli(dir, "show", "returns", "--json").out);
+    expect(json.lanes[0]).toEqual({ id: "customer", position: 1, name: "Customer", description: "Whoever bought it." });
+    expect(json.cards[2]).toEqual({ id: "return-asked-for", position: 3, kind: "event", name: "Return Asked For", description: "Within 30 days.", lane: "shop", from: ["ask-for-return"] });
+    expect(cli(dir, "show").out).toContain("returns                   event view                      Returning an order");
+    const page = read(dir, "docs/views/returns.md");
+    expect(page).toContain('  subgraph lane__shop["Shop"]\n    direction LR\n    return_asked_for["Return Asked For<br/>[Event]"]\n  end\n');
+    expect(page).toContain("| 3 | Return Asked For | Event | Shop | Ask for a return | Within 30 days. |");
+
+    expect(cli(dir, "update-card", "returns", "refund-policy", "--lane", "shop", "--from", "return-asked-for", "--from", "ask-for-return", "--position", "3").out).toContain("updated card refund-policy in view returns, and moved it to card 3");
+    expect(JSON.parse(read(dir)).views.returns.cards[2]).toEqual({ id: "refund-policy", kind: "policy", name: "Whenever a return arrives, refund it", lane: "shop", from: ["return-asked-for", "ask-for-return"] });
+    expect(cli(dir, "update-card", "returns", "ask-for-return", "--new-id", "request-return", "--kind", "actor").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.returns.cards[2].from).toEqual(["return-asked-for", "request-return"]);
+    expect(cli(dir, "update-card", "returns", "refund-policy", "--from", "", "--lane", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.returns.cards[2]).toEqual({ id: "refund-policy", kind: "policy", name: "Whenever a return arrives, refund it" });
+    expect(cli(dir, "update-lane", "returns", "shop", "--new-id", "store", "--name", "Store", "--position", "1").out).toContain("renamed lane shop to store in view returns, and moved it to lane 1");
+    expect(JSON.parse(read(dir)).views.returns.cards[3].lane).toBe("store");
+    expect(cli(dir, "remove-lane", "returns", "store").out).toContain("removed lane store from view returns, leaving 1 card in no lane");
+    expect(cli(dir, "remove-card", "returns", "request-return").out).toContain("removed card request-return from view returns and 1 arrow to or from it");
+    expect(cli(dir, "add-card", "returns", "x", "--kind", "note").err).toContain('Unknown kind of card "note".');
+    expect(cli(dir, "add-card", "returns", "x", "--position", "first").err).toContain("--position must be a card's number: 1 is the first.");
+    expect(cli(dir, "add-lane", "returns", "x", "--position", "0").err).toContain("--position must be a lane's number: 1 is the first.");
+    expect(cli(dir, "add-lane", "place-order", "x").err).toContain('View "place-order" is a sequence view. Only event views have lanes and cards.');
+    expect(cli(dir, "check").code).toBe(0);
+    expect(cli(dir, "add-view", "--help").out).toContain("An event view shows what happens in a business process");
+    expect(cli(dir, "add-card", "--help").out).toContain("--from <card>");
+    expect(cli(dir, "--help").out).toContain("add-card <view> <id>");
+  });
+
+  it("applies a batch of lanes and cards from JSON, all or nothing", () => {
+    const dir = example();
+    const ops = [
+      { op: "add-view", id: "returns", level: "event" },
+      { op: "add-lane", view: "returns", id: "shop" },
+      { op: "add-card", view: "returns", id: "return-arrived", lane: "shop" },
+      { op: "add-card", view: "returns", id: "refund", kind: "command", from: ["return-arrived"] },
+    ];
+    writeFileSync(join(dir, "good.json"), JSON.stringify(ops));
+    expect(cli(dir, "apply", "good.json").out).toContain("added event return-arrived to view returns\nadded command refund to view returns\n");
+    writeFileSync(join(dir, "bad.json"), JSON.stringify([{ op: "add-card", view: "returns", id: "late", from: ["never"] }]));
+    expect(cli(dir, "apply", "bad.json").err).toContain('View "returns" has no card "never".');
+    expect(JSON.parse(read(dir)).views.returns.cards.map((c: { id: string }) => c.id)).toEqual(["return-arrived", "refund"]);
+  });
+
   it("removes fields with empty values and hides elements from views", () => {
     const dir = example();
     expect(cli(dir, "update-element", "web-app", "--technology", "", "--tag", "frontend").code).toBe(0);
@@ -426,22 +491,22 @@ Arrows:
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 10', '"openarch": 1')
+      .replace('"openarch": 11', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 10, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 11, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9])("reads a version %i file, and writes it back as version 10", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10])("reads a version %i file, and writes it back as version 11", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 10', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 11', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 10,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 11,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -474,7 +539,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The web app keeps its own copy, so it's the desktop app that edits the file.
     expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 10, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 11, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

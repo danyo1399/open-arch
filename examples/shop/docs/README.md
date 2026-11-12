@@ -9,6 +9,7 @@ An online shop, used as the open-arch example.
 - [Checkout API components](views/checkout-api-components.md) – How a checkout request is handled.
 - [System landscape](views/landscape.md) – Every person and system, and how they connect.
 - [Logging classes](views/logging-classes.md) – The shared logging code, and what logs with it.
+- [From order to delivery](views/order-events.md) – What happens in the business when a customer orders, as an event storm.
 - [Order Repository classes](views/order-repository-classes.md) – The classes that store orders, and how they fit together.
 - [Order states](views/order-states.md) – What an order goes through, from being placed to being delivered.
 - [Placing an order](views/place-order.md) – What happens, in order, when a customer places an order.

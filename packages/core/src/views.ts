@@ -4,6 +4,7 @@
  * A sequence view shows the elements in its steps instead, and its steps in order.
  * A deployment view shows its nodes, the containers and systems running in them, and the
  * arrows between those copies.
+ * An event view shows its cards in order, each in its lane, and the arrows between them.
  */
 import type { Workspace } from "./workspace.js";
 import { builtInto, childrenOf, compareElements, containerOf, kindList, libraryOf, lineage, topLevel } from "./model.js";
@@ -128,6 +129,7 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   // Optional: the element whose states the view shows, of any kind.
   state: ELEMENT_KINDS,
   deployment: [],
+  event: [],
 };
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
@@ -141,7 +143,9 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
         ? "Sequence views show the elements in their steps, so they don't take a `scope`."
         : view.level === "deployment"
           ? "Deployment views show their nodes and what runs in them, so they don't take a `scope`."
-          : "Landscape views show every person and system, so they don't take a `scope`.";
+          : view.level === "event"
+            ? "Event views show their lanes and cards, so they don't take a `scope`."
+            : "Landscape views show every person and system, so they don't take a `scope`.";
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
   }
   if (view.scope === undefined) {
@@ -242,6 +246,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
       case "sequence":
       case "state":
       case "deployment":
+      case "event":
         return id;
     }
   };
@@ -252,6 +257,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   if (view.level === "sequence") return computeSequence(ws, view);
   if (view.level === "state") return computeStates(ws, view);
   if (view.level === "deployment") return computeDeployment(ws, view);
+  if (view.level === "event") return computeEvents(ws, view);
   const diagnostics: Diagnostic[] = [];
   const rep = representative(ws, view);
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
@@ -721,6 +727,51 @@ function computeDeployment(ws: Workspace, view: ViewDef): ComputedView {
   const nodes = view.nodes.map((n) => (drawnParent.get(n.id) === n.parent ? n : { ...n, parent: drawnParent.get(n.id) }));
   const elements = [...runs.keys()].map((id) => ws.elements.get(id)!).sort(compareElements);
   return { view, nodes: elements, edges, steps: [], deployment: { nodes, instances, arrows }, diagnostics };
+}
+
+/** An arrow on an event view, from one card to a card it leads to. */
+export interface CardArrow {
+  from: string;
+  to: string;
+}
+
+/**
+ * The arrows an event view draws: one to each card from each card its `from` names, in the order
+ * of the cards. A `from` that names no card of the view, or the card itself, draws nothing.
+ */
+export function cardArrows(view: ViewDef): CardArrow[] {
+  const ids = new Set(view.cards.map((c) => c.id));
+  return view.cards.flatMap((card) => card.from.filter((from) => from !== card.id && ids.has(from)).map((from) => ({ from, to: card.id })));
+}
+
+/**
+ * An event view: it draws its cards, not boxes, so it has none. Its problems are cards in a lane
+ * the view doesn't have, and cards that come from a card it doesn't have, or from themselves.
+ */
+function computeEvents(ws: Workspace, view: ViewDef): ComputedView {
+  const diagnostics: Diagnostic[] = [];
+  const lanes = view.lanes.map((l) => l.id);
+  const cards = view.cards.map((c) => c.id);
+  const near = (id: string, among: string[]) => {
+    const match = suggest(id, among);
+    return match ? `Did you mean "${match}"?` : undefined;
+  };
+  for (const card of view.cards) {
+    if (card.lane !== undefined && !lanes.includes(card.lane)) {
+      diagnostics.push({ severity: "error", rule: "card-lane-unknown", message: `Card "${card.id}" is in the lane "${card.lane}", which isn't a lane of this view.`, path: `${card.path}.lane`, fix: near(card.lane, lanes) });
+    }
+    // The workspace lists each card it comes from once, so look at the file for where it is.
+    const listed = ws.doc.views[view.id]?.cards?.[card.number - 1]?.from ?? card.from;
+    card.from.forEach((from) => {
+      const path = `${card.path}.from[${listed.indexOf(from)}]`;
+      if (from === card.id) {
+        diagnostics.push({ severity: "error", rule: "card-from-self", message: `Card "${card.id}" comes from itself.`, path, fix: `Remove "${from}" from \`from\`.` });
+      } else if (!cards.includes(from)) {
+        diagnostics.push({ severity: "error", rule: "card-from-unknown", message: `Card "${card.id}" comes from "${from}", which isn't a card of this view.`, path, fix: near(from, cards) });
+      }
+    });
+  }
+  return { view, nodes: [], edges: [], steps: [], diagnostics };
 }
 
 function joinLabels(values: (string | undefined)[], separator: string): string | undefined {

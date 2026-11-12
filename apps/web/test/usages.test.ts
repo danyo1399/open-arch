@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { findUsages } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 10,
+  openarch: 11,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys" }] },

@@ -1,5 +1,5 @@
 {
-  "openarch": 10,
+  "openarch": 11,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -201,6 +201,30 @@
       "level": "class",
       "scope": "logging",
       "include": ["*"]
+    },
+    "order-events": {
+      "title": "From order to delivery",
+      "description": "What happens in the business when a customer orders, as an event storm.",
+      "level": "event",
+      "lanes": [
+        { "id": "customer", "name": "Customer" },
+        { "id": "shop", "name": "Shop" },
+        { "id": "payment-provider", "name": "Payment Provider" },
+        { "id": "warehouse", "name": "Warehouse" }
+      ],
+      "cards": [
+        { "id": "shopper", "kind": "actor", "name": "Customer", "lane": "customer" },
+        { "id": "place-order", "kind": "command", "name": "Place order", "lane": "customer", "from": ["shopper"] },
+        { "id": "order-placed", "kind": "event", "name": "Order placed", "lane": "shop", "from": ["place-order"] },
+        { "id": "pay-when-placed", "kind": "policy", "name": "Whenever an order is placed, take payment", "lane": "shop", "from": ["order-placed"] },
+        { "id": "take-payment", "kind": "command", "name": "Take payment", "lane": "payment-provider", "from": ["pay-when-placed"] },
+        { "id": "card-declined", "kind": "hotspot", "name": "What if the card is declined?", "lane": "payment-provider" },
+        { "id": "payment-taken", "kind": "event", "name": "Payment taken", "lane": "payment-provider", "from": ["take-payment"] },
+        { "id": "ship-when-paid", "kind": "policy", "name": "Whenever payment is taken, ship the order", "lane": "shop", "from": ["payment-taken"] },
+        { "id": "ship-order", "kind": "command", "name": "Ship order", "lane": "warehouse", "from": ["ship-when-paid"] },
+        { "id": "order-shipped", "kind": "event", "name": "Order shipped", "lane": "warehouse", "from": ["ship-order"] },
+        { "id": "order-status", "kind": "read-model", "name": "Order status", "description": "Where the order is, with its tracking link.", "lane": "customer", "from": ["payment-taken", "order-shipped"] }
+      ]
     },
     "order-repository-classes": {
       "title": "Order Repository classes",

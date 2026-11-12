@@ -70,8 +70,9 @@ Without an id: the model as a tree, and the list of views.
 With an element id: its fields, notes, what it uses and what uses it (with those
 relationships' notes), and the views showing it.
 With a view id: its description and notes, and the boxes and arrows the view draws, or for
-a sequence view, its steps in order, for a state view, its states and transitions, or for a
-deployment view, its nodes and what runs in them, its connections and the arrows it draws.
+a sequence view, its steps in order, for a state view, its states and transitions, for a
+deployment view, its nodes and what runs in them, its connections and the arrows it draws, or
+for an event view, its lanes, and its cards in order with the cards each comes from.
 A class's members, a relationship's kind when it isn't an association, a container's
 libraries and the containers a library is built into are shown too.
 `,
@@ -107,7 +108,8 @@ update-relationship, remove-relationship, add-view, update-view, remove-view, sh
 hide-in-view, set-layout, add-sticky, update-sticky, remove-sticky, add-step, update-step,
 remove-step, add-state, update-state, remove-state, add-transition, update-transition,
 remove-transition, add-node, update-node, remove-node, add-connection, update-connection,
-remove-connection, update-workspace.
+remove-connection, add-lane, update-lane, remove-lane, add-card, update-card, remove-card,
+update-workspace.
 In updates, null removes a field.
 `,
     {},
@@ -213,7 +215,7 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event> [options]
 
 A class view shows a component's or library's classes, with their members, as a UML class
 diagram.
@@ -226,11 +228,14 @@ A deployment view shows where containers and systems run, such as one environmen
 Production: add its nodes with add-node, each listing what it runs. Arrows between the
 containers come from the model's relationships; add-connection adds arrows to or from nodes.
 It takes no scope, include or exclude.
+An event view shows what happens in a business process, as event storming does: commands,
+events and the other notes, as cards in order along a timeline, in swimlanes. Add its lanes
+with add-lane and its cards with add-card. It takes no scope, include or exclude.
   --scope <id>           A system for context and container views, a container or library
                          for component views, a component or library for class views, and
                          for state views, if any, the element of any kind they're the states of
-  --title <title>        Default: from the scope and level, or for a sequence or deployment
-                         view, or a state view without a scope, from the id
+  --title <title>        Default: from the scope and level, or for a sequence, deployment or
+                         event view, or a state view without a scope, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
@@ -398,6 +403,65 @@ An empty value removes a field.
     { from: s, to: s, description: s, technology: s, "move-to": s },
   ),
   "remove-connection": writer(`Usage: open-arch remove-connection <view> <n>\n\nRemoves connection <n>; the ones after it move up one.\n`, {}),
+  "add-lane": writer(
+    `Usage: open-arch add-lane <view> <id> [--name <name>] [--description <text>] [--position <n>]
+
+Adds a swimlane to an event view: a row for the cards of one actor, team or system, like
+"Customer" or "Orders". The id must be unique among the view's lanes.
+  --name <name>          Display name (default: from the id)
+  --description <text>   One sentence about the lane
+  --position <n>         Its place from the top: 1 is the first (default: under the last)
+`,
+    { name: s, description: s, position: s },
+  ),
+  "update-lane": writer(
+    `Usage: open-arch update-lane <view> <id> [--name <name>] [--new-id <id>] [--description <text>] [--position <n>]
+
+--new-id changes its ID, and its cards follow it.
+--position moves it: 1 is the top lane, and the lanes between move up or down one.
+An empty value removes a field.
+`,
+    { name: s, "new-id": s, description: s, position: s },
+  ),
+  "remove-lane": writer(`Usage: open-arch remove-lane <view> <id>\n\nRemoves a lane. Its cards stay, in no lane: move them with update-card --lane.\n`, {}),
+  "add-card": writer(
+    `Usage: open-arch add-card <view> <id> [--kind <kind>] [--name <name>] [--lane <lane>] [--from <card>]...
+                         [--description <text>] [--position <n>]
+
+Adds a card to an event view: a command, an event or another of event storming's notes.
+Cards are drawn left to right in order, each in its lane. The id must be unique among the
+view's cards.
+  --kind <kind>          event (the default): something that happened, like "Order placed"
+                         command: a decision or request to do something, like "Place order"
+                         actor: the person who gives a command
+                         policy: a rule that reacts to an event, "whenever this, then that"
+                         read-model: what someone looks at to decide, like a list of orders
+                         external-system: a system outside, that sends events or takes commands
+                         aggregate: the thing a command changes, like an order
+                         hotspot: a question or problem to come back to
+  --name <name>          Display name (default: from the id)
+  --lane <lane>          The lane it's in (default: none, in a row above the lanes)
+  --from <card>          A card that leads to it, like the command an event comes from,
+                         drawn as an arrow to it; repeat for each
+  --description <text>   One sentence, shown on the card
+  --position <n>         Its place along the timeline: 1 is the first (default: after the last)
+`,
+    { kind: s, name: s, lane: s, from: many, description: s, position: s },
+  ),
+  "update-card": writer(
+    `Usage: open-arch update-card <view> <id> [--kind <kind>] [--name <name>] [--new-id <id>] [--lane <lane>]
+                            [--from <card>]... [--description <text>] [--position <n>]
+
+--kind is event, command, actor, policy, read-model, external-system, aggregate or hotspot.
+--from replaces the cards it comes from: repeat it for each, and --from "" removes them all.
+--new-id changes its ID, and the cards that come from it follow it.
+--lane "" takes it out of its lane.
+--position moves it along the timeline: 1 is the first, and the cards between move one place.
+An empty value removes a field.
+`,
+    { kind: s, name: s, "new-id": s, lane: s, from: many, description: s, position: s },
+  ),
+  "remove-card": writer(`Usage: open-arch remove-card <view> <id>\n\nRemoves a card, and the arrows to and from it.\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -428,6 +492,8 @@ Change (each change is checked first; nothing is saved if it would break the mod
   add-transition <view> <from> <to>   update-transition <view> <n>   remove-transition <view> <n>
   add-node <view> <id>            update-node <view> <id>         remove-node <view> <id>
   add-connection <view> <from> <to>   update-connection <view> <n>   remove-connection <view> <n>
+  add-lane <view> <id>            update-lane <view> <id>         remove-lane <view> <id>
+  add-card <view> <id>            update-card <view> <id>         remove-card <view> <id>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

@@ -7,11 +7,13 @@ import {
   representative,
   VIEW_LEVELS,
   type ArchElement,
+  type Card,
   type ComputedView,
   type Connection,
   type DeploymentNode,
   type ElementData,
   type ElementDescription,
+  type Lane,
   type Operation,
   type Relationship,
   type RelationshipKind,
@@ -50,6 +52,13 @@ export function uniqueStateId(view: ViewDef, base: string, self?: string): strin
  */
 export function uniqueNodeId(ws: Workspace, view: ViewDef, base: string, self?: string): string {
   const taken = (id: string) => id !== self && (view.nodes.some((n) => n.id === id) || ws.elements.has(id));
+  if (!taken(base)) return base;
+  for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
+}
+
+/** `base`, or `base-2`, `base-3`, ... whichever isn't among `ids`, `self` aside: for an ID unique among an event view's lanes, or its cards. */
+export function uniqueAmong(ids: readonly string[], base: string, self?: string): string {
+  const taken = (id: string) => id !== self && ids.includes(id);
   if (!taken(base)) return base;
   for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
 }
@@ -122,8 +131,8 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  // A sequence view shows the elements in its steps, a state view its states, and a deployment view what its nodes run, so they have nothing to show or hide.
-  if (!view || !computed || !element || view.level === "sequence" || view.level === "state" || view.level === "deployment" || computed.boundary?.id === id) return null;
+  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, and an event view its cards, so they have nothing to show or hide.
+  if (!view || !computed || !element || view.level === "sequence" || view.level === "state" || view.level === "deployment" || view.level === "event" || computed.boundary?.id === id) return null;
   if (computed.nodes.some((n) => n.id === id)) return "hide";
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
@@ -286,6 +295,9 @@ export type Shown =
   | { kind: "node"; view: ViewDef; node: DeploymentNode }
   | { kind: "connection"; view: ViewDef; connection: Connection }
   | { kind: "instance"; view: ViewDef; node: DeploymentNode; element: ArchElement }
+  | { kind: "lane"; view: ViewDef; lane: Lane }
+  | { kind: "card"; view: ViewDef; card: Card }
+  | { kind: "cardArrow"; view: ViewDef; from: Card; to: Card }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
@@ -316,6 +328,14 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
   if (view && node && runs) return { kind: "instance", view, node, element: runs };
   const connection = selection?.kind === "connection" ? view?.connections[selection.number - 1] : undefined;
   if (view && connection) return { kind: "connection", view, connection };
+  const lane = selection?.kind === "lane" ? view?.lanes.find((l) => l.id === selection.id) : undefined;
+  if (view && lane) return { kind: "lane", view, lane };
+  const card = selection?.kind === "card" ? view?.cards.find((c) => c.id === selection.id) : undefined;
+  if (view && card) return { kind: "card", view, card };
+  if (view && selection?.kind === "cardArrow") {
+    const [from, to] = [view.cards.find((c) => c.id === selection.from), view.cards.find((c) => c.id === selection.to)];
+    if (from && to?.from.includes(from.id)) return { kind: "cardArrow", view, from, to };
+  }
   return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
 }
 
@@ -462,6 +482,13 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "add-transition":
       case "update-transition":
       case "remove-transition":
+      // So are an event view's lanes and cards.
+      case "add-lane":
+      case "update-lane":
+      case "remove-lane":
+      case "add-card":
+      case "update-card":
+      case "remove-card":
         return { ...op, view: follow(op.view) };
       case "add-step":
         return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };

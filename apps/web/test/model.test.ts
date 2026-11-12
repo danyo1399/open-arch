@@ -25,7 +25,7 @@ import {
 } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 10,
+  openarch: 11,
   name: "Shop",
   elements: {
     api: { kind: "system", name: "API" },
@@ -80,7 +80,7 @@ describe("byName", () => {
 
   it("puts the model tree in alphabetical order at every level, whatever the kinds and IDs", () => {
     const site = buildWorkspace({
-      openarch: 10,
+      openarch: 11,
       name: "Site",
       elements: {
         customer: { kind: "person", name: "Customer" },
@@ -116,7 +116,7 @@ describe("byName", () => {
 
 describe("viewList", () => {
   const site = buildWorkspace({
-    openarch: 10,
+    openarch: 11,
     name: "Site",
     elements: {
       website: { kind: "system", name: "Client Website" },
@@ -166,7 +166,7 @@ describe("viewList", () => {
 
 describe("viewAction", () => {
   const shop = buildWorkspace({
-    openarch: 10,
+    openarch: 11,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }] },
@@ -222,7 +222,7 @@ describe("viewAction", () => {
 
 describe("viewAction on a class view", () => {
   const code = buildWorkspace({
-    openarch: 10,
+    openarch: 11,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer" },
@@ -259,7 +259,7 @@ describe("viewAction on a class view", () => {
 
 describe("arrowRelationships", () => {
   const shop = buildWorkspace({
-    openarch: 10,
+    openarch: 11,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Browses" }, { to: "web" }, { to: "shop", description: "Pays" }] },
@@ -293,7 +293,7 @@ describe("arrowRelationships", () => {
 
 describe("arrowRemovals", () => {
   const ws = buildWorkspace({
-    openarch: 10,
+    openarch: 11,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }, { to: "web" }] },
@@ -329,7 +329,7 @@ describe("arrowRemovals", () => {
 
 describe("arrowDeleteOps", () => {
   const ws = buildWorkspace({
-    openarch: 10,
+    openarch: 11,
     name: "Shop",
     elements: {
       site: { kind: "system", name: "Site", uses: [{ to: "cms", bidirectional: true, description: "Syncs pages with" }, { to: "cms", description: "Reads pages" }] },
@@ -365,7 +365,7 @@ describe("arrowDeleteOps", () => {
 
 describe("shownInProperties", () => {
   const noted = buildWorkspace({
-    openarch: 10,
+    openarch: 11,
     name: "Shop",
     elements: { api: { kind: "system", name: "API" } },
     views: { landscape: { title: "Landscape", level: "landscape", stickies: { note: { text: "Read me" } } } },
@@ -559,7 +559,7 @@ describe("renames", () => {
 
 describe("renamesBetween", () => {
   const shop: OpenArchDocument = {
-    openarch: 10,
+    openarch: 11,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },

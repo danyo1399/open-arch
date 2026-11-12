@@ -1,4 +1,6 @@
 import {
+  CARD_KIND_LABELS,
+  CARD_KINDS,
   describeElement,
   ELEMENT_SHAPES,
   kindLabel,
@@ -11,9 +13,12 @@ import {
   STICKY_COLORS,
   transitionLabel,
   type ArchElement,
+  type Card,
+  type CardKind,
   type ComputedView,
   type Connection,
   type DeploymentNode,
+  type Lane,
   type NewElements,
   type Operation,
   type Relationship,
@@ -27,7 +32,7 @@ import {
 } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueId, uniqueNodeId, uniqueStateId, viewAction } from "../model.js";
+import { byName, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueAmong, uniqueId, uniqueNodeId, uniqueStateId, viewAction } from "../model.js";
 import type { Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
 
@@ -83,6 +88,9 @@ export function Properties(props: PropertiesProps) {
   else if (shown.kind === "node") body = <NodeProperties {...props} view={shown.view} node={shown.node} />;
   else if (shown.kind === "connection") body = <ConnectionProperties {...props} view={shown.view} connection={shown.connection} />;
   else if (shown.kind === "instance") body = <InstanceProperties {...props} view={shown.view} node={shown.node} element={shown.element} />;
+  else if (shown.kind === "lane") body = <LaneProperties {...props} view={shown.view} lane={shown.lane} />;
+  else if (shown.kind === "card") body = <CardProperties {...props} view={shown.view} card={shown.card} />;
+  else if (shown.kind === "cardArrow") body = <CardArrowProperties {...props} view={shown.view} from={shown.from} to={shown.to} />;
   else if (shown.kind === "several") body = <SeveralProperties {...props} elements={shown.elements} stickies={shown.stickies} />;
   else if (shown.kind === "view") body = <ViewProperties {...props} view={shown.view} />;
   else body = <WorkspaceProperties {...props} />;
@@ -829,6 +837,204 @@ function InstanceProperties(props: PropertiesProps & { view: ViewDef; node: Depl
   );
 }
 
+function LaneProperties({ view, lane, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; lane: Lane }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-lane" }>, "op" | "view" | "id">) => void edit([{ op: "update-lane", view: view.id, id: lane.id, ...fields }]);
+  const others = view.lanes.map((l) => l.id);
+  // An ID made from the name keeps following it, as an element's does; the selection follows the ID.
+  const rename = (name: string) => {
+    const base = idFromName(name);
+    const newId = base && followsName(lane.id, lane.name) ? uniqueAmong(others, base, lane.id) : lane.id;
+    void edit([{ op: "update-lane", view: view.id, id: lane.id, name, ...(newId !== lane.id && { newId }) }]).then((ok) => ok && newId !== lane.id && onSelect({ kind: "lane", id: newId }));
+  };
+  const changeId = (text: string) => {
+    const newId = idFromName(text);
+    if (!newId || newId === lane.id) return;
+    void edit([{ op: "update-lane", view: view.id, id: lane.id, newId }]).then((ok) => ok && onSelect({ kind: "lane", id: newId }));
+  };
+  const cards = view.cards.filter((c) => c.lane === lane.id);
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Lane {lane.number}</span>
+        <span className="muted small">of {view.lanes.length}</span>
+      </header>
+      <Field label="Name" value={lane.name} onCommit={(n) => n.trim() && rename(n)} autoFocus={isNew} />
+      <Field label="ID" value={lane.id} onCommit={changeId} hint={idHint(followsName(lane.id, lane.name))} />
+      <Field label="Description" value={lane.description ?? ""} multiline placeholder="One sentence, shown when you point at the lane" onCommit={(description) => set({ description: description || null })} />
+      <h3>Cards</h3>
+      {cards.length === 0 && <p className="muted small">None yet. Drag a card into this lane, or select the lane and use + Add.</p>}
+      <ul className="plain">
+        {cards.map((c) => (
+          <li key={c.id}>
+            <button className="link" onClick={() => onSelect({ kind: "card", id: c.id })}>
+              {c.name}
+            </button>{" "}
+            <span className="muted small">{CARD_KIND_LABELS[c.kind]}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="actions">
+        <button disabled={lane.number === 1} onClick={() => set({ position: lane.number - 1 })}>
+          Move up
+        </button>
+        <button disabled={lane.number === view.lanes.length} onClick={() => set({ position: lane.number + 1 })}>
+          Move down
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-lane", view: view.id, id: lane.id }]).then(() => onSelect(null))}>
+          Delete lane
+        </button>
+      </div>
+      {cards.length > 0 && <p className="muted small">Deleting the lane keeps its cards, in no lane.</p>}
+    </>
+  );
+}
+
+function CardProperties({ view, card, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; card: Card }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-card" }>, "op" | "view" | "id">) => void edit([{ op: "update-card", view: view.id, id: card.id, ...fields }]);
+  const others = view.cards.map((c) => c.id);
+  // An ID made from the name keeps following it, as an element's does; the selection follows the ID.
+  const rename = (name: string) => {
+    const base = idFromName(name);
+    const newId = base && followsName(card.id, card.name) ? uniqueAmong(others, base, card.id) : card.id;
+    void edit([{ op: "update-card", view: view.id, id: card.id, name, ...(newId !== card.id && { newId }) }]).then((ok) => ok && newId !== card.id && onSelect({ kind: "card", id: newId }));
+  };
+  const changeId = (text: string) => {
+    const newId = idFromName(text);
+    if (!newId || newId === card.id) return;
+    void edit([{ op: "update-card", view: view.id, id: card.id, newId }]).then((ok) => ok && onSelect({ kind: "card", id: newId }));
+  };
+  const named = (id: string) => view.cards.find((c) => c.id === id);
+  const leadsTo = view.cards.filter((c) => c.id !== card.id && c.from.includes(card.id));
+  // The cards an arrow can still be drawn from: not itself, and not one it comes from already.
+  const sources = view.cards.filter((c) => c.id !== card.id && !card.from.includes(c.id));
+  const count = view.cards.length;
+  return (
+    <>
+      <header className="props-header">
+        <span className={`badge badge-card event-card-${card.kind}`}>{CARD_KIND_LABELS[card.kind]}</span>
+        <span className="muted small">
+          card {card.number} of {count}
+        </span>
+      </header>
+      <Field label="Name" value={card.name} onCommit={(n) => n.trim() && rename(n)} autoFocus={isNew} />
+      <Field label="ID" value={card.id} onCommit={changeId} hint={idHint(followsName(card.id, card.name))} />
+      <label className="field">
+        <span className="field-label">Kind</span>
+        <select value={card.kind} onChange={(e) => set({ kind: e.target.value as CardKind })}>
+          {CARD_KINDS.map((kind) => (
+            <option key={kind} value={kind}>
+              {CARD_KIND_LABELS[kind]}
+            </option>
+          ))}
+        </select>
+        <span className="field-hint">{CARD_KIND_HINTS[card.kind]}</span>
+      </label>
+      <Field label="Description" value={card.description ?? ""} multiline placeholder="One sentence, shown on the card" onCommit={(description) => set({ description: description || null })} />
+      <label className="field">
+        <span className="field-label">Lane</span>
+        <select value={card.lane ?? ""} onChange={(e) => set({ lane: e.target.value || null })}>
+          <option value="">(no lane)</option>
+          {card.lane !== undefined && !view.lanes.some((l) => l.id === card.lane) && <option value={card.lane}>{card.lane} (not a lane of this view)</option>}
+          {view.lanes.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <h3>Comes from</h3>
+      {card.from.length === 0 && <p className="muted small">Nothing yet. Drag from the dot beside another card to this one, or choose a card here.</p>}
+      <ul className="plain">
+        {card.from.map((id) => (
+          <li key={id}>
+            <button className="link" onClick={() => onSelect(named(id) ? { kind: "card", id } : null)}>
+              ← {named(id)?.name ?? `${id} (not a card of this view)`}
+            </button>{" "}
+            <button className="link danger" onClick={() => set({ from: card.from.filter((f) => f !== id) })}>
+              Remove arrow
+            </button>
+          </li>
+        ))}
+      </ul>
+      <label className="field">
+        <span className="field-label">Add an arrow from</span>
+        <select value="" onChange={(e) => e.target.value && set({ from: [...card.from, e.target.value] })}>
+          <option value="">Choose a card…</option>
+          {sources.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} [{CARD_KIND_LABELS[c.kind]}]
+            </option>
+          ))}
+        </select>
+      </label>
+      {leadsTo.length > 0 && (
+        <>
+          <h3>Leads to</h3>
+          <ul className="plain">
+            {leadsTo.map((c) => (
+              <li key={c.id}>
+                <button className="link" onClick={() => onSelect({ kind: "card", id: c.id })}>
+                  → {c.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="actions">
+        <button disabled={card.number === 1} onClick={() => set({ position: card.number - 1 })}>
+          Move earlier
+        </button>
+        <button disabled={card.number === count} onClick={() => set({ position: card.number + 1 })}>
+          Move later
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-card", view: view.id, id: card.id }]).then(() => onSelect(null))}>
+          Delete card
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** What each kind of card is for, under the list that picks one. */
+const CARD_KIND_HINTS: Record<CardKind, string> = {
+  event: "Something that happened, in the past tense, like “Order placed”.",
+  command: "A decision or request to do something, like “Place order”.",
+  actor: "The person who gives a command.",
+  policy: "A rule that reacts to an event: whenever this happens, do that.",
+  "read-model": "What someone looks at to decide, like a list of orders.",
+  "external-system": "A system outside, that sends events or takes commands.",
+  aggregate: "The thing a command changes, which keeps its rules, like an order.",
+  hotspot: "A question, problem or disagreement to come back to.",
+};
+
+/** The arrow from one card of an event view to another. */
+function CardArrowProperties({ view, from, to, edit, onSelect }: PropertiesProps & { view: ViewDef; from: Card; to: Card }) {
+  const card = (c: Card) => (
+    <button className="link" onClick={() => onSelect({ kind: "card", id: c.id })}>
+      {c.name}
+    </button>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Arrow</span>
+      </header>
+      <p>
+        {card(from)} → {card(to)}
+      </p>
+      <p className="muted small">
+        {to.name} comes from {from.name}. The arrow belongs to this view, not the model.
+      </p>
+      <div className="actions">
+        <button className="danger" onClick={() => void edit([{ op: "update-card", view: view.id, id: to.id, from: to.from.filter((id) => id !== from.id) }]).then(() => onSelect(null))}>
+          Delete arrow
+        </button>
+      </div>
+    </>
+  );
+}
+
 function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
   return (
     <>
@@ -903,8 +1109,22 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
         placeholder="Longer documentation, in markdown"
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
       />
-      {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && <NewElementsField view={view} edit={edit} />}
-      {view.level === "deployment" ? (
+      {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && view.level !== "event" && <NewElementsField view={view} edit={edit} />}
+      {view.level === "event" ? (
+        <>
+          <dl className="facts">
+            <dt>Level</dt>
+            <dd>event</dd>
+            <dt>Lanes</dt>
+            <dd>{view.lanes.length}</dd>
+            <dt>Cards</dt>
+            <dd>{view.cards.length}</dd>
+          </dl>
+          <p className="muted small">
+            An event view shows what happens in a business process, as event storming does: commands, events and the other notes, in order along a timeline. Use + Add to add a card, after the one selected, or a lane. Drag a card to move it along the timeline or to another lane, and drag from the dot beside a card to another to add an arrow. Select a card, a lane or an arrow to change it.
+          </p>
+        </>
+      ) : view.level === "deployment" ? (
         <>
           <dl className="facts">
             <dt>Level</dt>

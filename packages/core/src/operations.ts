@@ -8,18 +8,22 @@ import { checkWorkspace } from "./check.js";
 import { isInside, kindList, PARENT_KINDS } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
+  CARD_KINDS,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
   ID_PATTERN,
   RELATIONSHIP_KINDS,
   STICKY_COLORS,
   VIEW_LEVELS,
+  type CardData,
+  type CardKind,
   type ConnectionData,
   type DeploymentNodeData,
   type Diagnostic,
   type ElementData,
   type ElementKind,
   type ElementShape,
+  type LaneData,
   type OpenArchDocument,
   type Position,
   type RelationshipData,
@@ -146,6 +150,27 @@ export type Operation =
   | { op: "add-connection"; view: string; from: string; to: string; description?: string; technology?: string; connection?: number }
   | { op: "update-connection"; view: string; connection: number; from?: string; to?: string; description?: string | null; technology?: string | null; newConnection?: number }
   | { op: "remove-connection"; view: string; connection: number }
+  /** `position` is the lane's place from the top: 1 is the first. */
+  | { op: "add-lane"; view: string; id: string; name?: string; description?: string; position?: number }
+  | { op: "update-lane"; view: string; id: string; newId?: string; name?: string; description?: string | null; position?: number }
+  | { op: "remove-lane"; view: string; id: string }
+  /** `position` is the card's place along the timeline: 1 is the first. */
+  | { op: "add-card"; view: string; id: string; kind?: CardKind; name?: string; description?: string; lane?: string; from?: string[]; position?: number }
+  | {
+      op: "update-card";
+      view: string;
+      id: string;
+      newId?: string;
+      kind?: CardKind;
+      name?: string;
+      description?: string | null;
+      /** null takes it out of its lane. */
+      lane?: string | null;
+      /** Replaces the cards it comes from. */
+      from?: string[] | null;
+      position?: number;
+    }
+  | { op: "remove-card"; view: string; id: string }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -305,6 +330,18 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
     fields: { view: "string", connection: "number", from: "string", to: "string", description: "nullable-string", technology: "nullable-string", newConnection: "number" },
   },
   "remove-connection": { required: ["view", "connection"], fields: { view: "string", connection: "number" } },
+  "add-lane": { required: ["view", "id"], fields: { view: "string", id: "string", name: "string", description: "string", position: "number" } },
+  "update-lane": { required: ["view", "id"], fields: { view: "string", id: "string", newId: "string", name: "string", description: "nullable-string", position: "number" } },
+  "remove-lane": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-card": {
+    required: ["view", "id"],
+    fields: { view: "string", id: "string", kind: "string", name: "string", description: "string", lane: "string", from: "strings", position: "number" },
+  },
+  "update-card": {
+    required: ["view", "id"],
+    fields: { view: "string", id: "string", newId: "string", kind: "string", name: "string", description: "nullable-string", lane: "nullable-string", from: "nullable-strings", position: "number" },
+  },
+  "remove-card": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
@@ -532,6 +569,18 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       view.connections!.splice(op.connection - 1, 1);
       return `removed connection ${op.connection} from view ${op.view}`;
     }
+    case "add-lane":
+      return addLane(doc, op);
+    case "update-lane":
+      return updateLane(doc, op);
+    case "remove-lane":
+      return removeLane(doc, op.view, op.id);
+    case "add-card":
+      return addCard(doc, op);
+    case "update-card":
+      return updateCard(doc, op);
+    case "remove-card":
+      return removeCard(doc, op.view, op.id);
     case "update-workspace":
       return updateWorkspace(doc, op);
   }
@@ -773,6 +822,8 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     transitions: [],
     nodes: [],
     connections: [],
+    lanes: [],
+    cards: [],
   };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
@@ -781,19 +832,21 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   const deployment = op.level === "deployment";
   if (sequence && (op.include || op.exclude)) throw new OpError(SEQUENCE_PARTICIPANTS);
   if (statesView && (op.include || op.exclude)) throw new OpError(STATE_BOXES);
+  const events = op.level === "event";
   if (deployment && (op.include || op.exclude)) throw new OpError(DEPLOYMENT_BOXES);
+  if (events && (op.include || op.exclude)) throw new OpError(EVENT_CARDS);
   checkIds(doc, op.include, "include");
   checkIds(doc, op.exclude, "exclude");
   const scope = op.scope ? doc.elements[op.scope] : undefined;
   const title =
     op.title?.trim() ||
-    (sequence || deployment ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView ? titleFromId(op.id) : "System landscape");
+    (sequence || deployment || events ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView ? titleFromId(op.id) : "System landscape");
   doc.views[op.id] = clean<ViewData>({
     title,
     description: op.description?.trim(),
     level: op.level,
     scope: op.scope,
-    include: sequence || statesView || deployment ? undefined : op.include ? [...op.include] : ["*"],
+    include: sequence || statesView || deployment || events ? undefined : op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
     notes: op.notes?.trim(),
     steps: sequence ? [] : undefined,
@@ -801,6 +854,8 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     transitions: statesView ? [] : undefined,
     nodes: deployment ? {} : undefined,
     connections: deployment ? [] : undefined,
+    lanes: events ? [] : undefined,
+    cards: events ? [] : undefined,
   });
   return `added view ${op.id}`;
 }
@@ -815,6 +870,7 @@ export const LEVEL_TITLE: Record<ViewLevel, string> = {
   sequence: "sequence",
   state: "states",
   deployment: "deployment",
+  event: "events",
 };
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
@@ -841,6 +897,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   if (view.level === "sequence" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(SEQUENCE_PARTICIPANTS);
   if (view.level === "state" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(STATE_BOXES);
   if (view.level === "deployment" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(DEPLOYMENT_BOXES);
+  if (view.level === "event" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(EVENT_CARDS);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -890,6 +947,7 @@ function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "sequence") throw new OpError(SEQUENCE_PARTICIPANTS);
   if (view.level === "state") throw new OpError(STATE_BOXES);
   if (view.level === "deployment") throw new OpError(DEPLOYMENT_BOXES);
+  if (view.level === "event") throw new OpError(EVENT_CARDS);
   requireElement(doc, id);
   if (shows(doc, viewId, id)) return `${id} is already in view ${viewId}`;
   if (view.exclude?.includes(id)) {
@@ -908,6 +966,7 @@ function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "sequence") throw new OpError(SEQUENCE_PARTICIPANTS);
   if (view.level === "state") throw new OpError(STATE_BOXES);
   if (view.level === "deployment") throw new OpError(DEPLOYMENT_BOXES);
+  if (view.level === "event") throw new OpError(EVENT_CARDS);
   requireElement(doc, id);
   if (!shows(doc, viewId, id)) throw new OpError(`"${id}" isn't a box in view "${viewId}".`);
   if (view.include?.includes(id)) view.include = view.include.filter((x) => x !== id);
@@ -920,6 +979,7 @@ function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<stri
   if (view.level === "sequence") throw new OpError("A sequence view is laid out from its steps, so it has no box positions.");
   if (view.level === "state") throw new OpError("A state view has no boxes. Move a state with update-state --at.");
   if (view.level === "deployment") throw new OpError("A deployment view is laid out from its nodes, so it has no box positions.");
+  if (view.level === "event") throw new OpError("An event view is laid out from its lanes and the order of its cards, so it has no box positions. Move a card with update-card.");
   const layout: Record<string, Position> = { ...view.layout };
   for (const [id, pos] of Object.entries(positions)) {
     if (pos === null) {
@@ -1360,6 +1420,199 @@ function requireConnection(view: ViewData, viewId: string, number: number): Conn
   const connection = connections[number - 1];
   if (!connection) throw new OpError(connections.length ? `View "${viewId}" has ${count(connections.length, "connection")}: "connection" must be 1 to ${connections.length}.` : `View "${viewId}" has no connections yet.`);
   return connection;
+}
+
+/** Why an event view can't be given elements to show or hide. */
+const EVENT_CARDS = "An event view draws its cards, not elements, so it takes no include or exclude list. Add a card with add-card, or remove one with remove-card.";
+
+/** Puts `item` at `position` in a list, 1 being the first, or at the end, and says where it went. `what` is what the list holds. */
+function insertAt<T>(items: T[], item: T, position: number | undefined, viewId: string, what: string): number {
+  const at = position ?? items.length + 1;
+  if (at > items.length + 1) throw new OpError(`View "${viewId}" has ${count(items.length, what)}, so a new one's position can be 1 to ${items.length + 1}.`);
+  items.splice(at - 1, 0, item);
+  return at;
+}
+
+/** Moves the item at `index` of a list to `position`, 1 being the first, and says whether it moved. */
+function moveTo<T>(items: T[], index: number, position: number | undefined, viewId: string, what: string): boolean {
+  if (position === undefined || position === index + 1) return false;
+  if (position > items.length) throw new OpError(`View "${viewId}" has ${count(items.length, what)}, so "position" must be 1 to ${items.length}.`);
+  const [item] = items.splice(index, 1);
+  items.splice(position - 1, 0, item!);
+  return true;
+}
+
+function addLane(doc: OpenArchDocument, op: Extract<Operation, { op: "add-lane" }>): string {
+  const view = requireEvents(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. IDs are lowercase kebab-case, like "customer".`);
+  const lanes = (view.lanes ??= []);
+  if (lanes.some((l) => l.id === op.id)) throw new OpError(`View "${op.view}" already has a lane "${op.id}".`);
+  const lane = clean<LaneData>({ id: op.id, name: op.name?.trim() || titleFromId(op.id), description: op.description?.trim() });
+  const at = insertAt(lanes, lane, op.position, op.view, "lane");
+  return `added lane ${op.id} to view ${op.view}${at < lanes.length ? `, as lane ${at}` : ""}`;
+}
+
+function updateLane(doc: OpenArchDocument, op: Extract<Operation, { op: "update-lane" }>): string {
+  const view = requireEvents(doc, op.view);
+  const lane = requireLane(view, op.view, op.id);
+  const fields = ["newId", "name", "description", "position"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on lane "${op.id}": ${fields.join(", ")}.`);
+  if (op.name !== undefined) {
+    if (!op.name.trim()) throw new OpError("A lane's name can't be empty.");
+    lane.name = op.name.trim();
+  }
+  if (op.description !== undefined) {
+    if (op.description === null || !op.description.trim()) delete lane.description;
+    else lane.description = op.description.trim();
+  }
+  const lanes = view.lanes!;
+  const moved = moveTo(lanes, lanes.indexOf(lane), op.position, op.view, "lane");
+  const where = moved ? `, and moved it to lane ${op.position}` : "";
+  if (op.newId === undefined || op.newId === op.id) {
+    const onlyMoved = moved && fields.every((f) => f === "position" || op[f] === undefined);
+    return onlyMoved ? `moved lane ${op.id} to lane ${op.position} in view ${op.view}` : `updated lane ${op.id} in view ${op.view}${where}`;
+  }
+  // A new ID keeps the lane where it is, and its cards follow it.
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. IDs are lowercase kebab-case, like "customer".`);
+  if (lanes.some((l) => l.id === op.newId)) throw new OpError(`View "${op.view}" already has a lane "${op.newId}".`);
+  lane.id = op.newId;
+  for (const card of view.cards ?? []) if (card.lane === op.id) card.lane = op.newId;
+  return `renamed lane ${op.id} to ${op.newId} in view ${op.view}${where}`;
+}
+
+/** Removes a lane. Its cards stay, in no lane. */
+function removeLane(doc: OpenArchDocument, viewId: string, id: string): string {
+  const view = requireEvents(doc, viewId);
+  const lane = requireLane(view, viewId, id);
+  view.lanes!.splice(view.lanes!.indexOf(lane), 1);
+  let left = 0;
+  for (const card of view.cards ?? []) {
+    if (card.lane !== id) continue;
+    delete card.lane;
+    left++;
+  }
+  return `removed lane ${id} from view ${viewId}${left ? `, leaving ${count(left, "card")} in no lane` : ""}`;
+}
+
+function addCard(doc: OpenArchDocument, op: Extract<Operation, { op: "add-card" }>): string {
+  const view = requireEvents(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. IDs are lowercase kebab-case, like "order-placed".`);
+  const cards = (view.cards ??= []);
+  if (cards.some((c) => c.id === op.id)) throw new OpError(`View "${op.view}" already has a card "${op.id}".`);
+  const kind = op.kind ?? "event";
+  checkCardKind(kind);
+  if (op.lane) requireLane(view, op.view, op.lane);
+  const card = clean<CardData>({
+    id: op.id,
+    kind,
+    name: op.name?.trim() || titleFromId(op.id),
+    description: op.description?.trim(),
+    lane: op.lane,
+    from: fromList(view, op.view, op.id, op.from),
+  });
+  const at = insertAt(cards, card, op.position, op.view, "card");
+  return `added ${kind} ${op.id} to view ${op.view}${at < cards.length ? `, as card ${at}` : ""}`;
+}
+
+function updateCard(doc: OpenArchDocument, op: Extract<Operation, { op: "update-card" }>): string {
+  const view = requireEvents(doc, op.view);
+  const card = requireCard(view, op.view, op.id);
+  const fields = ["newId", "kind", "name", "description", "lane", "from", "position"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on card "${op.id}": ${fields.join(", ")}.`);
+  if (op.kind !== undefined) {
+    checkCardKind(op.kind);
+    card.kind = op.kind;
+  }
+  if (op.name !== undefined) {
+    if (!op.name.trim()) throw new OpError("A card's name can't be empty.");
+    card.name = op.name.trim();
+  }
+  if (op.description !== undefined) {
+    if (op.description === null || !op.description.trim()) delete card.description;
+    else card.description = op.description.trim();
+  }
+  if (op.lane === null || op.lane === "") delete card.lane;
+  else if (op.lane !== undefined) {
+    requireLane(view, op.view, op.lane);
+    card.lane = op.lane;
+  }
+  if (op.from !== undefined) {
+    const from = fromList(view, op.view, op.id, op.from ?? undefined);
+    if (from) card.from = from;
+    else delete card.from;
+  }
+  const cards = view.cards!;
+  const moved = moveTo(cards, cards.indexOf(card), op.position, op.view, "card");
+  const where = moved ? `, and moved it to card ${op.position}` : "";
+  if (op.newId === undefined || op.newId === op.id) {
+    const onlyMoved = moved && fields.every((f) => f === "position" || op[f] === undefined);
+    return onlyMoved ? `moved card ${op.id} to card ${op.position} in view ${op.view}` : `updated card ${op.id} in view ${op.view}${where}`;
+  }
+  // A new ID keeps the card where it is, and the cards that come from it follow it.
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. IDs are lowercase kebab-case, like "order-placed".`);
+  if (cards.some((c) => c.id === op.newId)) throw new OpError(`View "${op.view}" already has a card "${op.newId}".`);
+  card.id = op.newId;
+  for (const other of cards) if (other.from) other.from = other.from.map((id) => (id === op.id ? op.newId! : id));
+  return `renamed card ${op.id} to ${op.newId} in view ${op.view}${where}`;
+}
+
+/** Removes a card, and the arrows from it to the cards it led to. */
+function removeCard(doc: OpenArchDocument, viewId: string, id: string): string {
+  const view = requireEvents(doc, viewId);
+  const card = requireCard(view, viewId, id);
+  const cards = view.cards!;
+  cards.splice(cards.indexOf(card), 1);
+  let lost = card.from?.length ?? 0;
+  for (const other of cards) {
+    if (!other.from?.includes(id)) continue;
+    other.from = other.from.filter((from) => from !== id);
+    if (other.from.length === 0) delete other.from;
+    lost++;
+  }
+  return `removed card ${id} from view ${viewId}${lost ? ` and ${count(lost, "arrow")} to or from it` : ""}`;
+}
+
+/** The cards a card comes from, each once and in order, or undefined when none. Refuses one that isn't a card of the view, and the card itself. */
+function fromList(view: ViewData, viewId: string, id: string, from: string[] | undefined): string[] | undefined {
+  const ids = [...new Set((from ?? []).map((f) => f.trim()).filter(Boolean))];
+  if (ids.length === 0) return undefined;
+  for (const other of ids) {
+    if (other === id) throw new OpError("A card can't come from itself.");
+    requireCard(view, viewId, other);
+  }
+  return ids;
+}
+
+function checkCardKind(kind: string): void {
+  if ((CARD_KINDS as readonly string[]).includes(kind)) return;
+  const near = suggest(kind, CARD_KINDS);
+  throw new OpError(`Unknown kind of card "${kind}".${near ? ` Did you mean "${near}"?` : ""} Use one of: ${CARD_KINDS.join(", ")}.`);
+}
+
+function requireEvents(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "event") throw new OpError(`View "${id}" is a ${view.level} view. Only event views have lanes and cards.`);
+  return view;
+}
+
+function requireLane(view: ViewData, viewId: string, id: string): LaneData {
+  const lane = view.lanes?.find((l) => l.id === id);
+  if (!lane) {
+    const ids = (view.lanes ?? []).map((l) => l.id);
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no lane "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its lanes: ${ids.join(", ")}.` : " Add one with add-lane."}`);
+  }
+  return lane;
+}
+
+function requireCard(view: ViewData, viewId: string, id: string): CardData {
+  const card = view.cards?.find((c) => c.id === id);
+  if (!card) {
+    const ids = (view.cards ?? []).map((c) => c.id);
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no card "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its cards: ${ids.join(", ")}.` : " Add one with add-card."}`);
+  }
+  return card;
 }
 
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {

@@ -9,7 +9,7 @@ import type { Edit } from "../src/state.js";
 import { button, checkbox, choose, click, mount, select } from "./dom.js";
 
 const doc: OpenArchDocument = {
-  openarch: 10,
+  openarch: 11,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things", notes: "Pays by **card**." }] },

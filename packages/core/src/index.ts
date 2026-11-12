@@ -11,6 +11,7 @@ export {
   representative,
   libraryCopies,
   instanceId,
+  cardArrows,
   SCOPE_KINDS,
   RUNNABLE_KINDS,
   type LibraryCopy,
@@ -19,6 +20,7 @@ export {
   type ComputedDeployment,
   type DeploymentInstance,
   type DeploymentArrow,
+  type CardArrow,
   type RelationshipSource,
   type ViewEdge,
 } from "./views.js";

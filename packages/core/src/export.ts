@@ -6,7 +6,7 @@
 import { nodeKindLabel, renderMermaid, transitionLabel } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
-import { SHAPE_LABELS, type ArchElement, type Relationship, type RelationshipKind } from "./types.js";
+import { CARD_KIND_LABELS, SHAPE_LABELS, type ArchElement, type Relationship, type RelationshipKind } from "./types.js";
 import type { Workspace } from "./workspace.js";
 
 export interface ExportedFile {
@@ -152,6 +152,22 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
         lines.push("", "## Connections", "", "| # | From | To | Description | Technology |", "|---|---|---|---|---|");
         for (const c of v.connections) lines.push(`| ${c.number} | ${end(c.from)} | ${end(c.to)} | ${cell(c.description)} | ${cell(c.technology)} |`);
       }
+      lines.push("", `[All views and elements](../README.md)`, "");
+      files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
+      continue;
+    }
+    if (v.level === "event") {
+      const laneName = (id: string | undefined) => cell(v.lanes.find((l) => l.id === id)?.name ?? id);
+      const cardName = (id: string) => cell(v.cards.find((c) => c.id === id)?.name ?? id);
+      if (v.lanes.length) {
+        lines.push("", "## Lanes", "", "| Lane | Description |", "|---|---|");
+        for (const lane of v.lanes) lines.push(`| ${cell(lane.name)} | ${cell(lane.description)} |`);
+      }
+      lines.push("", "## Cards", "");
+      if (v.cards.length) {
+        lines.push("| # | Card | Kind | Lane | Comes from | Description |", "|---|---|---|---|---|---|");
+        for (const c of v.cards) lines.push(`| ${c.number} | ${cell(c.name)} | ${CARD_KIND_LABELS[c.kind]} | ${laneName(c.lane)} | ${c.from.map(cardName).join(", ")} | ${cell(c.description)} |`);
+      } else lines.push("None yet.");
       lines.push("", `[All views and elements](../README.md)`, "");
       files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
       continue;

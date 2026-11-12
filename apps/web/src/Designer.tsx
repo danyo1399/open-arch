@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
+import { EventDiagram } from "./canvas/EventDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
 import { BrowserHost, copyText, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
@@ -60,6 +61,9 @@ function detailsName(ws: Workspace, view: ViewDef | null, computed: ComputedView
   if (shown.kind === "node") return shown.node.name;
   if (shown.kind === "connection") return `Connection ${shown.connection.number}`;
   if (shown.kind === "instance") return `${shown.element.name} in ${shown.node.name}`;
+  if (shown.kind === "lane") return shown.lane.name;
+  if (shown.kind === "card") return shown.card.name;
+  if (shown.kind === "cardArrow") return `${shown.from.name} → ${shown.to.name}`;
   if (shown.kind === "several") return shapesLabel(shown.elements.length, shown.stickies.length);
   return shown.kind === "view" ? "This view" : "Workspace";
 }
@@ -160,6 +164,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "node" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.id)) setSelection(null);
     if (selection?.kind === "connection" && ws && selection.number > (ws.views.get(viewId ?? "")?.connections.length ?? 0)) setSelection(null);
     if (selection?.kind === "instance" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.node && n.runs.includes(selection.element))) setSelection(null);
+    if (selection?.kind === "lane" && ws && !ws.views.get(viewId ?? "")?.lanes.some((l) => l.id === selection.id)) setSelection(null);
+    if (selection?.kind === "card" && ws && !ws.views.get(viewId ?? "")?.cards.some((c) => c.id === selection.id)) setSelection(null);
+    if (selection?.kind === "cardArrow" && ws && !ws.views.get(viewId ?? "")?.cards.some((c) => c.id === selection.to && c.from.includes(selection.from))) setSelection(null);
   }, [ws, selection, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
@@ -262,6 +269,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "instance" && view) {
       const node = view.nodes.find((n) => n.id === selection.node);
       if (node) void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== current(selection.element)) }]).then(() => select(null));
+    }
+    // A lane, a card and an arrow between two cards are only this view's too. A lane's cards stay, in no lane.
+    if (selection?.kind === "lane" && view) void edit([{ op: "remove-lane", view: view.id, id: selection.id }]).then(() => select(null));
+    if (selection?.kind === "card" && view) void edit([{ op: "remove-card", view: view.id, id: selection.id }]).then(() => select(null));
+    if (selection?.kind === "cardArrow" && view) {
+      const to = view.cards.find((c) => c.id === selection.to);
+      if (to) void edit([{ op: "update-card", view: view.id, id: to.id, from: to.from.filter((id) => id !== selection.from) }]).then(() => select(null));
     }
     if (selection?.kind === "arrow" && ws) {
       const ops = arrowDeleteOps(ws, computed, selection.from, selection.to, selection.relation);
@@ -561,6 +575,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           computed ? (
             <ReactFlowProvider key={view.id}>
               <DeploymentDiagram ws={ws} computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} />
+            </ReactFlowProvider>
+          ) : (
+            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+          )
+        ) : view?.level === "event" ? (
+          computed ? (
+            <ReactFlowProvider key={view.id}>
+              <EventDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

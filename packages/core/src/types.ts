@@ -10,8 +10,10 @@ export type ElementKind = (typeof ELEMENT_KINDS)[number];
  * A sequence view isn't a C4 level of detail: it draws steps between elements, in order. Nor is
  * a state view: it draws the states something can be in, and the transitions between them. A
  * deployment view draws where containers run: the servers, clusters and cloud services, nested.
+ * An event view draws what happens in a business process, as event storming does: commands,
+ * events and the other notes, in order along a timeline, in swimlanes.
  */
-export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment"] as const;
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -73,13 +75,39 @@ export const RELATIONSHIP_KIND_LABELS: Record<RelationshipKind, string> = {
   aggregation: "Aggregation (holds)",
 };
 
+/**
+ * What a card on an event view is, as event storming colours its notes:
+ * - event: something that happened, in the past tense, like "Order placed" (orange)
+ * - command: a decision or request to do something, like "Place order" (blue)
+ * - actor: the person who gives a command (yellow)
+ * - policy: a rule that reacts to an event, "whenever this, then that" (lilac)
+ * - read-model: what someone looks at to decide, like a list of orders (green)
+ * - external-system: a system outside, that sends events or takes commands (pink)
+ * - aggregate: the thing a command changes, which keeps its rules, like an order (pale yellow)
+ * - hotspot: a question, problem or disagreement to come back to (red)
+ */
+export const CARD_KINDS = ["event", "command", "actor", "policy", "read-model", "external-system", "aggregate", "hotspot"] as const;
+export type CardKind = (typeof CARD_KINDS)[number];
+
+/** Each kind of card, as the designer and the docs name it. */
+export const CARD_KIND_LABELS: Record<CardKind, string> = {
+  event: "Event",
+  command: "Command",
+  actor: "Actor",
+  policy: "Policy",
+  "read-model": "Read model",
+  "external-system": "External system",
+  aggregate: "Aggregate",
+  hotspot: "Hotspot",
+};
+
 /** Name/value pairs. A tag can have an empty value, which makes it a plain label. */
 export type Tags = Record<string, string>;
 
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 10;
+export const FORMAT_VERSION = 11;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -163,6 +191,34 @@ export interface ViewData {
   nodes?: Record<string, DeploymentNodeData>;
   /** Deployment views only: arrows to or from nodes, like a load balancer forwarding to the web app. */
   connections?: ConnectionData[];
+  /** Event views only: the swimlanes, from the top down. */
+  lanes?: LaneData[];
+  /** Event views only: the cards, in order along the timeline. */
+  cards?: CardData[];
+}
+
+/** One swimlane of an event view: a row for the cards of one actor, team or system, like "Customer". */
+export interface LaneData {
+  /** Unique among the view's lanes. */
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/**
+ * One card of an event view: a command, an event or another of event storming's notes. Cards are
+ * drawn left to right in the order they're listed, each in its lane.
+ */
+export interface CardData {
+  /** Unique among the view's cards. */
+  id: string;
+  kind: CardKind;
+  name: string;
+  description?: string;
+  /** The ID of the lane it's in. Without it, it's in a row of its own above the lanes. */
+  lane?: string;
+  /** The IDs of the cards that lead to it, like the command an event comes from. Each is drawn as an arrow to it. */
+  from?: string[];
 }
 
 /**
@@ -309,6 +365,34 @@ export interface ViewDef {
   nodes: DeploymentNode[];
   /** Deployment views only, in the file's order; empty on other views. */
   connections: Connection[];
+  /** Event views only, from the top down; empty on other views. */
+  lanes: Lane[];
+  /** Event views only, in order along the timeline; empty on other views. */
+  cards: Card[];
+}
+
+export interface Lane {
+  id: string;
+  /** Where it lives in the document, e.g. `views.placing-an-order.lanes[0]`. */
+  path: string;
+  /** Its place from the top: 1 is the first. */
+  number: number;
+  name: string;
+  description?: string;
+}
+
+export interface Card {
+  id: string;
+  /** Where it lives in the document, e.g. `views.placing-an-order.cards[0]`. */
+  path: string;
+  /** Its place along the timeline: 1 is the first. */
+  number: number;
+  kind: CardKind;
+  name: string;
+  description?: string;
+  lane?: string;
+  /** Each once, in the file's order. */
+  from: string[];
 }
 
 export interface DeploymentNode {

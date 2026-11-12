@@ -10,7 +10,7 @@ import { mount } from "./dom.js";
 
 /** An order's states, each placed, so nothing waits for ELK. */
 const shop: OpenArchDocument = {
-  openarch: 10,
+  openarch: 11,
   name: "Shop",
   elements: { order: { kind: "system", name: "Orders" } },
   views: {

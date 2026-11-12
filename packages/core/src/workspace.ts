@@ -109,6 +109,17 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         description: c.description || undefined,
         technology: c.technology || undefined,
       })),
+      lanes: (v.lanes ?? []).map((l, i) => ({ id: l.id, path: `views.${id}.lanes[${i}]`, number: i + 1, name: l.name, description: l.description || undefined })),
+      cards: (v.cards ?? []).map((c, i) => ({
+        id: c.id,
+        path: `views.${id}.cards[${i}]`,
+        number: i + 1,
+        kind: c.kind,
+        name: c.name,
+        description: c.description || undefined,
+        lane: c.lane || undefined,
+        from: [...new Set(c.from ?? [])],
+      })),
     });
   }
   for (const element of ws.elements.values()) {

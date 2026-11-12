@@ -1715,6 +1715,107 @@ button.heading {
   box-shadow: inset 0 0 0 1px var(--class-line);
 }
 
+/* An event view's lane: a row across the diagram, with its name at the left. The row for cards in
+   no lane is dashed. (See EventDiagram.) */
+.event-lane {
+  display: flex;
+  align-items: center;
+  border: 1.5px solid var(--frame);
+  /* Lanes share the line between them. */
+  margin-top: -0.75px;
+  background: color-mix(in srgb, var(--frame) 5%, transparent);
+  outline: 3px solid transparent;
+  outline-offset: -3px;
+  cursor: pointer;
+}
+.event-lane.loose {
+  border-style: dashed;
+  background: none;
+  cursor: default;
+}
+.event-lane.loose .event-lane-name {
+  font-weight: 400;
+  color: var(--muted);
+}
+.event-lane.selected {
+  outline-color: var(--accent);
+}
+.event-lane-name {
+  padding: 0 14px;
+  font-weight: 650;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+/* A card: a sticky note in the colour event storming gives its kind, the same in the dark as in
+   the light, as the colour says what it is. Its size is EVT's in canvas/eventLayout.ts. */
+.event-card {
+  position: relative;
+  width: 150px;
+  height: 92px;
+  padding: 8px 10px;
+  border-radius: 2px;
+  color: #1d1a12;
+  overflow: hidden;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08), 0 6px 12px -6px rgba(0, 0, 0, 0.3);
+  outline: 3px solid transparent;
+  outline-offset: 2px;
+}
+.event-card.selected {
+  outline-color: var(--accent);
+}
+.event-card-kind {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.event-card-name {
+  font-weight: 650;
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.event-card-desc {
+  font-size: 11px;
+  line-height: 1.3;
+  margin-top: 3px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.event-card-event {
+  background: #ffb74d;
+}
+.event-card-command {
+  background: #90caf9;
+}
+.event-card-actor {
+  background: #fff176;
+}
+.event-card-policy {
+  background: #ce93d8;
+}
+.event-card-read-model {
+  background: #a5d6a7;
+}
+.event-card-external-system {
+  background: #f8bbd0;
+}
+.event-card-aggregate {
+  background: #fff9c4;
+}
+.event-card-hotspot {
+  background: #ef9a9a;
+}
+.badge-card {
+  color: #1d1a12;
+}
+
 /* UML arrow ends, on a class view's arrows (see UmlMarker). */
 .uml-marker {
   stroke: var(--edge);

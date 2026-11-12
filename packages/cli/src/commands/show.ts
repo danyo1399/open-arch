@@ -1,4 +1,5 @@
 import {
+  CARD_KIND_LABELS,
   computeView,
   describeElement,
   nodeKindLabel,
@@ -105,6 +106,10 @@ export function show(io: Io, opts: ShowOptions): number {
     }
     if (cv.deployment) {
       print(deploymentJson(cv), deploymentText(cv));
+      return 0;
+    }
+    if (view.level === "event") {
+      print(eventsJson(cv), eventsText(cv));
       return 0;
     }
     const json = {
@@ -322,6 +327,50 @@ function deploymentText(cv: ComputedView): string {
     "Arrows:",
     ...(d.arrows.length
       ? table(d.arrows.map((a) => [`  ${a.from} ${a.bidirectional ? "<->" : "->"} ${a.to}`, relLabel(a) + (a.connection ? `  (connection ${a.connection.number})` : "")]))
+      : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function eventsJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    notes: view.notes,
+    lanes: view.lanes.map((l) => ({ id: l.id, position: l.number, name: l.name, description: l.description })),
+    cards: view.cards.map((c) => ({ id: c.id, position: c.number, kind: c.kind, name: c.name, description: c.description, lane: c.lane, from: c.from })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function eventsText(cv: ComputedView): string {
+  const view = cv.view;
+  const lines = [
+    `${view.id}: ${view.title}`,
+    "  level:        event view",
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Lanes:",
+    ...(view.lanes.length ? table(view.lanes.map((l) => [`  ${l.number}.`, l.id, l.name, l.description ?? ""])) : ["  (none)"]),
+    "",
+    "Cards:",
+    ...(view.cards.length
+      ? table(
+          view.cards.map((c) => [
+            `  ${c.number}.`,
+            c.id,
+            CARD_KIND_LABELS[c.kind].toLowerCase(),
+            c.name,
+            [c.lane ? `in ${c.lane}` : "(no lane)", c.from.length ? `<- ${c.from.join(", ")}` : "", c.description ?? ""].filter(Boolean).join("  "),
+          ]),
+        )
       : ["  (none)"]),
     ...(view.stickies.length
       ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]

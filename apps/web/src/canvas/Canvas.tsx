@@ -57,6 +57,10 @@ export type Selection =
   | { kind: "node"; id: string }
   | { kind: "connection"; number: number }
   | { kind: "instance"; node: string; element: string }
+  /** An event view's lane, its card, and the arrow from one card to another. */
+  | { kind: "lane"; id: string }
+  | { kind: "card"; id: string }
+  | { kind: "cardArrow"; from: string; to: string }
   | { kind: "several"; elements: string[]; stickies: string[] }
   | { kind: "workspace" }
   | null;

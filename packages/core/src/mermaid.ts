@@ -3,8 +3,8 @@
  * markdown viewers show a diagram without open-arch.
  */
 import { inFrame, kindLabel } from "./model.js";
-import type { ArchElement, DeploymentNode, ElementShape, RelationshipKind, Transition } from "./types.js";
-import type { ComputedView } from "./views.js";
+import { CARD_KIND_LABELS, type ArchElement, type CardKind, type DeploymentNode, type ElementShape, type RelationshipKind, type Transition } from "./types.js";
+import { cardArrows, type ComputedView } from "./views.js";
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
 
@@ -88,6 +88,7 @@ export function renderMermaid(cv: ComputedView): string {
   if (cv.view.level === "class") return renderClasses(cv);
   if (cv.view.level === "state") return renderStates(cv);
   if (cv.deployment) return renderDeployment(cv);
+  if (cv.view.level === "event") return renderEvents(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = cv.nodes.filter((n) => inFrame(boundary, n));
@@ -328,6 +329,56 @@ function renderDeployment(cv: ComputedView): string {
 
 /** A deployment node or infrastructure node drawn as a box: white, with a grey edge, as the designer draws them. */
 const NODE_DEF = "classDef deploymentNode fill:#ffffff,stroke:#8a94a6,color:#000000";
+
+/** Each kind of card in event storming's colour for it, as the designer draws them: a Mermaid class's name, and its style. */
+const CARD_DEFS: Record<CardKind, [name: string, style: string]> = {
+  event: ["eventCard", "fill:#ffb74d,stroke:#b26a00,color:#000000"],
+  command: ["commandCard", "fill:#90caf9,stroke:#3f7cac,color:#000000"],
+  actor: ["actorCard", "fill:#fff176,stroke:#a89b1f,color:#000000"],
+  policy: ["policyCard", "fill:#ce93d8,stroke:#8a4f95,color:#000000"],
+  "read-model": ["readModelCard", "fill:#a5d6a7,stroke:#55895a,color:#000000"],
+  "external-system": ["externalSystemCard", "fill:#f8bbd0,stroke:#b0708a,color:#000000"],
+  aggregate: ["aggregateCard", "fill:#fff9c4,stroke:#a8a06a,color:#000000"],
+  hotspot: ["hotspotCard", "fill:#ef9a9a,stroke:#a85454,color:#000000"],
+};
+
+/**
+ * An event view as a Mermaid flowchart, left to right: each lane as a subgraph, with its cards
+ * inside, each card in its kind's colour, and an arrow to each card from the cards it comes from.
+ * Cards in no lane are outside the subgraphs. A link that isn't drawn joins each card to the next
+ * one, where no arrow does, which keeps them in their order along the timeline.
+ */
+function renderEvents(cv: ComputedView): string {
+  const v = cv.view;
+  const lines = ["flowchart LR"];
+  if (v.cards.length === 0) {
+    lines.push("  %% This view has no cards yet.");
+    return lines.join("\n");
+  }
+  // A card's ID comes from kebab-case, so never has two underscores in a row, and a lane's can't be any card's.
+  const laneId = (id: string) => `lane__${id.replace(/-/g, "_")}`;
+  const lanes = new Set(v.lanes.map((l) => l.id));
+  const card = (c: (typeof v.cards)[number]) => `${mermaidId(c.id)}["${escape(c.name)}<br/>[${CARD_KIND_LABELS[c.kind]}]"]`;
+  for (const c of v.cards) if (c.lane === undefined || !lanes.has(c.lane)) lines.push(`  ${card(c)}`);
+  for (const lane of v.lanes) {
+    lines.push(`  subgraph ${laneId(lane.id)}["${escape(lane.name)}"]`, "    direction LR");
+    for (const c of v.cards) if (c.lane === lane.id) lines.push(`    ${card(c)}`);
+    lines.push("  end");
+  }
+  const arrows = cardArrows(v);
+  for (const a of arrows) lines.push(`  ${mermaidId(a.from)} --> ${mermaidId(a.to)}`);
+  v.cards.slice(1).forEach((c, i) => {
+    const before = v.cards[i]!;
+    const joined = arrows.some((a) => (a.from === before.id && a.to === c.id) || (a.from === c.id && a.to === before.id));
+    if (!joined) lines.push(`  ${mermaidId(before.id)} ~~~ ${mermaidId(c.id)}`);
+  });
+  for (const kind of Object.keys(CARD_DEFS) as CardKind[]) {
+    const ids = v.cards.filter((c) => c.kind === kind).map((c) => mermaidId(c.id));
+    if (ids.length) lines.push(`  classDef ${CARD_DEFS[kind][0]} ${CARD_DEFS[kind][1]}`, `  class ${ids.join(",")} ${CARD_DEFS[kind][0]}`);
+  }
+  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} fill:none,stroke:#8a94a6`);
+  return lines.join("\n");
+}
 
 /**
  * One view on its own as a markdown file: its title, its description and its Mermaid diagram.

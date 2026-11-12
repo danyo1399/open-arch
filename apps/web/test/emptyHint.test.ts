@@ -15,7 +15,7 @@ import { button, click, mount } from "./dom.js";
  */
 describe("the hint on an empty view", () => {
   it("is under the + Add menu of a box diagram", async () => {
-    const model: OpenArchDocument = { openarch: 10, name: "Empty", elements: {}, views: { landscape: { title: "System landscape", level: "landscape", include: ["*"] } } };
+    const model: OpenArchDocument = { openarch: 11, name: "Empty", elements: {}, views: { landscape: { title: "System landscape", level: "landscape", include: ["*"] } } };
     const ws = buildWorkspace(model);
     const edits: Operation[][] = [];
     const host = mount(
