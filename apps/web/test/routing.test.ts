@@ -686,6 +686,17 @@ describe("placeLabels", () => {
     expect(gapBetween(b!, c!)).toBeGreaterThanOrEqual(20);
   });
 
+  it("keeps labels stacked nearer each other than labels side by side", () => {
+    // As above: labels one above the other needn't keep as far apart as labels side
+    // by side, so they stay nearer their arrows' middles.
+    const label = { w: 108, h: 37 };
+    const routes = new Map(["a", "b"].map((id, k) => [id, route.map((p) => ({ ...p, x: 60 * k }))]));
+    const labels = placeLabels(routes, new Map([...routes.keys()].map((id) => [id, label])), []);
+    const [a, b] = ["a", "b"].map((id) => ({ ...labels.get(id)!, ...label }));
+    expect(gapBetween(a!, b!)).toBeGreaterThanOrEqual(20);
+    expect(gapBetween(a!, b!)).toBeLessThan(40);
+  });
+
   it("draws a label narrower where it would cover an arrow, even with room further along", () => {
     // q runs beside r for most of the way, and p beside its middle. Drawn as wide as
     // it can be, r's label covers q wherever it's near the middle, and p too in the
@@ -810,6 +821,29 @@ describe("layoutArrows", () => {
     expect(s3!.w, "s3's label is drawn narrower").toBe(104);
     const s3Box = { x: s3!.x - s3!.w / 2, y: s3!.y - s3!.h / 2, w: s3!.w, h: s3!.h };
     for (const s of segments(routes.get("web->sp")!)) expect(cuts(s, s3Box), "s3's label covers the arrow to sp").toBe(false);
+  });
+
+  it("keeps labels side by side further apart than labels stacked", () => {
+    // Roughly a reported diagram: Customer (customer) uses Client Website (web), below
+    // it, which sends analytics events to Google Analytics (ga), off to the right. The
+    // arrow to ga goes up beside customer's arrow, then right, so its label sits beside
+    // "Uses website". They were 28px apart, at the middle of the arrow to ga, though
+    // that arrow has room for its label further along.
+    const boxes = new Map([
+      ["customer", { x: 118, y: 53, w: 220, h: 98 }],
+      ["web", { x: 85, y: 375, w: 220, h: 101 }],
+      ["ga", { x: 548, y: 208, w: 220, h: 101 }],
+    ]);
+    const links = [link("customer", "web"), link("web", "ga")];
+    // "Uses website [HTTP]", and "Sends Analytics Events [HTTPS/JSON]".
+    const sizes = new Map([
+      ["customer->web", [{ w: 85, h: 37 }]],
+      ["web->ga", [{ w: 137, h: 37 }]],
+    ]);
+    const { labels } = layoutArrows(boxes, links, sizes);
+    const [uses, sends] = [labels.get("customer->web")!, labels.get("web->ga")!];
+    expect(Math.abs(uses.y - sends.y), "side by side").toBeLessThan(37);
+    expect(gapBetween(uses, sends)).toBeGreaterThanOrEqual(40);
   });
 
   it("keeps a straight arrow between boxes too close for its label", () => {

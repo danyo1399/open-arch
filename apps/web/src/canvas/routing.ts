@@ -1072,12 +1072,19 @@ const LABEL_STEP = 10;
 /** Labels keep this far from boxes and from each other where they can. */
 const LABEL_GAP = 6;
 /**
- * Labels closer together than this cost extra too, the more the closer, so labels
- * spread out where there's room, rather than stopping as soon as they're clear of
- * each other. Labels stacked just clear of each other are hard to tell apart.
+ * Labels one above the other closer together than this cost extra too, the more
+ * the closer, so labels spread out where there's room, rather than stopping as soon
+ * as they're clear of each other. Labels stacked just clear of each other are hard
+ * to tell apart.
  * It's left out while routes are chosen (see layoutArrows).
  */
 const LABEL_APART = 24;
+/**
+ * The same for labels side by side, which keep further apart than labels stacked,
+ * as text beside text reads on as one line. Labels on a slant from each other keep
+ * somewhere in between (see tooClose).
+ */
+const LABEL_BESIDE = 48;
 /** Roughly the space an arrowhead takes up, back from the end of its route. */
 const HEAD = 8;
 // Costs of a spot for a label, in pixels along the route from its middle.
@@ -1087,7 +1094,7 @@ const COVERS_LABEL = 2;
 /** Per pixel of another arrow the label hides, and for the whole of an arrowhead. */
 const COVERS_ARROW = 3;
 const COVERS_HEAD = 400;
-/** Per pixel closer than LABEL_APART to another label. */
+/** Per pixel closer than LABEL_APART or LABEL_BESIDE to another label (see tooClose). */
 const CLOSE_LABEL = 2;
 /** Per pixel narrower than its widest a label is drawn. */
 const NARROWER = 1;
@@ -1179,16 +1186,26 @@ function spotsAlong(id: string, points: readonly Readonly<Point>[], sizes: Size[
   return spots;
 }
 
-/** How far apart two boxes are, corner to corner where neither is level with the other: none where they overlap or touch. */
-function gapBetween(a: Box, b: Box): number {
+/**
+ * How many pixels closer together two labels are than they should be: LABEL_APART
+ * where one is above the other, LABEL_BESIDE where they're side by side, and on a
+ * slant, as far as an ellipse with those radii reaches that way. The gap is measured
+ * corner to corner where neither is level with the other.
+ */
+function tooClose(a: Box, b: Box): number {
   const dx = Math.max(0, b.x - (a.x + a.w), a.x - (b.x + b.w));
   const dy = Math.max(0, b.y - (a.y + a.h), a.y - (b.y + b.h));
-  return Math.hypot(dx, dy);
+  const reached = Math.hypot(dx / LABEL_BESIDE, dy / LABEL_APART);
+  if (reached >= 1) return 0;
+  // Labels that overlap or touch are as close as labels side by side can be.
+  if (reached === 0) return LABEL_BESIDE;
+  const gap = Math.hypot(dx, dy);
+  return gap / reached - gap;
 }
 
 /**
  * The cheapest of `spots`, given the other labels' boxes, and what it costs. Being
- * closer than LABEL_APART to them costs only where `spread` says so.
+ * too close to them (see tooClose) costs only where `spread` says so.
  */
 function cheapest(spots: Spot[], others: Box[], spread: boolean): { spot: Spot; cost: number } {
   const clear = others.map(padded);
@@ -1198,7 +1215,7 @@ function cheapest(spots: Spot[], others: Box[], spread: boolean): { spot: Spot; 
     let cost = spot.cost;
     others.forEach((o, k) => {
       cost += COVERS_LABEL * covers(spot.box, clear[k]!);
-      if (spread) cost += CLOSE_LABEL * Math.max(0, LABEL_APART - gapBetween(spot.box, o));
+      if (spread) cost += CLOSE_LABEL * tooClose(spot.box, o);
     });
     if (cost < best.cost) best = { spot, cost };
   }
