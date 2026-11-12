@@ -352,10 +352,8 @@ const CARD_DEFS: Record<CardKind, [name: string, style: string]> = {
 function renderEvents(cv: ComputedView): string {
   const v = cv.view;
   const lines = ["flowchart LR"];
-  if (v.cards.length === 0) {
-    lines.push("  %% This view has no cards yet.");
-    return lines.join("\n");
-  }
+  // With no cards yet, its lanes are still drawn, each a box with its name.
+  if (v.cards.length === 0) lines.push("  %% This view has no cards yet.");
   // A card's ID comes from kebab-case, so never has two underscores in a row, and a lane's can't be any card's.
   const laneId = (id: string) => `lane__${id.replace(/-/g, "_")}`;
   const lanes = new Set(v.lanes.map((l) => l.id));

@@ -205,6 +205,23 @@ describe("event views", () => {
   it("escape what Mermaid reads as markup, and keywords used as IDs, and say so when there are no cards", () => {
     const doc = apply(shop(), { op: "add-view", id: "ordering", level: "event" });
     expect(renderMermaid(view(doc))).toBe("flowchart LR\n  %% This view has no cards yet.");
+    // Its lanes are drawn before it has any cards, each a box with its name, as when one lane of several is empty.
+    const lanesOnly = apply(doc, { op: "add-lane", view: "ordering", id: "customer" }, { op: "add-lane", view: "ordering", id: "shop" });
+    expect(renderMermaid(view(lanesOnly))).toBe(
+      [
+        "flowchart LR",
+        "  %% This view has no cards yet.",
+        '  subgraph lane__customer["Customer"]',
+        "  end",
+        '  subgraph lane__shop["Shop"]',
+        "  end",
+        "  style lane__customer fill:none,stroke:#8a94a6",
+        "  style lane__shop fill:none,stroke:#8a94a6",
+      ].join("\n"),
+    );
+    const page = exportDocs(buildWorkspace(lanesOnly), "shop.openarch").find((f) => f.path === "views/ordering.md")!.content;
+    expect(page).toContain('  subgraph lane__shop["Shop"]\n  end\n');
+    expect(page).toContain("## Lanes\n\n| Lane | Description |\n|---|---|\n| Customer |  |\n| Shop |  |\n\n## Cards\n\nNone yet.");
     const lane = apply(doc, { op: "add-lane", view: "ordering", id: "end", name: 'The "end"' }, { op: "add-card", view: "ordering", id: "end", name: "Order <done> | paid", lane: "end" });
     const text = renderMermaid(view(lane));
     expect(text).toContain('  subgraph lane__end["The #quot;end#quot;"]');
@@ -309,6 +326,10 @@ describe("event operations", () => {
     expect(removed.summary).toEqual(["removed card b from view ordering and 2 arrows to or from it"]);
     expect(removed.doc.views.ordering!.cards).toEqual([{ id: "a", kind: "command", name: "A" }, { id: "c", kind: "event", name: "C" }]);
     expect(applyOperations(removed.doc, [{ op: "remove-card", view: "ordering", id: "c" }]).summary).toEqual(["removed card c from view ordering"]);
+    // A file written by hand can name a card it comes from twice: that's still one arrow.
+    const twice = structuredClone(doc);
+    twice.views.ordering!.cards![2]!.from = ["b", "b"];
+    expect(applyOperations(twice, [{ op: "remove-card", view: "ordering", id: "c" }]).summary).toEqual(["removed card c from view ordering and 1 arrow to or from it"]);
   });
 
   it("refuse what doesn't fit", () => {

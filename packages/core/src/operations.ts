@@ -1568,7 +1568,8 @@ function removeCard(doc: OpenArchDocument, viewId: string, id: string): string {
   const card = requireCard(view, viewId, id);
   const cards = view.cards!;
   cards.splice(cards.indexOf(card), 1);
-  let lost = card.from?.length ?? 0;
+  // Each card it comes from is one arrow, however often a file written by hand names it.
+  let lost = new Set(card.from).size;
   for (const other of cards) {
     if (!other.from?.includes(id)) continue;
     other.from = other.from.filter((from) => from !== id);
