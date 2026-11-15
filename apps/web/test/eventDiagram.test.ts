@@ -9,7 +9,7 @@ import type { Edit } from "../src/state.js";
 import { button, click, mount } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 11,
+  openarch: 12,
   name: "Shop",
   elements: {},
   views: {

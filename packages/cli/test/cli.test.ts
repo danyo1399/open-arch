@@ -361,6 +361,34 @@ Cards:
     expect(JSON.parse(read(dir)).views.landscape).not.toHaveProperty("stickies");
   });
 
+  it("puts sticky notes on elements and relationships, moves them, takes them off, and shows what they're on", () => {
+    const dir = example();
+    const notes = () => JSON.parse(read(dir)).views["shop-containers"].stickies;
+    expect(cli(dir, "add-sticky", "shop-containers", "db", "--text", "Backed up nightly.", "--element", "orders-db").out).toContain("added sticky note db to view shop-containers, on orders-db\n");
+    expect(cli(dir, "add-sticky", "shop-containers", "orders", "--text", "Retried twice.", "--from", "web-app", "--to", "checkout-controller").code).toBe(0);
+    expect(notes()).toEqual({ db: { text: "Backed up nightly.", on: { element: "orders-db" } }, orders: { text: "Retried twice.", on: { from: "web-app", to: "checkout-controller" } } });
+    const shown = cli(dir, "show", "shop-containers").out;
+    expect(shown).toContain("Sticky notes:\n  db (yellow), on orders-db:\n    Backed up nightly.\n  orders (yellow), on web-app -> checkout-controller:\n    Retried twice.\n");
+    expect(JSON.parse(cli(dir, "show", "shop-containers", "--json").out).stickies[0]).toEqual({ id: "db", text: "Backed up nightly.", on: { element: "orders-db" }, drawn: true, color: "yellow" });
+    expect(read(dir, "docs/views/shop-containers.md")).toContain("> On [Orders DB](../elements/orders-db.md): Backed up nightly.\n");
+
+    // Hidden, the box has no line to its note, and show and check say so.
+    const hidden = cli(dir, "hide-in-view", "shop-containers", "orders-db").out;
+    expect(hidden).toContain('warning: views.shop-containers.stickies.db.on: warning [sticky-target-not-drawn] The note "db" is on "orders-db", which this view doesn\'t draw');
+    expect(cli(dir, "show", "shop-containers").out).toContain("  db (yellow), on orders-db, which this view doesn't draw:\n");
+
+    expect(cli(dir, "update-sticky", "shop-containers", "db", "--from", "customer", "--to", "web-app", "--at", "10,20").code).toBe(0);
+    expect(notes().db).toEqual({ text: "Backed up nightly.", on: { from: "customer", to: "web-app" }, at: [10, 20] });
+    expect(cli(dir, "update-sticky", "shop-containers", "db", "--detach").code).toBe(0);
+    expect(notes().db).toEqual({ text: "Backed up nightly.", at: [10, 20] });
+
+    expect(cli(dir, "add-sticky", "shop-containers", "x", "--text", "X", "--from", "web-app").err).toContain("Pass --from and --to together");
+    expect(cli(dir, "add-sticky", "shop-containers", "x", "--text", "X", "--element", "web-app", "--to", "checkout-api").err).toContain("Pass --element, or --from and --to, not more than one of them.");
+    expect(cli(dir, "update-sticky", "shop-containers", "db", "--element", "web-app", "--detach").err).toContain("Pass --element, or --from and --to, or --detach, not more than one of them.");
+    expect(cli(dir, "add-sticky", "place-order", "x", "--text", "X", "--element", "web-app").err).toContain('View "place-order" is a sequence view.');
+    expect(cli(dir, "add-sticky", "shop-containers", "x", "--text", "X", "--from", "web-app", "--to", "orders-db").err).toContain('"web-app" has no relationship to "orders-db".');
+  });
+
   it("adds, changes, moves and removes a sequence view's steps, and shows them", () => {
     const dir = example();
     expect(cli(dir, "add-view", "refund", "--level", "sequence", "--description", "Giving money back.").code).toBe(0);
@@ -491,22 +519,22 @@ Cards:
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 11', '"openarch": 1')
+      .replace('"openarch": 12', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 11, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 12, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10])("reads a version %i file, and writes it back as version 11", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11])("reads a version %i file, and writes it back as version 12", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 11', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 12', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 11,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 12,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -633,7 +661,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
     expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 11, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 12, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

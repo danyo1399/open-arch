@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { applyOperations, buildWorkspace, OpError, parseOperations, type NewElements, type Operation, type TagChanges, type Tags } from "@open-arch/core";
+import { applyOperations, buildWorkspace, OpError, parseOperations, type NewElements, type Operation, type RelationshipKind, type StickyTargetData, type TagChanges, type Tags } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { formatDiagnostic } from "./check.js";
@@ -151,6 +151,20 @@ function point(v: Values[string]): [number, number] | null | undefined {
   return parts as [number, number];
 }
 
+/** What a sticky note is on: `--element <id>`, or `--from <id> --to <id>` and maybe `--kind`. `--detach`, in an update, takes it off. */
+function stickyOn(v: Values): StickyTargetData | null | undefined {
+  const [element, from, to, kind] = [text(v.element), text(v.from), text(v.to), text(v.kind)];
+  const relationship = from !== undefined || to !== undefined || kind !== undefined;
+  if ([element !== undefined, relationship, v.detach === true].filter(Boolean).length > 1) {
+    throw new CliError(`Pass --element, or --from and --to${v.detach === true ? ", or --detach" : ""}, not more than one of them.`, 2);
+  }
+  if (v.detach === true) return null;
+  if (element !== undefined) return { element };
+  if (!relationship) return undefined;
+  if (from === undefined || to === undefined) throw new CliError("Pass --from and --to together: the ends of the relationship the note is on.", 2);
+  return { from, to, ...(kind !== undefined && { kind: kind as RelationshipKind }) };
+}
+
 export type Builder = (io: Io, v: Values, positionals: string[], usage: string) => Operation[];
 
 export const BUILDERS: Record<string, Builder> = {
@@ -278,11 +292,11 @@ export const BUILDERS: Record<string, Builder> = {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
     const body = text(v.text);
     if (body === undefined) throw new CliError(`Pass --text.\n\n${usage}`, 2);
-    return [{ op: "add-sticky", view: view!, id: id!, text: body, color: text(v.color) as never, at: point(v.at) ?? undefined }];
+    return [{ op: "add-sticky", view: view!, id: id!, text: body, on: stickyOn(v) ?? undefined, color: text(v.color) as never, at: point(v.at) ?? undefined }];
   },
   "update-sticky": (_io, v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
-    return [{ op: "update-sticky", view: view!, id: id!, text: text(v.text), color: text(v.color) as never, at: point(v.at) }];
+    return [{ op: "update-sticky", view: view!, id: id!, text: text(v.text), on: stickyOn(v), color: text(v.color) as never, at: point(v.at) }];
   },
   "remove-sticky": (_io, _v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);

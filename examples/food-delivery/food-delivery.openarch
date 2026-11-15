@@ -1,5 +1,5 @@
 {
-  "openarch": 11,
+  "openarch": 12,
   "name": "Food Delivery",
   "description": "A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 6 in order: views 1 to 5 each zoom in one step, and their sticky notes explain what you're looking at.",
   "export": { "docs": "docs" },
@@ -379,7 +379,7 @@
       "stickies": {
         "about": { "text": "Views don't copy the model, they pick from it. This one lists exactly which elements to show (its include list), so it tells one story: placing an order.", "color": "blue", "at": [0, 0] },
         "shared": { "text": "Rename a box here and it changes in every view, because there's only one model underneath.", "at": [840, 230] },
-        "try": { "text": "Your turn! Use + Add, or right-click the diagram, to add a container or a sticky note. Drag from the dot under a box to another box to draw an arrow, or select an arrow and drag the dot at either end to move it. Double-click a note to edit it. Undo takes anything back.", "color": "green", "at": [840, 650] }
+        "try": { "text": "Your turn! Use + Add, or right-click the diagram, to add a container or a sticky note. Right-click a box or an arrow to put a note on it. Drag from the dot under a box to another box to draw an arrow, or select an arrow and drag the dot at either end to move it. Double-click a note to edit it. Undo takes anything back.", "color": "green", "at": [840, 650] }
       },
       "layout": {
         "customer": [320, 0],
@@ -399,7 +399,7 @@
       "stickies": {
         "about": { "text": "A container view looks inside one system. The dashed frame is the Delivery Platform: its containers are inside, and the people and systems they talk to are outside.", "color": "blue", "at": [-460, -20] },
         "containers": { "text": "A container is something that runs or stores data on its own: an app, a website, an API, a worker, a database or a queue. Nothing to do with Docker!", "at": [1460, 660] },
-        "implied": { "text": "Dashed arrows are implied: the real relationship belongs to something inside the box. The apps actually call the Order Routes component inside the Order API (view 4).", "color": "pink", "at": [210, 930] },
+        "implied": { "text": "Dashed arrows are implied: the real relationship belongs to something inside the box. The apps actually call the Order Routes component inside the Order API (view 4).", "on": { "from": "customer-app", "to": "order-routes" }, "color": "pink", "at": [210, 930] },
         "shapes": { "text": "Shapes say what a box is: the cylinder is a database, the pipe is a queue, and the phones are mobile apps. Pick one under Shape in a box's details.", "at": [630, 930] },
         "technology": { "text": "Boxes and arrows can say what they're built with: [Container: Node.js] on a box, or the protocol under an arrow's description.", "at": [1050, 930] }
       },

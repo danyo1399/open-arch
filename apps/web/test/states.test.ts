@@ -11,7 +11,7 @@ import type { Edit } from "../src/state.js";
 import { button, checkbox, choose, click, mount, select, type } from "./dom.js";
 
 const doc: OpenArchDocument = {
-  openarch: 11,
+  openarch: 12,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, customer: { kind: "person", name: "Customer" } },
   views: {
@@ -50,6 +50,7 @@ function panel(selection: Selection) {
     onHide() {},
     onDelete() {},
     onFindUsages() {},
+    onAddSticky() {},
     onDeleteView() {},
   });
   return { host: mount(element), edits, selected };

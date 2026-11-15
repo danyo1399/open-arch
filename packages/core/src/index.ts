@@ -12,6 +12,9 @@ export {
   libraryCopies,
   instanceId,
   cardArrows,
+  stickyAnchor,
+  stickyTargetText,
+  STICKY_TARGET_LEVELS,
   SCOPE_KINDS,
   RUNNABLE_KINDS,
   type LibraryCopy,
@@ -21,6 +24,7 @@ export {
   type DeploymentInstance,
   type DeploymentArrow,
   type CardArrow,
+  type StickyAnchor,
   type RelationshipSource,
   type ViewEdge,
 } from "./views.js";

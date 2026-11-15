@@ -44,8 +44,8 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
 | `hide-in-view <view> <id>...` | Removes them from include, or adds them to exclude; the model is unchanged |
-| `add-sticky <view> <id>` | `--text` (required), `--color <yellow\|pink\|blue\|green>`, `--at <x,y>` |
-| `update-sticky <view> <id>` | `--text`, `--color`, `--at <x,y>` (`--at ""` lets the designer place it) |
+| `add-sticky <view> <id>` | `--text` (required), `--element <id>` or `--from <id> --to <id>` (`--kind <kind>` when that relationship isn't an association): what it's on, on a landscape, context, container, component or class view; `--color <yellow\|pink\|blue\|green>`, `--at <x,y>` |
+| `update-sticky <view> <id>` | `--text`, `--element <id>` or `--from <id> --to <id>` (with `--kind`) puts it on something else, `--detach` takes it off, `--color`, `--at <x,y>` (`--at ""` lets the designer place it) |
 | `remove-sticky <view> <id>` | |
 | `add-step <view> <from> <to>` | Sequence views only. `--description`, `--technology`, `--reply` (`<from>` answers `<to>`), `--step <n>` (insert it as step n; default: after the last) |
 | `update-step <view> <n>` | `--from <id>`, `--to <id>`, `--description`, `--technology`, `--reply` / `--call`, `--move-to <n>` |
@@ -100,8 +100,8 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `show-in-view` | **view**, **id** |
 | `hide-in-view` | **view**, **id** |
 | `set-layout` | **view**, **positions**: `{ "<element-id>": [x, y] }`, `null` removes one. Used by the designer; agents don't need it |
-| `add-sticky` | **view**, **id**, **text**, color, at (`[x, y]`) |
-| `update-sticky` | **view**, **id**, text, color, at (`null` lets the designer place it) |
+| `add-sticky` | **view**, **id**, **text**, on (`{ "element": "<id>" }`, or `{ "from": "<id>", "to": "<id>" }` with `"kind"` when it isn't an association), color, at (`[x, y]`) |
+| `update-sticky` | **view**, **id**, text, on (`null` takes it off), color, at (`null` lets the designer place it) |
 | `remove-sticky` | **view**, **id** |
 | `add-step` | **view**, **from**, **to**, description, technology, reply (`true` for an answer), step (its number: 1 is the first; default: after the last) |
 | `update-step` | **view**, **step**, from, to, description, technology, reply, newStep (the number to move it to) |

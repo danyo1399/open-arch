@@ -28,6 +28,7 @@ import {
   type StateData,
   type StepData,
   type StickyData,
+  type StickyTargetData,
   type TransitionData,
   type Tags,
   type ViewData,
@@ -101,7 +102,8 @@ const CONNECTION_KEYS = ["from", "to", "description", "technology"];
 const LANE_KEYS = ["id", "name", "description"];
 const CARD_KEYS = ["id", "kind", "name", "description", "lane", "from"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
-const STICKY_KEYS = ["text", "color", "at"];
+const STICKY_KEYS = ["text", "on", "color", "at"];
+const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -208,6 +210,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 9) out = { ...out, openarch: 10 };
   // Version 11 added event views, so a version 10 file means the same in it.
   if (out.openarch === 10) out = { ...out, openarch: 11 };
+  // Version 12 let a sticky note be on an element or relationship, so a version 11 file means the same in it.
+  if (out.openarch === 11) out = { ...out, openarch: 12 };
   return out;
 }
 
@@ -466,7 +470,7 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
     else {
       view.stickies = {};
       for (const [stickyId, sticky] of Object.entries(value.stickies)) {
-        const s = readSticky(stickyId, sticky, `${path}.stickies.${stickyId}`, report);
+        const s = readSticky(stickyId, sticky, `${path}.stickies.${stickyId}`, report, own);
         if (s) view.stickies[stickyId] = s;
       }
     }
@@ -652,7 +656,8 @@ function readCard(value: unknown, path: string, report: Report): CardData | unde
   return card;
 }
 
-function readSticky(id: string, value: unknown, path: string, report: Report): StickyData | undefined {
+/** `own`: the view's level, when it draws something other than boxes picked from the model, whose notes can't be on anything. */
+function readSticky(id: string, value: unknown, path: string, report: Report, own: OwnLevel | undefined): StickyData | undefined {
   if (!readId(id, path, report)) return undefined;
   if (!isObject(value)) {
     report(path, "field-type", 'A sticky note must be an object like { "text": "..." }.');
@@ -665,6 +670,14 @@ function readSticky(id: string, value: unknown, path: string, report: Report): S
     return undefined;
   }
   const sticky: StickyData = { text };
+  if (value.on !== undefined) {
+    if (own) {
+      report(`${path}.on`, "field-not-allowed", `Only sticky notes on landscape, context, container, component and class views can be on an element or relationship, and this is a ${own} view.`, "Remove `on`.");
+    } else {
+      const on = readStickyTarget(value.on, `${path}.on`, report);
+      if (on) sticky.on = on;
+    }
+  }
   if (value.color !== undefined) {
     if ((STICKY_COLORS as readonly unknown[]).includes(value.color)) sticky.color = value.color as StickyData["color"];
     else report(`${path}.color`, "color-invalid", `\`color\` must be one of: ${STICKY_COLORS.join(", ")}.`);
@@ -674,6 +687,42 @@ function readSticky(id: string, value: unknown, path: string, report: Report): S
     else report(`${path}.at`, "field-type", "Must be a position, [x, y].");
   }
   return sticky;
+}
+
+/** What a sticky note is on: `{ "element": "<id>" }`, or `{ "from": "<id>", "to": "<id>" }` with the relationship's `kind` when it isn't an association. */
+function readStickyTarget(value: unknown, path: string, report: Report): StickyTargetData | undefined {
+  const shape = 'Must be an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" }.';
+  if (!isObject(value)) {
+    report(path, "field-type", shape);
+    return undefined;
+  }
+  unknownKeys(value, STICKY_ON_KEYS, path, report);
+  const element = str(value.element, `${path}.element`, report);
+  const from = str(value.from, `${path}.from`, report);
+  const to = str(value.to, `${path}.to`, report);
+  if (value.element !== undefined) {
+    if (value.from !== undefined || value.to !== undefined || value.kind !== undefined) {
+      report(path, "field-not-allowed", "A sticky note is on an element or on a relationship, not both.", "Keep `element`, or `from` and `to`.");
+      return undefined;
+    }
+    // A value that isn't a string was reported by str.
+    if (element === "") report(`${path}.element`, "field-required", "`element` is required: the ID of the element the note is on.");
+    return element ? { element } : undefined;
+  }
+  if (value.from === undefined && value.to === undefined) {
+    report(path, "field-required", shape);
+    return undefined;
+  }
+  if (value.from === undefined || from === "") report(`${path}.from`, "field-required", "`from` is required: the ID of the element the relationship is on.");
+  if (value.to === undefined || to === "") report(`${path}.to`, "field-required", "`to` is required: the ID of the element it uses.");
+  if (!from || !to) return undefined;
+  const on: StickyTargetData = { from, to };
+  if (value.kind !== undefined) {
+    if ((RELATIONSHIP_KINDS as readonly unknown[]).includes(value.kind)) {
+      if (value.kind !== "association") on.kind = value.kind as RelationshipKind;
+    } else report(`${path}.kind`, "relationship-kind-invalid", `\`kind\` must be one of: ${RELATIONSHIP_KINDS.join(", ")}.`);
+  }
+  return on;
 }
 
 // --- Writing ----------------------------------------------------------------------
@@ -830,7 +879,8 @@ function viewText(v: ViewData, indent: string): string {
   }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();
-    const sticky = (s: StickyData) => inline({ text: s.text, color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)) });
+    const on = (t: StickyTargetData) => ("element" in t ? { element: t.element } : { from: t.from, to: t.to, kind: t.kind && t.kind !== "association" ? t.kind : undefined });
+    const sticky = (s: StickyData) => inline({ text: s.text, on: s.on && on(s.on), color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)) });
     entries.push(["stickies", block(keys.map((k) => [k, sticky(v.stickies![k]!)]), `${indent}  `)]);
   }
   if (boxes && present(v.layout, (l) => Object.keys(l).length > 0)) {

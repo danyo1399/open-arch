@@ -8,6 +8,7 @@ import {
   type Diagnostic,
   type Operation,
   type RelationshipKind,
+  type StickyTargetData,
   type ViewDef,
   type Workspace,
 } from "@open-arch/core";
@@ -29,11 +30,13 @@ import {
   eventSelectionGone,
   findArrow,
   followRenames,
+  newStickyId,
   renamedId,
   renamedSelection,
   renamesIn,
   selectShapes,
   shownInProperties,
+  stickyTargetFor,
   viewAction,
   viewList,
   type Rename,
@@ -255,6 +258,17 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
+  /** A new note on a box, the frame or an arrow, beside it on the diagram, with its text being typed there. */
+  const addStickyOn = (on: StickyTargetData) => {
+    if (!view) return;
+    const id = newStickyId(view);
+    void edit([{ op: "add-sticky", view: view.id, id, text: "New note", on }]).then((ok) => {
+      if (!ok) return;
+      select({ kind: "sticky", id }, { isNew: true });
+      setPane("diagram");
+    });
+  };
+
   const showInView = (id: string) => view && void edit([{ op: "show-in-view", view: view.id, id }]);
   const hideFromView = (id: string) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null));
 
@@ -450,10 +464,12 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   // What the details panel and the model tree can do with an element, in one place.
   const elementMenu = (id: string): MenuItem[] => {
     const action = viewAction(ws, view, computed, id);
+    const on = stickyTargetFor(ws, computed, { kind: "element", id });
     return [
       { label: "Find usages", onSelect: () => findUsages(id) },
       ...(action === "show" ? [{ label: "Show in this view", onSelect: () => showInView(id) }] : []),
       ...(action === "hide" ? [{ label: "Hide from this view", onSelect: () => hideFromView(id) }] : []),
+      ...(on ? [{ label: "Add sticky note", onSelect: () => addStickyOn(on) }] : []),
       { label: "Delete from model…", danger: true, onSelect: () => setDialog({ kind: "delete", id: current(id) }) },
     ];
   };
@@ -465,9 +481,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     const removals = arrowRemovals(ws, computed, from, to, relation);
     const remove = (ops: Operation[]) => () => void edit(ops).then(() => select(null));
     const implied = !!findArrow(computed, from, to, relation)?.implied;
+    const on = stickyTargetFor(ws, computed, { kind: "arrow", from, to, relation });
     return [
       { label: `Select ${name(from)}`, onSelect: () => select({ kind: "element", id: from }) },
       { label: `Select ${name(to)}`, onSelect: () => select({ kind: "element", id: to }) },
+      ...(on ? [{ label: "Add sticky note", onSelect: () => addStickyOn(on) }] : []),
       ...(removals.length === 1
         ? [{ label: implied ? `Remove ${removals[0]!.ends}` : "Remove relationship", danger: true, divider: true, onSelect: remove(removals[0]!.ops) }]
         : []),
@@ -617,6 +635,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
               onError={(text) => state.notify({ kind: "error", text })}
               renames={shownRenames}
               exportItems={computed ? exportItems(computed) : []}
+              editSticky={isNew && selection?.kind === "sticky" ? selection.id : null}
             />
           </ReactFlowProvider>
         ) : (
@@ -657,6 +676,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onHide={hideFromView}
         onDelete={(id) => setDialog({ kind: "delete", id: current(id) })}
         onFindUsages={findUsages}
+        onAddSticky={addStickyOn}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
       />
 

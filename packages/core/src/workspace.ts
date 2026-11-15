@@ -1,6 +1,6 @@
 /** The model, indexed for queries, built from a parsed document. */
 import { nodeOrder, parseDocument } from "./document.js";
-import type { ArchElement, Diagnostic, OpenArchDocument, State, StateData, Sticky, TransitionData, ViewDef } from "./types.js";
+import type { ArchElement, Diagnostic, OpenArchDocument, State, StateData, Sticky, StickyTarget, StickyTargetData, TransitionData, ViewDef } from "./types.js";
 
 export interface Workspace {
   doc: OpenArchDocument;
@@ -56,7 +56,7 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
       exclude: v.exclude ?? [],
       notes: v.notes || undefined,
       stickies: Object.entries(v.stickies ?? {})
-        .map(([sid, s]) => ({ id: sid, path: `views.${id}.stickies.${sid}`, text: s.text, color: s.color ?? "yellow", at: s.at }))
+        .map(([sid, s]) => ({ id: sid, path: `views.${id}.stickies.${sid}`, text: s.text, on: s.on && stickyTarget(s.on), color: s.color ?? "yellow", at: s.at }))
         .sort(readingOrder),
       layout: v.layout ?? {},
       steps: (v.steps ?? []).map((step, i) => ({
@@ -142,6 +142,11 @@ function statesInOrder(states: Record<string, StateData>, initial: string | unde
   for (let i = 0; i < order.length; i++) for (const t of transitions) if (t.from === order[i]) visit(t.to);
   for (const id of Object.keys(states).sort()) visit(id);
   return order.map((id) => [id, states[id]!]);
+}
+
+/** What a sticky note is on, with a relationship's kind always given. */
+function stickyTarget(on: StickyTargetData): StickyTarget {
+  return "element" in on ? { element: on.element } : { from: on.from, to: on.to, kind: on.kind ?? "association" };
 }
 
 /** Placed notes top to bottom, then left to right; unplaced ones after them, by ID. */

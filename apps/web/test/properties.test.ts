@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { buildWorkspace, computeView, type OpenArchDocument, type Operation, type StickyTargetData } from "@open-arch/core";
 import { act, createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import type { Edit } from "../src/state.js";
 import { button, checkbox, choose, click, mount, select } from "./dom.js";
 
 const doc: OpenArchDocument = {
-  openarch: 11,
+  openarch: 12,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things", notes: "Pays by **card**." }] },
@@ -18,12 +18,13 @@ const doc: OpenArchDocument = {
   views: { landscape: { title: "Landscape", description: "Everything.", level: "landscape", notes: "Drawn for **new starters**." } },
 };
 
-/** The details panel for a view of this model, showing what's selected. It keeps the edits it sends, and what it selects. */
+/** The details panel for a view of this model, showing what's selected. It keeps the edits it sends, what it selects, and the notes it adds. */
 function panel(model: OpenArchDocument, viewId: string, selection: Selection) {
   const ws = buildWorkspace(model);
   const view = ws.views.get(viewId)!;
   const edits: Operation[][] = [];
   const selected: Selection[] = [];
+  const added: StickyTargetData[] = [];
   const element = createElement(Properties, {
     ws,
     view,
@@ -42,9 +43,10 @@ function panel(model: OpenArchDocument, viewId: string, selection: Selection) {
     onHide() {},
     onDelete() {},
     onFindUsages() {},
+    onAddSticky: (on: StickyTargetData) => void added.push(on),
     onDeleteView() {},
   });
-  return { element, edits, selected };
+  return { element, edits, selected, added };
 }
 
 /** The details panel, with the landscape view open, showing what's selected. */
@@ -238,5 +240,53 @@ describe("a class's details", () => {
   it("offers a kind only for relationships between classes", () => {
     const host = mount(panel(code, "classes", { kind: "element", id: "line" }).element);
     expect([...host.querySelectorAll("ul.rels li")].map((li) => !!li.querySelector("select"))).toEqual([true, false]);
+  });
+});
+
+describe("sticky notes on boxes and arrows", () => {
+  const model: OpenArchDocument = {
+    ...doc,
+    elements: {
+      customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
+      shop: { kind: "system", name: "Shop" },
+      web: { kind: "container", name: "Web", parent: "shop", uses: [{ to: "db", description: "Stores orders" }] },
+      db: { kind: "container", name: "DB", parent: "shop" },
+    },
+    views: {
+      containers: { title: "Containers", level: "container", scope: "shop", stickies: { note: { text: "Hi", on: { element: "web" } }, free: { text: "Free" } } },
+      order: { title: "Order", level: "sequence", steps: [{ from: "customer", to: "web" }], stickies: { note: { text: "Hi" } } },
+    },
+  };
+
+  it("add a note on a box, the frame or an arrow from its details", async () => {
+    for (const [selection, on] of [
+      [{ kind: "element", id: "db" }, { element: "db" }],
+      [{ kind: "element", id: "shop" }, { element: "shop" }],
+      [{ kind: "arrow", from: "web", to: "db" }, { from: "web", to: "db" }],
+    ] as const) {
+      const { element, added } = panel(model, "containers", selection);
+      await click(button(mount(element), "Add sticky note"));
+      expect(added).toEqual([on]);
+    }
+  });
+
+  it("offer no note on anything a sequence view draws", () => {
+    const host = mount(panel(model, "order", { kind: "element", id: "web" }).element);
+    expect([...host.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Add sticky note");
+    expect(mount(panel(model, "order", { kind: "sticky", id: "note" }).element).querySelector("select")).toBeNull();
+  });
+
+  it("put a note on a box or an arrow, or on nothing", async () => {
+    const { element, edits } = panel(model, "containers", { kind: "sticky", id: "note" });
+    const host = mount(element);
+    const on = select(host, "On");
+    expect(on.value).toBe("element:web");
+    expect([...on.querySelectorAll("optgroup")].map((g) => [g.label, [...g.querySelectorAll("option")].map((o) => o.textContent)])).toEqual([
+      ["Boxes", ["Customer", "DB", "Shop (the frame)", "Web"]],
+      ["Arrows", ["Customer → Web: Buys things", "Web → DB: Stores orders"]],
+    ]);
+    await choose(on, "relationship:web\u0000db\u0000association");
+    await choose(on, "");
+    expect(edits).toEqual([[{ op: "update-sticky", view: "containers", id: "note", on: { from: "web", to: "db" } }], [{ op: "update-sticky", view: "containers", id: "note", on: null }]]);
   });
 });

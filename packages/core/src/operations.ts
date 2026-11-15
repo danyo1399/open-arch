@@ -32,11 +32,12 @@ import {
   type StepData,
   type StickyColor,
   type StickyData,
+  type StickyTargetData,
   type Tags,
   type ViewData,
   type ViewLevel,
 } from "./types.js";
-import { computeView, RUNNABLE_KINDS, scopeProblems, stepRelationships } from "./views.js";
+import { computeView, RUNNABLE_KINDS, scopeProblems, stepRelationships, STICKY_TARGET_LEVELS, stickyTargetText } from "./views.js";
 import { buildWorkspace } from "./workspace.js";
 
 /**
@@ -105,8 +106,10 @@ export type Operation =
   | { op: "show-in-view"; view: string; id: string }
   | { op: "hide-in-view"; view: string; id: string }
   | { op: "set-layout"; view: string; positions: Record<string, Position | null> }
-  | { op: "add-sticky"; view: string; id: string; text: string; color?: StickyColor; at?: [number, number] }
-  | { op: "update-sticky"; view: string; id: string; text?: string; color?: StickyColor; at?: [number, number] | null }
+  /** `on`: the element or relationship the note is on, on views of boxes. */
+  | { op: "add-sticky"; view: string; id: string; text: string; on?: StickyTargetData; color?: StickyColor; at?: [number, number] }
+  /** `on`: null takes the note off what it's on. */
+  | { op: "update-sticky"; view: string; id: string; text?: string; on?: StickyTargetData | null; color?: StickyColor; at?: [number, number] | null }
   | { op: "remove-sticky"; view: string; id: string }
   | { op: "add-step"; view: string; from: string; to: string; description?: string; technology?: string; reply?: boolean; step?: number }
   | { op: "update-step"; view: string; step: number; from?: string; to?: string; description?: string | null; technology?: string | null; reply?: boolean; newStep?: number }
@@ -201,7 +204,9 @@ type FieldType =
   | "nullable-count"
   | "positions"
   | "point"
-  | "nullable-point";
+  | "nullable-point"
+  | "target"
+  | "nullable-target";
 
 const SHAPES: Record<OperationName, { required: string[]; fields: Record<string, FieldType> }> = {
   "add-element": {
@@ -259,8 +264,8 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "show-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "hide-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "set-layout": { required: ["view", "positions"], fields: { view: "string", positions: "positions" } },
-  "add-sticky": { required: ["view", "id", "text"], fields: { view: "string", id: "string", text: "string", color: "string", at: "point" } },
-  "update-sticky": { required: ["view", "id"], fields: { view: "string", id: "string", text: "string", color: "string", at: "nullable-point" } },
+  "add-sticky": { required: ["view", "id", "text"], fields: { view: "string", id: "string", text: "string", on: "target", color: "string", at: "point" } },
+  "update-sticky": { required: ["view", "id"], fields: { view: "string", id: "string", text: "string", on: "nullable-target", color: "string", at: "nullable-point" } },
   "remove-sticky": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "add-step": {
     required: ["view", "from", "to"],
@@ -350,6 +355,14 @@ export const OPERATION_NAMES = Object.keys(SHAPES) as OperationName[];
 function fits(type: FieldType, value: unknown): boolean {
   const isPoint = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === "number" && Number.isFinite(n));
   const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+  // An element, or a relationship's ends and maybe its kind, and nothing else.
+  const isTarget = (v: unknown) => {
+    if (!isRecord(v)) return false;
+    const keys = Object.keys(v);
+    const strings = (names: string[]) => names.every((k) => typeof v[k] === "string");
+    if (keys.includes("element")) return keys.length === 1 && strings(["element"]);
+    return keys.includes("from") && keys.includes("to") && keys.every((k) => ["from", "to", "kind"].includes(k)) && strings(keys);
+  };
   switch (type) {
     case "string":
       return typeof value === "string";
@@ -382,6 +395,10 @@ function fits(type: FieldType, value: unknown): boolean {
       return isPoint(value);
     case "nullable-point":
       return value === null || isPoint(value);
+    case "target":
+      return isTarget(value);
+    case "nullable-target":
+      return value === null || isTarget(value);
   }
 }
 
@@ -400,6 +417,8 @@ const TYPE_TEXT: Record<FieldType, string> = {
   positions: "an object of [x, y] positions (null removes one)",
   point: "a position, [x, y]",
   "nullable-point": "a position, [x, y], or null to let the designer place it",
+  target: 'an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association',
+  "nullable-target": 'an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association, or null to take the note off it',
 };
 
 /** Check operations received as JSON: an operation object or a list of them. */
@@ -490,8 +509,9 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       return updateRelationship(doc, op);
     case "remove-relationship": {
       const { element, position } = findRelationship(doc, op.from, op.to, op.index);
-      element.uses!.splice(position, 1);
+      const [removed] = element.uses!.splice(position, 1);
       if (element.uses!.length === 0) delete element.uses;
+      moveStickies(doc, op.from, op.to, removed!.kind);
       return `removed relationship ${op.from} -> ${op.to}`;
     }
     case "add-view":
@@ -691,6 +711,11 @@ function removeElement(doc: OpenArchDocument, id: string): string {
       if (node.runs.length === 0) delete node.runs;
     }
     if (v.connections) v.connections = v.connections.filter((c) => ![c.from, c.to].some((end) => gone.has(end) && !Object.hasOwn(v.nodes ?? {}, end)));
+    // A note stays, but comes off what's gone: an element, or a relationship to or from one.
+    for (const sticky of Object.values(v.stickies ?? {})) {
+      const on = sticky.on;
+      if (on && ("element" in on ? gone.has(on.element) : gone.has(on.from) || gone.has(on.to))) delete sticky.on;
+    }
   }
   const extra = [gone.size > 1 ? `${gone.size - 1} element${gone.size === 2 ? "" : "s"} inside it` : "", removedViews.length ? `view${removedViews.length === 1 ? "" : "s"} ${removedViews.join(", ")}` : ""].filter(Boolean);
   return `removed ${id}${extra.length ? ` and ${extra.join(" and ")}` : ""}`;
@@ -727,6 +752,16 @@ function rename(doc: OpenArchDocument, from: string, to: string): string {
         if (c.from === from) c.from = to;
         if (c.to === from) c.to = to;
       }
+    }
+    for (const sticky of Object.values(v.stickies ?? {})) {
+      const on = sticky.on;
+      if (!on) continue;
+      if ("element" in on) {
+        if (on.element === from) on.element = to;
+        continue;
+      }
+      if (on.from === from) on.from = to;
+      if (on.to === from) on.to = to;
     }
   }
   return `renamed ${from} to ${to}`;
@@ -768,6 +803,7 @@ function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: 
   }
   const { element, position } = findRelationship(doc, op.from, op.to, op.index);
   const rel = element.uses![position]!;
+  const kindBefore = rel.kind;
   if (op.kind !== undefined) {
     checkKind(op.kind ?? undefined);
     if (op.kind === null || op.kind === "association") delete rel.kind;
@@ -787,7 +823,10 @@ function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: 
     else delete rel.tags;
   }
   const [from, to] = [op.newFrom ?? op.from, op.newTo ?? op.to];
-  if (from === op.from && to === op.to) return `updated relationship ${op.from} -> ${op.to}`;
+  if (from === op.from && to === op.to) {
+    if ((rel.kind ?? "association") !== (kindBefore ?? "association")) moveStickies(doc, from, to, kindBefore, { from, to, kind: rel.kind });
+    return `updated relationship ${op.from} -> ${op.to}`;
+  }
   const source = requireElement(doc, from);
   requireElement(doc, to);
   checkEnds(doc, from, to);
@@ -800,6 +839,7 @@ function updateRelationship(doc: OpenArchDocument, op: Extract<Operation, { op: 
     if (element.uses!.length === 0) delete element.uses;
     source.uses = [...(source.uses ?? []), rel];
   }
+  moveStickies(doc, op.from, op.to, kindBefore, { from, to, kind: rel.kind });
   return `moved relationship ${op.from} -> ${op.to} to ${from} -> ${to}`;
 }
 
@@ -1000,21 +1040,24 @@ function addSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "add-stic
   if (view.stickies?.[op.id]) throw new OpError(`View "${op.view}" already has a sticky note "${op.id}".`);
   if (!op.text.trim()) throw new OpError("A sticky note needs some text.");
   checkColor(op.color);
+  const on = op.on && stickyTarget(doc, view, op.view, op.on);
   view.stickies = {
     ...view.stickies,
-    [op.id]: clean<StickyData>({ text: op.text.trim(), color: op.color === "yellow" ? undefined : op.color, at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])] }),
+    [op.id]: clean<StickyData>({ text: op.text.trim(), on, color: op.color === "yellow" ? undefined : op.color, at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])] }),
   };
-  return `added sticky note ${op.id} to view ${op.view}`;
+  return `added sticky note ${op.id} to view ${op.view}${on ? `, on ${stickyTargetText(on)}` : ""}`;
 }
 
 function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "update-sticky" }>): string {
   const view = requireView(doc, op.view);
   const sticky = requireSticky(view, op.view, op.id);
-  if (op.text === undefined && op.color === undefined && op.at === undefined) throw new OpError("Say what to change: text, color or at.");
+  if (op.text === undefined && op.on === undefined && op.color === undefined && op.at === undefined) throw new OpError("Say what to change: text, on, color or at.");
   if (op.text !== undefined) {
     if (!op.text.trim()) throw new OpError("A sticky note needs some text. Remove it with remove-sticky instead.");
     sticky.text = op.text.trim();
   }
+  if (op.on === null) delete sticky.on;
+  else if (op.on !== undefined) sticky.on = stickyTarget(doc, view, op.view, op.on);
   if (op.color !== undefined) {
     checkColor(op.color);
     if (op.color === "yellow") delete sticky.color;
@@ -1023,6 +1066,48 @@ function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "updat
   if (op.at === null) delete sticky.at;
   else if (op.at !== undefined) sticky.at = [Math.round(op.at[0]), Math.round(op.at[1])];
   return `updated sticky note ${op.id} in view ${op.view}`;
+}
+
+/**
+ * What a note is on, as the file keeps it: an element, or a relationship from `from` to `to` of
+ * its kind, which the model must have. Only views of boxes draw a line to it.
+ */
+function stickyTarget(doc: OpenArchDocument, view: ViewData, viewId: string, on: StickyTargetData): StickyTargetData {
+  if (!STICKY_TARGET_LEVELS.includes(view.level)) {
+    throw new OpError(`View "${viewId}" is a ${view.level} view. Only sticky notes on landscape, context, container, component and class views can be on an element or relationship.`);
+  }
+  if ("element" in on) {
+    requireElement(doc, on.element);
+    return { element: on.element };
+  }
+  const from = requireElement(doc, on.from);
+  const to = requireElement(doc, on.to);
+  checkKind(on.kind);
+  const kind = on.kind === "association" ? undefined : on.kind;
+  const ofKind = (r: RelationshipData) => (r.kind ?? "association") === (kind ?? "association");
+  if (!from.uses?.some((r) => r.to === on.to && ofKind(r))) {
+    const back = to.uses?.some((r) => r.to === on.from && ofKind(r) && r.bidirectional);
+    throw new OpError(`"${on.from}" has no ${kind ? `${kind} ` : ""}relationship to "${on.to}".${back ? ` The one between them goes both ways, and it's on "${on.to}": put the note on ${on.to} -> ${on.from}.` : ""}`);
+  }
+  return clean<StickyTargetData>({ from: on.from, to: on.to, kind });
+}
+
+/**
+ * Sticky notes on the relationships from `from` to `to` of this kind, once the last of them has
+ * gone or changed: they follow it to `next`, its new ends and kind, or without it, come off it.
+ * While another such relationship is left, they stay on that.
+ */
+function moveStickies(doc: OpenArchDocument, from: string, to: string, kind: RelationshipKind | undefined, next?: { from: string; to: string; kind?: RelationshipKind }): void {
+  const kindOf = (k: RelationshipKind | undefined) => k ?? "association";
+  if (doc.elements[from]?.uses?.some((r) => r.to === to && kindOf(r.kind) === kindOf(kind))) return;
+  for (const v of Object.values(doc.views)) {
+    for (const sticky of Object.values(v.stickies ?? {})) {
+      const on = sticky.on;
+      if (!on || "element" in on || on.from !== from || on.to !== to || kindOf(on.kind) !== kindOf(kind)) continue;
+      if (next) sticky.on = clean<StickyTargetData>({ from: next.from, to: next.to, kind: kindOf(next.kind) === "association" ? undefined : next.kind });
+      else delete sticky.on;
+    }
+  }
 }
 
 /** Why a sequence view can't be given elements to show or hide. */

@@ -1919,6 +1919,29 @@ button.heading {
   stroke: var(--accent);
   stroke-linejoin: round;
 }
+/*
+ * The dotted line from a sticky note to the box, frame or arrow it's on: dotted, as an implied
+ * arrow is dashed. Under the arrows, boxes and notes, but over the frame, which comes before it.
+ */
+.sticky-lines {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+  z-index: -1;
+}
+.sticky-lines line {
+  stroke: var(--muted);
+  stroke-width: 2;
+  stroke-dasharray: 0 6;
+  stroke-linecap: round;
+}
+.sticky-lines line.selected {
+  stroke: var(--accent);
+}
 /* The box a moving end would go to. */
 .react-flow__node.drop-target .c4 {
   outline-color: var(--accent);

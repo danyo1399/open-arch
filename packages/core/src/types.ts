@@ -107,7 +107,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 11;
+export const FORMAT_VERSION = 12;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -296,11 +296,20 @@ export interface StepData {
 /** A sticky note on a view. It explains the diagram; it isn't part of the model. */
 export interface StickyData {
   text: string;
+  /** What it's on, which the designer draws a line to. Only on views of boxes: landscape, context, container, component and class views. */
+  on?: StickyTargetData;
   /** Default: yellow. */
   color?: StickyColor;
-  /** Top-left corner. Without it, the designer puts the note beside the diagram. */
+  /** Top-left corner. Without it, the designer puts the note beside what it's on, or else beside the diagram. */
   at?: [number, number];
 }
+
+/**
+ * What a sticky note is on: an element, drawn as the box that shows it, or a relationship, named
+ * as add-relationship names it (`from` uses `to`, and its kind when it isn't an association),
+ * drawn as the arrow that shows it.
+ */
+export type StickyTargetData = { element: string } | { from: string; to: string; kind?: RelationshipKind };
 
 // --- The model built from a document -------------------------------------------
 
@@ -461,9 +470,13 @@ export interface Sticky {
   /** Where it lives in the document, e.g. `views.landscape.stickies.start-here`. */
   path: string;
   text: string;
+  on?: StickyTarget;
   color: StickyColor;
   at?: [number, number];
 }
+
+/** What a sticky note is on (see StickyTargetData), with a relationship's kind always given. */
+export type StickyTarget = { element: string } | { from: string; to: string; kind: RelationshipKind };
 
 export type Severity = "error" | "warning";
 
