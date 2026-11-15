@@ -14,10 +14,10 @@ const SECTION_END = "<!-- open-arch:end -->";
  * is read a line at a time, so it throws.
  */
 export function agentsSection(workspace: string, docs: string | undefined, version: string, eol = "\n"): string {
-  for (const path of [workspace, docs]) {
-    // Every character that ends a line where markers are looked for: \r, \n, and Unicode's line and paragraph separators.
-    if (path && /[\r\n\u2028\u2029]/.test(path)) throw new LineBreakInPath(path);
-  }
+  // Every character that ends a line where markers are looked for: \r, \n, and Unicode's line and paragraph separators.
+  const breaks = /[\r\n\u2028\u2029]/;
+  if (breaks.test(workspace)) throw new LineBreakInPath(workspace, "workspace");
+  if (docs && breaks.test(docs)) throw new LineBreakInPath(docs, "docs");
   // Docs at the top of the project, beside AGENTS.md, have the path "".
   const docsFolder = docs === undefined ? undefined : code(`${docs || "."}/`);
   return [
@@ -35,8 +35,14 @@ export function agentsSection(workspace: string, docs: string | undefined, versi
 
 /** What agentsSection throws for a path it can't name, as the section is read a line at a time. */
 export class LineBreakInPath extends Error {
-  constructor(readonly path: string) {
-    super(`AGENTS.md's open-arch section can't name ${JSON.stringify(path)}: its path has a line break in it.`);
+  /** `of` says whose path it is: the workspace file's, or its docs folder's. */
+  constructor(
+    readonly path: string,
+    readonly of: "workspace" | "docs",
+  ) {
+    // Written so every break shows: JSON escapes \r and \n, but not Unicode's separators.
+    const shown = JSON.stringify(path).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+    super(`AGENTS.md's open-arch section can't name ${shown}: the ${of === "docs" ? "docs folder's" : "workspace's"} path has a line break in it.`);
   }
 }
 

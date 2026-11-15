@@ -97,8 +97,10 @@ describe("the AGENTS.md section", () => {
       ["a.openarch", "do\u2029cs"],
     ] as const;
     for (const [workspace, docs] of cases) {
-      expect(() => agentsSection(workspace, docs, "1")).toThrow("its path has a line break in it.");
+      expect(() => agentsSection(workspace, docs, "1")).toThrow(`the ${docs ? "docs folder's" : "workspace's"} path has a line break in it.`);
     }
+    // The path it names shows every break, Unicode's separators too.
+    expect(() => agentsSection("a\u2028b.openarch", undefined, "1")).toThrow('can\'t name "a\\u2028b.openarch"');
   });
 
   it("says docs at the top of the project, beside AGENTS.md, are in ./", () => {

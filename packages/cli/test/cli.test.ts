@@ -552,9 +552,20 @@ describe("init", () => {
     mkdirSync(join(project, ".git"));
     const result = cli(project, "init", "a\u2028b.openarch");
     expect(result.code).toBe(1);
-    expect(result.err).toContain("its path has a line break in it.");
-    expect(result.err).toContain("rename it so its path has no line break, then run open-arch init again.");
+    expect(result.err).toContain('can\'t name "a\\u2028b.openarch": the workspace\'s path has a line break in it.');
+    expect(result.err).toContain("rename the file so its path has no line break, then run open-arch init again.");
     expect(existsSync(join(project, "AGENTS.md"))).toBe(false);
+
+    // A docs folder's is fixed in the workspace, not by renaming the folder.
+    const docs = tempDir();
+    mkdirSync(join(docs, ".git"));
+    const refused = cli(docs, "init", "--docs", "do\ncs");
+    expect(refused.code).toBe(1);
+    expect(refused.err).toContain('can\'t name "do\\ncs": the docs folder\'s path has a line break in it.');
+    expect(refused.err).toContain("choose a docs folder without one, with `open-arch update-workspace --docs <folder>`, then run open-arch init again.");
+    expect(cli(docs, "update-workspace", "--docs", "docs").code).toBe(0);
+    expect(cli(docs, "init").code).toBe(0);
+    expect(read(docs, "AGENTS.md")).toContain("Readable docs generated from it are in `docs/`.");
   });
 
   it("names docs at the top of the project as ./ in AGENTS.md", () => {

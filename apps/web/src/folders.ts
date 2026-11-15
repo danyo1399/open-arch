@@ -8,7 +8,7 @@
  * changes are there to commit. The folders opened are remembered in IndexedDB: the browser can
  * keep a folder's handle, and asks again before the page may change it.
  */
-import { agentsSection, agentsSectionWorkspace, exportDocs, FILE_EXTENSION, GENERATED_MARKER, lineEnding, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
+import { agentsSection, agentsSectionWorkspace, exportDocs, FILE_EXTENSION, GENERATED_MARKER, lineEnding, LineBreakInPath, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
@@ -362,6 +362,8 @@ export class FolderHost implements WorkspaceHost {
       }
     } catch (error) {
       result.agentsError = problemText(error);
+      // Say how to put it right, too.
+      if (error instanceof LineBreakInPath) result.agentsError += error.of === "docs" ? " Choose another docs folder in the workspace's details." : " Rename the file, then open the folder again.";
     }
     // Once each time the folder is opened, not on every save: saves come as the user types.
     if (!this.skillKept) {
