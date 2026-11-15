@@ -2,8 +2,8 @@
  * Workspaces in a folder on this computer, such as a Git repository, opened from the web app in
  * Chrome or Edge with the File System Access API. The .openarch file stays in the folder and every
  * edit is saved to it, and the docs folder it names is rewritten, as the desktop app and the CLI
- * do. Every save also keeps the agent skill in the folder, as `open-arch init` installs it, reading
- * its few small files to write only those that changed. So the changes are there to commit. The
+ * do. The first save after the folder is opened also brings the agent skill in it up to date, as
+ * `open-arch init` installs it, writing only the files that changed. So the changes are there to commit. The
  * folders opened are remembered in IndexedDB: the browser can keep a folder's handle, and asks
  * again before the page may change it.
  */
@@ -227,6 +227,8 @@ export class FolderHost implements WorkspaceHost {
   private loading: Promise<string> | null = null;
   /** The watcher's `onChange`, to reload the file when a save finds it changed. */
   private reload: (() => void) | null = null;
+  /** Whether a save brought the agent skill up to date since the folder was opened. Until one does, each save tries. */
+  private skillKept = false;
 
   /** `path` is the file's, relative to `root`, with `/` between folders. */
   constructor(
@@ -277,8 +279,8 @@ export class FolderHost implements WorkspaceHost {
   }
 
   /**
-   * Saves the file, then rewrites its docs folder and keeps the agent skill up to date in the
-   * folder opened, as `open-arch init` installs it, so agents working in the folder know how to
+   * Saves the file, then rewrites its docs folder and, on the first save since the folder was
+   * opened, brings the agent skill up to date in it, as `open-arch init` installs it, so agents working in the folder know how to
    * read and change the model. The file is saved by then, so the docs or the skill failing is
    * reported, not thrown.
    */
@@ -322,10 +324,14 @@ export class FolderHost implements WorkspaceHost {
     await writable.close();
     this.known = saved;
     const result: SaveSummary = { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
-    try {
-      for (const target of SKILL_TARGETS) await writeSkill(await folderAt(this.root, target.split("/"), true));
-    } catch (error) {
-      result.skillError = problemText(error);
+    // Once each time the folder is opened, not on every save: saves come as the user types.
+    if (!this.skillKept) {
+      try {
+        for (const target of SKILL_TARGETS) await writeSkill(await folderAt(this.root, target.split("/"), true));
+        this.skillKept = true;
+      } catch (error) {
+        result.skillError = problemText(error);
+      }
     }
     return result;
   }

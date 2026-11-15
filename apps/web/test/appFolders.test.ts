@@ -111,7 +111,7 @@ describe("the designer with a workspace in a folder", () => {
     expect(status(host)).toBe("Saved · docs in docs/");
     expect(hasButton(host, "Export zip")).toBe(false);
     await click(host.querySelector(".ws-name")!);
-    expect(host.querySelector(".properties")?.textContent).toContain("Every save also keeps the open-arch agent skill in .agents/skills/open-arch/ and .claude/skills/open-arch/ of the folder you opened");
+    expect(host.querySelector(".properties")?.textContent).toContain("The first save after opening the folder also brings the open-arch agent skill up to date in .agents/skills/open-arch/ and .claude/skills/open-arch/ of the folder");
 
     // The docs folder can't be made, so a save writes the file but not the docs.
     root.refuse.add("docs");

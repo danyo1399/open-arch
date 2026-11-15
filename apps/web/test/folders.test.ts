@@ -224,19 +224,33 @@ describe("keeping the agent skill", () => {
     expect(problemText(new Error("Not allowed."))).toBe("Not allowed.");
   });
 
-  it("is kept in the folder opened by every save, and said when it can't be", async () => {
+  it("is brought up to date in the folder opened by the first save after opening it, not every save", async () => {
     const root = new FakeFolder("repo");
     root.put("arch/a.openarch", workspace("A"));
     root.put(".claude/settings.json", "{}");
     const host = new FolderHost("1", root, "arch/a.openarch");
     expect(await host.save(workspace("B"))).toEqual({ docs: null });
     expect(root.files()).toEqual({ "arch/a.openarch": workspace("B"), ".claude/settings.json": "{}", ...skillInFolder() });
-    // The skill's folder is gone, and can't be made again.
-    const agents = root.entries.get(".agents") as FakeFolder;
-    agents.entries.delete("skills");
-    agents.refuse.add("skills");
+    // Saves after that leave it alone.
+    (root.entries.get(".agents") as FakeFolder).entries.delete("skills");
+    expect(await host.save(workspace("C"))).toEqual({ docs: null });
+    expect(Object.keys(root.files()).some((p) => p.startsWith(".agents/"))).toBe(false);
+    // Opened again, the first save puts it back.
+    await new FolderHost("1", root, "arch/a.openarch").save(workspace("D"));
+    expect(root.files()).toEqual({ "arch/a.openarch": workspace("D"), ".claude/settings.json": "{}", ...skillInFolder() });
+  });
+
+  it("says when the skill can't be written, and tries again on each save until it is", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    root.refuse.add(".agents");
+    const host = new FolderHost("1", root, "a.openarch");
+    expect(await host.save(workspace("B"))).toEqual({ docs: null, skillError: "Not allowed." });
+    expect(root.files()["a.openarch"]).toBe(workspace("B"));
     expect(await host.save(workspace("C"))).toEqual({ docs: null, skillError: "Not allowed." });
-    expect(root.files()["arch/a.openarch"]).toBe(workspace("C"));
+    root.refuse.delete(".agents");
+    expect(await host.save(workspace("D"))).toEqual({ docs: null });
+    expect(root.files()).toEqual({ "a.openarch": workspace("D"), ...skillInFolder() });
   });
 });
 
@@ -483,6 +497,24 @@ describe("watching a workspace in a folder", () => {
     // Loaded, it's watched as usual.
     await vi.advanceTimersByTimeAsync(300);
     expect(onChange).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("says what it can't read even when the browser doesn't say why", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await host.load();
+    const onProblem = vi.fn();
+    const stop = host.watch(() => {}, undefined, onProblem);
+    await vi.advanceTimersByTimeAsync(50);
+    const file = root.entries.get("a.openarch") as FakeFile;
+    file.getFile = async () => {
+      throw new Error("");
+    };
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onProblem.mock.calls).toEqual([["Can't read repo/a.openarch to see changes made outside the designer: Something went wrong, and the browser didn't say what."]]);
     stop();
   });
 

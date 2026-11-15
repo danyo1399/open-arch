@@ -103,9 +103,10 @@ export async function copyText(text: string): Promise<void> {
 /**
  * The workspace as a zip, with everything in one folder named after the file: the .openarch file
  * (`text`), its generated markdown docs, and the agent skill, which goes where `open-arch init`
- * installs it. The docs go in the docs folder the workspace names, as a save would put them. When
- * it names none, or one outside the file's folder, where a save writes no docs, they go in
- * `<name>-docs`.
+ * installs it. The docs go in the docs folder the workspace names when it's inside the file's
+ * folder, as a save would put them. When it names none, they go in `<name>-docs`. So do docs for a
+ * folder outside the file's folder: a save in a folder writes them above the file, if that's
+ * still inside the folder opened, but the zip's one folder has no place above the file.
  */
 export function workspaceZip(ws: Workspace, fileName: string, text: string): Uint8Array {
   const base = fileName.replace(/\.openarch$/, "");
