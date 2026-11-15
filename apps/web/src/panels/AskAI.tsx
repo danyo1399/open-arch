@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentBridge, AgentContext, AgentEvent } from "../bridge.js";
-import { problemText } from "../problems.js";
+import { problemText, UNKNOWN_PROBLEM } from "../problems.js";
 
 type Answer = "approved" | "denied" | "answered";
 
@@ -32,9 +32,9 @@ interface AskAIProps {
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-/** Errors from the main process arrive as "Error invoking remote method 'x': Error: message". */
-function errorText(error: unknown): string {
-  return problemText(error).replace(/^Error invoking remote method '[^']*': (\w*Error: )?/, "");
+/** Errors from the main process arrive as "Error invoking remote method 'x': Error: message". What's left once that's taken off may be nothing. */
+export function errorText(error: unknown): string {
+  return problemText(error).replace(/^Error invoking remote method '[^']*': (\w*Error: )?/, "").trim() || UNKNOWN_PROBLEM;
 }
 
 /** Show the agent's `code` and **bold** markdown. */

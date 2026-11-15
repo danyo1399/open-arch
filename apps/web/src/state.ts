@@ -217,7 +217,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           next = serializeDocument(applyOperations(workspace.doc, ops).doc);
         } catch (error) {
           if (!(error instanceof OpError)) throw error;
-          setMessage({ kind: "error", text: error.message });
+          setMessage({ kind: "error", text: problemText(error) });
           return false;
         }
         if (next === before) return true;
