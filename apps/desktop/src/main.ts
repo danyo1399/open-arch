@@ -164,18 +164,19 @@ handle("newFile", async (event) => {
   if (!file) return null;
   const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
   doc.export = { docs: `${basename(file, FILE_EXTENSION)}-docs` };
-  // The file and its docs. The designer's first save sets up the skill and AGENTS.md, and says if it can't.
-  write(file, doc);
-  return grant(file);
+  // Opened first, so the save that makes it sets up the skill and AGENTS.md as a first save does,
+  // and the designer says what went wrong there when it opens.
+  const opened = grant(file);
+  return { ...opened, saved: save(file, doc) };
 });
 
 handle("saveAs", async (event, text: string) => {
   const doc = parseOrThrow(text);
   const file = await askForNewPath(event, "Save workspace as");
   if (!file) return null;
-  // As for a new file, the designer's first save sets up the skill and AGENTS.md.
-  write(file, doc);
-  return grant(file);
+  // As for a new file.
+  const opened = grant(file);
+  return { ...opened, saved: save(file, doc) };
 });
 
 handle("lastFile", () => {

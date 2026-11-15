@@ -8,6 +8,8 @@ export interface OpenedFile {
   path: string;
   /** File name, for display. */
   name: string;
+  /** For a file the app made (New workspace, Save as), what the save that made it did beside writing it. */
+  saved?: SaveSummary;
 }
 
 export interface DocsSummary {

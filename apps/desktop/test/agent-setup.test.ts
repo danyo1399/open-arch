@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentSetup } from "../src/agent-setup.js";
+import { AgentSetup, samePath } from "../src/agent-setup.js";
 
 const temps: string[] = [];
 afterEach(() => {
@@ -30,6 +30,15 @@ function project(options: { inRepo?: boolean; home?: string } = {}) {
   const agents = () => readFileSync(join(root, "AGENTS.md"), "utf8");
   return { root, file, skill, setup, skillFile, agents };
 }
+
+describe("telling folders apart", () => {
+  it("ignores case where the file system does, as on Windows and macOS", () => {
+    expect(samePath("C:\\Users\\me", "c:\\users\\ME", "win32")).toBe(true);
+    expect(samePath("/Users/Me", "/users/me", "darwin")).toBe(true);
+    expect(samePath("/home/Me", "/home/me", "linux")).toBe(false);
+    expect(samePath("/home/me/./x/..", "/home/me", "linux")).toBe(true);
+  });
+});
 
 describe("setting up a repository for AI agents from the desktop app's saves", () => {
   it("brings the skill up to date on the first save after the file is opened, and again once it's opened again", () => {

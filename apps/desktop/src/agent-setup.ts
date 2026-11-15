@@ -6,7 +6,7 @@
  * hold their own skills for every project.
  */
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { LineBreakInPath } from "@open-arch/core";
 import { keepAgentsSection, keepSkill, repositoryRoot, SKILL_TARGETS } from "open-arch/workspace";
 import { problemText } from "../../web/src/problems.js";
@@ -16,6 +16,12 @@ export interface AgentSetupResult {
   skillError?: string;
   /** Why the AGENTS.md section wasn't, when it wasn't. */
   agentsError?: string;
+}
+
+/** Whether two paths name the same folder: resolved, and without regard to case where the file system ignores it, as on Windows and macOS. */
+export function samePath(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
+  const [x, y] = [resolve(a), resolve(b)];
+  return platform === "win32" || platform === "darwin" ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
 
 export class AgentSetup {
@@ -39,7 +45,7 @@ export class AgentSetup {
   /** Where the agent files go for this file: the top of its Git repository, or nowhere. */
   root(file: string): string | undefined {
     const root = repositoryRoot(dirname(file));
-    return root === undefined || root === this.home ? undefined : root;
+    return root === undefined || samePath(root, this.home) ? undefined : root;
   }
 
   /**

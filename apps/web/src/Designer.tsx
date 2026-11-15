@@ -341,7 +341,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       };
       if (desktop) {
         const file = await desktop.saveAs(state.text);
-        if (file) await carryOn(new DesktopHost(desktop, file.path, file.name));
+        if (file) await carryOn(new DesktopHost(desktop, file.path, file.name, file.saved));
         return;
       }
       const record = await browserLibrary.add(host.name, state.text);

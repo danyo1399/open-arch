@@ -13,6 +13,7 @@ const text = (name: string) => serializeDocument(emptyDocument(name));
 
 /** A host the test drives: it says when the workspace changes or goes, and what saving does. */
 class TestHost implements WorkspaceHost {
+  made?: SaveSummary;
   name = "a.openarch";
   key = "test/a";
   file = text("A");
@@ -85,6 +86,16 @@ describe("the open workspace", () => {
     process.off("unhandledRejection", onRejection);
     expect(rejections).toEqual([]);
     expect(state().ws?.doc.name).toBe("A");
+    expect(state().message).toBeNull();
+  });
+
+  it("says what went wrong beside saving a workspace just made, when it opens", async () => {
+    const host = new TestHost("file");
+    host.made = { docs: null, skillError: "Not allowed." };
+    const state = await workspaceFor(host);
+    expect(state().message).toEqual({ kind: "error", text: "Saved, but the agent skill in .agents/skills/open-arch/ and .claude/skills/open-arch/ wasn't updated: Not allowed." });
+    // A save that goes through takes it down.
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
     expect(state().message).toBeNull();
   });
 

@@ -1,7 +1,8 @@
 import { buildWorkspace, checkWorkspace, loadWorkspace } from "@open-arch/core";
 import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { exampleHost, tourHost, workspaceZip } from "../src/hosts.js";
+import type { DesktopBridge } from "../src/bridge.js";
+import { DesktopHost, exampleHost, tourHost, workspaceZip } from "../src/hosts.js";
 import { SKILL_TARGETS, skillFiles } from "../src/skill.js";
 import { FolderHost } from "../src/folders.js";
 import { FakeFolder } from "./fakeFolder.js";
@@ -115,6 +116,17 @@ describe("hosts", () => {
     // Up and into another folder isn't inside the file's folder: the zip has no place for it.
     const other = JSON.stringify({ openarch: 11, name: "A", export: { docs: "../arch/docs" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(other), "a.openarch", other)))).toContain("a/a-docs/README.md");
+  });
+});
+
+describe("the desktop app's host", () => {
+  it("passes on all a save did, the skill and AGENTS.md too, and what the save that made it did", async () => {
+    const saved = { docs: { dir: "docs", written: 1, deleted: 0, skipped: [] }, skillError: "No.", agentsError: "Locked." };
+    const bridge = { save: async () => saved } as unknown as DesktopBridge;
+    const host = new DesktopHost(bridge, "/repo/a.openarch", "a.openarch", { docs: null, agentsError: "Locked." });
+    expect(await host.save("{}")).toEqual(saved);
+    expect(host.made).toEqual({ docs: null, agentsError: "Locked." });
+    expect(host.syncsSkill).toBe(true);
   });
 });
 

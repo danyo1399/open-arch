@@ -27,6 +27,8 @@ export interface WorkspaceHost {
   save(text: string): Promise<SaveSummary | void>;
   /** Saving also keeps the agent skill and the AGENTS.md section up to date beside the workspace: on desktop, and for a workspace in a folder (folders.ts). */
   syncsSkill?: boolean;
+  /** For a workspace just made, what the save that made it did: anything that went wrong is said when it opens. */
+  made?: SaveSummary;
   /**
    * Calls `onChange` when the workspace changes outside this window, and `onRemoved` when it's
    * deleted there. `onProblem` hears, once, when it can't tell any more, and null once it can
@@ -264,6 +266,8 @@ export class DesktopHost implements WorkspaceHost {
     private readonly bridge: DesktopBridge,
     readonly path: string,
     readonly name: string,
+    /** For a file the app just made, what the save that made it did, to say if something went wrong. */
+    readonly made?: SaveSummary,
   ) {}
 
   get key(): string {

@@ -79,7 +79,7 @@ export function DesktopStart({ desktop, onOpen }: { desktop: DesktopBridge; onOp
   const create = () =>
     attempt(async () => {
       const file = await desktop.newFile();
-      if (file) onOpen(new DesktopHost(desktop, file.path, file.name));
+      if (file) onOpen(new DesktopHost(desktop, file.path, file.name, file.saved));
     });
 
   return (
