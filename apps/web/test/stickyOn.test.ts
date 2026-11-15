@@ -1,7 +1,7 @@
 import { applyOperations, buildWorkspace, computeView, type ArchElement, type OpenArchDocument, type Sticky } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
 import { NODE_H, NODE_W, placeStickies, STICKY } from "../src/canvas/autoLayout.js";
-import { besideTargets, noteDropAt, withFrame, type DrawnArrow } from "../src/canvas/Canvas.js";
+import { besideTargets, noteDropAt, noteDropOps, withFrame, type DrawnArrow } from "../src/canvas/Canvas.js";
 import type { ElementFlowNode, StickyFlowNode } from "../src/canvas/nodes.js";
 import { distanceToRoute, edgePoint, midpoint, nearestOnOutline, stickyLine } from "../src/canvas/stickyLines.js";
 import { followRenames, renamesBetween, stickyChoices, stickyTargetFor } from "../src/model.js";
@@ -242,19 +242,19 @@ describe("what a note's dot is let go on", () => {
   const dropAt = (x: number, y: number) => noteDropAt(ws, cv, nodes, arrows, { x, y }, { reach: 9, noteSize: STICKY });
 
   it("puts the note on the box there", () => {
-    expect(dropAt(150, 110)).toEqual({ on: { element: "customer" }, node: "customer" });
-    expect(dropAt(450, 320)).toEqual({ on: { element: "api" }, node: "api" });
+    expect(dropAt(150, 110)).toEqual({ on: { element: "customer" }, anchor: { kind: "box", id: "customer" }, node: "customer" });
+    expect(dropAt(450, 320)).toMatchObject({ on: { element: "api" }, node: "api" });
   });
 
   it("puts the note on an arrow whose line is near enough, or whose label is there", () => {
-    expect(dropAt(118, 200)).toEqual({ on: { from: "customer", to: "web" }, arrow: "customer->web" });
+    expect(dropAt(118, 200)).toEqual({ on: { from: "customer", to: "web" }, anchor: { kind: "arrow", edge: edge("customer", "web") }, arrow: "customer->web" });
     expect(dropAt(125, 200)).toBeUndefined();
     // The arrow from Web to API stands for Web's relationship to the routes inside the API.
-    expect(dropAt(330, 375)).toEqual({ on: { from: "web", to: "routes" }, arrow: "web->api" });
+    expect(dropAt(330, 375)).toMatchObject({ on: { from: "web", to: "routes" }, arrow: "web->api" });
   });
 
   it("puts the note on the frame, inside it and off its boxes and arrows", () => {
-    expect(dropAt(300, 420)).toEqual({ on: { element: "shop" }, node: "__frame" });
+    expect(dropAt(300, 420)).toEqual({ on: { element: "shop" }, anchor: { kind: "frame", id: "shop" }, node: "__frame" });
   });
 
   it("puts the note on nothing over a note, even one over a box, or off the diagram", () => {
@@ -263,7 +263,7 @@ describe("what a note's dot is let go on", () => {
     expect(dropAt(2000, 2000)).toBeUndefined();
   });
 
-  it("puts the note on nothing over an arrow a note can't be on", () => {
+  it("passes over an arrow a note can't be on", () => {
     // Logging's writer is drawn in each container built with it, and a note on its relationship has its line to the first arrow.
     const model: OpenArchDocument = {
       openarch: 13,
@@ -279,10 +279,46 @@ describe("what a note's dot is let go on", () => {
       views: { containers: { title: "Containers", level: "container", scope: "shop" } },
     };
     const logs = computed(model, "containers");
-    const drawn = logs.cv.edges.map((e, k): DrawnArrow => ({ id: `${e.from}->${e.to}`, edge: e, points: [{ x: 0, y: 1000 + k * 100 }, { x: 500, y: 1000 + k * 100 }] }));
+    // The two arrows run side by side, 4 apart.
+    const drawn = logs.cv.edges.map((e, k): DrawnArrow => ({ id: `${e.from}->${e.to}`, edge: e, points: [{ x: 0, y: 1000 + k * 4 }, { x: 500, y: 1000 + k * 4 }] }));
     expect(drawn.map((a) => a.id)).toEqual(["api->logs", "web->logs"]);
     const at = (y: number) => noteDropAt(logs.ws, logs.cv, [], drawn, { x: 250, y }, { reach: 9, noteSize: STICKY });
-    expect(at(1000)).toEqual({ on: { from: "writer", to: "logs" }, arrow: "api->logs" });
-    expect(at(1100)).toBeUndefined();
+    expect(at(1000)).toMatchObject({ on: { from: "writer", to: "logs" }, arrow: "api->logs" });
+    // Nearer Web's arrow, which a note can't be on, so on the API's.
+    expect(at(1005)).toMatchObject({ on: { from: "writer", to: "logs" }, arrow: "api->logs" });
+    expect(at(1012)).toBeUndefined();
+  });
+});
+
+describe("the edit a note's dot let go makes", () => {
+  // Web's relationships to the routes inside the API and to the API itself are drawn as one arrow.
+  const model = structuredClone(doc);
+  model.elements.web!.uses = [
+    { to: "routes", description: "Calls" },
+    { to: "api", description: "Checks it's up" },
+  ];
+  model.views.containers!.stickies = {
+    second: { text: "Second", on: { from: "web", to: "api" } },
+    inside: { text: "Inside", on: { element: "routes" } },
+    placed: { text: "Placed", on: { element: "web" }, at: [10, 20] },
+    loose: { text: "Loose" },
+  };
+  const { ws, cv } = computed(model, "containers");
+  const note = (id: string) => cv.view.stickies.find((s) => s.id === id)!;
+  const arrow = cv.edges.find((e) => e.from === "web" && e.to === "api")!;
+  const onArrow = { on: { from: "web", to: "routes" }, anchor: { kind: "arrow" as const, edge: arrow }, arrow: "web->api" };
+  const onBox = (id: string) => ({ on: { element: id }, anchor: { kind: "box" as const, id }, node: id });
+
+  it("changes nothing when the note's line goes there already", () => {
+    expect(arrow.sources.length).toBe(2);
+    expect(noteDropOps(ws, cv, note("second"), onArrow, { x: 0, y: 0 })).toEqual([]);
+    // Routes is drawn as the API's box.
+    expect(noteDropOps(ws, cv, note("inside"), onBox("api"), { x: 0, y: 0 })).toEqual([]);
+  });
+
+  it("puts the note on it, where it's drawn, or where it was put", () => {
+    expect(noteDropOps(ws, cv, note("second"), onBox("customer"), { x: 0, y: 0 })).toEqual([{ op: "update-sticky", view: "containers", id: "second", on: { element: "customer" }, at: [0, 0] }]);
+    expect(noteDropOps(ws, cv, note("loose"), onArrow, { x: 300.4, y: 19.6 })).toEqual([{ op: "update-sticky", view: "containers", id: "loose", on: { from: "web", to: "routes" }, at: [300, 20] }]);
+    expect(noteDropOps(ws, cv, note("placed"), onBox("customer"), { x: 10, y: 20 })).toEqual([{ op: "update-sticky", view: "containers", id: "placed", on: { element: "customer" } }]);
   });
 });
