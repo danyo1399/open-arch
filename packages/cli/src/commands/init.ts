@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { agentsSection, buildWorkspace, emptyDocument, FILE_EXTENSION, lineEnding, LineBreakInPath, nameFromFileName, withAgentsSection } from "@open-arch/core";
 import { skillDir } from "@open-arch/skill";
 import { CliError, VERSION, type Io } from "../io.js";
-import { displayPath, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
+import { displayPath, readWorkspaceFile, SKILL_TARGETS, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { describeDocs } from "./export.js";
 
 export interface InitOptions {
@@ -14,8 +14,7 @@ export interface InitOptions {
   noAgentsMd?: boolean;
 }
 
-/** Where agents look for project skills. Claude Code reads only `.claude/skills`; most others read `.agents/skills`. */
-export const SKILL_TARGETS = [".agents/skills/open-arch", ".claude/skills/open-arch"];
+export { SKILL_TARGETS } from "../workspace.js";
 
 export function init(io: Io, opts: InitOptions): number {
   let file = resolve(io.cwd, opts.file ?? `architecture${FILE_EXTENSION}`);

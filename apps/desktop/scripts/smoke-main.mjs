@@ -1,7 +1,7 @@
 // Electron entry for the smoke test (see smoke.mjs). Loads the real main
 // process, then drives and inspects the window it opens.
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app, ipcMain } from "electron";
 
@@ -86,6 +86,10 @@ app.on("browser-window-created", (_e, win) => {
       await sleep(1000);
       check(doc().name === "Shop (renamed)", "saves designer edits to the file");
       check(docsPage("README.md").includes("# Shop (renamed)"), "refreshes the docs folder on save");
+      // As the web app's folder saves do: the skill and AGENTS.md's section at the project's top.
+      const skill = join(folder, ".claude", "skills", "open-arch", "SKILL.md");
+      check(existsSync(skill) && !readFileSync(skill, "utf8").includes("{{version}}"), "puts the agent skill beside the file, with the version filled in");
+      check(existsSync(join(folder, "AGENTS.md")) && readFileSync(join(folder, "AGENTS.md"), "utf8").includes("<!-- open-arch:start -->"), "puts the open-arch section in AGENTS.md");
 
       const outside = await page(`window.openArchDesktop.load("/etc/hosts").then(() => "loaded", (e) => e.message)`);
       check(String(outside).includes("wasn't opened"), "refuses files the user didn't open");

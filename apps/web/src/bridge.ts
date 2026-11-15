@@ -41,8 +41,8 @@ export interface DesktopBridge {
   /** The file opened last time, if it still exists. */
   lastFile(): Promise<OpenedFile | null>;
   load(path: string): Promise<string>;
-  /** Write the file, then refresh its docs folder if it names one. */
-  save(path: string, text: string): Promise<DocsSummary | null>;
+  /** Write the file, then refresh its docs folder if it names one, and the agent skill and AGENTS.md section beside it. */
+  save(path: string, text: string): Promise<SaveSummary>;
   /** Calls `onChange` when the file changes on disk. Returns a function that stops watching. */
   watch(path: string, onChange: () => void): () => void;
   /** The AI agent, when the app has one. */

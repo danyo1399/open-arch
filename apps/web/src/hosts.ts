@@ -25,7 +25,7 @@ export interface WorkspaceHost {
   load(): Promise<string>;
   /** Save the file's new text. May report the docs folder it refreshed, the agent skill, and the section in AGENTS.md. */
   save(text: string): Promise<SaveSummary | void>;
-  /** Saving also keeps the agent skill up to date beside the workspace: for a workspace in a folder (folders.ts). */
+  /** Saving also keeps the agent skill and the AGENTS.md section up to date beside the workspace: on desktop, and for a workspace in a folder (folders.ts). */
   syncsSkill?: boolean;
   /**
    * Calls `onChange` when the workspace changes outside this window, and `onRemoved` when it's
@@ -258,6 +258,7 @@ export function desktopBridge(): DesktopBridge | undefined {
 export class DesktopHost implements WorkspaceHost {
   readonly storage = "file";
   readonly syncsDocs = true;
+  readonly syncsSkill = true;
 
   constructor(
     private readonly bridge: DesktopBridge,
@@ -273,8 +274,8 @@ export class DesktopHost implements WorkspaceHost {
     return this.bridge.load(this.path);
   }
 
-  async save(text: string): Promise<SaveSummary> {
-    return { docs: await this.bridge.save(this.path, text) };
+  save(text: string): Promise<SaveSummary> {
+    return this.bridge.save(this.path, text);
   }
 
   watch(onChange: () => void): () => void {
