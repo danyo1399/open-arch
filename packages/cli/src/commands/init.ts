@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { agentsSection, buildWorkspace, emptyDocument, FILE_EXTENSION, lineEnding, nameFromFileName, withAgentsSection } from "@open-arch/core";
+import { agentsSection, buildWorkspace, emptyDocument, FILE_EXTENSION, lineEnding, LineBreakInPath, nameFromFileName, withAgentsSection } from "@open-arch/core";
 import { skillDir } from "@open-arch/skill";
 import { CliError, VERSION, type Io } from "../io.js";
 import { displayPath, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
@@ -68,7 +68,10 @@ export function init(io: Io, opts: InitOptions): number {
       }
       text = withAgentsSection(before, agentsSection(workspace, docsPath, VERSION, lineEnding(before)));
     } catch (error) {
-      throw new CliError(`${(error as Error).message} ${opts.noSkills ? "The workspace and its docs are" : "The workspace, its docs and the skill are"} in place: run open-arch init again once AGENTS.md is fixed.`);
+      const inPlace = opts.noSkills ? "The workspace and its docs are" : "The workspace, its docs and the skill are";
+      // A path with a line break is fixed by renaming it, not by changing AGENTS.md.
+      const fix = error instanceof LineBreakInPath ? "rename it so its path has no line break, then run open-arch init again" : "run open-arch init again once AGENTS.md is fixed";
+      throw new CliError(`${(error as Error).message} ${inPlace} in place: ${fix}.`);
     }
     writeFileSync(agentsMd, text);
     io.out(`${existed ? "updated" : "created"} ${displayPath(io.cwd, agentsMd)}\n`);

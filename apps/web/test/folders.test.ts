@@ -394,6 +394,14 @@ describe("keeping the AGENTS.md section", () => {
     expect(file.text).toBe(`# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
   });
 
+  it("names docs at the top of the folder as ./", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A", "."));
+    expect(await new FolderHost("1", root, "a.openarch").save(workspace("B", "."))).toMatchObject({ docs: { written: 1 } });
+    expect(root.files()["AGENTS.md"]).toContain("Readable docs generated from it are in `./`.");
+    expect(Object.keys(root.files())).toContain("README.md");
+  });
+
   it("says it can't name a workspace whose path has a line break in it", async () => {
     const root = new FakeFolder("repo");
     root.put("a\nb.openarch", workspace("A"));
