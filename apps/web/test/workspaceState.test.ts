@@ -87,6 +87,33 @@ describe("the open workspace", () => {
     expect(state().docs).toBeNull();
   });
 
+  it("takes down what a save said went wrong once a save goes through", async () => {
+    const host = new TestHost("file");
+    const summaries: (DocsSummary | null)[] = [{ dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." }, { dir: "docs", written: 1, deleted: 0, skipped: [] }];
+    host.save = async (next) => {
+      host.file = next;
+      return summaries.shift();
+    };
+    const state = await workspaceFor(host);
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
+    expect(state().message?.text).toContain("weren't updated");
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "C" }])));
+    expect(state().message).toBeNull();
+
+    // A refused save's message too, but not another message shown since.
+    host.save = async () => {
+      throw new Error("It changed outside.");
+    };
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "D" }])));
+    expect(state().message?.text).toBe("Couldn't save: It changed outside.");
+    host.save = async (next) => void (host.file = next);
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "E" }])));
+    expect(state().message).toBeNull();
+    await act(async () => state().notify({ kind: "error", text: "Couldn't copy." }));
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "F" }])));
+    expect(state().message?.text).toBe("Couldn't copy.");
+  });
+
   it("says how far the docs got when writing them stopped partway", () => {
     expect(docsProblem({ dir: "docs", written: 2, deleted: 1, skipped: [], error: "Not allowed." })).toBe("Saved, but updating the docs in docs/ stopped partway, after 3 pages: Not allowed.");
     expect(docsProblem({ dir: "docs", written: 0, deleted: 0, skipped: [], error: "Not allowed." })).toBe("Saved, but the docs in docs/ weren't updated: Not allowed.");

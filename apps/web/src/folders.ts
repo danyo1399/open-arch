@@ -225,6 +225,19 @@ export class FolderHost implements WorkspaceHost {
     }
   }
 
+  /** Saves a new workspace, and its docs. Refuses if the file is there already, so nothing is overwritten. */
+  async create(text: string): Promise<DocsSummary | null> {
+    const there = await fileAt(this.root, this.path).then(
+      () => true,
+      (error) => {
+        if (isMissing(error)) return false;
+        throw error;
+      },
+    );
+    if (there) throw new Error(`${this.location} is there already, so it wasn't created. Open the folder again to open it.`);
+    return this.save(text);
+  }
+
   async save(text: string): Promise<DocsSummary | null> {
     const ws = loadWorkspace(text);
     if (!ws.valid) throw new Error(`Refusing to save: the workspace has structural errors (${ws.diagnostics.map((d) => d.message).join(" ")})`);
@@ -282,24 +295,31 @@ export class FolderHost implements WorkspaceHost {
    * Checks the file every so often while the page is showing, and as soon as it shows again, for
    * changes made outside the designer: an editor, the CLI, an agent, or Git. The first check
    * compares the file with the text loaded, so a change made in between is noticed too. Calls
-   * `onRemoved` once when it's gone.
+   * `onRemoved` once when two checks in a row don't find it.
    */
   watch(onChange: () => void, onRemoved?: () => void): () => void {
     this.reload = onChange;
-    let seen: string | null = null;
+    /** The text the last check found: at first, what was loaded. */
+    let seen: string | null = this.known;
+    /** Checks in a row that found no file. */
+    let missing = 0;
     let stopped = false;
     let checking = false;
     const check = async () => {
       if (stopped || checking || (typeof document !== "undefined" && document.hidden)) return;
       checking = true;
       try {
-        const file = await (await fileAt(this.root, this.path)).getFile();
-        const stamp = `${file.lastModified}/${file.size}`;
-        const changed = seen === null ? this.known !== null && (await file.text()) !== this.known : stamp !== seen;
-        seen = stamp;
+        // The text, not the file's time and size: a change can keep both, on a file system
+        // that keeps times to the second. The file is small, so reading it is cheap.
+        const text = await readText(await fileAt(this.root, this.path));
+        missing = 0;
+        const changed = seen !== null && text !== seen;
+        seen = text;
         if (changed && !stopped) onChange();
       } catch (error) {
-        if (isMissing(error) && !stopped) {
+        // Editors, agents and Git can replace the file by moving it aside first, so it's only
+        // gone once the next check doesn't find it either.
+        if (isMissing(error) && ++missing >= 2 && !stopped) {
           stop();
           onRemoved?.();
         }
@@ -408,14 +428,13 @@ const FOLDER_PREFIX = "folder/";
 
 /**
  * The web app names the open workspace in the URL's hash, so reloading the page reopens it. A
- * workspace in a folder is named by its place in the list of folders opened. Given a host, this is
- * its hash; given a hash, the ID it names, or null when it names no folder.
+ * workspace in a folder is named by its place in the list of folders opened.
  */
-export function folderHash(of: FolderHost): string;
-export function folderHash(of: string): string | null;
-export function folderHash(of: FolderHost | string): string | null {
-  if (typeof of !== "string") return FOLDER_PREFIX + of.id;
-  return of.startsWith(FOLDER_PREFIX) && of.length > FOLDER_PREFIX.length ? of.slice(FOLDER_PREFIX.length) : null;
+export const hashForFolder = (host: FolderHost) => FOLDER_PREFIX + host.id;
+
+/** The ID of the folder a URL's hash names, or null when it names none. */
+export function folderIdInHash(hash: string): string | null {
+  return hash.startsWith(FOLDER_PREFIX) && hash.length > FOLDER_PREFIX.length ? hash.slice(FOLDER_PREFIX.length) : null;
 }
 
 /**
@@ -424,7 +443,7 @@ export function folderHash(of: FolderHost | string): string | null {
  * lists the folder to open instead.
  */
 export async function folderInUrl(hash: string, folders: Pick<FolderList, "get"> = folderList): Promise<FolderHost | null> {
-  const id = folderHash(hash);
+  const id = folderIdInHash(hash);
   const record = id === null ? undefined : await folders.get(id);
   return record && (await allowed(record.root, false)) ? new FolderHost(record.id, record.root, record.path) : null;
 }

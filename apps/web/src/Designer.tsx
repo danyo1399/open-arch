@@ -377,7 +377,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const syncsDocs = savesDocs(host, state.storage);
   const status =
     state.storage === "file"
-      ? syncsDocs && ws.doc.export?.docs
+      ? syncsDocs && ws.doc.export?.docs && !state.docs?.error
         ? `Saved · docs in ${ws.doc.export.docs}/`
         : "Saved"
       : state.storage === "browser"

@@ -62,7 +62,6 @@ function allowed(path: string): string {
   return abs;
 }
 
-
 /** Save a document and refresh its docs folder; returns what happened to the docs, for the UI. */
 function save(file: string, doc: OpenArchDocument) {
   writeWorkspaceFile(file, doc);

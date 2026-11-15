@@ -83,7 +83,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
     attempt(async () => {
       const doc = emptyDocument(nameFromFileName(root.name) || "Architecture");
       doc.export = { docs: NEW_DOCS };
-      const docs = await new FolderHost("new", root, NEW_FILE).save(serializeDocument(doc));
+      const docs = await new FolderHost("new", root, NEW_FILE).create(serializeDocument(doc));
       // Opened, the designer would hide what went wrong, so it's said here, and the list has it to open.
       if (docs?.error) {
         await folders.add(root, NEW_FILE);

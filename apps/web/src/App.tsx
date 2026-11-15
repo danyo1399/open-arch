@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Designer } from "./Designer.js";
-import { folderHash, FolderHost, folderInUrl } from "./folders.js";
+import { folderIdInHash, FolderHost, folderInUrl, folderList, hashForFolder, type FolderList } from "./folders.js";
 import { BrowserHost, desktopBridge, DesktopHost, SharedHost, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { LibraryPage } from "./LibraryPage.js";
@@ -17,11 +17,12 @@ function urlFor(host: WorkspaceHost | null): string {
   query.delete("v");
   const page = location.pathname + (query.size ? `?${query}` : "");
   if (host instanceof SharedHost) return location.pathname + linkSuffix(host.link);
-  if (host instanceof FolderHost) return `${page}#${folderHash(host)}`;
+  if (host instanceof FolderHost) return `${page}#${hashForFolder(host)}`;
   return host instanceof BrowserHost ? `${page}#${host.id}` : page;
 }
 
-export function App() {
+/** `folders` is the list of folders opened: the browser's own, unless a test gives another. */
+export function App({ folders = folderList }: { folders?: FolderList }) {
   const desktop = desktopBridge();
   // A share link opens the workspace it names.
   const [host, setHost] = useState<WorkspaceHost | null>(() => {
@@ -38,8 +39,8 @@ export function App() {
       void desktop.lastFile().then((file) => {
         if (file && !cancelled) setHost(new DesktopHost(desktop, file.path, file.name));
       });
-    } else if (restoring && folderHash(idInUrl()) !== null) {
-      folderInUrl(idInUrl())
+    } else if (restoring && folderIdInHash(idInUrl()) !== null) {
+      folderInUrl(idInUrl(), folders)
         .then((folder) => {
           if (folder && !cancelled) setHost(folder);
         })
@@ -76,5 +77,5 @@ export function App() {
     return <Designer key={key} host={host} onClose={() => setHost(null)} onHostChange={setHost} />;
   }
   if (restoring) return null;
-  return desktop ? <DesktopStart desktop={desktop} onOpen={setHost} /> : <LibraryPage library={browserLibrary} onOpen={setHost} />;
+  return desktop ? <DesktopStart desktop={desktop} onOpen={setHost} /> : <LibraryPage library={browserLibrary} folders={folders} onOpen={setHost} />;
 }

@@ -148,13 +148,22 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   const diagnostics = useMemo(() => (ws ? checkWorkspace(ws) : []), [ws]);
 
   /** Saves, then shows the new text, and runs `then` in the same render. */
+  /** The message saying the last save went wrong, if that's still the one showing. */
+  const problem = useRef<WorkspaceState["message"]>(null);
+  const saveProblem = (text: string) => {
+    problem.current = { kind: "error", text };
+    setMessage(problem.current);
+  };
+
   const write = useCallback(
     async (next: string, then?: () => void) => {
       if (!isDeleted.current) {
         const summary = await host.save(next);
         // A save with no docs folder clears what an earlier one said about the docs.
         setDocs(summary || null);
-        if (summary?.error) setMessage({ kind: "error", text: docsProblem(summary) });
+        if (summary?.error) saveProblem(docsProblem(summary));
+        // A save that went through takes down what an earlier one said went wrong.
+        else setMessage((shown) => (shown === problem.current ? null : shown));
         if (host.storage === "file") setSavedText(next);
       }
       commit(next);
@@ -188,7 +197,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(next, () => applied.current?.(ops));
         } catch (error) {
-          setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
+          saveProblem(`Couldn't save: ${(error as Error).message}`);
           return false;
         }
         updateHistory((h) => ({ undo: [...h.undo, { text: before, renames: renamesIn(ops) }].slice(-HISTORY_LIMIT), redo: [] }));
@@ -207,7 +216,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(target, () => applied.current?.(renames));
         } catch (error) {
-          setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
+          saveProblem(`Couldn't save: ${(error as Error).message}`);
           return false;
         }
         updateHistory((h) => ({ undo: [...h.undo, { text: before, renames }].slice(-HISTORY_LIMIT), redo: [] }));
@@ -227,7 +236,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(target.text, () => applied.current?.(direction === "undo" ? undoRenames(renames) : renames));
         } catch (error) {
-          setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
+          saveProblem(`Couldn't save: ${(error as Error).message}`);
           return;
         }
         const back: Step = { text: now, renames };

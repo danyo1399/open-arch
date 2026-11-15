@@ -2,7 +2,7 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allowed, findWorkspaces, folderHash, FolderHost, folderInUrl, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
+import { allowed, findWorkspaces, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
 import { exampleHost, MemoryHost, savesDocs } from "../src/hosts.js";
 import { FakeFile, FakeFolder } from "./fakeFolder.js";
 
@@ -167,6 +167,16 @@ describe("a workspace in a folder", () => {
     expect(Object.keys(root.files()).filter((p) => p.startsWith(`${docs}/elements/`))).toHaveLength(summary!.written - 1);
   });
 
+  it("creates a new workspace, but never over a file that's there", async () => {
+    const root = new FakeFolder("repo");
+    expect(await new FolderHost("1", root, "architecture.openarch").create(workspace("A", "docs"))).toMatchObject({ written: 1 });
+    expect(root.files()["architecture.openarch"]).toBe(workspace("A", "docs"));
+    // Pulled in after the folder was searched, say.
+    root.put("other.openarch", workspace("Pulled"));
+    await expect(new FolderHost("2", root, "other.openarch").create(workspace("B"))).rejects.toThrow("repo/other.openarch is there already, so it wasn't created.");
+    expect(root.files()["other.openarch"]).toBe(workspace("Pulled"));
+  });
+
   it("says when the file isn't there any more", async () => {
     await expect(new FolderHost("1", new FakeFolder("repo"), "gone.openarch").load()).rejects.toThrow("repo/gone.openarch isn't there any more.");
   });
@@ -236,12 +246,58 @@ describe("watching a workspace in a folder", () => {
 
     root.entries.delete("a.openarch");
     await vi.advanceTimersByTimeAsync(100);
+    // Only gone once a second check doesn't find it either.
+    expect(onRemoved).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
     expect(onRemoved).toHaveBeenCalledTimes(1);
     // It stops watching once the file's gone.
     root.put("a.openarch", workspace("C"));
     await vi.advanceTimersByTimeAsync(300);
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onRemoved).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("notices a change that keeps the file's time and size", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await host.load();
+    const onChange = vi.fn();
+    const stop = host.watch(onChange);
+    await vi.advanceTimersByTimeAsync(150);
+    const file = root.entries.get("a.openarch") as FakeFile;
+    const { lastModified } = file;
+    file.set(workspace("B"));
+    file.lastModified = lastModified;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("keeps watching a file that's moved aside for a moment, as editors and Git do", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await host.load();
+    const onChange = vi.fn();
+    const onRemoved = vi.fn();
+    const stop = host.watch(onChange, onRemoved);
+    await vi.advanceTimersByTimeAsync(50);
+    root.entries.delete("a.openarch");
+    await vi.advanceTimersByTimeAsync(100);
+    root.put("a.openarch", workspace("B"));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onRemoved).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    // A later gap of one check is forgiven too.
+    root.entries.delete("a.openarch");
+    await vi.advanceTimersByTimeAsync(100);
+    root.put("a.openarch", workspace("B"));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onRemoved).not.toHaveBeenCalled();
     stop();
   });
 
@@ -279,10 +335,10 @@ describe("a workspace in a folder in the URL", () => {
   const stored = (root: FolderHandle): StoredFolder => ({ id: "f1", root, path: "arch/a.openarch", opened: 1 });
 
   it("names the folder's place in the list, and reads it back", () => {
-    expect(folderHash(new FolderHost("f1", new FakeFolder("repo"), "a.openarch"))).toBe("folder/f1");
-    expect(folderHash("folder/f1")).toBe("f1");
-    expect(folderHash("folder/")).toBeNull();
-    expect(folderHash("abc123")).toBeNull();
+    expect(hashForFolder(new FolderHost("f1", new FakeFolder("repo"), "a.openarch"))).toBe("folder/f1");
+    expect(folderIdInHash("folder/f1")).toBe("f1");
+    expect(folderIdInHash("folder/")).toBeNull();
+    expect(folderIdInHash("abc123")).toBeNull();
   });
 
   it("reopens it when the browser still allows it, and not when it would have to ask", async () => {
