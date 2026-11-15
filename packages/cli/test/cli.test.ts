@@ -553,7 +553,7 @@ describe("init", () => {
     mkdirSync(join(project, "AGENTS.md"));
     const result = cli(project, "init");
     expect(result.code).toBe(1);
-    expect(result.err).toContain("EISDIR");
+    expect(result.err).toContain("Couldn't read AGENTS.md: EISDIR");
     expect(result.err).not.toContain("isn't UTF-8");
   });
 
@@ -566,6 +566,10 @@ describe("init", () => {
     expect(result.code).toBe(1);
     expect(result.err).toContain("AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone.");
     expect(result.err).toContain("The workspace, its docs and the skill are in place: run open-arch init again once AGENTS.md is fixed.");
+    // Without the skill, it doesn't say the skill is in place.
+    const noSkills = cli(project, "init", "--no-skills");
+    expect(noSkills.code).toBe(1);
+    expect(noSkills.err).toContain("The workspace and its docs are in place: run open-arch init again once AGENTS.md is fixed.");
     expect(read(project, "AGENTS.md")).toBe(broken);
   });
 

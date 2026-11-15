@@ -54,7 +54,12 @@ export function init(io: Io, opts: InitOptions): number {
       // As the designer does: a byte-order mark is kept, and bytes that aren't UTF-8 would be changed, so they're refused.
       let before = "";
       if (existed) {
-        const bytes = readFileSync(agentsMd);
+        let bytes;
+        try {
+          bytes = readFileSync(agentsMd);
+        } catch (error) {
+          throw new Error(`Couldn't read AGENTS.md: ${(error as Error).message}.`);
+        }
         try {
           before = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(bytes);
         } catch {

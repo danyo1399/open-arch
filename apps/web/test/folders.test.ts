@@ -381,6 +381,26 @@ describe("keeping the AGENTS.md section", () => {
     expect(root.files()["AGENTS.md"]).toBe(`# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
   });
 
+  it("says when it can't be read, and tries again on each save until it can", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    root.put("AGENTS.md", "# Rules\n");
+    const file = root.entries.get("AGENTS.md") as FakeFile;
+    file.unreadable = true;
+    const host = new FolderHost("1", root, "a.openarch");
+    expect(await host.save(workspace("B"))).toEqual({ docs: null, agentsError: "Not allowed." });
+    file.unreadable = false;
+    expect(await host.save(workspace("C"))).toEqual({ docs: null });
+    expect(file.text).toBe(`# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
+  });
+
+  it("says it can't name a workspace whose path has a line break in it", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a\nb.openarch", workspace("A"));
+    expect((await new FolderHost("1", root, "a\nb.openarch").save(workspace("B"))).agentsError).toContain("its path has a line break in it.");
+    expect(root.files()["AGENTS.md"]).toBeUndefined();
+  });
+
   it("says when it can't be written, and tries again on each save until it is", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));

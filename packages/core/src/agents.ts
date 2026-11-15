@@ -9,11 +9,14 @@ const SECTION_END = "<!-- open-arch:end -->";
 
 /**
  * The section, for a workspace at `workspace` and docs in `docs`, both relative to the project's
- * top. `version` is the CLI's, for agents without it installed. Its lines end in `eol`, which is the
- * file's own line ending (lineEnding), so the names in it are written exactly as they are, line
- * breaks and all.
+ * top. `version` is the CLI's, for agents without it installed. Its lines end in `eol`, the file's
+ * own line ending (lineEnding). A path with a line break in it can't be named in the section, which
+ * is read a line at a time, so it throws.
  */
 export function agentsSection(workspace: string, docs: string | undefined, version: string, eol = "\n"): string {
+  for (const path of [workspace, docs]) {
+    if (path && /[\r\n]/.test(path)) throw new Error(`AGENTS.md's open-arch section can't name ${JSON.stringify(path)}: its path has a line break in it.`);
+  }
   return [
     SECTION_START,
     "## Architecture",
@@ -96,7 +99,7 @@ export function agentsSectionWorkspace(text: string): string | null {
   }
   if (!found) return null;
   // A code span: a run of backticks, the name (padded with a space when it has backticks of its own), and the same run.
-  const span = /open-arch model \([^)]*\) in (`+)([\s\S]*?)\1(?!`)\./.exec(text.slice(found[0].end, found[1].at));
+  const span = /open-arch model \([^)]*\) in (`+)(.*?)\1(?!`)\./.exec(text.slice(found[0].end, found[1].at));
   if (!span) return null;
   const name = span[2]!;
   return span[1]!.length > 1 && name.startsWith(" ") && name.endsWith(" ") ? name.slice(1, -1) : name;

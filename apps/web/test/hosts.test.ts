@@ -50,6 +50,13 @@ describe("hosts", () => {
     expect(agents).toContain(`in \`shop.openarch\`. Readable docs generated from it are in \`${docs}/\`.`);
   });
 
+  it("leaves AGENTS.md out of the zip when the file's name has a line break in it", () => {
+    const text = JSON.stringify({ openarch: 11, name: "A", elements: {}, views: {} });
+    const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a\nb.openarch", text)));
+    expect(files).toContain("a\nb/a\nb.openarch");
+    expect(files.some((path) => path.endsWith("AGENTS.md"))).toBe(false);
+  });
+
   it("zips the docs in <name>-docs when the workspace names no docs folder, or one outside its folder", () => {
     for (const docs of [undefined, "../docs", "/docs"]) {
       const text = JSON.stringify({ openarch: 11, name: "A", ...(docs ? { export: { docs } } : {}), elements: {}, views: {} });

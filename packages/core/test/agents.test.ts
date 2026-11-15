@@ -79,20 +79,17 @@ describe("the AGENTS.md section", () => {
     expect(withAgentsSection("\uFEFF\n", one)).toBe(`\uFEFF${one}`);
   });
 
-  it("writes a name with backticks or line breaks so it reads back whole", () => {
-    for (const name of ["a`b.openarch", "``x``.openarch", "plain.openarch", "a\nb.openarch", "a\r\nb.openarch"]) {
+  it("writes a name with backticks so it reads back whole", () => {
+    for (const name of ["a`b.openarch", "``x``.openarch", "plain.openarch"]) {
       const section = agentsSection(name, "do`cs", "1");
       expect(agentsSectionWorkspace(section)).toBe(name);
     }
     expect(agentsSection("a`b.openarch", undefined, "1")).toContain("in `` a`b.openarch ``.");
   });
 
-  it("keeps the line breaks in a name, whatever the file's line endings", () => {
-    for (const file of ["# Rules\n", "# Rules\r\n"]) {
-      for (const name of ["a\nb.openarch", "a\r\nb.openarch"]) {
-        const written = withAgentsSection(file, agentsSection(name, undefined, "1", lineEnding(file)));
-        expect(agentsSectionWorkspace(written)).toBe(name);
-      }
+  it("refuses to name a path with a line break in it, as the section is read a line at a time", () => {
+    for (const [workspace, docs] of [["a\nb.openarch", undefined], ["a.openarch", "do\r\ncs"], ["a.openarch", "x\n<!-- open-arch:end -->"]] as const) {
+      expect(() => agentsSection(workspace, docs, "1")).toThrow("its path has a line break in it.");
     }
   });
 

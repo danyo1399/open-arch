@@ -354,14 +354,14 @@ export class FolderHost implements WorkspaceHost {
     const result: SaveSummary = { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
     // The section in AGENTS.md names the file and its docs, so it's written again whenever that changes.
     const docsPath = docsParts && docs ? docsParts.join("/") : undefined;
-    const section = agentsSection(this.path, docsPath, CLI_VERSION);
-    if (section !== this.agentsKept) {
-      try {
+    try {
+      const section = agentsSection(this.path, docsPath, CLI_VERSION);
+      if (section !== this.agentsKept) {
         await writeAgentsSection(this.root, this.path, docsPath);
         this.agentsKept = section;
-      } catch (error) {
-        result.agentsError = problemText(error);
       }
+    } catch (error) {
+      result.agentsError = problemText(error);
     }
     // Once each time the folder is opened, not on every save: saves come as the user types.
     if (!this.skillKept) {

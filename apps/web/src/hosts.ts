@@ -3,7 +3,7 @@
  * talks to a WorkspaceHost, so the same UI runs in the browser (workspaces kept
  * in IndexedDB, and the examples in memory) and in Electron (Node's fs).
  */
-import { agentsSection, exportDocs, FILE_EXTENSION, withAgentsSection, type Workspace } from "@open-arch/core";
+import { agentsSection, exportDocs, FILE_EXTENSION, type Workspace } from "@open-arch/core";
 import { strToU8, zipSync } from "fflate";
 import exampleText from "../../../examples/shop/shop.openarch?raw";
 import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw";
@@ -139,8 +139,13 @@ export function workspaceZip(ws: Workspace, fileName: string, text: string, plac
   const entries: Record<string, Uint8Array> = { [`${root}/${prefix(fileDir)}${fileName}`]: strToU8(text) };
   for (const f of exportDocs(ws, fileName)) entries[`${root}/${docs}${f.path}`] = strToU8(f.content);
   for (const target of SKILL_TARGETS) for (const f of skillFiles) entries[`${root}/${target}/${f.path}`] = strToU8(f.content);
-  // The section open-arch init adds to AGENTS.md, naming the file and the docs where they are in the zip.
-  entries[`${root}/AGENTS.md`] = strToU8(withAgentsSection("", agentsSection(`${prefix(fileDir)}${fileName}`, docs.replace(/\/$/, ""), CLI_VERSION)));
+  // The section open-arch init adds to AGENTS.md, naming the file and the docs where they are in the
+  // zip. A path with a line break in it can't be named there, so then the zip has no AGENTS.md.
+  try {
+    entries[`${root}/AGENTS.md`] = strToU8(agentsSection(`${prefix(fileDir)}${fileName}`, docs.replace(/\/$/, ""), CLI_VERSION));
+  } catch {
+    // Left out.
+  }
   return zipSync(entries);
 }
 

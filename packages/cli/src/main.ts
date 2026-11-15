@@ -51,9 +51,10 @@ Creates an empty workspace file (default: architecture.openarch) with a docs fol
 (default: docs/architecture, relative to the file). Also installs the open-arch agent skill
 into .agents/skills/ and .claude/skills/ and adds an open-arch section to AGENTS.md, at the
 repository root. Safe to run again: it keeps the file and refreshes the skill and the section.
-If AGENTS.md's section can't be told apart from the rest of it (a marker without its pair, the
-markers out of order, more than one section) or the file isn't UTF-8 text, init leaves AGENTS.md
-alone and exits 1; the workspace, its docs and the skill are still written.
+If AGENTS.md can't be read, isn't UTF-8 text, or has a section that can't be told apart from the
+rest of it (a marker without its pair, the markers out of order, more than one section), init
+leaves AGENTS.md alone and exits 1. The workspace and its docs are still written, and the skill
+too unless --no-skills is given.
 `,
     options: { name: s, docs: s, "no-skills": b, "no-agents-md": b },
     run: (io, v, p) => init(io, { file: p[0], name: str(v.name), docs: str(v.docs), noSkills: bool(v["no-skills"]), noAgentsMd: bool(v["no-agents-md"]) }),
