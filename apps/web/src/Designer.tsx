@@ -18,7 +18,7 @@ import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
-import { BrowserHost, copyText, desktopBridge, DesktopHost, docsZip, download, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, copyText, desktopBridge, DesktopHost, docsZip, download, savesDocs, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
 import {
@@ -374,9 +374,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             : [];
   // While Ask AI is open, the agent's edits reload the file again and again, and the panel already says what it changed.
   const message = state.message?.kind === "info" && askOpen ? null : state.message;
+  const syncsDocs = savesDocs(host, state.storage);
   const status =
     state.storage === "file"
-      ? host.syncsDocs && ws.doc.export?.docs
+      ? syncsDocs && ws.doc.export?.docs
         ? `Saved · docs in ${ws.doc.export.docs}/`
         : "Saved"
       : state.storage === "browser"
@@ -435,7 +436,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   // toolbar has no room for its Export menu there either, so that's in this menu too.
   const moreItems: MenuItem[] = [
     ...(desktop ? [] : providers.map((provider) => ({ label: provider.exportLabel, onSelect: () => exportTo(provider) }))),
-    ...(host.syncsDocs ? [] : [{ label: "Export docs", onSelect: exportDocs }]),
+    ...(syncsDocs ? [] : [{ label: "Export docs", onSelect: exportDocs }]),
     ...(canShare ? [{ label: "Share a link…", onSelect: () => setDialog({ kind: "share" }) }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
     ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
@@ -507,7 +508,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
               {provider.exportLabel}
             </button>
           ))}
-        {!narrow && !host.syncsDocs && (
+        {!narrow && !syncsDocs && (
           <button onClick={exportDocs} title="Markdown pages with Mermaid diagrams">
             Export docs
           </button>
@@ -643,7 +644,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         computed={computed}
         selection={selection}
         isNew={isNew}
-        syncsDocs={!!host.syncsDocs}
+        syncsDocs={syncsDocs}
         docs={state.docs}
         fileName={host.name}
         edit={edit}

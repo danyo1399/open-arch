@@ -17,6 +17,8 @@ export interface DocsSummary {
   deleted: number;
   /** Files in the folder open-arch didn't generate, left alone. */
   skipped: string[];
+  /** Why the docs couldn't be written, when the file was saved but they weren't. */
+  error?: string;
 }
 
 export interface DesktopBridge {

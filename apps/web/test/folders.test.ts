@@ -2,102 +2,9 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allowed, findWorkspaces, FolderHost, FolderList, writeDocs, type FileHandle, type FolderHandle } from "../src/folders.js";
-import { exampleHost } from "../src/hosts.js";
-
-const notFound = () => Object.assign(new Error("A requested file or directory could not be found."), { name: "NotFoundError" });
-
-/** A folder on disk, in memory, with the parts of the File System Access API the host uses. */
-class FakeFolder implements FolderHandle {
-  readonly kind = "directory";
-  readonly entries = new Map<string, FakeFile | FakeFolder>();
-  permission: PermissionState = "granted";
-  constructor(readonly name: string) {}
-
-  async *values() {
-    yield* this.entries.values();
-  }
-  async getFileHandle(name: string, options?: { create?: boolean }): Promise<FileHandle> {
-    const entry = this.entries.get(name);
-    if (entry instanceof FakeFile) return entry;
-    if (entry) throw Object.assign(new Error("It's a folder."), { name: "TypeMismatchError" });
-    if (!options?.create) throw notFound();
-    const file = new FakeFile(name, "");
-    this.entries.set(name, file);
-    return file;
-  }
-  async getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<FolderHandle> {
-    const entry = this.entries.get(name);
-    if (entry instanceof FakeFolder) return entry;
-    if (entry) throw Object.assign(new Error("It's a file."), { name: "TypeMismatchError" });
-    if (!options?.create) throw notFound();
-    const folder = new FakeFolder(name);
-    this.entries.set(name, folder);
-    return folder;
-  }
-  async removeEntry(name: string): Promise<void> {
-    if (!this.entries.delete(name)) throw notFound();
-  }
-  async queryPermission(): Promise<PermissionState> {
-    return this.permission;
-  }
-  async requestPermission(): Promise<PermissionState> {
-    return this.permission === "prompt" ? (this.permission = "granted") : this.permission;
-  }
-
-  /** Writes a file at a path, making the folders on the way. */
-  put(path: string, text: string): void {
-    const parts = path.split("/");
-    let dir: FakeFolder = this;
-    for (const part of parts.slice(0, -1)) {
-      if (!dir.entries.has(part)) dir.entries.set(part, new FakeFolder(part));
-      dir = dir.entries.get(part) as FakeFolder;
-    }
-    const name = parts[parts.length - 1]!;
-    const file = dir.entries.get(name);
-    if (file instanceof FakeFile) file.set(text);
-    else dir.entries.set(name, new FakeFile(name, text));
-  }
-
-  /** Every file below, by path. */
-  files(prefix = ""): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const [name, entry] of this.entries) {
-      if (entry instanceof FakeFile) out[prefix + name] = entry.text;
-      else Object.assign(out, entry.files(`${prefix}${name}/`));
-    }
-    return out;
-  }
-
-  folders(prefix = ""): string[] {
-    return [...this.entries].flatMap(([name, entry]) => (entry instanceof FakeFolder ? [prefix + name, ...entry.folders(`${prefix}${name}/`)] : []));
-  }
-}
-
-let clock = 1;
-
-class FakeFile implements FileHandle {
-  readonly kind = "file";
-  lastModified = clock++;
-  constructor(
-    readonly name: string,
-    public text: string,
-  ) {}
-  set(text: string) {
-    this.text = text;
-    this.lastModified = clock++;
-  }
-  async getFile() {
-    return { lastModified: this.lastModified, size: this.text.length, text: async () => this.text };
-  }
-  async createWritable() {
-    let next = "";
-    return {
-      write: async (data: string) => void (next += data),
-      close: async () => this.set(next),
-    };
-  }
-}
+import { allowed, findWorkspaces, FolderHost, FolderList, writeDocs, type FolderHandle } from "../src/folders.js";
+import { exampleHost, MemoryHost, savesDocs } from "../src/hosts.js";
+import { FakeFolder } from "./fakeFolder.js";
 
 const workspace = (name: string, docs?: string) => {
   const doc = emptyDocument(name);
@@ -107,6 +14,7 @@ const workspace = (name: string, docs?: string) => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("finding workspaces in a folder", () => {
@@ -120,6 +28,14 @@ describe("finding workspaces in a folder", () => {
     root.put("node_modules/pkg/dep.openarch", "");
     root.put("README.md", "");
     expect(await findWorkspaces(root)).toEqual(["a.openarch", "b/b.openarch", "docs/arch/deep.openarch"]);
+  });
+
+  it("skips a folder it isn't allowed to read, as the CLI does", async () => {
+    const root = new FakeFolder("repo");
+    root.put("locked/hidden.openarch", "");
+    root.put("arch/a.openarch", "");
+    (root.entries.get("locked") as FakeFolder).unreadable = true;
+    expect(await findWorkspaces(root)).toEqual(["arch/a.openarch"]);
   });
 });
 
@@ -175,6 +91,47 @@ describe("a workspace in a folder", () => {
     expect(root.files()).toEqual({ "a.openarch": workspace("A") });
   });
 
+  it("refuses to save over a change made outside since it was loaded, and saves once it's reloaded", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch");
+    await host.load();
+    root.put("a.openarch", workspace("Pulled"));
+    await expect(host.save(workspace("Mine"))).rejects.toThrow("repo/a.openarch changed outside the designer, so this change wasn't saved");
+    expect(root.files()["a.openarch"]).toBe(workspace("Pulled"));
+    expect(await host.load()).toBe(workspace("Pulled"));
+    await host.save(workspace("Mine"));
+    expect(root.files()["a.openarch"]).toBe(workspace("Mine"));
+    // Its own saves don't count as outside changes.
+    await host.save(workspace("Mine again"));
+    expect(root.files()["a.openarch"]).toBe(workspace("Mine again"));
+  });
+
+  it("refuses to save once the file's gone, rather than make it again", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch");
+    await host.load();
+    root.entries.delete("a.openarch");
+    await expect(host.save(workspace("B"))).rejects.toThrow("isn't there any more, so the change wasn't saved");
+    expect(root.files()).toEqual({});
+  });
+
+  it("saves the file and says why, when the docs can't be written", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A", "docs"));
+    // A file where the docs folder should be.
+    root.put("docs", "not a folder");
+    const host = new FolderHost("1", root, "a.openarch");
+    await host.load();
+    const summary = await host.save(workspace("B", "docs"));
+    expect(summary).toMatchObject({ dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." });
+    expect(root.files()["a.openarch"]).toBe(workspace("B", "docs"));
+    // The next save goes ahead: the file holds what this one wrote.
+    root.entries.delete("docs");
+    expect(await host.save(workspace("C", "docs"))).toEqual({ dir: "docs", written: 1, deleted: 0, skipped: [] });
+  });
+
   it("says when the file isn't there any more", async () => {
     await expect(new FolderHost("1", new FakeFolder("repo"), "gone.openarch").load()).rejects.toThrow("repo/gone.openarch isn't there any more.");
   });
@@ -212,6 +169,13 @@ describe("keeping the docs folder", () => {
     expect(docs.folders().sort()).toEqual(["elements", "kept", "untouched"]);
   });
 
+  it("leaves a folder alone where a page would go", async () => {
+    const docs = new FakeFolder("docs");
+    docs.put("README.md/mine.md", "Mine.");
+    expect(await writeDocs(docs, [{ path: "README.md", content: page("index") }])).toEqual({ written: [], deleted: [], skipped: ["README.md"] });
+    expect(docs.files()).toEqual({ "README.md/mine.md": "Mine." });
+  });
+
   it("refuses a page path that leaves the docs folder", async () => {
     await expect(writeDocs(new FakeFolder("docs"), [{ path: "../escape.md", content: "x" }])).rejects.toThrow("Refusing to write");
   });
@@ -246,6 +210,22 @@ describe("watching a workspace in a folder", () => {
     stop();
   });
 
+  it("notices a change made between loading the file and the first check", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await host.load();
+    root.put("a.openarch", workspace("B"));
+    const onChange = vi.fn();
+    const stop = host.watch(onChange);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
   it("stops when asked", async () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
@@ -257,6 +237,15 @@ describe("watching a workspace in a folder", () => {
     root.put("a.openarch", workspace("B"));
     await vi.advanceTimersByTimeAsync(300);
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("saving docs", () => {
+  it("stops once a workspace's file is gone, when it only lives in the tab", () => {
+    const host = new FolderHost("1", new FakeFolder("repo"), "a.openarch");
+    expect(savesDocs(host, "file")).toBe(true);
+    expect(savesDocs(host, "memory")).toBe(false);
+    expect(savesDocs(new MemoryHost("a.openarch", ""), "memory")).toBe(false);
   });
 });
 
@@ -287,18 +276,17 @@ describe("the folders opened", () => {
     expect((await list.get(a.id))?.path).toBe("a.openarch");
     await list.remove(b.id);
     expect((await list.list()).map((r) => r.id)).toEqual([a.id]);
-    vi.restoreAllMocks();
   });
 
   it("opening the same workspace again keeps its place in the list", async () => {
     const list = new FolderList(`folders-${++count}`);
     const root = { kind: "directory", name: "repo" } as FolderHandle;
     const first = await list.add(root, "a.openarch");
-    // The browser compares handles; the handle stored is a copy, so the test stubs the comparison.
-    const stored = (await list.list())[0]!.root;
-    vi.spyOn(list, "list").mockResolvedValue([{ ...first, root: { ...stored, isSameEntry: async (other) => other === root } }]);
+    // The browser tells whether two handles are the same folder. What IndexedDB gives back here is
+    // a plain copy without that, so the list it reads is given a handle that can tell.
+    const sameFolder = { kind: "directory", name: "repo", isSameEntry: async (other: FolderHandle) => other === root } as FolderHandle;
+    vi.spyOn(list, "list").mockResolvedValueOnce([{ ...first, root: sameFolder }]);
     const again = await list.add(root, "a.openarch");
-    vi.restoreAllMocks();
     expect(again.id).toBe(first.id);
     expect(await list.list()).toHaveLength(1);
     // Another file in the same folder is another entry.

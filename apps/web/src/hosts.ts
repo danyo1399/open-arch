@@ -27,6 +27,12 @@ export interface WorkspaceHost {
   watch?(onChange: () => void, onRemoved?: () => void): () => void;
 }
 
+/**
+ * Whether saving rewrites the docs folder now: the host does it, and edits still go to its file.
+ * One whose file was deleted or moved only lives in the tab, so its docs are exported instead.
+ */
+export const savesDocs = (host: WorkspaceHost, storage: WorkspaceHost["storage"]) => !!host.syncsDocs && storage === "file";
+
 // --- In memory: the examples ------------------------------------------------------
 
 export class MemoryHost implements WorkspaceHost {

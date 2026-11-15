@@ -63,7 +63,7 @@ const SEARCH_DEPTH = 3;
 
 /**
  * The .openarch files in the folder and the folders below it, three deep, as paths relative to it.
- * Like the CLI, it skips hidden folders, such as .git, and node_modules.
+ * Like the CLI, it skips hidden folders, such as .git, and node_modules, and folders it can't read.
  */
 export async function findWorkspaces(root: FolderHandle): Promise<string[]> {
   const found: string[] = [];
@@ -71,7 +71,7 @@ export async function findWorkspaces(root: FolderHandle): Promise<string[]> {
     for await (const entry of dir.values()) {
       if (entry.kind === "file" && entry.name.endsWith(FILE_EXTENSION)) found.push(prefix + entry.name);
       else if (entry.kind === "directory" && depth < SEARCH_DEPTH && !entry.name.startsWith(".") && entry.name !== "node_modules") {
-        await walk(entry, `${prefix}${entry.name}/`, depth + 1);
+        await walk(entry, `${prefix}${entry.name}/`, depth + 1).catch(() => undefined);
       }
     }
   };
@@ -135,7 +135,9 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[]): Promi
     try {
       existing = await readText(await fileAt(dir, path));
     } catch (error) {
-      if (!isMissing(error) && (error as Error).name !== "TypeMismatchError") throw error;
+      // A file in the way of a folder the page goes in, or a folder in the page's place, is left alone too.
+      if ((error as Error).name === "TypeMismatchError") existing = "";
+      else if (!isMissing(error)) throw error;
     }
     if (existing === content) continue;
     if (existing !== null && !existing.startsWith(GENERATED_MARKER)) {
@@ -176,6 +178,8 @@ export class FolderHost implements WorkspaceHost {
   readonly storage = "file";
   readonly syncsDocs = true;
   readonly name: string;
+  /** The file's text as the designer last read or wrote it. Saving over anything else would lose a change made outside. */
+  private known: string | null = null;
 
   /** `path` is the file's, relative to `root`, with `/` between folders. */
   constructor(
@@ -198,7 +202,8 @@ export class FolderHost implements WorkspaceHost {
 
   async load(): Promise<string> {
     try {
-      return await readText(await fileAt(this.root, this.path));
+      this.known = await readText(await fileAt(this.root, this.path));
+      return this.known;
     } catch (error) {
       if (isMissing(error)) throw new Error(`${this.location} isn't there any more.`);
       throw error;
@@ -216,17 +221,37 @@ export class FolderHost implements WorkspaceHost {
       docsParts = segments(`${this.path.split("/").slice(0, -1).join("/")}/${docs}`);
       if (docsParts === null) throw new Error(`The docs folder ${docs}/ is outside the folder you opened, ${this.root.name}, so nothing was saved. Open the folder that holds it, or choose a docs folder inside ${this.root.name}.`);
     }
-    await writeText(await fileAt(this.root, this.path, true), serializeDocument(ws.doc));
+    // A change made outside since the designer read the file, by Git, an editor or an agent, is
+    // kept: this save is refused, and the watcher reloads the file.
+    if (this.known !== null) {
+      let now: string;
+      try {
+        now = await readText(await fileAt(this.root, this.path));
+      } catch (error) {
+        if (isMissing(error)) throw new Error(`${this.location} isn't there any more, so the change wasn't saved.`);
+        throw error;
+      }
+      if (now !== this.known) throw new Error(`${this.location} changed outside the designer, so this change wasn't saved, to keep that one. The file is reloaded: make the change again.`);
+    }
+    const saved = serializeDocument(ws.doc);
+    await writeText(await fileAt(this.root, this.path, true), saved);
+    this.known = saved;
     if (!docsParts || !docs) return null;
-    const dir = await folderAt(this.root, docsParts, true);
-    const result = await writeDocs(dir, exportDocs(ws, this.name));
-    return { dir: docs.replace(/\\/g, "/").replace(/\/+$/, ""), written: result.written.length, deleted: result.deleted.length, skipped: result.skipped };
+    const summary: DocsSummary = { dir: docs.replace(/\\/g, "/").replace(/\/+$/, ""), written: 0, deleted: 0, skipped: [] };
+    // The file is saved by now, so a docs folder that can't be written is reported, not thrown.
+    try {
+      const result = await writeDocs(await folderAt(this.root, docsParts, true), exportDocs(ws, this.name));
+      return { ...summary, written: result.written.length, deleted: result.deleted.length, skipped: result.skipped };
+    } catch (error) {
+      return { ...summary, error: (error as Error).message };
+    }
   }
 
   /**
    * Checks the file every so often while the page is showing, and as soon as it shows again, for
-   * changes made outside the designer: an editor, the CLI, an agent, or Git. Calls `onRemoved`
-   * once when it's gone.
+   * changes made outside the designer: an editor, the CLI, an agent, or Git. The first check
+   * compares the file with the text loaded, so a change made in between is noticed too. Calls
+   * `onRemoved` once when it's gone.
    */
   watch(onChange: () => void, onRemoved?: () => void): () => void {
     let seen: string | null = null;
@@ -238,8 +263,9 @@ export class FolderHost implements WorkspaceHost {
       try {
         const file = await (await fileAt(this.root, this.path)).getFile();
         const stamp = `${file.lastModified}/${file.size}`;
-        if (seen !== null && stamp !== seen && !stopped) onChange();
+        const changed = seen === null ? this.known !== null && (await file.text()) !== this.known : stamp !== seen;
         seen = stamp;
+        if (changed && !stopped) onChange();
       } catch (error) {
         if (isMissing(error) && !stopped) {
           stop();

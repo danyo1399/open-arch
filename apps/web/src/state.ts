@@ -110,7 +110,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           applied.current?.(renames);
           setSavedText(next);
           updateHistory(() => ({ undo: [], redo: [] }));
-          setMessage({ kind: "info", text: "The workspace changed outside this window, so it was reloaded." });
+          // An error, such as a save refused because of this change, stays until it's dismissed.
+          setMessage((shown) => (shown?.kind === "error" ? shown : { kind: "info", text: "The workspace changed outside this window, so it was reloaded." }));
         });
       },
       () => {
@@ -144,6 +145,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
       if (!isDeleted.current) {
         const summary = await host.save(next);
         if (summary) setDocs(summary);
+        if (summary?.error) setMessage({ kind: "error", text: `Saved, but the docs in ${summary.dir}/ weren't updated: ${summary.error}` });
         if (host.storage === "file") setSavedText(next);
       }
       commit(next);
@@ -213,7 +215,12 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         const target = stack[stack.length - 1];
         if (now === null || target === undefined) return;
         const { renames } = target;
-        await write(target.text, () => applied.current?.(direction === "undo" ? undoRenames(renames) : renames));
+        try {
+          await write(target.text, () => applied.current?.(direction === "undo" ? undoRenames(renames) : renames));
+        } catch (error) {
+          setMessage({ kind: "error", text: `Couldn't save: ${(error as Error).message}` });
+          return;
+        }
         const back: Step = { text: now, renames };
         updateHistory((h) =>
           direction === "undo" ? { undo: h.undo.slice(0, -1), redo: [...h.redo, back] } : { redo: h.redo.slice(0, -1), undo: [...h.undo, back] },
