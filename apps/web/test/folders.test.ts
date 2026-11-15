@@ -499,9 +499,27 @@ describe("keeping the docs folder", () => {
     docs.put("README.md", from("b.openarch", "B"));
     docs.put("views/b.md", from("b.openarch", "B view"));
     docs.put("views/old.md", from("a.openarch", "stale"));
-    const result = await writeDocs(docs, [{ path: "README.md", content: from("a.openarch", "A") }]);
-    expect(result).toEqual({ written: [], deleted: ["views/old.md"], skipped: ["README.md"] });
+    // b.openarch is there beside a.openarch; old.openarch, which a was before a rename, isn't.
+    docs.put("views/renamed.md", from("old.openarch", "stale"));
+    const isWorkspace = async (name: string) => name === "b.openarch";
+    const result = await writeDocs(docs, [{ path: "README.md", content: from("a.openarch", "A") }], undefined, isWorkspace);
+    expect(result).toEqual({ written: [], deleted: ["views/old.md", "views/renamed.md"], skipped: ["README.md"] });
     expect(docs.files()).toEqual({ "README.md": from("b.openarch", "B"), "views/b.md": from("b.openarch", "B view") });
+  });
+
+  it("keeps a renamed workspace's docs up to date through a folder's saves", async () => {
+    const root = new FakeFolder("repo");
+    root.put("old.openarch", workspace("A", "."));
+    await new FolderHost("1", root, "old.openarch").save(workspace("A", "."));
+    expect(root.files()["README.md"]).toContain("from old.openarch.");
+    // Renamed, as git mv old.openarch new.openarch would.
+    const text = root.files()["old.openarch"]!;
+    root.entries.delete("old.openarch");
+    root.put("new.openarch", text);
+    const saved = await new FolderHost("2", root, "new.openarch").save(workspace("A2", "."));
+    expect(saved.docs).toMatchObject({ skipped: [] });
+    expect(root.files()["README.md"]).toContain("from new.openarch.");
+    expect(root.files()["README.md"]).toContain("A2");
   });
 
   it("leaves a folder alone where a page would go", async () => {

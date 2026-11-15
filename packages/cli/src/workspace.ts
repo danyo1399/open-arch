@@ -102,23 +102,39 @@ export interface DocsResult {
 }
 
 /**
- * Whether the page at `path` is one open-arch generated from `source`, the file the docs being
- * written come from, so it may be overwritten or deleted. With no source known, any generated page.
+ * Whether the page at `path` may be overwritten or deleted when writing docs generated from
+ * `source`: a page open-arch generated from it, or from a file that isn't there beside it any more
+ * (say the workspace was renamed), or from no file named at all. A page generated from another
+ * workspace still beside it, in `workspaceDir`, is that one's, so two workspaces can share a docs
+ * folder. Without `workspaceDir`, any generated page.
  */
-const isGeneratedFrom = (path: string, source: string | null) => {
+const mayReplace = (path: string, source: string | null, workspaceDir: string | undefined) => {
+  let from: string | null;
   try {
-    const from = generatedFrom(readFileSync(path, "utf8"));
-    return from !== null && (source === null || from === source);
+    from = generatedFrom(readFileSync(path, "utf8"));
+  } catch {
+    return false;
+  }
+  if (from === null) return false;
+  if (!from || source === null || from === source || workspaceDir === undefined) return true;
+  return !isFile(join(workspaceDir, from));
+};
+
+const isFile = (path: string) => {
+  try {
+    return statSync(path).isFile();
   } catch {
     return false;
   }
 };
 
 /**
- * Make `dir` hold exactly these generated pages. Only pages carrying the
- * generated marker are ever overwritten or deleted; anything else is left alone.
+ * Make `dir` hold exactly these generated pages. Only pages open-arch generated from the same file
+ * are overwritten or deleted (see mayReplace), and stale ones are only looked for at the folder's
+ * top and in DOCS_PAGE_FOLDERS; anything else is left alone. `workspaceDir` is the folder the
+ * workspace file is in, to tell another workspace's pages from this one's.
  */
-export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?: boolean } = {}): DocsResult {
+export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?: boolean; workspaceDir?: string } = {}): DocsResult {
   const result: DocsResult = { dir, written: [], deleted: [], skipped: [] };
   const targets = new Map(files.map((f) => [fileInside(dir, f.path), f]));
   // Only pages generated from the same file: another workspace's docs can share the folder.
@@ -126,7 +142,7 @@ export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?
   for (const [abs, f] of targets) {
     if (existsSync(abs)) {
       if (readFileSync(abs, "utf8") === f.content) continue;
-      if (!isGeneratedFrom(abs, source)) {
+      if (!mayReplace(abs, source, options.workspaceDir)) {
         result.skipped.push(f.path);
         continue;
       }
@@ -150,7 +166,7 @@ export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?
       // file's own folder, or a repository's top, with other things in it.
       if (e.isDirectory()) {
         if (folder !== dir || DOCS_PAGE_FOLDERS.includes(e.name)) walk(abs);
-      } else if (e.name.endsWith(".md") && !targets.has(abs) && isGeneratedFrom(abs, source)) {
+      } else if (e.name.endsWith(".md") && !targets.has(abs) && mayReplace(abs, source, options.workspaceDir)) {
         result.deleted.push(relative(dir, abs).split(sep).join("/"));
         if (!options.dryRun) {
           unlinkSync(abs);
@@ -166,7 +182,7 @@ export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?
 /** Regenerate the document's docs folder, if it names one. */
 export function syncDocs(file: string, ws: Workspace, options: { dryRun?: boolean } = {}): DocsResult | undefined {
   const dir = docsFolder(file, ws.doc);
-  return dir ? writeDocs(dir, exportDocs(ws, basename(file)), options) : undefined;
+  return dir ? writeDocs(dir, exportDocs(ws, basename(file)), { ...options, workspaceDir: dirname(file) }) : undefined;
 }
 
 /** The file a relative path names inside `root`. Nothing may escape `root`. */

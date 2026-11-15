@@ -162,14 +162,33 @@ describe("two workspaces whose docs share a folder", () => {
     const dir = mkdtempSync(join(tmpdir(), "open-arch-test-"));
     temps.push(dir);
     const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in the designer or with the open-arch CLI, and this page is rewritten. -->\n\n${body}\n`;
-    writeDocs(dir, [{ path: "README.md", content: from("b.openarch", "B") }, { path: "views/b.md", content: from("b.openarch", "B view") }]);
-    const result = writeDocs(dir, [{ path: "README.md", content: from("a.openarch", "A") }, { path: "views/a.md", content: from("a.openarch", "A view") }]);
+    // b.openarch is beside a.openarch, and their docs share the folder.
+    writeFileSync(join(dir, "a.openarch"), "{}");
+    writeFileSync(join(dir, "b.openarch"), "{}");
+    const options = { workspaceDir: dir };
+    writeDocs(dir, [{ path: "README.md", content: from("b.openarch", "B") }, { path: "views/b.md", content: from("b.openarch", "B view") }], options);
+    const result = writeDocs(dir, [{ path: "README.md", content: from("a.openarch", "A") }, { path: "views/a.md", content: from("a.openarch", "A view") }], options);
     expect(result).toMatchObject({ written: ["views/a.md"], deleted: [], skipped: ["README.md"] });
     expect(readFileSync(join(dir, "README.md"), "utf8")).toBe(from("b.openarch", "B"));
     expect(readFileSync(join(dir, "views", "b.md"), "utf8")).toBe(from("b.openarch", "B view"));
     // Its own stale pages still go.
-    writeDocs(dir, [{ path: "views/a2.md", content: from("a.openarch", "A again") }]);
+    writeDocs(dir, [{ path: "views/a2.md", content: from("a.openarch", "A again") }], options);
     expect(existsSync(join(dir, "views", "a.md"))).toBe(false);
     expect(existsSync(join(dir, "views", "b.md"))).toBe(true);
+  });
+
+  it("takes over pages generated from a file that isn't there any more, as after a rename", () => {
+    const dir = mkdtempSync(join(tmpdir(), "open-arch-test-"));
+    temps.push(dir);
+    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in the designer or with the open-arch CLI, and this page is rewritten. -->\n\n${body}\n`;
+    // The pages came from old.openarch, which was renamed to new.openarch.
+    writeFileSync(join(dir, "new.openarch"), "{}");
+    writeDocs(dir, [{ path: "README.md", content: from("old.openarch", "Old") }, { path: "views/gone.md", content: from("old.openarch", "Gone") }], { workspaceDir: dir });
+    const result = writeDocs(dir, [{ path: "README.md", content: from("new.openarch", "New") }], { workspaceDir: dir });
+    expect(result).toMatchObject({ written: ["README.md"], deleted: ["views/gone.md"], skipped: [] });
+    expect(readFileSync(join(dir, "README.md"), "utf8")).toBe(from("new.openarch", "New"));
+    // And an older page that names no file.
+    writeFileSync(join(dir, "README.md"), `${GENERATED_MARKER} -->\n\nOlder\n`);
+    expect(writeDocs(dir, [{ path: "README.md", content: from("new.openarch", "New") }], { workspaceDir: dir })).toMatchObject({ written: ["README.md"], skipped: [] });
   });
 });

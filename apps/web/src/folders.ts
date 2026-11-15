@@ -133,14 +133,23 @@ export interface DocsChanges {
  * pages carrying the generated marker are ever overwritten or deleted; anything else is left alone.
  * It records each change in `changes` as it makes it, so if it fails partway, they say how far it got.
  */
-export async function writeDocs(dir: FolderHandle, files: ExportedFile[], changes: DocsChanges = { written: [], deleted: [], skipped: [] }): Promise<DocsChanges> {
+export async function writeDocs(
+  dir: FolderHandle,
+  files: ExportedFile[],
+  changes: DocsChanges = { written: [], deleted: [], skipped: [] },
+  isWorkspace?: (name: string) => Promise<boolean>,
+): Promise<DocsChanges> {
   const { written, deleted, skipped } = changes;
   const targets = new Map(files.map((f) => [f.path, f.content]));
-  // Only pages generated from the same file, as the CLI does: another workspace's docs can share the folder.
+  // As the CLI does: a page generated from another workspace still beside this one, which
+  // `isWorkspace` tells, is that one's, so two workspaces can share a docs folder. One from a file
+  // that isn't there any more, say this one before it was renamed, or from no file named, is this one's.
   const source = files[0] ? generatedFrom(files[0].content) : null;
-  const ours = (text: string) => {
+  const ours = async (text: string) => {
     const from = generatedFrom(text);
-    return from !== null && (source === null || from === source);
+    if (from === null) return false;
+    if (!from || source === null || from === source || !isWorkspace) return true;
+    return !(await isWorkspace(from));
   };
   for (const [path, content] of targets) {
     if (segments(path)?.join("/") !== path) throw new Error(`Refusing to write ${JSON.stringify(path)}: it isn't a path inside the docs folder.`);
@@ -153,7 +162,7 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[], change
       else if (!isMissing(error)) throw error;
     }
     if (existing === content) continue;
-    if (existing !== null && !ours(existing)) {
+    if (existing !== null && !(await ours(existing))) {
       skipped.push(path);
       continue;
     }
@@ -173,7 +182,7 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[], change
         if (prefix === "" && !DOCS_PAGE_FOLDERS.includes(entry.name)) left++;
         else if (await sweep(entry, `${path}/`)) await folder.removeEntry(entry.name);
         else left++;
-      } else if (entry.name.endsWith(".md") && !targets.has(path) && ours(await readText(entry))) {
+      } else if (entry.name.endsWith(".md") && !targets.has(path) && (await ours(await readText(entry)))) {
         await folder.removeEntry(entry.name);
         deleted.push(path);
       } else left++;
@@ -394,7 +403,8 @@ export class FolderHost implements WorkspaceHost {
     const changes: DocsChanges = { written: [], deleted: [], skipped: [] };
     const counts = () => ({ ...summary, written: changes.written.length, deleted: changes.deleted.length, skipped: changes.skipped });
     try {
-      await writeDocs(await folderAt(this.root, parts, true), exportDocs(ws, this.name), changes);
+      const fileDir = this.path.split("/").slice(0, -1);
+      await writeDocs(await folderAt(this.root, parts, true), exportDocs(ws, this.name), changes, (name) => isFileIn(this.root, [...fileDir, name].join("/")));
       return counts();
     } catch (error) {
       return { ...counts(), error: problemText(error) };
