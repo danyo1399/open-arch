@@ -434,7 +434,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       const done = `Exported ${host.name} to ${root.name}, as a workspace there, with its docs, the agent skill and AGENTS.md.`;
       state.notify(
         notes.length
-          ? { kind: "error", text: `${done} But ${notes[0]!.charAt(0).toLowerCase()}${notes[0]!.slice(1)}${notes.slice(1).map((note) => ` ${note}`).join("")}` }
+          ? { kind: "error", text: [done, ...notes.map((note) => note.charAt(0).toUpperCase() + note.slice(1))].join(" ") }
           : { kind: "info", text: `${done} Open it from Folders on the start page to keep working on it there.` },
       );
     });

@@ -140,9 +140,8 @@ export async function writeDocs(
   dir: FolderHandle,
   files: ExportedFile[],
   changes: DocsChanges = { written: [], deleted: [], skipped: [] },
-  options: { isWorkspace?: (name: string) => Promise<boolean> } = {},
+  isWorkspace?: (name: string) => Promise<boolean>,
 ): Promise<DocsChanges> {
-  const { isWorkspace } = options;
   const { written, deleted, skipped } = changes;
   const targets = new Map(files.map((f) => [f.path, f.content]));
   // As the CLI does: a page generated from another workspace still beside this one, which
@@ -282,8 +281,9 @@ export async function exportToFolder(root: FolderHandle, ws: Workspace, fileName
     if (isMissing(error)) taken = false;
     else if (!isNamed(error, "TypeMismatchError")) throw error;
   }
-  if (taken) throw new Error(`${root.name} has a ${fileName} already, so nothing was exported. Choose another folder, or open that one with Open folder….`);
-  const named = ws.doc.export?.docs;
+  if (taken) throw new Error(`${root.name} has a file or folder named ${fileName} already, so nothing was exported. Choose another folder, or open that one with Open folder.`);
+  // An empty docs folder, written by hand, is none, as a save takes it.
+  const named = ws.doc.export?.docs || undefined;
   if (named !== undefined && (isAbsolutePath(named) || segments(named) === null)) {
     throw new Error(`${fileName} keeps its docs in ${named}/, outside the folder it would be exported to, so nothing was exported. Choose a docs folder inside it in the workspace's details, or none.`);
   }
@@ -447,7 +447,7 @@ export class FolderHost implements WorkspaceHost {
     const counts = () => ({ ...summary, written: changes.written.length, deleted: changes.deleted.length, skipped: changes.skipped });
     try {
       const fileDir = this.path.split("/").slice(0, -1);
-      await writeDocs(await folderAt(this.root, parts, true), exportDocs(ws, this.name), changes, { isWorkspace: (name) => isFileIn(this.root, [...fileDir, name].join("/")) });
+      await writeDocs(await folderAt(this.root, parts, true), exportDocs(ws, this.name), changes, (name) => isFileIn(this.root, [...fileDir, name].join("/")));
       return counts();
     } catch (error) {
       return { ...counts(), error: problemText(error) };

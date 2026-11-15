@@ -502,7 +502,7 @@ describe("keeping the docs folder", () => {
     // b.openarch is there beside a.openarch; old.openarch, which a was before a rename, isn't.
     docs.put("views/renamed.md", from("old.openarch", "stale"));
     const isWorkspace = async (name: string) => name === "b.openarch";
-    const result = await writeDocs(docs, [{ path: "README.md", content: from("a.openarch", "A") }], undefined, { isWorkspace });
+    const result = await writeDocs(docs, [{ path: "README.md", content: from("a.openarch", "A") }], undefined, isWorkspace);
     expect(result).toEqual({ written: [], deleted: ["views/old.md", "views/renamed.md"], skipped: ["README.md"] });
     expect(docs.files()).toEqual({ "README.md": from("b.openarch", "B"), "views/b.md": from("b.openarch", "B view") });
   });
@@ -900,6 +900,15 @@ describe("exporting a workspace to a folder", () => {
     expect(root.files()["README.md"]).toContain("A2");
   });
 
+  it("takes an empty docs folder, written by hand, as none", async () => {
+    const root = new FakeFolder("repo");
+    const ws = loadWorkspace(JSON.stringify({ openarch: 12, name: "A", export: { docs: "" }, elements: {}, views: {} }));
+    expect(ws.doc.export).toEqual({ docs: "" });
+    await exportToFolder(root, ws, "a.openarch");
+    expect(loadWorkspace(root.files()["a.openarch"]!).doc.export).toEqual({ docs: "." });
+    expect(root.files()["README.md"]).toContain("from a.openarch.");
+  });
+
   it("refuses a docs folder a save there couldn't write, and writes nothing", async () => {
     for (const docs of ["../docs", "../repo/docs", "/docs"]) {
       const root = new FakeFolder("repo");
@@ -911,11 +920,11 @@ describe("exporting a workspace to a folder", () => {
   it("refuses a folder that has a file, or a folder, of that name already, and writes nothing", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("Theirs"));
-    await expect(exportToFolder(root, loadWorkspace(workspace("Mine")), "a.openarch")).rejects.toThrow("repo has a a.openarch already, so nothing was exported.");
+    await expect(exportToFolder(root, loadWorkspace(workspace("Mine")), "a.openarch")).rejects.toThrow("repo has a file or folder named a.openarch already, so nothing was exported.");
     expect(root.files()).toEqual({ "a.openarch": workspace("Theirs") });
     const other = new FakeFolder("repo");
     other.put("a.openarch/inside.md", "Mine.");
-    await expect(exportToFolder(other, loadWorkspace(workspace("Mine")), "a.openarch")).rejects.toThrow("repo has a a.openarch already");
+    await expect(exportToFolder(other, loadWorkspace(workspace("Mine")), "a.openarch")).rejects.toThrow("repo has a file or folder named a.openarch already");
   });
 
   it("leaves another workspace's pages beside it alone, and says when AGENTS.md names that one", async () => {
