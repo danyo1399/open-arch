@@ -13,6 +13,7 @@ import {
   notesOf,
   notesOp,
   notesOwnerAsIs,
+  relationshipsPlace,
   renamedNotesOwner,
   renamedId,
   renamedSelection,
@@ -182,6 +183,11 @@ describe("notes", () => {
     // Renaming either end keeps it.
     const renamed = buildWorkspace(applyOperations(model.doc, [{ op: "rename", id: "db", to: "orders-db" }]).doc);
     expect(notesOf(renamed, renamedNotesOwner(second, (id) => (id === "db" ? "orders-db" : id)))).toBe("Syncs stock.");
+    // Given where they were when its notes were opened, it loses track once they've moved, but not when one is edited.
+    const place = relationshipsPlace(model, second)!;
+    expect(notesOf(changed, notesOwnerAsIs(changed, second, place))).toBe("Syncs stock.");
+    expect(notesOwnerAsIs(removed, second, place)).toEqual({ ...second, look: null });
+    expect(notesOf(removed, notesOwnerAsIs(removed, second, place))).toBeUndefined();
     // Elements and views are found by their IDs, whatever else changes.
     expect(notesOwnerAsIs(model, { kind: "element", id: "api" })).toEqual({ kind: "element", id: "api" });
   });

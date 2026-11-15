@@ -25,6 +25,8 @@ interface NotesEditorProps {
   text: string;
   /** The notes as they're saved now, or undefined when what they're on is no longer in the model. */
   saved: string | undefined;
+  /** It can't save until it knows which relationship it's on, a moment after it opens. */
+  ready?: boolean;
   /** Saves the text, and says whether it was saved. */
   onSave(text: string): Promise<boolean>;
   onClose(): void;
@@ -36,7 +38,7 @@ interface NotesEditorProps {
  * back. Cancel leaves them as they were. A save that doesn't go through keeps the editor open,
  * with the text still in it, and so does what the notes are on going.
  */
-export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorProps) {
+export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }: NotesEditorProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   // What was saved when it opened, to tell when the notes are changed elsewhere meanwhile.
@@ -57,7 +59,7 @@ export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorP
     if (busy.current) return stayOpen();
     const next = box.current!.value;
     if (next === saved) return onClose();
-    if (saved === undefined) return stayOpen();
+    if (!ready || saved === undefined) return stayOpen();
     busy.current = true;
     setSaving(true);
     const ok = await onSave(next);
@@ -111,7 +113,7 @@ export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorP
           <button onClick={onClose} disabled={saving}>
             Cancel
           </button>
-          <button className="primary" onClick={() => void done()} disabled={saving}>
+          <button className="primary" onClick={() => void done()} disabled={saving || !ready}>
             Done
           </button>
         </span>

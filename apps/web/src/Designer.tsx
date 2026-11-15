@@ -40,6 +40,7 @@ import {
   notesOf,
   notesOp,
   notesOwnerAsIs,
+  relationshipsPlace,
   renamedId,
   renamedNotesOwner,
   renamedSelection,
@@ -71,8 +72,12 @@ type Dialog =
   | { kind: "deleteView"; id: string }
   | { kind: "newView" }
   | { kind: "share" }
-  /** `name` is whose notes they are, as they were called when the editor opened, and `text` what it started from. */
-  | { kind: "notes"; owner: NotesOwner; name: string; text: string }
+  /**
+   * `name` is whose notes they are, as they were called when the editor opened, and `text` what
+   * it started from. `opened` tells one opening from the next, and `ready` says it knows which
+   * relationship it's on, so it can save.
+   */
+  | { kind: "notes"; owner: NotesOwner; name: string; text: string; opened: number; ready: boolean }
   | null;
 
 /** What a right-click menu is for, and where it opened on the screen. */
@@ -134,6 +139,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [selection, setSelection] = useState<Selection>(null);
   const [isNew, setIsNew] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
+  /** How many times the notes editor has opened. */
+  const notesOpened = useRef(0);
   const [askOpen, setAskOpen] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [usagesOf, setUsagesOf] = useState<string | null>(null);
@@ -747,16 +754,21 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onFindUsages={findUsages}
         onAddSticky={addStickyOn}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
-        // The editor opens once the edits made before Expand have landed, such as a rename or a
-        // relationship's description saved as its box was left. So it names what the notes are on
-        // by its new ID, and takes how a relationship looks with those edits made.
-        onEditNotes={(owner, text) =>
+        // The editor opens at once, over everything, so nothing else is edited while it's open. A
+        // relationship's look is taken once the edits made before Expand have landed, such as its
+        // description saved as its box was left; until then the editor can't save. If the
+        // relationships between the two have moved by then, it's lost track of which it's on.
+        onEditNotes={(owner, text) => {
+          const opened = ++notesOpened.current;
+          const place = relationshipsPlace(ws, owner);
+          setDialog((d) => d ?? { kind: "notes", owner: renamedNotesOwner(owner, current), name: notesName(ws, owner), text, opened, ready: place === undefined });
+          if (place === undefined) return;
           void edit((now) => {
-            const opened = notesOwnerAsIs(now, renamedNotesOwner(owner, current));
-            setDialog({ kind: "notes", owner: opened, name: notesName(now, opened), text });
+            // By now the owner has followed any rename that landed.
+            setDialog((d) => (d?.kind === "notes" && d.opened === opened ? { ...d, owner: notesOwnerAsIs(now, d.owner, place), ready: true } : d));
             return [];
-          })
-        }
+          });
+        }}
       />
 
       {narrow && (
@@ -823,11 +835,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           name={notesNamed}
           text={dialog.text}
           saved={notesOf(ws, dialog.owner)}
-          // Checked again as the save runs, in case an edit elsewhere lands first.
+          ready={dialog.ready}
+          // Checked again as the save runs, in case an edit elsewhere lands first. A rename that
+          // lands first is followed, as one while the editor shows is.
           onSave={(text) =>
             edit((now) => {
-              if (notesOf(now, dialog.owner) === undefined) throw new OpError(`${notesNamed} was changed or deleted elsewhere, so its notes weren't saved.`);
-              return [notesOp(dialog.owner, text)];
+              const owner = renamedNotesOwner(dialog.owner, current);
+              if (notesOf(now, owner) === undefined) throw new OpError(`${notesNamed} was changed or deleted elsewhere, so its notes weren't saved.`);
+              return [notesOp(owner, text)];
             })
           }
           onClose={() => setDialog(null)}

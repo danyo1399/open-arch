@@ -53,11 +53,14 @@ class FileHost implements WorkspaceHost {
   name = "shop.openarch";
   key = "test/shop";
   private changed = () => {};
+  /** How long a save takes, in milliseconds. */
+  delay = 0;
   constructor(public text: string) {}
   async load() {
     return this.text;
   }
   async save(text: string) {
+    if (this.delay) await new Promise((resolve) => setTimeout(resolve, this.delay));
     this.text = text;
   }
   watch(onChange: () => void) {
@@ -246,6 +249,90 @@ describe("writing notes in the bigger editor", () => {
     expect(d.editor()?.open).toBe(true);
     expect(d.box().value).toBe("Uses REST.");
     expect(d.host.textContent).toContain("Web → API was changed or deleted elsewhere, so its notes weren't saved.");
+    expect(d.file.doc.elements.web!.uses).toEqual([{ to: "api", description: "Sends events to", notes: "Over a queue." }]);
+  });
+
+  it("follows a rename made elsewhere that lands just before the save", async () => {
+    const d = await designer();
+    await d.select("API");
+    await click(button(d.panel(), "Expand"));
+    d.box().value = "Takes orders, renamed as it saved.";
+    // The reload is queued before the save, and Done is pressed before the editor hears of it.
+    await act(async () => {
+      d.file.change([
+        { op: "update-element", id: "api", name: "Orders API" },
+        { op: "rename", id: "api", to: "orders-api" },
+      ]);
+      button(d.editor()!, "Done").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.file.doc.elements["orders-api"]!.notes).toBe("Takes orders, renamed as it saved.");
+  });
+
+  it("opens at once, and keeps the first editor when another Expand is pressed in the same moment", async () => {
+    const d = await designer();
+    await click(d.host.querySelector('.react-flow__edge[data-id="web->api"]')!);
+    const expands = [...d.panel().querySelectorAll("button")].filter((b) => b.textContent === "Expand");
+    await act(async () => {
+      expands[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      expands[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.box().value).toBe("");
+    d.box().value = "Uses REST.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.file.doc.elements.web!.uses).toEqual([
+      { to: "api", description: "Calls", notes: "Uses REST." },
+      { to: "api", description: "Sends events to", notes: "Over a queue." },
+    ]);
+  });
+
+  it("can't save a relationship's notes until the edits made before Expand have landed", async () => {
+    const d = await designer();
+    await click(d.host.querySelector('.react-flow__edge[data-id="web->api"]')!);
+    const description = d.panel().querySelectorAll<HTMLInputElement>('input[aria-label="Description"]')[0]!;
+    const expand = [...d.panel().querySelectorAll("button")].filter((b) => b.textContent === "Expand")[0]!;
+    const wait = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    // A slow save of the description, which leaving its box starts just before Expand.
+    d.file.delay = 200;
+    await act(async () => {
+      description.value = "Calls over REST";
+      description.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      expand.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    expect(d.editor()?.open).toBe(true);
+    expect(button(d.editor()!, "Done").disabled).toBe(true);
+    await wait(300);
+    expect(button(d.editor()!, "Done").disabled).toBe(false);
+    expect(d.editor()!.textContent).not.toContain("changed or deleted elsewhere");
+
+    d.file.delay = 0;
+    d.box().value = "Every call is authenticated.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.file.doc.elements.web!.uses![0]).toEqual({ to: "api", description: "Calls over REST", notes: "Every call is authenticated." });
+  });
+
+  it("loses track of a relationship, rather than guess, when an edit elsewhere moves them before it knows which it's on", async () => {
+    const d = await designer();
+    await click(d.host.querySelector('.react-flow__edge[data-id="web->api"]')!);
+    const expand = [...d.panel().querySelectorAll("button")].filter((b) => b.textContent === "Expand")[0]!;
+    // The reload, which deletes the first relationship so the second takes its place, is queued
+    // just before Expand is pressed for the first, as the panel still shows both.
+    await act(async () => {
+      d.file.change([{ op: "remove-relationship", from: "web", to: "api", index: 0 }]);
+      expand.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.box().value).toBe("");
+    expect(d.editor()!.textContent).toContain("Web → API was changed or deleted elsewhere, so these notes can't be saved.");
+    d.box().value = "Uses REST.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.editor()?.open).toBe(true);
     expect(d.file.doc.elements.web!.uses).toEqual([{ to: "api", description: "Sends events to", notes: "Over a queue." }]);
   });
 
