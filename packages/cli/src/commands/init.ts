@@ -70,11 +70,12 @@ export function init(io: Io, opts: InitOptions): number {
     } catch (error) {
       const inPlace = opts.noSkills ? "The workspace and its docs are" : "The workspace, its docs and the skill are";
       // A path with a line break is fixed by renaming it, not by changing AGENTS.md.
+      // Naming the file, as init without one means architecture.openarch, and would make a new workspace.
       const fix = !(error instanceof LineBreakInPath)
-        ? "run open-arch init again once AGENTS.md is fixed"
+        ? `run \`open-arch init ${shown}\` again once AGENTS.md is fixed`
         : error.of === "docs"
-          ? "choose a docs folder without one, with `open-arch update-workspace --docs <folder>`, then run open-arch init again"
-          : "rename the file so its path has no line break, then run open-arch init again";
+          ? `choose a docs folder without one, with \`open-arch update-workspace --file ${shown} --docs <folder>\`, then run \`open-arch init ${shown}\` again`
+          : "rename the file so its path has no line break, then run `open-arch init <new name>`";
       throw new CliError(`${(error as Error).message} ${inPlace} in place: ${fix}.`);
     }
     writeFileSync(agentsMd, text);

@@ -309,8 +309,9 @@ export class FolderHost implements WorkspaceHost {
   /**
    * Saves the file, then rewrites its docs folder and, on the first save since the folder was
    * opened, brings the agent skill up to date in it, as `open-arch init` installs it, so agents
-   * working in the folder know how to read and change the model. The file is saved by then, so
-   * the docs or the skill failing is reported, not thrown.
+   * working in the folder know how to read and change the model. It also puts the open-arch
+   * section in the folder's AGENTS.md, when what the section names changes. The file is saved by
+   * then, so the docs, the skill or AGENTS.md failing is reported, not thrown.
    */
   async save(text: string): Promise<SaveSummary> {
     const ws = loadWorkspace(text);

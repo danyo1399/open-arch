@@ -394,6 +394,16 @@ describe("keeping the AGENTS.md section", () => {
     expect(file.text).toBe(`# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
   });
 
+  it("writes the section with AGENTS.md's own Windows line endings", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    root.put("AGENTS.md", "# Rules\r\n\r\nUse tabs.\r\n");
+    await new FolderHost("1", root, "a.openarch").save(workspace("B"));
+    const agents = root.files()["AGENTS.md"]!;
+    expect(agents).toContain("\r\n<!-- open-arch:start -->\r\n## Architecture\r\n");
+    expect(agents.replace(/\r\n/g, "")).not.toContain("\n");
+  });
+
   it("names docs at the top of the folder as ./", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A", "."));

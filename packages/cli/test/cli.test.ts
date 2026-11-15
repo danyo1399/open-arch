@@ -553,19 +553,31 @@ describe("init", () => {
     const result = cli(project, "init", "a\u2028b.openarch");
     expect(result.code).toBe(1);
     expect(result.err).toContain('can\'t name "a\\u2028b.openarch": the workspace\'s path has a line break in it.');
-    expect(result.err).toContain("rename the file so its path has no line break, then run open-arch init again.");
+    expect(result.err).toContain("rename the file so its path has no line break, then run `open-arch init <new name>`.");
     expect(existsSync(join(project, "AGENTS.md"))).toBe(false);
 
-    // A docs folder's is fixed in the workspace, not by renaming the folder.
+    // A docs folder's is fixed in the workspace, not by renaming the folder. The steps name the
+    // file, as init without one would make a new architecture.openarch.
     const docs = tempDir();
     mkdirSync(join(docs, ".git"));
-    const refused = cli(docs, "init", "--docs", "do\ncs");
+    const refused = cli(docs, "init", "shop.openarch", "--docs", "do\ncs");
     expect(refused.code).toBe(1);
     expect(refused.err).toContain('can\'t name "do\\ncs": the docs folder\'s path has a line break in it.');
-    expect(refused.err).toContain("choose a docs folder without one, with `open-arch update-workspace --docs <folder>`, then run open-arch init again.");
-    expect(cli(docs, "update-workspace", "--docs", "docs").code).toBe(0);
-    expect(cli(docs, "init").code).toBe(0);
-    expect(read(docs, "AGENTS.md")).toContain("Readable docs generated from it are in `docs/`.");
+    expect(refused.err).toContain("choose a docs folder without one, with `open-arch update-workspace --file shop.openarch --docs <folder>`, then run `open-arch init shop.openarch` again.");
+    expect(cli(docs, "update-workspace", "--file", "shop.openarch", "--docs", "docs").code).toBe(0);
+    expect(cli(docs, "init", "shop.openarch").code).toBe(0);
+    expect(existsSync(join(docs, "architecture.openarch"))).toBe(false);
+    expect(read(docs, "AGENTS.md")).toContain("in `shop.openarch`. Readable docs generated from it are in `docs/`.");
+  });
+
+  it("writes the section with AGENTS.md's own Windows line endings", () => {
+    const project = tempDir();
+    mkdirSync(join(project, ".git"));
+    writeFileSync(join(project, "AGENTS.md"), "# Rules\r\n\r\nUse tabs.\r\n");
+    expect(cli(project, "init").code).toBe(0);
+    const agents = read(project, "AGENTS.md");
+    expect(agents).toContain("\r\n<!-- open-arch:start -->\r\n## Architecture\r\n");
+    expect(agents.replace(/\r\n/g, "")).not.toContain("\n");
   });
 
   it("names docs at the top of the project as ./ in AGENTS.md", () => {
@@ -594,11 +606,11 @@ describe("init", () => {
     const result = cli(project, "init");
     expect(result.code).toBe(1);
     expect(result.err).toContain("AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone.");
-    expect(result.err).toContain("The workspace, its docs and the skill are in place: run open-arch init again once AGENTS.md is fixed.");
+    expect(result.err).toContain("The workspace, its docs and the skill are in place: run `open-arch init architecture.openarch` again once AGENTS.md is fixed.");
     // Without the skill, it doesn't say the skill is in place.
     const noSkills = cli(project, "init", "--no-skills");
     expect(noSkills.code).toBe(1);
-    expect(noSkills.err).toContain("The workspace and its docs are in place: run open-arch init again once AGENTS.md is fixed.");
+    expect(noSkills.err).toContain("The workspace and its docs are in place: run `open-arch init architecture.openarch` again once AGENTS.md is fixed.");
     expect(read(project, "AGENTS.md")).toBe(broken);
   });
 

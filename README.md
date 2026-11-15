@@ -45,7 +45,7 @@ The workspaces kept in the web app's browser storage are only in that browser, o
 - the agent skill, in `.agents/skills/open-arch/` and `.claude/skills/open-arch/`
 - an `AGENTS.md` with the section `open-arch init` adds. It tells agents where the model and its docs are, and to change the model only with the `open-arch` CLI.
 
-Put what's in the folder at the top of the repository, where agents look for these. If the repository has an `AGENTS.md` already, copy the section between `<!-- open-arch:start -->` and `<!-- open-arch:end -->` into it. Don't replace the file.
+Put what's in the folder at the top of the repository, where agents look for these. If the repository has an `AGENTS.md` already, copy the section between `<!-- open-arch:start -->` and `<!-- open-arch:end -->` into it. Don't replace the file. If it has an open-arch section already, put this one in its place: a file with two is left alone.
 
 Where the zip puts things:
 
