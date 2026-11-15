@@ -6,6 +6,8 @@ import type { DocsSummary } from "../src/bridge.js";
 import type { WorkspaceHost } from "../src/hosts.js";
 import { docsProblem, useWorkspace, type WorkspaceState } from "../src/state.js";
 import { mount } from "./dom.js";
+import { FakeFile, FakeFolder } from "./fakeFolder.js";
+import { FolderHost } from "../src/folders.js";
 
 const text = (name: string) => serializeDocument(emptyDocument(name));
 
@@ -69,7 +71,7 @@ describe("the open workspace", () => {
     expect(state().message).toEqual({ kind: "info", text: "Copied." });
   });
 
-  it("leaves a reload that fails to the watcher's next check", async () => {
+  it("drops a reload that fails, without an unhandled rejection", async () => {
     const host = new TestHost("file");
     const state = await workspaceFor(host);
     const rejections: unknown[] = [];
@@ -179,5 +181,22 @@ describe("the open workspace", () => {
     expect(state().message).toEqual({ kind: "error", text: "Couldn't save: The folder is gone." });
     expect(state().ws?.doc.name).toBe("B");
     expect(state().canUndo).toBe(true);
+  });
+
+  it("reloads a workspace in a folder on the watcher's next check, when a reload fails", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", text("A"));
+    const host = new FolderHost("1", root, "a.openarch", 20);
+    const state = await workspaceFor(host);
+    expect(state().ws?.doc.name).toBe("A");
+    const file = root.entries.get("a.openarch") as FakeFile;
+    // Changed outside; the watcher sees it, and the file can't be read for the reload that follows.
+    file.set(text("Pulled"));
+    file.afterRead = () => {
+      file.unreadable = true;
+      setTimeout(() => (file.unreadable = false), 30);
+    };
+    for (let i = 0; i < 100 && state().ws?.doc.name !== "Pulled"; i++) await settle();
+    expect(state().ws?.doc.name).toBe("Pulled");
   });
 });

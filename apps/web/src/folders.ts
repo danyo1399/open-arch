@@ -308,8 +308,6 @@ export class FolderHost implements WorkspaceHost {
    */
   watch(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string | null) => void): () => void {
     this.reload = onChange;
-    /** The text the last check found: at first, what was loaded. */
-    let seen: string | null = null;
     let started = false;
     /** When a check first found no file, in the gap it's in now. */
     let missingSince: number | null = null;
@@ -325,7 +323,6 @@ export class FolderHost implements WorkspaceHost {
         // for the load, and a change made after it read the file is noticed.
         if (!started) {
           await this.loading?.catch(() => undefined);
-          seen = this.known;
           started = true;
         }
         // The text, not the file's time and size: a change can keep both, on a file system
@@ -334,8 +331,9 @@ export class FolderHost implements WorkspaceHost {
         missingSince = null;
         if (told && !stopped) onProblem?.(null);
         told = false;
-        const changed = seen !== null && text !== seen;
-        seen = text;
+        // Compared with what the designer last loaded or saved, not with the last check: a reload
+        // that fails, say because the file was moved aside for a moment, is asked for again.
+        const changed = this.known !== null && text !== this.known;
         if (changed && !stopped) onChange();
       } catch (error) {
         // Editors, agents and Git can replace the file by moving it aside first, so it's only

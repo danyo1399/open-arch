@@ -238,7 +238,9 @@ describe("watching a workspace in a folder", () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
     const host = new FolderHost("1", root, "a.openarch", 100);
-    const onChange = vi.fn();
+    await host.load();
+    // As the designer does, a change reloads the file.
+    const onChange = vi.fn(() => void host.load());
     const onRemoved = vi.fn();
     const stop = host.watch(onChange, onRemoved);
     await vi.advanceTimersByTimeAsync(250);
@@ -351,12 +353,36 @@ describe("watching a workspace in a folder", () => {
     const host = new FolderHost("1", root, "a.openarch", 100);
     await host.load();
     root.put("a.openarch", workspace("B"));
-    const onChange = vi.fn();
+    const onChange = vi.fn(() => void host.load());
     const stop = host.watch(onChange);
     await vi.advanceTimersByTimeAsync(10);
     expect(onChange).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(300);
     expect(onChange).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("asks again for a reload that failed, until one goes through", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await host.load();
+    let reloads = 0;
+    // The first reload fails, as when the file is moved aside between the check and the load.
+    const onChange = vi.fn(() => {
+      if (++reloads > 1) void host.load();
+    });
+    const stop = host.watch(onChange);
+    await vi.advanceTimersByTimeAsync(50);
+    root.put("a.openarch", workspace("B"));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    // The next check asks again, and that reload goes through, so it stops asking.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onChange).toHaveBeenCalledTimes(2);
     stop();
   });
 
