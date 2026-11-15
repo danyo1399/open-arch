@@ -99,7 +99,7 @@ describe("what went wrong", () => {
     await expect(writeDocs(docs as FolderHandle, [{ path: "README.md", content: "x" }])).rejects.toBeUndefined();
   });
 
-  it("from the browser's storage says the browser didn't say what", async () => {
+  it("from the browser's storage says no reason was given", async () => {
     refuseStorage();
     await expect(new WorkspaceLibrary(`refused-${Math.random()}`).list()).rejects.toThrow(`This browser won't let open-arch store workspaces: ${UNKNOWN_PROBLEM}`);
     await expect(new Settings(`refused-${Math.random()}`).share("a")).rejects.toThrow(`This browser won't let open-arch keep your settings: ${UNKNOWN_PROBLEM}`);
