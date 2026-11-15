@@ -4,7 +4,7 @@ import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { DocsSummary, SaveSummary } from "../src/bridge.js";
 import type { WorkspaceHost } from "../src/hosts.js";
-import { docsProblem, useWorkspace, type WorkspaceState } from "../src/state.js";
+import { docsProblem, saveProblem, useWorkspace, type WorkspaceState } from "../src/state.js";
 import { mount } from "./dom.js";
 import { FakeFile, FakeFolder } from "./fakeFolder.js";
 import { FolderHost } from "../src/folders.js";
@@ -165,6 +165,19 @@ describe("the open workspace", () => {
     };
     await act(async () => void (await state().edit([{ op: "update-workspace", name: "C" }])));
     expect(state().message).toBeNull();
+  });
+
+  it("says when both the docs and the agent skill weren't written", async () => {
+    const host = new TestHost("file");
+    host.save = async (next) => {
+      host.file = next;
+      return { docs: { dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." }, skillError: "Not allowed." };
+    };
+    const state = await workspaceFor(host);
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
+    expect(state().message?.text).toBe("Saved, but the docs in docs/ weren't updated: It's a file. Also, the agent skill in .agents/skills/open-arch/ and .claude/skills/open-arch/ wasn't updated: Not allowed.");
+    expect(saveProblem({ docs: null })).toBeNull();
+    expect(saveProblem(undefined)).toBeNull();
   });
 
   it("says how far the docs got when writing them stopped partway", () => {

@@ -84,7 +84,8 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
       doc.export = { docs: NEW_DOCS };
       const { docs, skillError } = await new FolderHost("new", root, NEW_FILE).create(serializeDocument(doc));
       // Opened, the designer would hide what went wrong, so it's said here, and the list has it to open.
-      const problem = docs?.error ? `couldn't write its docs in ${docs.dir}/: ${docs.error}` : skillError ? `couldn't add the agent skill: ${skillError}` : null;
+      const problems = [docs?.error && `couldn't write its docs in ${docs.dir}/: ${docs.error}`, skillError && `couldn't add the agent skill: ${skillError}`].filter(Boolean);
+      const problem = problems.length ? problems.join(" It also ") : null;
       if (problem) {
         await folders.add(root, NEW_FILE);
         setOpened(await folders.list());

@@ -150,6 +150,20 @@ describe("opening a folder from the start page", () => {
     expect(opened).toEqual([]);
   });
 
+  it("says both, when neither the new workspace's docs nor its agent skill can be written", async () => {
+    picker();
+    const root = new FakeFolder("repo");
+    root.refuse.add("docs");
+    root.refuse.add(".claude");
+    picked = root;
+    const { host } = page();
+    await until(host, "Folders");
+    await click(button(host, "Open folder…"));
+    await until(host, "No workspace in repo");
+    await click(button(host, "Create architecture.openarch"));
+    await until(host, "Created architecture.openarch in repo, but couldn't write its docs in docs/architecture/: Not allowed. It also couldn't add the agent skill: Not allowed. Open it from Folders once that's fixed.");
+  });
+
   it("lists the folders opened, reopens one with the browser's permission, and forgets one", async () => {
     picker();
     const folders = new MemoryFolders();

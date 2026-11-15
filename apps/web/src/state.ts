@@ -1,7 +1,7 @@
 /** The open workspace: its file text, the model built from it, problems, edits and undo. */
 import { applyOperations, checkWorkspace, loadWorkspace, OpError, serializeDocument, type Diagnostic, type Operation, type Workspace } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DocsSummary } from "./bridge.js";
+import type { DocsSummary, SaveSummary } from "./bridge.js";
 import type { WorkspaceHost } from "./hosts.js";
 import { SKILL_TARGETS } from "./skill.js";
 import { renamesBetween, renamesIn, undoRenames, type Rename } from "./model.js";
@@ -43,6 +43,13 @@ export function docsProblem(docs: DocsSummary): string {
   return changed > 0
     ? `Saved, but updating the docs in ${docs.dir}/ stopped partway, after ${changed} page${changed === 1 ? "" : "s"}: ${docs.error}`
     : `Saved, but the docs in ${docs.dir}/ weren't updated: ${docs.error}`;
+}
+
+/** What went wrong beside saving the file, with the docs, the agent skill or both, or null when nothing did. */
+export function saveProblem(summary: SaveSummary | void): string | null {
+  const skill = summary?.skillError && `the agent skill in ${SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} wasn't updated: ${summary.skillError}`;
+  if (summary?.docs?.error) return skill ? `${docsProblem(summary.docs)} Also, ${skill}` : docsProblem(summary.docs);
+  return skill ? `Saved, but ${skill}` : null;
 }
 
 /**
@@ -167,7 +174,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
 
   /** The message saying the last save went wrong, if that's still the one showing. */
   const problem = useRef<WorkspaceState["message"]>(null);
-  const saveProblem = (text: string) => {
+  const showSaveProblem = (text: string) => {
     problem.current = { kind: "error", text };
     setMessage(problem.current);
   };
@@ -179,8 +186,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         const summary = await host.save(next);
         // A save with no docs folder clears what an earlier one said about the docs.
         setDocs(summary?.docs ?? null);
-        if (summary?.docs?.error) saveProblem(docsProblem(summary.docs));
-        else if (summary?.skillError) saveProblem(`Saved, but the agent skill in ${SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} wasn't updated: ${summary.skillError}`);
+        const went = saveProblem(summary);
+        if (went) showSaveProblem(went);
         // A save that went through takes down what an earlier one said went wrong.
         else setMessage((shown) => (shown === problem.current ? null : shown));
         if (host.storage === "file") setSavedText(next);
@@ -216,7 +223,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(next, () => applied.current?.(ops));
         } catch (error) {
-          saveProblem(`Couldn't save: ${(error as Error).message}`);
+          showSaveProblem(`Couldn't save: ${(error as Error).message}`);
           return false;
         }
         updateHistory((h) => ({ undo: [...h.undo, { text: before, renames: renamesIn(ops) }].slice(-HISTORY_LIMIT), redo: [] }));
@@ -235,7 +242,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(target, () => applied.current?.(renames));
         } catch (error) {
-          saveProblem(`Couldn't save: ${(error as Error).message}`);
+          showSaveProblem(`Couldn't save: ${(error as Error).message}`);
           return false;
         }
         updateHistory((h) => ({ undo: [...h.undo, { text: before, renames }].slice(-HISTORY_LIMIT), redo: [] }));
@@ -255,7 +262,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(target.text, () => applied.current?.(direction === "undo" ? undoRenames(renames) : renames));
         } catch (error) {
-          saveProblem(`Couldn't save: ${(error as Error).message}`);
+          showSaveProblem(`Couldn't save: ${(error as Error).message}`);
           return;
         }
         const back: Step = { text: now, renames };

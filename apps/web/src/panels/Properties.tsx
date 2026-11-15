@@ -1262,7 +1262,7 @@ function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }
             ? docsFolder
               ? "Relative to the workspace file. Every save rewrites the markdown docs there."
               : "Set a folder, relative to the workspace file, to keep markdown docs there."
-            : "Used by the desktop app and the open-arch CLI. Here, Export zip puts the docs there, beside the file."
+            : `Used by the desktop app and the open-arch CLI. Here, Export zip puts the docs in it, beside the file, if it's inside the file's folder, and otherwise in ${suggestedDocs}/.`
         }
       />
       {syncsDocs && !docsFolder && <button onClick={() => void edit([{ op: "update-workspace", docs: suggestedDocs }])}>Keep docs in {suggestedDocs}/</button>}
@@ -1279,7 +1279,7 @@ function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }
       )}
       {syncsSkill && (
         <p className="muted small">
-          Every save also keeps the open-arch agent skill in {SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} of the folder you opened, so AI agents working there know how to read and change the model.
+          Every save also keeps the open-arch agent skill in {SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} of the folder you opened, so AI agents working there know how to read and change the model. Anything else put in those folders is removed.
         </p>
       )}
       <dl className="facts">
