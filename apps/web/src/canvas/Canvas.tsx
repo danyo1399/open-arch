@@ -7,6 +7,7 @@ import {
   kindLabel,
   scopeProblems,
   stickyAnchor,
+  STICKY_TARGET_LEVELS,
   type ArchElement,
   type ComputedView,
   type Diagnostic,
@@ -15,6 +16,7 @@ import {
   type Position,
   type RelationshipKind,
   type Sticky,
+  type StickyTargetData,
   type ViewDef,
   type ViewEdge,
   type Workspace,
@@ -36,14 +38,28 @@ import {
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { arrowRelation, isArrow, newStickyId, relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
+import {
+  arrowRelation,
+  isArrow,
+  newStickyId,
+  relationshipRef,
+  sameShapes,
+  selectedShapes,
+  selectShapes,
+  stickyKey,
+  stickyTargetFor,
+  toggleShape,
+  uniqueId,
+  type Rename,
+  type Shapes,
+} from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point, type StickySize } from "./autoLayout.js";
 import { classHeight, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
-import { edgeTypes, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
+import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
-import { besideArrow, besideBox, besideFrame, midpoint, stickyLine, type LineEnd } from "./stickyLines.js";
+import { besideArrow, besideBox, besideFrame, distanceToRoute, midpoint, stickyLine, type LineEnd, type Rect } from "./stickyLines.js";
 
 /** What's selected. `several` is two or more boxes and sticky notes on the open view, which move together. */
 export type Selection =
@@ -233,6 +249,59 @@ export function boxAt(nodes: FlowNode[], at: Point): ElementFlowNode | undefined
     const { x, y } = n.position;
     return at.x >= x && at.x <= x + (n.measured?.width ?? NODE_W) && at.y >= y && at.y <= y + (n.measured?.height ?? NODE_H);
   });
+}
+
+/** Where a note is drawn on the diagram: as React Flow measured it, or else as big as it should be, at `size`. */
+export function noteRect(n: StickyFlowNode, size: StickySize): Rect {
+  return { x: n.position.x, y: n.position.y, w: n.measured?.width ?? size.width, h: n.measured?.height ?? stickyHeight(n.data.sticky.text, size) };
+}
+
+/** An arrow as the canvas draws it: its route, and the box its label is drawn in, when it has one. */
+export interface DrawnArrow {
+  id: string;
+  edge: ViewEdge;
+  points: readonly Point[];
+  label?: Rect;
+}
+
+/** What a note's dot let go here puts the note on, and the box or frame's node, or the arrow, to outline while the dot is over it. */
+export type NoteDrop = { on: StickyTargetData; node?: string; arrow?: string };
+
+/**
+ * What a note's dot let go at this point on the diagram puts the note on: the box there, the one
+ * drawn on top; else the arrow whose label is there, or whose line is nearest, no further than
+ * `reach`; else the frame, when the point is inside it. Nothing over a note, which the boxes and
+ * arrows under it are hidden by, or over a box or arrow a note can't be on (see stickyTargetFor).
+ * `elementOf` is the element a box or the frame is for.
+ */
+export function noteDropAt(
+  ws: Workspace,
+  cv: ComputedView,
+  nodes: FlowNode[],
+  arrows: DrawnArrow[],
+  at: Point,
+  { reach, noteSize, elementOf = (n) => n.data.element.id }: { reach: number; noteSize: StickySize; elementOf?: (node: ElementFlowNode | FrameFlowNode) => string },
+): NoteDrop | undefined {
+  const within = (r: Rect) => at.x >= r.x && at.x <= r.x + r.w && at.y >= r.y && at.y <= r.y + r.h;
+  if (nodes.some((n) => n.type === "sticky" && within(noteRect(n, noteSize)))) return undefined;
+  const box = boxAt(nodes, at);
+  if (box) {
+    const on = stickyTargetFor(ws, cv, { kind: "element", id: elementOf(box) });
+    return on && { on, node: box.id };
+  }
+  let arrow: DrawnArrow | undefined;
+  let nearest = reach;
+  for (const a of arrows) {
+    const distance = a.label && within(a.label) ? 0 : distanceToRoute(a.points, at);
+    if (distance <= nearest) [arrow, nearest] = [a, distance];
+  }
+  if (arrow) {
+    const on = stickyTargetFor(ws, cv, { kind: "arrow", from: arrow.edge.from, to: arrow.edge.to, ...arrowRelation(arrow.edge) });
+    return on && { on, arrow: arrow.id };
+  }
+  const frame = frameAt(nodes, at);
+  const on = frame && stickyTargetFor(ws, cv, { kind: "element", id: elementOf(frame) });
+  return on && { on, node: frame.id };
 }
 
 /**
@@ -425,8 +494,15 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
 
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
 
+  /** A note whose dot is being dragged to a box, the frame or an arrow, to put the note on it: the note, and where the dot is on the diagram. */
+  const [linking, setLinking] = useState<{ sticky: string; at: Point } | null>(null);
+  /** Puts the note on what its dot was let go on, if anything: set below, once the arrows are drawn. */
+  const dropLink = useRef<(id: string, at: Point | null) => void>(() => {});
+
   useEffect(() => {
     if (!cv || !positions) return setNodes([]);
+    // Only views of boxes draw a line from a note to what it's on.
+    const linkable = STICKY_TARGET_LEVELS.includes(view.level);
     const stickyAt = placeStickies(view.stickies, Object.values(positions), stickySize, besideTargets(ws, cv, positions));
     setNodes((previous) => [
       // With the frame drawn now, so the new one keeps what React Flow measured of it (see withFrame).
@@ -450,7 +526,13 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           id: stickyNodeId(sticky.id),
           type: "sticky",
           position: stickyAt[sticky.id]!,
-          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text) },
+          data: {
+            sticky,
+            editing: editing === sticky.id,
+            onEdit: () => setEditing(sticky.id),
+            onDone: (text) => finishEditing(sticky, text),
+            ...(linkable && { onLinkDrag: (at: Point) => setLinking({ sticky: sticky.id, at }), onLinkDrop: (at: Point | null) => dropLink.current(sticky.id, at) }),
+          },
           selected: picked.stickies.includes(sticky.id),
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,
@@ -458,7 +540,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         }),
       ),
     ]);
-  }, [ws, cv, nodeIdOf, positions, problemCounts, selection, picked, view.stickies, stickySize, editing, finishEditing]);
+  }, [ws, cv, nodeIdOf, positions, problemCounts, selection, picked, view.stickies, view.level, stickySize, editing, finishEditing]);
 
   /**
    * The ID of the element a node is for, as this render has it. React Flow has the nodes from an
@@ -488,7 +570,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         boxes.set(elementOfNode(n), { x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H });
       } else if (n.type === "sticky") {
         // No arrow starts or ends at a note, but any it's in the way of goes around it.
-        notes.push({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight(n.data.sticky.text, stickySize) });
+        notes.push(noteRect(n, stickySize));
       } else {
         frames.push({ x: n.position.x, y: n.position.y, w: n.data.width, h: n.data.height });
         const width = n.data.element.name.length * 8 + kindLabel(n.data.element).length * 6.5 + 12;
@@ -500,7 +582,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     return { routes, labels, crossed: crossings(routes) };
   }, [nodes, cv, sizes, stickySize, elementOfNode]);
 
-  // The line from each note on something to the box, the frame or the arrow that draws it, as drawn now.
+  // The line from each note on something to the box, the frame or the arrow that draws it, as drawn
+  // now. Not a note whose dot is being dragged: it has the line being dragged instead.
+  const linkingNote = linking?.sticky;
   const stickyLines = useMemo(() => {
     if (!cv) return [];
     const rectOf = (n: FlowNode) =>
@@ -509,7 +593,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     return nodes.flatMap((n) => {
       const on = n.type === "sticky" ? n.data.sticky.on : undefined;
       const anchor = on && stickyAnchor(ws, cv, on);
-      if (n.type !== "sticky" || !anchor) return [];
+      if (n.type !== "sticky" || !anchor || n.data.sticky.id === linkingNote) return [];
       let end: LineEnd | undefined;
       if (anchor.kind === "box") {
         const target = box(anchor.id);
@@ -523,11 +607,27 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         const point = midpoint(routes.get(id) ?? []);
         end = label ? { rect: { x: label.x - label.w / 2, y: label.y - label.h / 2, w: label.w, h: label.h } } : point && { point };
       }
-      const note = { x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight(n.data.sticky.text, stickySize) };
-      const line = end && stickyLine(note, end);
+      const line = end && stickyLine(noteRect(n, stickySize), end);
       return line ? [{ id: n.data.sticky.id, ...line, selected: !!n.selected }] : [];
     });
-  }, [ws, cv, nodes, routes, labels, stickySize, elementOfNode]);
+  }, [ws, cv, nodes, routes, labels, stickySize, elementOfNode, linkingNote]);
+
+  /** The arrows as drawn now, to find the one a note's dot is let go on. */
+  const drawnArrows = useMemo<DrawnArrow[]>(
+    () =>
+      (cv?.edges ?? []).map((edge) => {
+        const id = arrowId(edge);
+        const label = labels.get(id);
+        return { id, edge, points: routes.get(id) ?? [], ...(label && { label: { x: label.x - label.w / 2, y: label.y - label.h / 2, w: label.w, h: label.h } }) };
+      }),
+    [cv, routes, labels],
+  );
+
+  /** What a note's dot let go at this point on the diagram puts the note on. An arrow is as easy to hit as to click. */
+  const linkDropAt = (at: Point) =>
+    cv ? noteDropAt(ws, cv, nodesRef.current, drawnArrows, at, { reach: INTERACTION_WIDTH / 2 / rf.getZoom(), noteSize: stickySize, elementOf: elementOfNode }) : undefined;
+  /** What the note whose dot is being dragged would go on, outlined while the dot is over it. */
+  const linkDrop = linking ? linkDropAt(linking.at) : undefined;
 
   /** Every box's position as shown now, including ones placed automatically. */
   const currentLayout = useCallback((): Record<string, Position> => {
@@ -567,6 +667,21 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     [dropBox, elementOfNode, edit, ws, view.id, currentLayout, onSelect],
   );
 
+  // A note's dot let go on a box, the frame or an arrow puts the note on it, as one step for Undo,
+  // and selects the note. A note placed beside what it was on stays where it is, rather than
+  // jumping beside what it's on now. Let go on what it's on already, it just selects the note.
+  dropLink.current = (id, at) => {
+    setLinking(null);
+    const sticky = view.stickies.find((s) => s.id === id);
+    const node = nodesRef.current.find((n): n is StickyFlowNode => n.id === stickyNodeId(id));
+    const drop = at && linkDropAt(at);
+    if (!sticky || !node || !drop) return;
+    if (sticky.on && stickyKey(sticky.on) === stickyKey(drop.on)) return onSelect({ kind: "sticky", id });
+    const spot: [number, number] | undefined = sticky.at ? undefined : [Math.round(node.position.x), Math.round(node.position.y)];
+    void edit([{ op: "update-sticky", view: view.id, id, on: drop.on, ...(spot && { at: spot }) }]).then((ok) => ok && onSelect({ kind: "sticky", id }));
+  };
+
+  const linkArrow = linkDrop?.arrow;
   const edges = useMemo<ArrowEdge[]>(
     () =>
       cv?.edges.map((e) => {
@@ -589,10 +704,11 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
             onEndDrag: (end, at) => setMoving({ edge: e, end, at }),
             onEndDrop: (end, at) => dropEnd(e, end, at),
             moving: movingArrow === id ? movingEnd : undefined,
+            dropTarget: linkArrow === id,
           },
         };
       }) ?? [],
-    [cv, nodeIdOf, routes, labels, crossed, selection, onSelect, dropEnd, movingArrow, movingEnd],
+    [cv, nodeIdOf, routes, labels, crossed, selection, onSelect, dropEnd, movingArrow, movingEnd, linkArrow],
   );
 
   /** Fit the diagram to the canvas, below the toolbar. */
@@ -606,8 +722,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     [rf],
   );
 
-  /** The box a moving end would go to, outlined while it's over it. */
-  const dropOn = moving ? dropBox(moving.edge, moving.at)?.id : undefined;
+  /** The box a moving end would go to, or the box or frame a note's dot would put the note on, outlined while it's over it. */
+  const dropOn = moving ? dropBox(moving.edge, moving.at)?.id : linkDrop?.node;
   const drawnNodes = useMemo(() => (dropOn ? nodes.map((n) => (n.id === dropOn ? { ...n, className: "drop-target" } : n)) : nodes), [nodes, dropOn]);
   /** The arrow whose end is moving, drawn straight from its other end to where the moving end is. */
   const movingRoute = moving ? routes.get(arrowId(moving.edge)) : undefined;
@@ -615,6 +731,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     moving && movingRoute && movingRoute.length >= 2
       ? { from: moving.end === "from" ? moving.at : movingRoute[0]!, to: moving.end === "to" ? moving.at : movingRoute[movingRoute.length - 1]! }
       : null;
+  /** The line from a note whose dot is being dragged to where the dot is: none while the dot is over the note. */
+  const linkingNode = linking ? nodes.find((n): n is StickyFlowNode => n.id === stickyNodeId(linking.sticky)) : undefined;
+  const linkLine = linking && linkingNode ? stickyLine(noteRect(linkingNode, stickySize), { point: linking.at }) : null;
 
   // Fit the diagram to the window once per view, after its boxes have been measured.
   const fitted = useRef<string | null>(null);
@@ -862,6 +981,14 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
               </defs>
               <path d={`M ${movingLine.from.x} ${movingLine.from.y} L ${movingLine.to.x} ${movingLine.to.y}`} markerEnd="url(#arrow-moving-head)" />
               {moving?.end === "from" && <circle cx={movingLine.from.x} cy={movingLine.from.y} r={5} />}
+            </svg>
+          </ViewportPortal>
+        )}
+        {linking && (
+          <ViewportPortal>
+            <svg className="sticky-linking" style={{ zIndex: DRAWING_Z }} aria-hidden="true">
+              {linkLine && <line x1={linkLine.from.x} y1={linkLine.from.y} x2={linkLine.to.x} y2={linkLine.to.y} />}
+              <circle cx={linking.at.x} cy={linking.at.y} r={5} />
             </svg>
           </ViewportPortal>
         )}

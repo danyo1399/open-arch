@@ -1,6 +1,8 @@
 import { kindLabel, type ArchElement, type Sticky } from "@open-arch/core";
-import { Handle, Position, useConnection, type Node, type NodeProps } from "@xyflow/react";
-import { useEffect, useRef } from "react";
+import { Handle, Position, useConnection, useReactFlow, type Node, type NodeProps } from "@xyflow/react";
+import { useEffect, useRef, type PointerEvent } from "react";
+import type { Point } from "./autoLayout.js";
+import { DRAG_DISTANCE } from "./RoutedEdge.js";
 
 export type ElementNodeData = { element: ArchElement; problems: number };
 export type ElementFlowNode = Node<ElementNodeData, "element">;
@@ -16,6 +18,13 @@ export type StickyNodeData = {
   onEdit(): void;
   /** The new text, or null to keep the old one. */
   onDone(text: string | null): void;
+  /**
+   * On views of boxes, the note has a dot under it to drag to a box, the frame or an arrow, and put
+   * the note on it: the dot is being dragged, and is at this point on the diagram.
+   */
+  onLinkDrag?(at: Point): void;
+  /** The dot let go at this point on the diagram, or null when the drag was cancelled. */
+  onLinkDrop?(at: Point | null): void;
 };
 export type StickyFlowNode = Node<StickyNodeData, "sticky">;
 
@@ -103,6 +112,64 @@ export function FrameNode({ data }: NodeProps<FrameFlowNode>) {
   );
 }
 
+/**
+ * The dot under a note, to drag to a box, the frame or an arrow and put the note on it. It keeps
+ * the pointer while it's dragged, and reports where it is, as an arrow's grips do; the canvas
+ * draws the line being dragged, and puts the note on what it's let go on. A click without a drag
+ * selects the note, as a click on the note does.
+ */
+function LinkGrip({ onDrag, onDrop }: { onDrag(at: Point): void; onDrop(at: Point | null): void }) {
+  const rf = useReactFlow();
+  const drag = useRef<{ pointer: number; x: number; y: number; moving: boolean } | null>(null);
+  /** A drag just ended, so the click that follows it isn't a click on the note. */
+  const dragged = useRef(false);
+  const latest = useRef(onDrop);
+  latest.current = onDrop;
+  // A dot taken away mid-drag, as when the note is deleted, hears no more of the pointer.
+  useEffect(
+    () => () => {
+      if (drag.current?.moving) latest.current(null);
+    },
+    [],
+  );
+  const at = (e: PointerEvent) => rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+  const stop = (dropped: Point | null) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d?.moving) return;
+    dragged.current = true;
+    onDrop(dropped);
+  };
+  return (
+    <div
+      className="sticky-grip nodrag nopan"
+      title="Drag to a box or an arrow to put the note on it"
+      onPointerDown={(e) => {
+        if (e.button !== 0 || drag.current) return;
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, moving: false };
+        dragged.current = false;
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d || d.pointer !== e.pointerId) return;
+        if (!d.moving && Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_DISTANCE) return;
+        d.moving = true;
+        onDrag(at(e));
+      }}
+      onPointerUp={(e) => drag.current?.pointer === e.pointerId && stop(at(e))}
+      onPointerCancel={(e) => drag.current?.pointer === e.pointerId && stop(null)}
+      onLostPointerCapture={(e) => drag.current?.pointer === e.pointerId && stop(null)}
+      onClick={(e) => {
+        if (!dragged.current) return;
+        dragged.current = false;
+        e.stopPropagation();
+      }}
+    />
+  );
+}
+
 export function StickyNode({ data, selected }: NodeProps<StickyFlowNode>) {
   const { sticky, editing } = data;
   const input = useRef<HTMLTextAreaElement>(null);
@@ -146,6 +213,7 @@ export function StickyNode({ data, selected }: NodeProps<StickyFlowNode>) {
       ) : (
         <div className="sticky-text">{sticky.text}</div>
       )}
+      {!editing && data.onLinkDrag && data.onLinkDrop && <LinkGrip onDrag={data.onLinkDrag} onDrop={data.onLinkDrop} />}
     </div>
   );
 }

@@ -53,6 +53,21 @@ export function midpoint(points: readonly Point[]): Point | undefined {
   return points[points.length - 1];
 }
 
+/** How far a point is from the nearest point along a route; Infinity for one with no points. */
+export function distanceToRoute(points: readonly Point[], p: Point): number {
+  if (points.length === 1) return Math.hypot(p.x - points[0]!.x, p.y - points[0]!.y);
+  let nearest = Infinity;
+  for (let i = 1; i < points.length; i++) {
+    const [a, b] = [points[i - 1]!, points[i]!];
+    const [dx, dy] = [b.x - a.x, b.y - a.y];
+    const length = dx * dx + dy * dy;
+    // How far along the segment the nearest point is, from 0 at a to 1 at b.
+    const t = length ? Math.min(1, Math.max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length)) : 0;
+    nearest = Math.min(nearest, Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)));
+  }
+  return nearest;
+}
+
 /** The line from a note to what it's on, or null when they touch, and no line would show. */
 export function stickyLine(note: Rect, end: LineEnd): { from: Point; to: Point } | null {
   if ("rect" in end) {

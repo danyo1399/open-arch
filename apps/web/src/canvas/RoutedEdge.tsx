@@ -25,11 +25,16 @@ export type ArrowData = {
   onEndDrop(end: ArrowEnd, at: Point | null): void;
   /** The end being dragged, while one is. The canvas draws the arrow then, from its other end. */
   moving?: ArrowEnd;
+  /** A note's dot is over the arrow, and letting go would put the note on it. */
+  dropTarget?: boolean;
 };
 export type ArrowEdge = Edge<ArrowData, "arrow">;
 
-/** How far, in pixels, a grip at an arrow's end moves before it's dragged, so a click that wobbles does nothing. */
-const DRAG_DISTANCE = 4;
+/** How far, in pixels, a grip at an arrow's end, or a note's dot, moves before it's dragged, so a click that wobbles does nothing. */
+export const DRAG_DISTANCE = 4;
+
+/** How wide, in pixels, the band along an arrow is that a click on it lands in. */
+export const INTERACTION_WIDTH = 18;
 
 const CORNER = 8;
 /** Radius of the little arc a route draws to hop over an arrow it crosses. */
@@ -321,7 +326,7 @@ const markerId = (arrow: string, end: "start" | "end") => `uml-${arrow.replace(/
 
 export function RoutedEdge({ id, markerStart, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {
   if (!data || data.points.length < 2) return null;
-  const { edge, points, label, moving } = data;
+  const { edge, points, label, moving, dropTarget } = data;
   // An association has React Flow's arrowheads; the other kinds draw their own.
   const uml = edge.kind === "association" ? undefined : UML_ARROWS[edge.kind];
   const ends = uml && { start: uml.start && markerId(id, "start"), end: uml.end && markerId(id, "end") };
@@ -340,15 +345,15 @@ export function RoutedEdge({ id, markerStart, markerEnd, data, selected }: EdgeP
           path={pathThrough(points, data.crossings)}
           markerStart={ends ? ends.start && `url(#${ends.start})` : markerStart}
           markerEnd={ends ? ends.end && `url(#${ends.end})` : markerEnd}
-          className={`arrow${edge.implied || uml?.dashed ? " dashed" : ""}${edge.implied ? " implied" : ""}${selected ? " selected" : ""}`}
-          interactionWidth={18}
+          className={`arrow${edge.implied || uml?.dashed ? " dashed" : ""}${edge.implied ? " implied" : ""}${selected ? " selected" : ""}${dropTarget ? " drop-target" : ""}`}
+          interactionWidth={INTERACTION_WIDTH}
         />
       )}
       {selected && <EndGrips data={data} />}
       {label && !moving && (
         <EdgeLabelRenderer>
           <div
-            className={`arrow-label nodrag nopan${selected ? " selected" : ""}`}
+            className={`arrow-label nodrag nopan${selected ? " selected" : ""}${dropTarget ? " drop-target" : ""}`}
             style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, maxWidth: label.maxWidth }}
             onClick={data.onSelect}
             title={edge.implied ? `Implied by: ${edge.sources.map((s) => s.element).join(", ")}` : undefined}
