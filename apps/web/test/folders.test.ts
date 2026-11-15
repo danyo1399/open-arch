@@ -2,8 +2,8 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allowed, findWorkspaces, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
-import { exampleHost, MemoryHost, savesDocs } from "../src/hosts.js";
+import { allowed, findWorkspaces, problemText, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
+import { exampleHost, MemoryHost, savesDocs, savesSkill } from "../src/hosts.js";
 import { skillFiles } from "../src/skill.js";
 import { FakeFile, FakeFolder, skillInFolder } from "./fakeFolder.js";
 
@@ -205,6 +205,22 @@ describe("keeping the agent skill", () => {
     expect((await writeSkill(dir)).sort()).toEqual(["SKILL.md", "old/stale.md"]);
     expect(dir.files()).toEqual(skill);
     expect(dir.folders()).toEqual(["references"]);
+  });
+
+  it("says the skill or the docs weren't written even when what failed has no message", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const make = root.getDirectoryHandle.bind(root);
+    root.getDirectoryHandle = async (name, options) => {
+      if (name === ".agents") throw new Error("");
+      if (name === "docs") throw "The folder is locked.";
+      return make(name, options);
+    };
+    const saved = await new FolderHost("1", root, "a.openarch").save(workspace("B", "docs"));
+    expect(saved.skillError).toBe("Error");
+    expect(saved.docs?.error).toBe("The folder is locked.");
+    expect(problemText(undefined)).toBe("undefined");
+    expect(problemText(new Error("Not allowed."))).toBe("Not allowed.");
   });
 
   it("is kept in the folder opened by every save, and said when it can't be", async () => {
@@ -514,6 +530,10 @@ describe("saving docs", () => {
     expect(savesDocs(host, "file")).toBe(true);
     expect(savesDocs(host, "memory")).toBe(false);
     expect(savesDocs(new MemoryHost("a.openarch", ""), "memory")).toBe(false);
+    // The agent skill, by the same rule.
+    expect(savesSkill(host, "file")).toBe(true);
+    expect(savesSkill(host, "memory")).toBe(false);
+    expect(savesSkill(new MemoryHost("a.openarch", ""), "memory")).toBe(false);
   });
 });
 

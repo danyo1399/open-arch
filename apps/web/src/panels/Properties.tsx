@@ -1262,7 +1262,7 @@ function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }
             ? docsFolder
               ? "Relative to the workspace file. Every save rewrites the markdown docs there."
               : "Set a folder, relative to the workspace file, to keep markdown docs there."
-            : `Used by the desktop app and the open-arch CLI. Here, Export zip puts the docs in it, beside the file, if it's inside the file's folder, and otherwise in ${suggestedDocs}/.`
+            : `Used by the desktop app and the open-arch CLI. Here, with a docs folder inside the file's folder, Export zip puts the docs there. With none, or one outside, it puts them in ${suggestedDocs}/.`
         }
       />
       {syncsDocs && !docsFolder && <button onClick={() => void edit([{ op: "update-workspace", docs: suggestedDocs }])}>Keep docs in {suggestedDocs}/</button>}

@@ -18,7 +18,7 @@ import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
-import { BrowserHost, copyText, desktopBridge, DesktopHost, download, workspaceZip, savesDocs, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
 import {
@@ -645,7 +645,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         selection={selection}
         isNew={isNew}
         syncsDocs={syncsDocs}
-        syncsSkill={!!host.syncsSkill && state.storage === "file"}
+        syncsSkill={savesSkill(host, state.storage)}
         docs={state.docs}
         fileName={host.name}
         edit={edit}

@@ -2,11 +2,14 @@
  * Workspaces in a folder on this computer, such as a Git repository, opened from the web app in
  * Chrome or Edge with the File System Access API. The .openarch file stays in the folder and every
  * edit is saved to it, and the docs folder it names is rewritten, as the desktop app and the CLI
- * do. So the changes are there to commit. The folders opened are remembered in IndexedDB: the
- * browser can keep a folder's handle, and asks again before the page may change it.
+ * do. Every save also keeps the agent skill in the folder, as `open-arch init` installs it, reading
+ * its few small files to write only those that changed. So the changes are there to commit. The
+ * folders opened are remembered in IndexedDB: the browser can keep a folder's handle, and asks
+ * again before the page may change it.
  */
 import { exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
+import { isAbsolutePath, segments } from "./paths.js";
 import { SKILL_TARGETS, skillFiles } from "./skill.js";
 import type { WorkspaceHost } from "./hosts.js";
 import { committed, done } from "./library.js";
@@ -94,17 +97,9 @@ export async function findWorkspaces(root: FolderHandle): Promise<string[]> {
 
 const isMissing = (error: unknown) => (error as Error)?.name === "NotFoundError";
 
-/** A path's folders, with `.` and `..` worked out. Null when it goes above the folder. */
-export function segments(path: string): string[] | null {
-  const out: string[] = [];
-  for (const part of path.split(/[\\/]/)) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      if (out.length === 0) return null;
-      out.pop();
-    } else out.push(part);
-  }
-  return out;
+/** What went wrong, to show: an error's message, or what was thrown when it has none. */
+export function problemText(error: unknown): string {
+  return (error instanceof Error ? error.message : "") || String(error) || "Something went wrong.";
 }
 
 async function folderAt(root: FolderHandle, parts: string[], create: boolean): Promise<FolderHandle> {
@@ -298,7 +293,7 @@ export class FolderHost implements WorkspaceHost {
     const docs = ws.doc.export?.docs;
     let docsParts: string[] | null = null;
     if (docs) {
-      if (/^([\\/]|[a-zA-Z]:)/.test(docs)) throw new Error(`The docs folder must be relative to the ${FILE_EXTENSION} file, not ${JSON.stringify(docs)}.`);
+      if (isAbsolutePath(docs)) throw new Error(`The docs folder must be relative to the ${FILE_EXTENSION} file, not ${JSON.stringify(docs)}.`);
       docsParts = segments(`${this.path.split("/").slice(0, -1).join("/")}/${docs}`);
       if (docsParts === null) throw new Error(`The docs folder ${docs}/ is outside the folder you opened, ${this.root.name}, so nothing was saved. Open the folder that holds it, or choose a docs folder inside ${this.root.name}.`);
     }
@@ -334,7 +329,7 @@ export class FolderHost implements WorkspaceHost {
     try {
       for (const target of SKILL_TARGETS) await writeSkill(await folderAt(this.root, target.split("/"), true));
     } catch (error) {
-      result.skillError = (error as Error).message;
+      result.skillError = problemText(error);
     }
     return result;
   }
@@ -348,7 +343,7 @@ export class FolderHost implements WorkspaceHost {
       await writeDocs(await folderAt(this.root, parts, true), exportDocs(ws, this.name), changes);
       return counts();
     } catch (error) {
-      return { ...counts(), error: (error as Error).message };
+      return { ...counts(), error: problemText(error) };
     }
   }
 

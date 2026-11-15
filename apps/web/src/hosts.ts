@@ -10,7 +10,7 @@ import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw
 import type { DesktopBridge, SaveSummary } from "./bridge.js";
 import { importProblem, type WorkspaceLibrary } from "./library.js";
 import type { LinkParts, ShareClient } from "./share.js";
-import { segments } from "./folders.js";
+import { isAbsolutePath, segments } from "./paths.js";
 import { SKILL_TARGETS, skillFiles } from "./skill.js";
 
 export interface WorkspaceHost {
@@ -40,6 +40,9 @@ export interface WorkspaceHost {
  * One whose file was deleted or moved only lives in the tab, so its docs are exported instead.
  */
 export const savesDocs = (host: WorkspaceHost, storage: WorkspaceHost["storage"]) => !!host.syncsDocs && storage === "file";
+
+/** Whether saving keeps the agent skill up to date now, by the same rule as the docs. */
+export const savesSkill = (host: WorkspaceHost, storage: WorkspaceHost["storage"]) => !!host.syncsSkill && storage === "file";
 
 // --- In memory: the examples ------------------------------------------------------
 
@@ -99,14 +102,15 @@ export async function copyText(text: string): Promise<void> {
 
 /**
  * The workspace as a zip, with everything in one folder named after the file: the .openarch file
- * (`text`), its generated markdown docs, and the agent skill, laid out as `open-arch init` and a
- * save would leave them in a project. The docs go in the docs folder the workspace names, or in
- * `<name>-docs` when it names none, or one outside the file's folder.
+ * (`text`), its generated markdown docs, and the agent skill, which goes where `open-arch init`
+ * installs it. The docs go in the docs folder the workspace names, as a save would put them. When
+ * it names none, or one outside the file's folder, where a save writes no docs, they go in
+ * `<name>-docs`.
  */
 export function workspaceZip(ws: Workspace, fileName: string, text: string): Uint8Array {
   const base = fileName.replace(/\.openarch$/, "");
   const named = ws.doc.export?.docs;
-  const inside = named && !/^([\\/]|[a-zA-Z]:)/.test(named) ? segments(named) : null;
+  const inside = named && !isAbsolutePath(named) ? segments(named) : null;
   const docs = inside ? inside.map((part) => `${part}/`).join("") : `${base}-docs/`;
   const entries: Record<string, Uint8Array> = { [`${base}/${fileName}`]: strToU8(text) };
   for (const f of exportDocs(ws, fileName)) entries[`${base}/${docs}${f.path}`] = strToU8(f.content);
