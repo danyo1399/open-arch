@@ -139,3 +139,20 @@ describe("the agent skill and AGENTS.md beside a workspace", () => {
     expect(existsSync(join(root, "AGENTS.md"))).toBe(true);
   });
 });
+
+describe("a docs folder that's the file's own folder", () => {
+  it("only looks for stale pages where open-arch writes them, so the rest of the folder is left alone", () => {
+    const dir = mkdtempSync(join(tmpdir(), "open-arch-test-"));
+    temps.push(dir);
+    const generated = page("stale");
+    for (const path of ["stale.md", "views/old.md", "other/docs/README.md", "node_modules/pkg/README.md"]) {
+      mkdirSync(join(dir, path, ".."), { recursive: true });
+      writeFileSync(join(dir, path), generated);
+    }
+    const result = writeDocs(dir, [{ path: "README.md", content: page("index") }]);
+    expect(result.deleted.sort()).toEqual(["stale.md", "views/old.md"]);
+    expect(existsSync(join(dir, "other", "docs", "README.md"))).toBe(true);
+    expect(existsSync(join(dir, "node_modules", "pkg", "README.md"))).toBe(true);
+    expect(existsSync(join(dir, "views"))).toBe(false);
+  });
+});

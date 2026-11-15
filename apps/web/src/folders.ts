@@ -8,7 +8,7 @@
  * changes are there to commit. The folders opened are remembered in IndexedDB: the browser can
  * keep a folder's handle, and asks again before the page may change it.
  */
-import { agentsSection, agentsSectionWorkspace, exportDocs, FILE_EXTENSION, GENERATED_MARKER, lineEnding, LineBreakInPath, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
+import { agentsSection, agentsSectionWorkspace, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, GENERATED_MARKER, lineEnding, LineBreakInPath, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
@@ -162,7 +162,10 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[], change
     for (const entry of entries) {
       const path = prefix + entry.name;
       if (entry.kind === "directory") {
-        if (await sweep(entry, `${path}/`)) await folder.removeEntry(entry.name);
+        // At the docs folder's top, only the folders open-arch writes pages into: it may be the
+        // file's own folder, or the top of the folder opened, with other things in it.
+        if (prefix === "" && !DOCS_PAGE_FOLDERS.includes(entry.name)) left++;
+        else if (await sweep(entry, `${path}/`)) await folder.removeEntry(entry.name);
         else left++;
       } else if (entry.name.endsWith(".md") && !targets.has(path) && (await readText(entry)).startsWith(GENERATED_MARKER)) {
         await folder.removeEntry(entry.name);

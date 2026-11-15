@@ -68,11 +68,13 @@ describe("hosts", () => {
     expect(strFromU8(files["a/AGENTS.md"]!)).toContain("Readable docs generated from it are in `./`.");
   });
 
-  it("zips the docs in <name>-docs when the workspace names no docs folder, or one outside its folder", () => {
+  it("zips the docs beside the file, with no folder of their own, when the workspace names no docs folder, or one outside its folder", () => {
     for (const docs of [undefined, "../docs", "/docs"]) {
       const text = JSON.stringify({ openarch: 12, name: "A", ...(docs ? { export: { docs } } : {}), elements: {}, views: {} });
       const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)));
-      expect(files).toContain("a/a-docs/README.md");
+      expect(files).toContain("a/README.md");
+      expect(files).toContain("a/a.openarch");
+      expect(files.some((path) => path.startsWith("a/a-docs/"))).toBe(false);
     }
     const text = JSON.stringify({ openarch: 12, name: "A", export: { docs: "./docs/arch/" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)))).toContain("a/docs/arch/README.md");
@@ -83,7 +85,7 @@ describe("hosts", () => {
       ["../arch/docs", "repo/arch/docs/"],
       ["../docs", "repo/docs/"],
       ["docs", "repo/arch/docs/"],
-      ["../../out", "repo/arch/a-docs/"],
+      ["../../out", "repo/arch/"],
     ];
     for (const [docs, where] of cases) {
       const text = JSON.stringify({ openarch: 12, name: "A", export: { docs }, elements: {}, views: {} });
@@ -112,10 +114,10 @@ describe("hosts", () => {
     // The zip's one folder is named after the file, and the docs land in the same place in it.
     const zipped = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)));
     expect(zipped).toContain("a/docs/README.md");
-    expect(zipped.some((path) => path.startsWith("a/a-docs/"))).toBe(false);
+    expect(zipped).not.toContain("a/README.md");
     // Up and into another folder isn't inside the file's folder: the zip has no place for it.
     const other = JSON.stringify({ openarch: 12, name: "A", export: { docs: "../arch/docs" }, elements: {}, views: {} });
-    expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(other), "a.openarch", other)))).toContain("a/a-docs/README.md");
+    expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(other), "a.openarch", other)))).toContain("a/README.md");
   });
 });
 

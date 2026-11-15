@@ -149,7 +149,8 @@ handle("newFile", async (event) => {
   const file = await askForNewPath(event, "New workspace");
   if (!file) return null;
   const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
-  doc.export = { docs: `${basename(file, FILE_EXTENSION)}-docs` };
+  // The docs beside the file, in its own folder, with no folder of their own.
+  doc.export = { docs: "." };
   return saver.make(file, doc, (made) => grant(made, true));
 });
 

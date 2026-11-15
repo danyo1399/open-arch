@@ -462,11 +462,15 @@ describe("keeping the docs folder", () => {
     const docs = new FakeFolder("docs");
     docs.put("README.md", page("old"));
     docs.put("same.md", page("same"));
+    docs.put("stale.md", page("stale"));
     docs.put("notes.md", "Written by a person.");
     docs.put("views/stale.md", page("stale"));
-    docs.put("old/deep/stale.md", page("stale"));
-    docs.put("kept/stale.md", page("stale"));
-    docs.put("kept/mine.md", "Mine.");
+    docs.put("elements/old/deep/stale.md", page("stale"));
+    // Other folders aren't looked through: the docs folder may be the file's own, or the top of
+    // the folder opened, with other workspaces' docs or node_modules in it.
+    docs.put("other/stale.md", page("stale"));
+    docs.put("node_modules/pkg/README.md", page("stale"));
+    docs.put("elements/mine.md", "Mine.");
     docs.entries.set("untouched", new FakeFolder("untouched"));
 
     const result = await writeDocs(docs, [
@@ -475,16 +479,18 @@ describe("keeping the docs folder", () => {
       { path: "notes.md", content: page("would overwrite") },
       { path: "elements/api.md", content: page("api") },
     ]);
-    expect(result).toEqual({ written: ["README.md", "elements/api.md"], deleted: ["views/stale.md", "old/deep/stale.md", "kept/stale.md"], skipped: ["notes.md"] });
+    expect(result).toEqual({ written: ["README.md", "elements/api.md"], deleted: ["stale.md", "views/stale.md", "elements/old/deep/stale.md"], skipped: ["notes.md"] });
     expect(docs.files()).toEqual({
       "README.md": page("new"),
       "same.md": page("same"),
       "notes.md": "Written by a person.",
-      "kept/mine.md": "Mine.",
+      "other/stale.md": page("stale"),
+      "node_modules/pkg/README.md": page("stale"),
+      "elements/mine.md": "Mine.",
       "elements/api.md": page("api"),
     });
     // Folders emptied by deleting pages go; a folder that was empty already stays.
-    expect(docs.folders().sort()).toEqual(["elements", "kept", "untouched"]);
+    expect(docs.folders().sort()).toEqual(["elements", "node_modules", "node_modules/pkg", "other", "untouched"]);
   });
 
   it("leaves a folder alone where a page would go", async () => {

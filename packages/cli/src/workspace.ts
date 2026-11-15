@@ -7,6 +7,7 @@ import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win
 import {
   agentsSection,
   agentsSectionWorkspace,
+  DOCS_PAGE_FOLDERS,
   exportDocs,
   FILE_EXTENSION,
   GENERATED_MARKER,
@@ -138,8 +139,11 @@ export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?
     }
     for (const e of entries) {
       const abs = join(folder, e.name);
-      if (e.isDirectory()) walk(abs);
-      else if (e.name.endsWith(".md") && !targets.has(abs) && isGenerated(abs)) {
+      // At the docs folder's top, only the folders open-arch writes pages into: it may be the
+      // file's own folder, or a repository's top, with other things in it.
+      if (e.isDirectory()) {
+        if (folder !== dir || DOCS_PAGE_FOLDERS.includes(e.name)) walk(abs);
+      } else if (e.name.endsWith(".md") && !targets.has(abs) && isGenerated(abs)) {
         result.deleted.push(relative(dir, abs).split(sep).join("/"));
         if (!options.dryRun) {
           unlinkSync(abs);

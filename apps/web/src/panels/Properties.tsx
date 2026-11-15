@@ -1308,7 +1308,6 @@ function BoxViewFacts({ ws, view, computed, scope }: { ws: Workspace; view: View
 }
 
 function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }: PropertiesProps) {
-  const suggestedDocs = `${fileName.replace(/\.openarch$/, "")}-docs`;
   const docsFolder = ws.doc.export?.docs;
   return (
     <>
@@ -1321,17 +1320,17 @@ function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }
       <Field
         label="Docs folder"
         value={docsFolder ?? ""}
-        placeholder={suggestedDocs}
+        placeholder="."
         onCommit={(folder) => void edit([{ op: "update-workspace", docs: folder || null }])}
         hint={
           syncsDocs
             ? docsFolder
-              ? "Relative to the workspace file. Every save rewrites the markdown docs there."
-              : "Set a folder, relative to the workspace file, to keep markdown docs there."
-            : `Used by the desktop app and the open-arch CLI. Here, Export zip puts the docs where a save would. With none, or one the zip has no place for, it puts them in ${suggestedDocs}/.`
+              ? "Relative to the workspace file; . is the file's own folder. Every save rewrites the markdown docs there."
+              : "Set a folder, relative to the workspace file, to keep markdown docs there; . is the file's own folder."
+            : "Used by the desktop app and the open-arch CLI. Here, Export zip puts the docs where a save would. With none, or one the zip has no place for, it puts them beside the file."
         }
       />
-      {syncsDocs && !docsFolder && <button onClick={() => void edit([{ op: "update-workspace", docs: suggestedDocs }])}>Keep docs in {suggestedDocs}/</button>}
+      {syncsDocs && !docsFolder && <button onClick={() => void edit([{ op: "update-workspace", docs: "." }])}>Keep docs beside the file</button>}
       {syncsDocs && docs?.error && (
         <p className="error small" role="alert">
           {docsProblem(docs)}

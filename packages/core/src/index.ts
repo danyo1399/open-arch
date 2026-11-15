@@ -3,7 +3,7 @@ export { parseDocument, serializeDocument, emptyDocument, nameFromFileName, elem
 export { buildWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 export { checkWorkspace, errorCount } from "./check.js";
 export { applyOperations, parseOperations, pruneLayouts, OpError, OPERATION_NAMES, LEVEL_TITLE, type Operation, type OperationName, type ApplyResult, type NewElements, type TagChanges } from "./operations.js";
-export { exportDocs, GENERATED_MARKER, type ExportedFile } from "./export.js";
+export { DOCS_PAGE_FOLDERS, exportDocs, GENERATED_MARKER, type ExportedFile } from "./export.js";
 export {
   computeView,
   scopeProblems,
