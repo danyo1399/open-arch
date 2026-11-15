@@ -81,8 +81,6 @@ describe("ShareDialog, for a link the server no longer has", () => {
     await settings.setShare("browser/a", { id: "C".repeat(22), hash: "D".repeat(22), key: "k".repeat(43), token: "t".repeat(43), updated: 1 });
     const host = dialog(settings);
     await until(host, "Stop sharing…");
-    // The notice shows before the dialog has finished keeping the link, and its buttons wait for that.
-    await enabled(host, "Stop sharing…");
     await click(button(host, "Stop sharing…"));
     await click(button(host, "Stop sharing"));
     await until(host, "Stopped sharing it.");
