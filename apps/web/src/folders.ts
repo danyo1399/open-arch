@@ -306,7 +306,7 @@ export class FolderHost implements WorkspaceHost {
    * compares the file with the text loaded, so a change made in between is noticed too. Calls
    * `onRemoved` once it's been missing for a whole interval between checks.
    */
-  watch(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string) => void): () => void {
+  watch(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string | null) => void): () => void {
     this.reload = onChange;
     /** The text the last check found: at first, what was loaded. */
     let seen: string | null = null;
@@ -332,6 +332,7 @@ export class FolderHost implements WorkspaceHost {
         // that keeps times to the second. The file is small, so reading it is cheap.
         const text = await readText(await fileAt(this.root, this.path));
         missingSince = null;
+        if (told && !stopped) onProblem?.(null);
         told = false;
         const changed = seen !== null && text !== seen;
         seen = text;

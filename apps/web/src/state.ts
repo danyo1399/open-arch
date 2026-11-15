@@ -73,6 +73,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   const [deleted, setDeleted] = useState(false);
   const isDeleted = useRef(false);
   const current = useRef<string | null>(null);
+  /** The watcher's message that it can't see outside changes, while that's the one showing. */
+  const watchProblem = useRef<WorkspaceState["message"]>(null);
   // The history as the queue's tasks leave it, as `current` is the text. Undo pressed twice
   // before the first one's save has finished queues two steps from the same render, so each
   // step reads the history when it runs, not when it was pressed.
@@ -111,8 +113,9 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     const stop = host.watch?.(
       () => {
         void enqueue(async () => {
-          const next = await host.load();
-          if (cancelled || next === current.current) return;
+          // Gone or unreadable since the watcher looked: its next check says which.
+          const next = await host.load().catch(() => null);
+          if (cancelled || next === null || next === current.current) return;
           const renames = current.current === null ? [] : renamesFrom(current.current, next);
           commit(next);
           applied.current?.(renames);
@@ -138,7 +141,14 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         });
       },
       (problem) => {
-        if (!cancelled) setMessage({ kind: "error", text: problem });
+        if (cancelled) return;
+        if (problem === null) {
+          // It can see outside changes again, so its message comes down, if it's still showing.
+          setMessage((shown) => (shown === watchProblem.current ? null : shown));
+          return;
+        }
+        watchProblem.current = { kind: "error", text: problem };
+        setMessage(watchProblem.current);
       },
     );
     return () => {

@@ -25,10 +25,10 @@ export interface WorkspaceHost {
   save(text: string): Promise<DocsSummary | null | void>;
   /**
    * Calls `onChange` when the workspace changes outside this window, and `onRemoved` when it's
-   * deleted there. `onProblem` hears, once, when it can't tell any more. Returns a function that
-   * stops watching.
+   * deleted there. `onProblem` hears, once, when it can't tell any more, and null once it can
+   * again. Returns a function that stops watching.
    */
-  watch?(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string) => void): () => void;
+  watch?(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string | null) => void): () => void;
 }
 
 /**

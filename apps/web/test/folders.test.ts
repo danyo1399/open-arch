@@ -381,9 +381,10 @@ describe("watching a workspace in a folder", () => {
     root.put("a.openarch", workspace("B"));
     await vi.advanceTimersByTimeAsync(100);
     expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onProblem.mock.calls[1]).toEqual([null]);
     file.unreadable = true;
     await vi.advanceTimersByTimeAsync(100);
-    expect(onProblem).toHaveBeenCalledTimes(2);
+    expect(onProblem).toHaveBeenCalledTimes(3);
     stop();
   });
 

@@ -16,13 +16,13 @@ class TestHost implements WorkspaceHost {
   file = text("A");
   changed = () => {};
   removed = () => {};
-  problem: (text: string) => void = () => {};
+  problem: (text: string | null) => void = () => {};
   save: (next: string) => Promise<DocsSummary | null | void> = async (next) => void (this.file = next);
   constructor(readonly storage: WorkspaceHost["storage"]) {}
   async load() {
     return this.file;
   }
-  watch(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string) => void) {
+  watch(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string | null) => void) {
     this.changed = onChange;
     this.removed = onRemoved ?? (() => {});
     this.problem = onProblem ?? (() => {});
@@ -60,6 +60,30 @@ describe("the open workspace", () => {
     await act(async () => host.problem("Can't read repo/a.openarch to see changes made outside the designer: Not allowed."));
     expect(state().message).toEqual({ kind: "error", text: "Can't read repo/a.openarch to see changes made outside the designer: Not allowed." });
     expect(state().storage).toBe("file");
+    // Once it can, the message comes down; another message shown since stays.
+    await act(async () => host.problem(null));
+    expect(state().message).toBeNull();
+    await act(async () => host.problem("Can't read it."));
+    await act(async () => state().notify({ kind: "info", text: "Copied." }));
+    await act(async () => host.problem(null));
+    expect(state().message).toEqual({ kind: "info", text: "Copied." });
+  });
+
+  it("leaves a reload that fails to the watcher's next check", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    host.load = async () => {
+      throw new Error("repo/a.openarch isn't there any more.");
+    };
+    await act(async () => host.changed());
+    await settle();
+    process.off("unhandledRejection", onRejection);
+    expect(rejections).toEqual([]);
+    expect(state().ws?.doc.name).toBe("A");
+    expect(state().message).toBeNull();
   });
 
   it("says a workspace kept in the browser was deleted in another tab", async () => {
