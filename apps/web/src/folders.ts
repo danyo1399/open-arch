@@ -289,11 +289,15 @@ export async function exportToFolder(root: FolderHandle, ws: Workspace, fileName
   }
   const doc = named === undefined ? applyOperations(ws.doc, [{ op: "update-workspace", docs: "." }]).doc : ws.doc;
   const result: FolderExport = await new FolderHost("export", root, fileName).create(serializeDocument(doc));
-  try {
-    const other = agentsSectionWorkspace(await readText(await fileAt(root, "AGENTS.md")));
-    if (other !== null && segments(other)?.join("/") !== fileName) result.agentsNamesOther = other;
-  } catch {
-    // No AGENTS.md: its problem, if any, is in agentsError.
+  // Said only when that's why the section was left as it is: it was written, and the workspace it
+  // names is still in the folder. Any other reason is in agentsError.
+  if (!result.agentsError) {
+    try {
+      const other = agentsSectionWorkspace(await readText(await fileAt(root, "AGENTS.md")));
+      if (other !== null && segments(other)?.join("/") !== fileName && (await isFileIn(root, other))) result.agentsNamesOther = other;
+    } catch {
+      // No AGENTS.md to say anything about.
+    }
   }
   return result;
 }

@@ -938,6 +938,22 @@ describe("exporting a workspace to a folder", () => {
     expect(root.files()["README.md"]).toBe(readme);
   });
 
+  it("doesn't say AGENTS.md names another workspace when that isn't why it was left", async () => {
+    const root = new FakeFolder("repo");
+    // The section names a workspace that's gone, and AGENTS.md can't be written.
+    root.put("AGENTS.md", agentsInFolder("old.openarch")["AGENTS.md"]!);
+    (root.entries.get("AGENTS.md") as FakeFile).bytes = new Uint8Array([0xff, ...new TextEncoder().encode(agentsInFolder("old.openarch")["AGENTS.md"]!)]);
+    const result = await exportToFolder(root, loadWorkspace(workspace("A")), "a.openarch");
+    expect(result.agentsError).toBe("AGENTS.md isn't UTF-8 text, so it was left alone.");
+    expect(result.agentsNamesOther).toBeUndefined();
+    // Nor when the workspace it names isn't in the folder, and the section is written for this one.
+    const gone = new FakeFolder("repo");
+    gone.put("AGENTS.md", agentsInFolder("old.openarch")["AGENTS.md"]!);
+    const written = await exportToFolder(gone, loadWorkspace(workspace("A")), "a.openarch");
+    expect(written.agentsNamesOther).toBeUndefined();
+    expect(gone.files()["AGENTS.md"]).toContain("in `a.openarch`");
+  });
+
   it("says what went wrong beside writing the file", async () => {
     const root = new FakeFolder("repo");
     root.refuse.add(".claude");
