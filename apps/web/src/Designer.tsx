@@ -758,16 +758,20 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         // relationship's look is taken once the edits made before Expand have landed, such as its
         // description saved as its box was left; until then the editor can't save. If the
         // relationships between the two have moved by then, it's lost track of which it's on.
+        // That's so for a file with errors too: its save is refused, as an element's is.
         onEditNotes={(owner, text) => {
           const opened = ++notesOpened.current;
           const place = relationshipsPlace(ws, owner);
           setDialog((d) => d ?? { kind: "notes", owner: renamedNotesOwner(owner, current), name: notesName(ws, owner), text, opened, ready: place === undefined });
           if (place === undefined) return;
-          void edit((now) => {
+          void state.afterEdits((now) =>
             // By now the owner has followed any rename that landed.
-            setDialog((d) => (d?.kind === "notes" && d.opened === opened ? { ...d, owner: notesOwnerAsIs(now, d.owner, place), ready: true } : d));
-            return [];
-          });
+            setDialog((d) =>
+              d?.kind === "notes" && d.opened === opened && d.owner.kind === "relationship"
+                ? { ...d, owner: now ? notesOwnerAsIs(now, d.owner, place) : { ...d.owner, look: null }, ready: true }
+                : d,
+            ),
+          );
         }}
       />
 

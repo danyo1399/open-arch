@@ -19,6 +19,11 @@ export interface WorkspaceState {
   edit(edit: Edit): Promise<boolean>;
   /** Save an earlier version of the file, as one step that Undo takes back. Resolves to false if it couldn't be saved. */
   restore(text: string): Promise<boolean>;
+  /**
+   * Calls `look` with the workspace once the edits queued before it have landed, or with null
+   * when there's none. Unlike an edit, it gets a workspace whose file has errors too.
+   */
+  afterEdits(look: (ws: Workspace | null) => void): Promise<void>;
   undo(): void;
   redo(): void;
   canUndo: boolean;
@@ -284,6 +289,15 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     [enqueue, write],
   );
 
+  const afterEdits = useCallback(
+    (look: (ws: Workspace | null) => void) =>
+      enqueue(async () => {
+        const now = current.current;
+        look(now === null ? null : loadWorkspace(now));
+      }),
+    [enqueue],
+  );
+
   const storage = deleted ? "memory" : host.storage;
 
   return {
@@ -293,6 +307,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     loadError,
     edit,
     restore,
+    afterEdits,
     undo: () => step("undo"),
     redo: () => step("redo"),
     canUndo: history.undo.length > 0,

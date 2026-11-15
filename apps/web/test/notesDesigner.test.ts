@@ -73,7 +73,11 @@ class FileHost implements WorkspaceHost {
   }
   /** Changes the file outside the designer, which sees it and reloads. */
   change(ops: Operation[]) {
-    this.text = serializeDocument(applyOperations(this.doc, ops).doc);
+    this.put(serializeDocument(applyOperations(this.doc, ops).doc));
+  }
+  /** Writes the file outside the designer, which sees it and reloads. */
+  put(text: string) {
+    this.text = text;
     this.changed();
   }
 }
@@ -98,8 +102,8 @@ const doc: OpenArchDocument = {
 };
 
 /** The whole designer, open on the container view, with its boxes measured. */
-async function designer() {
-  const file = new FileHost(serializeDocument(doc));
+async function designer(text = serializeDocument(doc)) {
+  const file = new FileHost(text);
   const host = mount(createElement(Designer, { host: file, onClose() {}, onHostChange() {} }));
   /** Lets the edits, reloads and the drawing settle, with every box measured. */
   const settle = async () => {
@@ -334,6 +338,31 @@ describe("writing notes in the bigger editor", () => {
     await d.settle();
     expect(d.editor()?.open).toBe(true);
     expect(d.file.doc.elements.web!.uses).toEqual([{ to: "api", description: "Sends events to", notes: "Over a queue." }]);
+  });
+
+  it("lets a relationship's notes be written in a file with errors, keeps them when the save is refused, and saves them once it's fixed", async () => {
+    // A shape the format doesn't have is an error that stops the file being changed safely.
+    const broken = JSON.parse(serializeDocument(doc));
+    broken.elements.api.shape = "blob";
+    const d = await designer(JSON.stringify(broken, null, 2));
+    await click(d.host.querySelector('.react-flow__edge[data-id="web->api"]')!);
+    await click([...d.panel().querySelectorAll("button")].filter((b) => b.textContent === "Expand")[0]!);
+    await d.settle();
+    expect(button(d.editor()!, "Done").disabled).toBe(false);
+    d.box().value = "Uses REST.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.editor()?.open).toBe(true);
+    expect(d.editor()!.textContent).toContain("These notes weren't saved. They're still here: try again, or copy them to keep them.");
+    expect(d.file.doc.elements.web!.uses![0]!.notes).toBeUndefined();
+
+    // Fixed outside, it reloads, and the notes save.
+    d.file.put(serializeDocument(doc));
+    await d.settle();
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.file.doc.elements.web!.uses![0]).toEqual({ to: "api", description: "Calls", notes: "Uses REST." });
   });
 
   it("saves a relationship's notes, and not over another's once an edit elsewhere puts that one in its place", async () => {

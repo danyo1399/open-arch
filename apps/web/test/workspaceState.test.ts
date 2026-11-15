@@ -72,6 +72,28 @@ describe("the open workspace", () => {
     expect(state().message).toEqual({ kind: "info", text: "Copied." });
   });
 
+  it("looks at the workspace once the edits queued before have landed, even when its file has errors", async () => {
+    const host = new TestHost("file");
+    // Each save takes a moment, so the look waits for it.
+    host.save = (next) => new Promise((resolve) => setTimeout(() => resolve(void (host.file = next)), 30));
+    const state = await workspaceFor(host);
+    const seen: (string | undefined)[] = [];
+    await act(async () => {
+      void state().edit([{ op: "update-workspace", name: "B" }]);
+      await state().afterEdits((ws) => void seen.push(ws?.doc.name));
+    });
+    expect(seen).toEqual(["B"]);
+
+    // A file with errors, here an element of a kind the format doesn't have, can't be changed, but can be looked at.
+    host.file = JSON.stringify({ ...JSON.parse(host.file), elements: { api: { kind: "box", name: "API" } } });
+    await act(async () => host.changed());
+    await settle();
+    let valid: boolean | undefined;
+    await act(() => state().afterEdits((ws) => void (valid = ws?.valid)));
+    expect(valid).toBe(false);
+    expect(await act(() => state().edit([{ op: "update-workspace", name: "D" }]))).toBe(false);
+  });
+
   it("drops a reload that fails, without an unhandled rejection", async () => {
     const host = new TestHost("file");
     const state = await workspaceFor(host);
