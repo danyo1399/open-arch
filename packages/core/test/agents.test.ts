@@ -47,6 +47,16 @@ describe("the AGENTS.md section", () => {
     expect(replaced.replace(/\r\n/g, "")).not.toContain("\n");
   });
 
+  it("finds a marker on the first line after a byte-order mark, and keeps the mark", () => {
+    const old = agentsSection("a.openarch", undefined, "1");
+    const replaced = withAgentsSection(`\uFEFF${old}\n# Rules\n`, agentsSection("b.openarch", undefined, "1"));
+    expect(replaced.startsWith("\uFEFF<!-- open-arch:start -->")).toBe(true);
+    expect(replaced).toContain("in `b.openarch`");
+    expect(replaced).not.toContain("in `a.openarch`");
+    expect(replaced.endsWith("\n# Rules\n")).toBe(true);
+    expect(agentsSectionWorkspace(`\uFEFF${old}`)).toBe("a.openarch");
+  });
+
   it("tells which workspace a section names", () => {
     expect(agentsSectionWorkspace(withAgentsSection("# Rules\n", agentsSection("arch/a.openarch", "docs", "1")))).toBe("arch/a.openarch");
     expect(agentsSectionWorkspace("# Rules\n")).toBeNull();

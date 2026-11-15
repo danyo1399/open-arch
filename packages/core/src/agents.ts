@@ -25,8 +25,9 @@ ${SECTION_END}
 
 /** Where a marker is in the text, on a line of its own, or -1. One quoted in a sentence doesn't count. */
 function markerAt(text: string, marker: string): number {
-  // A line can end in \r\n, as on Windows.
-  return new RegExp(`^[ \\t]*${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t\\r]*$`, "m").exec(text)?.index ?? -1;
+  // A line can end in \r\n, as on Windows, and the first can start with a byte-order mark, which stays where it is.
+  const match = new RegExp(`^\\uFEFF?[ \\t]*${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t\\r]*$`, "m").exec(text);
+  return match ? match.index + (match[0].startsWith("\uFEFF") ? 1 : 0) : -1;
 }
 
 /**

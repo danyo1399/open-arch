@@ -303,6 +303,21 @@ describe("keeping the AGENTS.md section", () => {
     expect(root.files()["AGENTS.md"]).toBe(first);
   });
 
+  it("puts right a section naming a workspace that moved while another was open the next time the folder is opened", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    root.put("b.openarch", workspace("B"));
+    await new FolderHost("1", root, "a.openarch").save(workspace("A2"));
+    const other = new FolderHost("2", root, "b.openarch");
+    await other.save(workspace("B2"));
+    root.entries.delete("a.openarch");
+    // Saves don't read AGENTS.md again while what the section would name is the same.
+    await other.save(workspace("B3"));
+    expect(root.files()["AGENTS.md"]).toContain("in `a.openarch`");
+    await new FolderHost("2", root, "b.openarch").save(workspace("B4"));
+    expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("b.openarch")["AGENTS.md"]);
+  });
+
   it("writes the section for this workspace when the one it names is no longer in the folder", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
