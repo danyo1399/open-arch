@@ -12,4 +12,4 @@ export function problemText(error: unknown): string {
 }
 
 /** Whether what was thrown is a DOMException or error of this kind, such as "AbortError". Safe for anything thrown, even nothing. */
-export const isProblem = (error: unknown, name: string) => (error as { name?: unknown } | null)?.name === name;
+export const isNamed = (error: unknown, name: string) => (error as { name?: unknown } | null)?.name === name;

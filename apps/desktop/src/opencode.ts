@@ -50,7 +50,7 @@ async function connectToService(): Promise<OpenCodeClient> {
   try {
     endpoint = await Service.ensure({ command: [opencodeCommand(), "serve", "--service"] });
   } catch (error) {
-    throw new Error(`Couldn't start OpenCode: ${problemText(error).replace(/\.$/, "")}. Install OpenCode 2 from https://opencode.ai, or start it with \`opencode serve --service\`.`);
+    throw new Error(`Couldn't start OpenCode: ${problemText(error).replace(/\.+$/, "")}. Install OpenCode 2 from https://opencode.ai, or start it with \`opencode serve --service\`.`);
   }
   const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) });
   const { version } = await client.server.info();

@@ -9,7 +9,7 @@ import { LibraryPage } from "../src/LibraryPage.js";
 import type { AgentBridge, AgentEvent, DesktopBridge } from "../src/bridge.js";
 import { AskAI } from "../src/panels/AskAI.js";
 import { ShareDialog } from "../src/panels/ShareDialog.js";
-import { isProblem, problemText, UNKNOWN_PROBLEM } from "../src/problems.js";
+import { isNamed, problemText, UNKNOWN_PROBLEM } from "../src/problems.js";
 import { PNG_FILE, saveFile } from "../src/providers.js";
 import { Settings } from "../src/settings.js";
 import { ShareClient } from "../src/share.js";
@@ -53,9 +53,9 @@ describe("what went wrong", () => {
   });
 
   it("tells a kind of failure apart, whatever was thrown", () => {
-    expect(isProblem(new DOMException("No.", "AbortError"), "AbortError")).toBe(true);
-    expect(isProblem(new Error("No."), "AbortError")).toBe(false);
-    for (const thrown of [undefined, null, "AbortError"]) expect(isProblem(thrown, "AbortError")).toBe(false);
+    expect(isNamed(new DOMException("No.", "AbortError"), "AbortError")).toBe(true);
+    expect(isNamed(new Error("No."), "AbortError")).toBe(false);
+    for (const thrown of [undefined, null, "AbortError"]) expect(isNamed(thrown, "AbortError")).toBe(false);
   });
 
   it("in Ask AI, from the agent or the desktop app, says so when it gives no reason", async () => {

@@ -10,7 +10,7 @@
 import { exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
-import { isProblem, problemText } from "./problems.js";
+import { isNamed, problemText } from "./problems.js";
 import { SKILL_TARGETS, skillFiles } from "./skill.js";
 import type { WorkspaceHost } from "./hosts.js";
 import { committed, done } from "./library.js";
@@ -56,7 +56,7 @@ export async function pickFolder(): Promise<FolderHandle | null> {
   try {
     return await (window as unknown as DirectoryPicker).showDirectoryPicker({ id: "open-arch-folder", mode: "readwrite" });
   } catch (error) {
-    if (isProblem(error, "AbortError")) return null;
+    if (isNamed(error, "AbortError")) return null;
     throw error;
   }
 }
@@ -96,7 +96,7 @@ export async function findWorkspaces(root: FolderHandle): Promise<string[]> {
 
 // --- Paths inside the folder ---------------------------------------------------------
 
-const isMissing = (error: unknown) => isProblem(error, "NotFoundError");
+const isMissing = (error: unknown) => isNamed(error, "NotFoundError");
 
 async function folderAt(root: FolderHandle, parts: string[], create: boolean): Promise<FolderHandle> {
   let dir = root;
@@ -142,7 +142,7 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[], change
       existing = await readText(await fileAt(dir, path));
     } catch (error) {
       // A file in the way of a folder the page goes in, or a folder in the page's place, is left alone too.
-      if (isProblem(error, "TypeMismatchError")) existing = "";
+      if (isNamed(error, "TypeMismatchError")) existing = "";
       else if (!isMissing(error)) throw error;
     }
     if (existing === content) continue;

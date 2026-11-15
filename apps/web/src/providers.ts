@@ -7,7 +7,7 @@
  */
 import { FILE_EXTENSION } from "@open-arch/core";
 import { download } from "./hosts.js";
-import { isProblem } from "./problems.js";
+import { isNamed } from "./problems.js";
 
 export interface PickedFile {
   name: string;
@@ -86,7 +86,7 @@ export async function saveFile(name: string, content: string | (() => Promise<Bl
       types: [{ description: type.description, accept: { [type.mime]: [type.extension] } }],
     });
   } catch (error) {
-    if (isProblem(error, "AbortError")) return false;
+    if (isNamed(error, "AbortError")) return false;
     throw error;
   }
   const data = await make();
