@@ -143,7 +143,7 @@ function LinkGrip({ onDrag, onDrop }: { onDrag(at: Point): void; onDrop(at: Poin
   return (
     <div
       className="sticky-grip nodrag nopan"
-      title="Drag to a box or an arrow to put the note on it"
+      title="Drag to a box, the frame or an arrow to put the note on it"
       onPointerDown={(e) => {
         if (e.button !== 0 || drag.current) return;
         e.stopPropagation();

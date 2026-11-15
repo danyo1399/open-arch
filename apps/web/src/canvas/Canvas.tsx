@@ -16,6 +16,7 @@ import {
   type Position,
   type RelationshipKind,
   type Sticky,
+  type StickyAnchor,
   type StickyTargetData,
   type ViewDef,
   type ViewEdge,
@@ -46,7 +47,6 @@ import {
   sameShapes,
   selectedShapes,
   selectShapes,
-  stickyKey,
   stickyTargetFor,
   toggleShape,
   uniqueId,
@@ -264,15 +264,19 @@ export interface DrawnArrow {
   label?: Rect;
 }
 
-/** What a note's dot let go here puts the note on, and the box or frame's node, or the arrow, to outline while the dot is over it. */
-export type NoteDrop = { on: StickyTargetData; node?: string; arrow?: string };
+/**
+ * What a note's dot let go here puts the note on, where the view draws that, and the box or
+ * frame's node, or the arrow, to outline while the dot is over it.
+ */
+export type NoteDrop = { on: StickyTargetData; anchor: StickyAnchor; node?: string; arrow?: string };
 
 /**
  * What a note's dot let go at this point on the diagram puts the note on: the box there, the one
  * drawn on top; else the arrow whose label is there, or whose line is nearest, no further than
  * `reach`; else the frame, when the point is inside it. Nothing over a note, which the boxes and
- * arrows under it are hidden by, or over a box or arrow a note can't be on (see stickyTargetFor).
- * `elementOf` is the element a box or the frame is for.
+ * arrows under it are hidden by, or over a box a note can't be on (see stickyTargetFor). An arrow
+ * a note can't be on is passed over, as if it weren't there. `elementOf` is the element a box or
+ * the frame is for.
  */
 export function noteDropAt(
   ws: Workspace,
@@ -286,22 +290,42 @@ export function noteDropAt(
   if (nodes.some((n) => n.type === "sticky" && within(noteRect(n, noteSize)))) return undefined;
   const box = boxAt(nodes, at);
   if (box) {
-    const on = stickyTargetFor(ws, cv, { kind: "element", id: elementOf(box) });
-    return on && { on, node: box.id };
+    const id = elementOf(box);
+    const on = stickyTargetFor(ws, cv, { kind: "element", id });
+    return on && { on, anchor: { kind: "box", id }, node: box.id };
   }
-  let arrow: DrawnArrow | undefined;
+  let found: NoteDrop | undefined;
   let nearest = reach;
   for (const a of arrows) {
     const distance = a.label && within(a.label) ? 0 : distanceToRoute(a.points, at);
-    if (distance <= nearest) [arrow, nearest] = [a, distance];
+    if (distance > nearest) continue;
+    const on = stickyTargetFor(ws, cv, { kind: "arrow", from: a.edge.from, to: a.edge.to, ...arrowRelation(a.edge) });
+    if (on) [found, nearest] = [{ on, anchor: { kind: "arrow", edge: a.edge }, arrow: a.id }, distance];
   }
-  if (arrow) {
-    const on = stickyTargetFor(ws, cv, { kind: "arrow", from: arrow.edge.from, to: arrow.edge.to, ...arrowRelation(arrow.edge) });
-    return on && { on, arrow: arrow.id };
-  }
+  if (found) return found;
   const frame = frameAt(nodes, at);
-  const on = frame && stickyTargetFor(ws, cv, { kind: "element", id: elementOf(frame) });
-  return on && { on, node: frame.id };
+  if (!frame) return undefined;
+  const id = elementOf(frame);
+  const on = stickyTargetFor(ws, cv, { kind: "element", id });
+  return on && { on, anchor: { kind: "frame", id }, node: frame.id };
+}
+
+/** Whether a view draws two things a note can be on as the same box, frame or arrow. */
+function sameAnchor(a: StickyAnchor, b: StickyAnchor): boolean {
+  if (a.kind === "arrow") return b.kind === "arrow" && arrowId(a.edge) === arrowId(b.edge);
+  return a.kind === b.kind && a.id === b.id;
+}
+
+/**
+ * The edit that puts a note on what its dot was let go on, or none when its line goes there
+ * already: a note on the second relationship an arrow stands for, or on an element inside a box,
+ * stays on it. The note stays where it's drawn, `drawnAt`, rather than going beside what it's on
+ * now, as one placed beside what it was on would.
+ */
+export function noteDropOps(ws: Workspace, cv: ComputedView, sticky: Sticky, drop: NoteDrop, drawnAt: Point): Operation[] {
+  const current = sticky.on && stickyAnchor(ws, cv, sticky.on);
+  if (current && sameAnchor(current, drop.anchor)) return [];
+  return [{ op: "update-sticky", view: cv.view.id, id: sticky.id, on: drop.on, ...(!sticky.at && { at: [Math.round(drawnAt.x), Math.round(drawnAt.y)] as [number, number] }) }];
 }
 
 /**
@@ -668,17 +692,17 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   );
 
   // A note's dot let go on a box, the frame or an arrow puts the note on it, as one step for Undo,
-  // and selects the note. A note placed beside what it was on stays where it is, rather than
-  // jumping beside what it's on now. Let go on what it's on already, it just selects the note.
+  // and selects the note (see noteDropOps). Let go on what its line goes to already, it just
+  // selects the note.
   dropLink.current = (id, at) => {
     setLinking(null);
     const sticky = view.stickies.find((s) => s.id === id);
     const node = nodesRef.current.find((n): n is StickyFlowNode => n.id === stickyNodeId(id));
     const drop = at && linkDropAt(at);
-    if (!sticky || !node || !drop) return;
-    if (sticky.on && stickyKey(sticky.on) === stickyKey(drop.on)) return onSelect({ kind: "sticky", id });
-    const spot: [number, number] | undefined = sticky.at ? undefined : [Math.round(node.position.x), Math.round(node.position.y)];
-    void edit([{ op: "update-sticky", view: view.id, id, on: drop.on, ...(spot && { at: spot }) }]).then((ok) => ok && onSelect({ kind: "sticky", id }));
+    if (!cv || !sticky || !node || !drop) return;
+    const ops = noteDropOps(ws, cv, sticky, drop, node.position);
+    if (!ops.length) return onSelect({ kind: "sticky", id });
+    void edit(ops).then((ok) => ok && onSelect({ kind: "sticky", id }));
   };
 
   const linkArrow = linkDrop?.arrow;

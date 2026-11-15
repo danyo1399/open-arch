@@ -190,6 +190,21 @@ describe("dragging from a note's dot", () => {
     expect(d.lines()).toBe(1);
   });
 
+  it("only selects a note let go on what it's on, and keeps where one was put", async () => {
+    const placed = structuredClone(doc);
+    placed.views.containers!.stickies = { placed: { text: "Look here", on: { element: "api" }, at: [700, 0] } };
+    const d = await designer(placed);
+    expect(button(d.host, "Undo").disabled).toBe(true);
+    await d.dragDot("placed", { x: 600, y: 350 });
+    expect(select(d.host, "On").value).toBe("element:api");
+    expect(button(d.host, "Undo").disabled).toBe(true);
+    // Customer's box is at 0, 0.
+    await d.dragDot("placed", { x: 100, y: 50 });
+    expect(select(d.host, "On").value).toBe("element:customer");
+    expect(at(d.node("sticky:placed")!)).toEqual([700, 0]);
+    expect(button(d.host, "Undo").disabled).toBe(false);
+  });
+
   it("leaves the note as it was when it's let go on nothing", async () => {
     const d = await designer(withNote);
     await d.dragDot("loose", { x: -2000, y: -2000 });
