@@ -4,7 +4,7 @@ import { act, createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/App.js";
 import type { FolderList, StoredFolder } from "../src/folders.js";
-import { mount } from "./dom.js";
+import { button, click, mount } from "./dom.js";
 import { FakeFolder } from "./fakeFolder.js";
 
 const workspace = JSON.stringify({ openarch: 11, name: "Repo", elements: {}, views: {} });
@@ -15,7 +15,11 @@ function foldersWith(root: FakeFolder) {
   return {
     list: async () => records,
     get: async (id: string) => records.find((r) => r.id === id),
-    add: async () => records[0]!,
+    add: async (root: FakeFolder, path: string) => {
+      const record = { id: `f${records.length + 1}`, root, path, opened: 2 };
+      records.unshift(record);
+      return record;
+    },
     remove: async () => {},
   } as unknown as FolderList;
 }
@@ -31,6 +35,18 @@ afterEach(() => {
 });
 
 describe("reloading the page with a workspace in a folder open", () => {
+  it("names a folder opened from the start page in the URL", async () => {
+    const root = new FakeFolder("other");
+    root.put("b.openarch", workspace);
+    Object.assign(window, { showDirectoryPicker: async () => root });
+    const host = mount(createElement(App, { folders: foldersWith(new FakeFolder("repo")) }));
+    await until(() => !!host.textContent?.includes("Open folder…"));
+    expect(location.hash).toBe("");
+    await click(button(host, "Open folder…"));
+    await until(() => !!host.querySelector(".ws-name"));
+    expect(location.hash).toBe("#folder/f2");
+  });
+
   it("reopens it when the browser still allows it, and keeps it in the URL", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace);

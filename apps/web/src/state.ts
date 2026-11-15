@@ -147,7 +147,6 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   const ws = useMemo(() => (text === null ? null : loadWorkspace(text)), [text]);
   const diagnostics = useMemo(() => (ws ? checkWorkspace(ws) : []), [ws]);
 
-  /** Saves, then shows the new text, and runs `then` in the same render. */
   /** The message saying the last save went wrong, if that's still the one showing. */
   const problem = useRef<WorkspaceState["message"]>(null);
   const saveProblem = (text: string) => {
@@ -155,6 +154,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     setMessage(problem.current);
   };
 
+  /** Saves, then shows the new text, and runs `then` in the same render. */
   const write = useCallback(
     async (next: string, then?: () => void) => {
       if (!isDeleted.current) {

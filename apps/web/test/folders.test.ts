@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("finding workspaces in a folder", () => {
-  it("looks three folders deep, nearest first, and skips hidden folders and node_modules", async () => {
+  it("looks in the folder and two levels below it, as the CLI does, nearest first, and skips hidden folders and node_modules", async () => {
     const root = new FakeFolder("repo");
     root.put("b/b.openarch", "");
     root.put("a.openarch", "");
@@ -160,11 +160,17 @@ describe("a workspace in a folder", () => {
     const docs = loadWorkspace(text).doc.export!.docs!;
     root.put("shop.openarch", text);
     root.put(`${docs}/old.md`, "");
-    (root.entries.get(docs) as FakeFolder).refuse.add("views");
+    (root.entries.get(docs) as FakeFolder).refuse.add("elements");
     const summary = await new FolderHost("1", root, "shop.openarch").save(text);
     expect(summary?.error).toBe("Not allowed.");
     expect(summary?.written).toBeGreaterThan(0);
-    expect(Object.keys(root.files()).filter((p) => p.startsWith(`${docs}/elements/`))).toHaveLength(summary!.written - 1);
+    // It got as far as the index and the view pages, and stopped at the first element's page. The
+    // sweep that deletes stale pages never ran, so the old page is still there.
+    const files = Object.keys(root.files()).filter((p) => p.startsWith(`${docs}/`));
+    const views = files.filter((p) => p.startsWith(`${docs}/views/`));
+    expect(files.sort()).toEqual([`${docs}/README.md`, ...views, `${docs}/old.md`].sort());
+    expect(views.length).toBe(loadWorkspace(text).views.size);
+    expect(summary?.written).toBe(views.length + 1);
   });
 
   it("creates a new workspace, but never over a file that's there", async () => {
@@ -296,6 +302,43 @@ describe("watching a workspace in a folder", () => {
     root.entries.delete("a.openarch");
     await vi.advanceTimersByTimeAsync(100);
     root.put("a.openarch", workspace("B"));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onRemoved).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("notices a change made after loading, when watching starts before the load is done, as the designer does", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    // Changed straight after the load reads it, before the first check.
+    (root.entries.get("a.openarch") as FakeFile).afterRead = () => root.put("a.openarch", workspace("B"));
+    const loading = host.load();
+    const onChange = vi.fn();
+    const stop = host.watch(onChange);
+    expect(await loading).toBe(workspace("A"));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("doesn't take two checks close together in one gap as the file being gone", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await host.load();
+    const onRemoved = vi.fn();
+    const stop = host.watch(() => {}, onRemoved);
+    await vi.advanceTimersByTimeAsync(50);
+    root.entries.delete("a.openarch");
+    await vi.advanceTimersByTimeAsync(50);
+    // The tab shows again straight after a check that missed it.
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(5);
+    expect(onRemoved).not.toHaveBeenCalled();
+    root.put("a.openarch", workspace("A"));
     await vi.advanceTimersByTimeAsync(300);
     expect(onRemoved).not.toHaveBeenCalled();
     stop();

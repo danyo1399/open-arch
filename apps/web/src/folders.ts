@@ -70,7 +70,8 @@ export async function allowed(root: FolderHandle, ask: boolean): Promise<boolean
 const SEARCH_DEPTH = 3;
 
 /**
- * The .openarch files in the folder and the folders below it, three deep, as paths relative to it.
+ * The .openarch files in the folder and two levels of folders below it, as paths relative to it,
+ * as the CLI finds them.
  * Like the CLI, it skips hidden folders, such as .git, and node_modules, and folders it can't read.
  */
 export async function findWorkspaces(root: FolderHandle): Promise<string[]> {
@@ -193,6 +194,8 @@ export class FolderHost implements WorkspaceHost {
   readonly name: string;
   /** The file's text as the designer last read or wrote it. Saving over anything else would lose a change made outside. */
   private known: string | null = null;
+  /** The last load, for the watcher to start from what it read. */
+  private loading: Promise<string> | null = null;
   /** The watcher's `onChange`, to reload the file when a save finds it changed. */
   private reload: (() => void) | null = null;
 
@@ -215,17 +218,23 @@ export class FolderHost implements WorkspaceHost {
     return `${this.root.name}/${this.path}`;
   }
 
-  async load(): Promise<string> {
-    try {
-      this.known = await readText(await fileAt(this.root, this.path));
-      return this.known;
-    } catch (error) {
-      if (isMissing(error)) throw new Error(`${this.location} isn't there any more.`);
-      throw error;
-    }
+  load(): Promise<string> {
+    this.loading = (async () => {
+      try {
+        this.known = await readText(await fileAt(this.root, this.path));
+        return this.known;
+      } catch (error) {
+        if (isMissing(error)) throw new Error(`${this.location} isn't there any more.`);
+        throw error;
+      }
+    })();
+    return this.loading;
   }
 
-  /** Saves a new workspace, and its docs. Refuses if the file is there already, so nothing is overwritten. */
+  /**
+   * Saves a new workspace, and its docs. Refuses if the file is there already. A file that appears
+   * in the moment between that check and the write is still overwritten: the browser can't lock it.
+   */
   async create(text: string): Promise<DocsSummary | null> {
     const there = await fileAt(this.root, this.path).then(
       () => true,
@@ -295,14 +304,15 @@ export class FolderHost implements WorkspaceHost {
    * Checks the file every so often while the page is showing, and as soon as it shows again, for
    * changes made outside the designer: an editor, the CLI, an agent, or Git. The first check
    * compares the file with the text loaded, so a change made in between is noticed too. Calls
-   * `onRemoved` once when two checks in a row don't find it.
+   * `onRemoved` once it's been missing for a whole interval between checks.
    */
   watch(onChange: () => void, onRemoved?: () => void): () => void {
     this.reload = onChange;
     /** The text the last check found: at first, what was loaded. */
-    let seen: string | null = this.known;
-    /** Checks in a row that found no file. */
-    let missing = 0;
+    let seen: string | null = null;
+    let started = false;
+    /** When a check first found no file, in the gap it's in now. */
+    let missingSince: number | null = null;
     let stopped = false;
     let checking = false;
     const check = async () => {
@@ -311,15 +321,24 @@ export class FolderHost implements WorkspaceHost {
       try {
         // The text, not the file's time and size: a change can keep both, on a file system
         // that keeps times to the second. The file is small, so reading it is cheap.
+        // The designer starts watching while the file is still loading, so the first check waits
+        // for the load, and a change made after it read the file is noticed.
+        if (!started) {
+          await this.loading?.catch(() => undefined);
+          seen = this.known;
+          started = true;
+        }
         const text = await readText(await fileAt(this.root, this.path));
-        missing = 0;
+        missingSince = null;
         const changed = seen !== null && text !== seen;
         seen = text;
         if (changed && !stopped) onChange();
       } catch (error) {
         // Editors, agents and Git can replace the file by moving it aside first, so it's only
-        // gone once the next check doesn't find it either.
-        if (isMissing(error) && ++missing >= 2 && !stopped) {
+        // gone once it's been missing for a whole interval between checks.
+        if (!isMissing(error)) return;
+        missingSince ??= Date.now();
+        if (Date.now() - missingSince >= this.pollMs && !stopped) {
           stop();
           onRemoved?.();
         }

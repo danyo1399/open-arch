@@ -10,7 +10,7 @@ import { LibraryPage } from "../src/LibraryPage.js";
 import { button, click, mount } from "./dom.js";
 import { FakeFolder } from "./fakeFolder.js";
 
-/** The folders opened, kept in memory: IndexedDB here can't keep a handle's methods, as a browser does. */
+/** The folders opened, kept in memory. A browser's IndexedDB keeps a handle's methods; fake-indexeddb's copy drops them. */
 class MemoryFolders {
   records: StoredFolder[] = [];
   async list() {
@@ -129,7 +129,7 @@ describe("opening a folder from the start page", () => {
     await click(button(host, "Open folder…"));
     await until(host, "No workspace in repo");
     await click(button(host, "Create architecture.openarch"));
-    await until(host, "Created architecture.openarch in repo. Saved, but the docs in docs/architecture/ weren't updated: Not allowed. Open it from Folders once that's fixed.");
+    await until(host, "Created architecture.openarch in repo, but couldn't write its docs in docs/architecture/: Not allowed. Open it from Folders once that's fixed.");
     expect(opened).toEqual([]);
     expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch"]);
     expect(folders.records.map((r) => r.path)).toEqual(["architecture.openarch"]);

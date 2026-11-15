@@ -9,7 +9,6 @@ import { ConfirmDialog, Modal } from "./panels/dialogs.js";
 import { OpenLinkDialog } from "./panels/ShareDialog.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
 import { userSettings } from "./settings.js";
-import { docsProblem } from "./state.js";
 import { shareClient } from "./share.js";
 import { StartPage } from "./Start.js";
 
@@ -88,7 +87,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
       if (docs?.error) {
         await folders.add(root, NEW_FILE);
         setOpened(await folders.list());
-        throw new Error(`Created ${NEW_FILE} in ${root.name}. ${docsProblem(docs)} Open it from Folders once that's fixed.`);
+        throw new Error(`Created ${NEW_FILE} in ${root.name}, but couldn't write its docs in ${docs.dir}/: ${docs.error} Open it from Folders once that's fixed.`);
       }
       await openInFolder(root, NEW_FILE);
     });

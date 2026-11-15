@@ -92,8 +92,20 @@ export class FakeFile implements FileHandle {
     this.text = text;
     this.lastModified = clock++;
   }
+  /** Runs once, straight after the file is next read: to change it then. */
+  afterRead: (() => void) | null = null;
   async getFile() {
-    return { lastModified: this.lastModified, size: this.text.length, text: async () => this.text };
+    return {
+      lastModified: this.lastModified,
+      size: this.text.length,
+      text: async () => {
+        const text = this.text;
+        const after = this.afterRead;
+        this.afterRead = null;
+        after?.();
+        return text;
+      },
+    };
   }
   async createWritable() {
     let next = "";
