@@ -13,8 +13,11 @@ import {
   ELEMENT_SHAPES,
   ID_PATTERN,
   RELATIONSHIP_KINDS,
+  SCREEN_DEVICES,
   STICKY_COLORS,
   VIEW_LEVELS,
+  WIDGET_HOLDERS,
+  WIDGET_KINDS,
   type CardData,
   type CardKind,
   type ConnectionData,
@@ -28,6 +31,8 @@ import {
   type Position,
   type RelationshipData,
   type RelationshipKind,
+  type ScreenData,
+  type ScreenDevice,
   type StateData,
   type StepData,
   type StickyColor,
@@ -36,6 +41,8 @@ import {
   type Tags,
   type ViewData,
   type ViewLevel,
+  type WidgetData,
+  type WidgetKind,
 } from "./types.js";
 import { computeView, RUNNABLE_KINDS, scopeProblems, stepRelationships, STICKY_TARGET_LEVELS, stickyTargetText } from "./views.js";
 import { buildWorkspace } from "./workspace.js";
@@ -174,6 +181,32 @@ export type Operation =
       position?: number;
     }
   | { op: "remove-card"; view: string; id: string }
+  /** `position` is the screen's place, left to right: 1 is the first. */
+  | { op: "add-screen"; view: string; id: string; name?: string; description?: string; device?: ScreenDevice; position?: number }
+  | { op: "update-screen"; view: string; id: string; newId?: string; name?: string; description?: string | null; device?: ScreenDevice; position?: number }
+  | { op: "remove-screen"; view: string; id: string }
+  /**
+   * `screen` is the screen it goes on, or `in` the row or panel it goes in; `position` is its place
+   * among the widgets there: 1 is the first. `to` is the screen it leads to.
+   */
+  | { op: "add-widget"; view: string; id: string; kind: WidgetKind; text?: string; description?: string; to?: string; screen?: string; in?: string; position?: number }
+  | {
+      op: "update-widget";
+      view: string;
+      id: string;
+      newId?: string;
+      kind?: WidgetKind;
+      text?: string | null;
+      description?: string | null;
+      /** null: it leads nowhere. */
+      to?: string | null;
+      /** Moves it onto this screen, out of any row or panel, unless `in` is given too. */
+      screen?: string;
+      /** Moves it into this row or panel; null moves it out, onto its screen. */
+      in?: string | null;
+      position?: number;
+    }
+  | { op: "remove-widget"; view: string; id: string }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -347,6 +380,29 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
     fields: { view: "string", id: "string", newId: "string", kind: "string", name: "string", description: "nullable-string", lane: "nullable-string", from: "nullable-strings", position: "number" },
   },
   "remove-card": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-screen": { required: ["view", "id"], fields: { view: "string", id: "string", name: "string", description: "string", device: "string", position: "number" } },
+  "update-screen": { required: ["view", "id"], fields: { view: "string", id: "string", newId: "string", name: "string", description: "nullable-string", device: "string", position: "number" } },
+  "remove-screen": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-widget": {
+    required: ["view", "id", "kind"],
+    fields: { view: "string", id: "string", kind: "string", text: "string", description: "string", to: "string", screen: "string", in: "string", position: "number" },
+  },
+  "update-widget": {
+    required: ["view", "id"],
+    fields: {
+      view: "string",
+      id: "string",
+      newId: "string",
+      kind: "string",
+      text: "nullable-string",
+      description: "nullable-string",
+      to: "nullable-string",
+      screen: "string",
+      in: "nullable-string",
+      position: "number",
+    },
+  },
+  "remove-widget": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
@@ -601,6 +657,18 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       return updateCard(doc, op);
     case "remove-card":
       return removeCard(doc, op.view, op.id);
+    case "add-screen":
+      return addScreen(doc, op);
+    case "update-screen":
+      return updateScreen(doc, op);
+    case "remove-screen":
+      return removeScreen(doc, op.view, op.id);
+    case "add-widget":
+      return addWidget(doc, op);
+    case "update-widget":
+      return updateWidget(doc, op);
+    case "remove-widget":
+      return removeWidget(doc, op.view, op.id);
     case "update-workspace":
       return updateWorkspace(doc, op);
   }
@@ -864,6 +932,7 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     connections: [],
     lanes: [],
     cards: [],
+    screens: [],
   };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
@@ -873,20 +942,22 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   if (sequence && (op.include || op.exclude)) throw new OpError(SEQUENCE_PARTICIPANTS);
   if (statesView && (op.include || op.exclude)) throw new OpError(STATE_BOXES);
   const events = op.level === "event";
+  const wireframe = op.level === "wireframe";
   if (deployment && (op.include || op.exclude)) throw new OpError(DEPLOYMENT_BOXES);
   if (events && (op.include || op.exclude)) throw new OpError(EVENT_CARDS);
+  if (wireframe && (op.include || op.exclude)) throw new OpError(WIREFRAME_SCREENS);
   checkIds(doc, op.include, "include");
   checkIds(doc, op.exclude, "exclude");
   const scope = op.scope ? doc.elements[op.scope] : undefined;
   const title =
     op.title?.trim() ||
-    (sequence || deployment || events ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView ? titleFromId(op.id) : "System landscape");
+    (sequence || deployment || events ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView || wireframe ? titleFromId(op.id) : "System landscape");
   doc.views[op.id] = clean<ViewData>({
     title,
     description: op.description?.trim(),
     level: op.level,
     scope: op.scope,
-    include: sequence || statesView || deployment || events ? undefined : op.include ? [...op.include] : ["*"],
+    include: sequence || statesView || deployment || events || wireframe ? undefined : op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
     notes: op.notes?.trim(),
     steps: sequence ? [] : undefined,
@@ -896,6 +967,7 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     connections: deployment ? [] : undefined,
     lanes: events ? [] : undefined,
     cards: events ? [] : undefined,
+    screens: wireframe ? [] : undefined,
   });
   return `added view ${op.id}`;
 }
@@ -911,6 +983,7 @@ export const LEVEL_TITLE: Record<ViewLevel, string> = {
   state: "states",
   deployment: "deployment",
   event: "events",
+  wireframe: "wireframes",
 };
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
@@ -938,6 +1011,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   if (view.level === "state" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(STATE_BOXES);
   if (view.level === "deployment" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(DEPLOYMENT_BOXES);
   if (view.level === "event" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(EVENT_CARDS);
+  if (view.level === "wireframe" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(WIREFRAME_SCREENS);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -988,6 +1062,7 @@ function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "state") throw new OpError(STATE_BOXES);
   if (view.level === "deployment") throw new OpError(DEPLOYMENT_BOXES);
   if (view.level === "event") throw new OpError(EVENT_CARDS);
+  if (view.level === "wireframe") throw new OpError(WIREFRAME_SCREENS);
   requireElement(doc, id);
   if (shows(doc, viewId, id)) return `${id} is already in view ${viewId}`;
   if (view.exclude?.includes(id)) {
@@ -1007,6 +1082,7 @@ function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "state") throw new OpError(STATE_BOXES);
   if (view.level === "deployment") throw new OpError(DEPLOYMENT_BOXES);
   if (view.level === "event") throw new OpError(EVENT_CARDS);
+  if (view.level === "wireframe") throw new OpError(WIREFRAME_SCREENS);
   requireElement(doc, id);
   if (!shows(doc, viewId, id)) throw new OpError(`"${id}" isn't a box in view "${viewId}".`);
   if (view.include?.includes(id)) view.include = view.include.filter((x) => x !== id);
@@ -1020,6 +1096,7 @@ function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<stri
   if (view.level === "state") throw new OpError("A state view has no boxes. Move a state with update-state --at.");
   if (view.level === "deployment") throw new OpError("A deployment view is laid out from its nodes, so it has no box positions.");
   if (view.level === "event") throw new OpError("An event view is laid out from its lanes and the order of its cards, so it has no box positions. Move a card with update-card.");
+  if (view.level === "wireframe") throw new OpError("A wireframe view is laid out from its screens and their widgets, so it has no box positions. Move a widget with update-widget.");
   const layout: Record<string, Position> = { ...view.layout };
   for (const [id, pos] of Object.entries(positions)) {
     if (pos === null) {
@@ -1705,6 +1782,254 @@ function requireCard(view: ViewData, viewId: string, id: string): CardData {
     throw new OpError(`View "${viewId}" has no card "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its cards: ${ids.join(", ")}.` : " Add one with add-card."}`);
   }
   return card;
+}
+
+/** Why a wireframe view can't be given elements to show or hide. */
+const WIREFRAME_SCREENS = "A wireframe view draws its screens, not elements, so it takes no include or exclude list. Add a screen with add-screen, and what's on it with add-widget.";
+
+function addScreen(doc: OpenArchDocument, op: Extract<Operation, { op: "add-screen" }>): string {
+  const view = requireWireframe(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. IDs are lowercase kebab-case, like "cart".`);
+  const screens = (view.screens ??= []);
+  if (screens.some((s) => s.id === op.id)) throw new OpError(`View "${op.view}" already has a screen "${op.id}".`);
+  if (op.device !== undefined) checkDevice(op.device);
+  const screen = clean<ScreenData>({ id: op.id, name: op.name?.trim() || titleFromId(op.id), description: op.description?.trim(), device: op.device === "desktop" ? undefined : op.device });
+  const at = insertAt(screens, screen, op.position, op.view, "screen");
+  return `added screen ${op.id} to view ${op.view}${at < screens.length ? `, as screen ${at}` : ""}`;
+}
+
+function updateScreen(doc: OpenArchDocument, op: Extract<Operation, { op: "update-screen" }>): string {
+  const view = requireWireframe(doc, op.view);
+  const screen = requireScreen(view, op.view, op.id);
+  const fields = ["newId", "name", "description", "device", "position"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on screen "${op.id}": ${fields.join(", ")}.`);
+  if (op.name !== undefined) {
+    if (!op.name.trim()) throw new OpError("A screen's name can't be empty.");
+    screen.name = op.name.trim();
+  }
+  if (op.description !== undefined) {
+    if (op.description === null || !op.description.trim()) delete screen.description;
+    else screen.description = op.description.trim();
+  }
+  if (op.device !== undefined) {
+    checkDevice(op.device);
+    if (op.device === "desktop") delete screen.device;
+    else screen.device = op.device;
+  }
+  const screens = view.screens!;
+  const moved = moveTo(screens, screens.indexOf(screen), op.position, op.view, "screen");
+  const where = moved ? `, and moved it to screen ${op.position}` : "";
+  if (op.newId === undefined || op.newId === op.id) {
+    // Asked only for the place, or the ID, it has already: say so, as nothing changed.
+    if (fields.every((f) => f === "position" || f === "newId" || op[f] === undefined)) {
+      return moved ? `moved screen ${op.id} to screen ${op.position} in view ${op.view}` : `screen ${op.id} is already ${op.position === undefined ? `"${op.id}"` : `screen ${op.position}`} in view ${op.view}`;
+    }
+    return `updated screen ${op.id} in view ${op.view}${where}`;
+  }
+  // A new ID keeps the screen where it is, and the widgets that lead to it follow it.
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. IDs are lowercase kebab-case, like "cart".`);
+  if (screens.some((s) => s.id === op.newId)) throw new OpError(`View "${op.view}" already has a screen "${op.newId}".`);
+  screen.id = op.newId;
+  for (const w of widgetsOf(view)) if (w.to === op.id) w.to = op.newId;
+  return `renamed screen ${op.id} to ${op.newId} in view ${op.view}${where}`;
+}
+
+/** Removes a screen, with what's on it. The widgets that led to it lead nowhere now. */
+function removeScreen(doc: OpenArchDocument, viewId: string, id: string): string {
+  const view = requireWireframe(doc, viewId);
+  const screen = requireScreen(view, viewId, id);
+  const screens = view.screens!;
+  screens.splice(screens.indexOf(screen), 1);
+  const on = widgetsOf({ screens: [screen] }).length;
+  let led = 0;
+  for (const w of widgetsOf(view)) {
+    if (w.to !== id) continue;
+    delete w.to;
+    led++;
+  }
+  const parts = [on ? `with ${count(on, "widget")} on it` : "", led ? `and the ${led === 1 ? "arrow" : "arrows"} to it from ${count(led, "widget")}` : ""].filter(Boolean);
+  return `removed screen ${id} from view ${viewId}${parts.length ? `, ${parts.join(", ")}` : ""}`;
+}
+
+function addWidget(doc: OpenArchDocument, op: Extract<Operation, { op: "add-widget" }>): string {
+  const view = requireWireframe(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. IDs are lowercase kebab-case, like "check-out".`);
+  if (findWidget(view, op.id)) throw new OpError(`View "${op.view}" already has a widget "${op.id}".`);
+  checkWidgetKind(op.kind);
+  if (op.screen === undefined && op.in === undefined) throw new OpError("Say where the widget goes: the screen it's on, or the row or panel it's in.");
+  const place = widgetPlace(view, op.view, op.screen, op.in);
+  if (op.to) requireScreen(view, op.view, op.to);
+  const widget = clean<WidgetData>({ id: op.id, kind: op.kind, text: op.text?.trim(), description: op.description?.trim(), to: op.to || undefined });
+  const at = placeAt(place.list, widget, op.position, place.name);
+  return `added ${op.kind} ${op.id} to ${place.name} in view ${op.view}${at < place.list.length ? `, as widget ${at} there` : ""}`;
+}
+
+function updateWidget(doc: OpenArchDocument, op: Extract<Operation, { op: "update-widget" }>): string {
+  const view = requireWireframe(doc, op.view);
+  const found = requireWidget(view, op.view, op.id);
+  const { widget } = found;
+  const fields = ["newId", "kind", "text", "description", "to", "screen", "in", "position"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on widget "${op.id}": ${fields.join(", ")}.`);
+  if (op.kind !== undefined) {
+    checkWidgetKind(op.kind);
+    if (!WIDGET_HOLDERS.includes(op.kind) && widget.widgets?.length) {
+      throw new OpError(`Widget "${op.id}" holds ${count(widget.widgets.length, "widget")}, so it can only be a row or a panel. Move them out of it, or remove them, first.`);
+    }
+    widget.kind = op.kind;
+    if (!WIDGET_HOLDERS.includes(op.kind)) delete widget.widgets;
+  }
+  for (const key of ["text", "description"] as const) {
+    const value = op[key];
+    if (value === undefined) continue;
+    if (value === null || !value.trim()) delete widget[key];
+    else widget[key] = value.trim();
+  }
+  if (op.to === null || op.to === "") delete widget.to;
+  else if (op.to !== undefined) {
+    requireScreen(view, op.view, op.to);
+    widget.to = op.to;
+  }
+  // Where it goes: into a row or a panel, out of one onto its screen, or onto another screen.
+  let moved: { name: string; at: number } | undefined;
+  const into = op.in === null || op.in === "" ? null : op.in;
+  if (into !== undefined || op.screen !== undefined) {
+    if (into && (into === op.id || inside(widget).some((w) => w.id === into))) throw new OpError(`Widget "${op.id}" can't go inside itself.`);
+    const place = widgetPlace(view, op.view, op.screen ?? (into === null ? found.screen.id : undefined), into ?? undefined);
+    if (place.list !== found.list) {
+      found.list.splice(found.list.indexOf(widget), 1);
+      if (found.parent && found.list.length === 0) delete found.parent.widgets;
+      moved = { name: place.name, at: placeAt(place.list, widget, op.position, place.name) };
+    }
+  }
+  if (!moved && op.position !== undefined && moveWithin(found.list, found.list.indexOf(widget), op.position, found.name)) moved = { name: found.name, at: op.position };
+  const where = moved ? `, and moved it to ${moved.name}, as widget ${moved.at} there` : "";
+  if (op.newId === undefined || op.newId === op.id) {
+    // Asked only for the place, or the ID, it has already: say so, as nothing changed.
+    if (fields.every((f) => f === "screen" || f === "in" || f === "position" || f === "newId" || op[f] === undefined)) {
+      return moved
+        ? `moved widget ${op.id} to ${moved.name}, as widget ${moved.at} there, in view ${op.view}`
+        : `widget ${op.id} is already ${op.newId === undefined ? `widget ${found.list.indexOf(widget) + 1} ${found.parent ? "in" : "on"} ${found.name}` : `"${op.id}"`} in view ${op.view}`;
+    }
+    return `updated widget ${op.id} in view ${op.view}${where}`;
+  }
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. IDs are lowercase kebab-case, like "check-out".`);
+  if (findWidget(view, op.newId)) throw new OpError(`View "${op.view}" already has a widget "${op.newId}".`);
+  widget.id = op.newId;
+  return `renamed widget ${op.id} to ${op.newId} in view ${op.view}${where}`;
+}
+
+/** Removes a widget, with what's inside it. */
+function removeWidget(doc: OpenArchDocument, viewId: string, id: string): string {
+  const view = requireWireframe(doc, viewId);
+  const { widget, list, parent } = requireWidget(view, viewId, id);
+  list.splice(list.indexOf(widget), 1);
+  if (parent && list.length === 0) delete parent.widgets;
+  const held = inside(widget).length;
+  return `removed widget ${id} from view ${viewId}${held ? `, with ${count(held, "widget")} inside it` : ""}`;
+}
+
+/** Every widget of these screens, in reading order: each widget, then what's inside it. */
+function widgetsOf(view: Pick<ViewData, "screens">): WidgetData[] {
+  return (view.screens ?? []).flatMap((s) => (s.widgets ?? []).flatMap((w) => [w, ...inside(w)]));
+}
+
+/** What's inside a row or a panel, and inside what's inside it, in reading order. */
+function inside(widget: WidgetData): WidgetData[] {
+  return (widget.widgets ?? []).flatMap((w) => [w, ...inside(w)]);
+}
+
+/** Where a widget is: the list it's in, the screen it's on, and the row or panel it's in, if any, and what to call that. */
+interface WidgetSpot {
+  widget: WidgetData;
+  list: WidgetData[];
+  screen: ScreenData;
+  parent?: WidgetData;
+  /** "screen cart", or "panel filters". */
+  name: string;
+}
+
+function findWidget(view: Pick<ViewData, "screens">, id: string): WidgetSpot | undefined {
+  const search = (list: WidgetData[], screen: ScreenData, parent: WidgetData | undefined): WidgetSpot | undefined => {
+    for (const widget of list) {
+      if (widget.id === id) return { widget, list, screen, parent, name: parent ? `${parent.kind} ${parent.id}` : `screen ${screen.id}` };
+      const deeper = widget.widgets && search(widget.widgets, screen, widget);
+      if (deeper) return deeper;
+    }
+    return undefined;
+  };
+  for (const screen of view.screens ?? []) {
+    const found = screen.widgets && search(screen.widgets, screen, undefined);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function requireWidget(view: ViewData, viewId: string, id: string): WidgetSpot {
+  const found = findWidget(view, id);
+  if (!found) {
+    const ids = widgetsOf(view).map((w) => w.id);
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no widget "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its widgets: ${ids.join(", ")}.` : " Add one with add-widget."}`);
+  }
+  return found;
+}
+
+/**
+ * The list a widget goes in: that of the row or panel `into`, which must be on `screen` when
+ * that's given too, or else the top of `screen`; and what to call it.
+ */
+function widgetPlace(view: ViewData, viewId: string, screenId: string | undefined, into: string | undefined): { list: WidgetData[]; name: string } {
+  const screen = screenId === undefined ? undefined : requireScreen(view, viewId, screenId);
+  if (into === undefined) return { list: (screen!.widgets ??= []), name: `screen ${screen!.id}` };
+  const holder = requireWidget(view, viewId, into);
+  if (!WIDGET_HOLDERS.includes(holder.widget.kind)) throw new OpError(`Widget "${into}" is a ${holder.widget.kind}. Only rows and panels hold widgets.`);
+  if (screen && holder.screen !== screen) throw new OpError(`The ${holder.widget.kind} "${into}" is on screen "${holder.screen.id}", not "${screen.id}".`);
+  return { list: (holder.widget.widgets ??= []), name: `${holder.widget.kind} ${into}` };
+}
+
+/** Puts a widget at `position` among those in `name`, 1 being the first, or at the end, and says where it went. */
+function placeAt(items: WidgetData[], item: WidgetData, position: number | undefined, name: string): number {
+  const at = position ?? items.length + 1;
+  if (at > items.length + 1) throw new OpError(`The ${name.replace(" ", ' "')}" has ${count(items.length, "widget")}, so a widget's position there can be 1 to ${items.length + 1}.`);
+  items.splice(at - 1, 0, item);
+  return at;
+}
+
+/** Moves the widget at `index` among those in `name` to `position`, 1 being the first, and says whether it moved. */
+function moveWithin(items: WidgetData[], index: number, position: number, name: string): boolean {
+  if (position === index + 1) return false;
+  if (position > items.length) throw new OpError(`The ${name.replace(" ", ' "')}" has ${count(items.length, "widget")}, so "position" there must be 1 to ${items.length}.`);
+  const [item] = items.splice(index, 1);
+  items.splice(position - 1, 0, item!);
+  return true;
+}
+
+function checkWidgetKind(kind: string): void {
+  if ((WIDGET_KINDS as readonly string[]).includes(kind)) return;
+  const near = suggest(kind, WIDGET_KINDS);
+  throw new OpError(`Unknown kind of widget "${kind}".${near ? ` Did you mean "${near}"?` : ""} Use one of: ${WIDGET_KINDS.join(", ")}.`);
+}
+
+function checkDevice(device: string): void {
+  if ((SCREEN_DEVICES as readonly string[]).includes(device)) return;
+  const near = suggest(device, SCREEN_DEVICES);
+  throw new OpError(`Unknown device "${device}".${near ? ` Did you mean "${near}"?` : ""} Use one of: ${SCREEN_DEVICES.join(", ")}.`);
+}
+
+function requireWireframe(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "wireframe") throw new OpError(`View "${id}" is a ${view.level} view. Only wireframe views have screens and widgets.`);
+  return view;
+}
+
+function requireScreen(view: ViewData, viewId: string, id: string): ScreenData {
+  const screen = view.screens?.find((s) => s.id === id);
+  if (!screen) {
+    const ids = (view.screens ?? []).map((s) => s.id);
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no screen "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its screens: ${ids.join(", ")}.` : " Add one with add-screen."}`);
+  }
+  return screen;
 }
 
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {

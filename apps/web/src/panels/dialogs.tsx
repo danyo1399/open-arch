@@ -75,19 +75,21 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   state: "State: the states something can be in, and how it moves between them",
   deployment: "Deployment: where containers run, like Production",
   event: "Event: commands and events in order, in swimlanes, as in event storming",
+  wireframe: "Wireframe: an app's screens, and how one leads to another",
 };
 
 export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
   const [level, setLevel] = useState<ViewLevel>("container");
   const scopeKinds = SCOPE_KINDS[level];
-  // A state view's scope is optional, and can be any element: the one whose states it shows.
-  const optional = level === "state";
+  // A state view's scope is optional, and can be any element: the one whose states it shows. A
+  // wireframe view's is optional too: the system or container whose screens it shows.
+  const optional = level === "state" || level === "wireframe";
   const scopeKind = scopeKinds.length && !optional ? kindList(scopeKinds) : undefined;
   const scopes = [...ws.elements.values()].filter((e) => scopeKinds.includes(e.kind)).sort((a, b) => a.name.localeCompare(b.name));
   const [scope, setScope] = useState<string>("");
   const scopeId = optional ? scopes.find((s) => s.id === scope)?.id : scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
-  // A sequence, a deployment view, an event view, and a state view of nothing in particular, have no scope to name them after, so they need a title.
+  // A sequence, a deployment view, an event view, and a state or wireframe view of nothing in particular, have no scope to name them after, so they need a title.
   const defaultTitle = level === "sequence" || level === "deployment" || level === "event" || (optional && !scopeName) ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
   const [title, setTitle] = useState("");
   const finalTitle = title.trim() || defaultTitle;
@@ -140,7 +142,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       {optional && (
         <label className="field">
-          <span className="field-label">The states of</span>
+          <span className="field-label">{level === "wireframe" ? "The screens of" : "The states of"}</span>
           <select value={scopeId ?? ""} onChange={(e) => setScope(e.target.value)}>
             <option value="">Nothing in particular</option>
             {scopes.map((s) => (
@@ -153,10 +155,15 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       <label className="field">
         <span className="field-label">Title</span>
-        <input value={title} placeholder={defaultTitle ?? (level === "deployment" ? "e.g. Production" : "e.g. Placing an order")} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+        <input value={title} placeholder={defaultTitle ?? (level === "deployment" ? "e.g. Production" : level === "wireframe" ? "e.g. Checkout" : "e.g. Placing an order")} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
       {level === "class" && <p className="muted small">A class view draws the component's or library's classes as a UML class diagram, with their attributes and methods, and how they relate.</p>}
       {level === "state" && <p className="muted small">A state view shows the states something can be in, like an order that's placed, paid or delivered, and the transitions between them.</p>}
+      {level === "wireframe" && (
+        <p className="muted small">
+          A wireframe view sketches an app's screens: the headings, buttons and boxes to type in on each, and which screen a button or link leads to. Choose the system or container whose screens they are, if you like.
+        </p>
+      )}
       {level === "deployment" && (
         <p className="muted small">Give it a title, such as the environment it shows. A deployment view shows the servers, clusters and cloud services things run on, nested, and the containers running in each.</p>
       )}

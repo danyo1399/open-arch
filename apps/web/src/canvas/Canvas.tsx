@@ -64,6 +64,9 @@ export type Selection =
   | { kind: "lane"; id: string }
   | { kind: "card"; id: string }
   | { kind: "cardArrow"; from: string; to: string }
+  /** A wireframe view's screen, and a widget on one. */
+  | { kind: "screen"; id: string }
+  | { kind: "widget"; id: string }
   | { kind: "several"; elements: string[]; stickies: string[] }
   | { kind: "workspace" }
   | null;

@@ -1,4 +1,5 @@
 import {
+  allWidgets,
   CARD_KIND_LABELS,
   CARD_KINDS,
   describeElement,
@@ -9,11 +10,16 @@ import {
   RELATIONSHIP_KIND_LABELS,
   RELATIONSHIP_KINDS,
   RUNNABLE_KINDS,
+  SCREEN_DEVICE_LABELS,
+  SCREEN_DEVICES,
   SHAPE_LABELS,
   STICKY_COLORS,
   stickyAnchor,
   STICKY_TARGET_LEVELS,
   transitionLabel,
+  WIDGET_HOLDERS,
+  WIDGET_KIND_LABELS,
+  WIDGET_KINDS,
   type ArchElement,
   type Card,
   type CardKind,
@@ -25,12 +31,16 @@ import {
   type Operation,
   type Relationship,
   type RelationshipKind,
+  type Screen,
+  type ScreenDevice,
   type State,
   type Transition,
   type Step,
   type Sticky,
   type StickyTargetData,
   type ViewDef,
+  type Widget,
+  type WidgetKind,
   type Workspace,
 } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
@@ -115,6 +125,8 @@ export function Properties(props: PropertiesProps) {
   else if (shown.kind === "lane") body = <LaneProperties {...props} view={shown.view} lane={shown.lane} />;
   else if (shown.kind === "card") body = <CardProperties {...props} view={shown.view} card={shown.card} />;
   else if (shown.kind === "cardArrow") body = <CardArrowProperties {...props} view={shown.view} from={shown.from} to={shown.to} />;
+  else if (shown.kind === "screen") body = <ScreenProperties {...props} view={shown.view} screen={shown.screen} />;
+  else if (shown.kind === "widget") body = <WidgetProperties {...props} view={shown.view} widget={shown.widget} />;
   else if (shown.kind === "several") body = <SeveralProperties {...props} elements={shown.elements} stickies={shown.stickies} />;
   else if (shown.kind === "view") body = <ViewProperties {...props} view={shown.view} />;
   else body = <WorkspaceProperties {...props} />;
@@ -1104,6 +1116,222 @@ function CardArrowProperties({ view, from, to, edit, onSelect }: PropertiesProps
   );
 }
 
+function ScreenProperties({ view, screen, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; screen: Screen }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-screen" }>, "op" | "view" | "id">) => void edit([{ op: "update-screen", view: view.id, id: screen.id, ...fields }]);
+  const others = view.screens.map((s) => s.id);
+  // An ID made from the name keeps following it, as an element's does; the selection follows the ID.
+  const rename = (name: string) => {
+    const base = idFromName(name);
+    const newId = base && followsName(screen.id, screen.name) ? uniqueAmong(others, base, screen.id) : screen.id;
+    void edit([{ op: "update-screen", view: view.id, id: screen.id, name, ...(newId !== screen.id && { newId }) }]).then((ok) => ok && newId !== screen.id && onSelect({ kind: "screen", id: newId }));
+  };
+  const changeId = (text: string) => {
+    const newId = idFromName(text);
+    if (!newId || newId === screen.id) return;
+    void edit([{ op: "update-screen", view: view.id, id: screen.id, newId }]).then((ok) => ok && onSelect({ kind: "screen", id: newId }));
+  };
+  const ledFrom = allWidgets(view).filter((w) => w.to === screen.id && w.screen !== screen.id);
+  const count = view.screens.length;
+  const widgetLink = (w: Widget, prefix = "") => (
+    <li key={w.id}>
+      <button className="link" onClick={() => onSelect({ kind: "widget", id: w.id })}>
+        {prefix}
+        {widgetName(w)}
+      </button>
+    </li>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Screen {screen.number}</span>
+        <span className="muted small">of {count}</span>
+      </header>
+      <Field label="Name" value={screen.name} onCommit={(n) => n.trim() && rename(n)} autoFocus={isNew} />
+      <Field label="ID" value={screen.id} onCommit={changeId} hint={idHint(followsName(screen.id, screen.name))} />
+      <label className="field">
+        <span className="field-label">Device</span>
+        <select value={screen.device} onChange={(e) => set({ device: e.target.value as ScreenDevice })}>
+          {SCREEN_DEVICES.map((d) => (
+            <option key={d} value={d}>
+              {SCREEN_DEVICE_LABELS[d]}
+            </option>
+          ))}
+        </select>
+        <span className="field-hint">How wide the screen is drawn.</span>
+      </label>
+      <Field label="Description" value={screen.description ?? ""} multiline placeholder="One sentence, shown when you point at the screen" onCommit={(description) => set({ description: description || null })} />
+      <h3>On it</h3>
+      {screen.widgets.length === 0 && <p className="muted small">Nothing yet. Select the screen and use + Add, or drag a widget onto it.</p>}
+      <ul className="plain">{screen.widgets.map((w) => widgetLink(w))}</ul>
+      {ledFrom.length > 0 && (
+        <>
+          <h3>Led to from</h3>
+          <ul className="plain">{ledFrom.map((w) => widgetLink(w, `${view.screens.find((s) => s.id === w.screen)?.name ?? w.screen}: `))}</ul>
+        </>
+      )}
+      <div className="actions">
+        <button disabled={screen.number === 1} onClick={() => set({ position: screen.number - 1 })}>
+          Move left
+        </button>
+        <button disabled={screen.number === count} onClick={() => set({ position: screen.number + 1 })}>
+          Move right
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-screen", view: view.id, id: screen.id }]).then(() => onSelect(null))}>
+          Delete screen
+        </button>
+      </div>
+      {screen.widgets.length > 0 && <p className="muted small">Deleting the screen deletes what's on it.</p>}
+    </>
+  );
+}
+
+/** A widget as a list names it: its kind, and its text's first line. */
+function widgetName(w: Widget): string {
+  const first = (w.text ?? "").split(/\r?\n/).find((l) => l.trim())?.trim();
+  return first ? `${WIDGET_KIND_LABELS[w.kind]}: ${first}` : WIDGET_KIND_LABELS[w.kind];
+}
+
+/** A row or panel as the details name what's in it: by its text's first line, or else its ID. */
+function holderName(w: Widget): string {
+  const first = (w.text ?? "").split(/\r?\n/).find((l) => l.trim())?.trim();
+  return first ? `“${first}”` : w.id;
+}
+
+/** What a widget's text is, under the box to type it in. */
+const WIDGET_TEXT_HINTS: Record<WidgetKind, string> = {
+  heading: "The title, in large type.",
+  text: "What the paragraph says. Without any, grey lines stand in for it.",
+  button: "What the button says.",
+  link: "What the link says.",
+  input: "Its label, like “Email”.",
+  checkbox: "What's beside the box.",
+  select: "Its label, like “Country”.",
+  image: "What the picture shows.",
+  list: "One item to a line.",
+  table: "One row to a line, with the cells split by |. The first row is the headings.",
+  tabs: "One tab to a line. The first is the one that's open.",
+  divider: "Text in the middle of the line, if any.",
+  panel: "Its title.",
+  row: "Text above the row, if any.",
+};
+
+/** Kinds whose text runs to several lines. */
+const MULTILINE_WIDGETS: readonly WidgetKind[] = ["text", "list", "table", "tabs"];
+
+function WidgetProperties({ view, widget, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; widget: Widget }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-widget" }>, "op" | "view" | "id">) => void edit([{ op: "update-widget", view: view.id, id: widget.id, ...fields }]);
+  const all = allWidgets(view);
+  const changeId = (text: string) => {
+    const newId = idFromName(text);
+    if (!newId || newId === widget.id) return;
+    void edit([{ op: "update-widget", view: view.id, id: widget.id, newId }]).then((ok) => ok && onSelect({ kind: "widget", id: newId }));
+  };
+  const screen = view.screens.find((s) => s.id === widget.screen)!;
+  const parent = widget.parent ? all.find((w) => w.id === widget.parent) : undefined;
+  const siblings = parent ? parent.widgets : screen.widgets;
+  // The rows and panels it can go in: those on its screen, but not itself or anything inside it.
+  const inside = new Set(allWidgets(widget).map((w) => w.id));
+  const holders = allWidgets(screen).filter((w) => WIDGET_HOLDERS.includes(w.kind) && w.id !== widget.id && !inside.has(w.id));
+  const across = parent?.kind === "row";
+  const leadsTo = view.screens.filter((s) => s.id !== widget.screen);
+  const unknownTo = widget.to !== undefined && !leadsTo.some((s) => s.id === widget.to);
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">{WIDGET_KIND_LABELS[widget.kind]}</span>
+        <span className="muted small">
+          {widget.number} of {siblings.length} {parent ? `in ${parent.kind} ${holderName(parent)}` : `on ${screen.name}`}
+        </span>
+      </header>
+      <Field
+        label="Text"
+        value={widget.text ?? ""}
+        multiline={MULTILINE_WIDGETS.includes(widget.kind)}
+        rows={4}
+        placeholder={WIDGET_KIND_LABELS[widget.kind]}
+        hint={WIDGET_TEXT_HINTS[widget.kind]}
+        onCommit={(text) => set({ text: text || null })}
+        autoFocus={isNew}
+      />
+      <label className="field">
+        <span className="field-label">Kind</span>
+        <select value={widget.kind} onChange={(e) => set({ kind: e.target.value as WidgetKind })}>
+          {WIDGET_KINDS.map((kind) => (
+            <option key={kind} value={kind} disabled={widget.widgets.length > 0 && !WIDGET_HOLDERS.includes(kind)}>
+              {WIDGET_KIND_LABELS[kind]}
+            </option>
+          ))}
+        </select>
+        {widget.widgets.length > 0 && <span className="field-hint">It holds widgets, so it can only be a row or a panel.</span>}
+      </label>
+      <Field label="ID" value={widget.id} onCommit={changeId} />
+      <Field label="Description" value={widget.description ?? ""} multiline placeholder="What it does, shown when you point at it" onCommit={(description) => set({ description: description || null })} />
+      <label className="field">
+        <span className="field-label">Leads to</span>
+        <select value={widget.to ?? ""} onChange={(e) => set({ to: e.target.value || null })}>
+          <option value="">(nowhere)</option>
+          {unknownTo && <option value={widget.to}>{widget.to === widget.screen ? `${screen.name} (the screen it's on)` : `${widget.to} (not a screen of this view)`}</option>}
+          {leadsTo.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <span className="field-hint">The screen it opens, drawn as an arrow. You can also drag from the dot beside it to a screen.</span>
+      </label>
+      <label className="field">
+        <span className="field-label">Screen</span>
+        <select value={widget.screen} onChange={(e) => set({ screen: e.target.value })}>
+          {view.screens.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span className="field-label">In</span>
+        <select value={widget.parent ?? ""} onChange={(e) => set({ in: e.target.value || null })}>
+          <option value="">(the screen itself)</option>
+          {holders.map((h) => (
+            <option key={h.id} value={h.id}>
+              {widgetName(h)} [{h.id}]
+            </option>
+          ))}
+        </select>
+        <span className="field-hint">A row puts its widgets side by side, and a panel puts them in a box, top to bottom.</span>
+      </label>
+      {WIDGET_HOLDERS.includes(widget.kind) && (
+        <>
+          <h3>Inside it</h3>
+          {widget.widgets.length === 0 && <p className="muted small">Nothing yet. Select it and use + Add, or drag a widget into it.</p>}
+          <ul className="plain">
+            {widget.widgets.map((w) => (
+              <li key={w.id}>
+                <button className="link" onClick={() => onSelect({ kind: "widget", id: w.id })}>
+                  {widgetName(w)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="actions">
+        <button disabled={widget.number === 1} onClick={() => set({ position: widget.number - 1 })}>
+          {across ? "Move left" : "Move up"}
+        </button>
+        <button disabled={widget.number === siblings.length} onClick={() => set({ position: widget.number + 1 })}>
+          {across ? "Move right" : "Move down"}
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-widget", view: view.id, id: widget.id }]).then(() => onSelect(null))}>
+          Delete {WIDGET_KIND_LABELS[widget.kind].toLowerCase()}
+        </button>
+      </div>
+      {widget.widgets.length > 0 && <p className="muted small">Deleting it deletes what's inside it.</p>}
+    </>
+  );
+}
+
 function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
   return (
     <>
@@ -1178,8 +1406,28 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
         placeholder="Longer documentation, in markdown"
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
       />
-      {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && view.level !== "event" && <NewElementsField view={view} edit={edit} />}
-      {view.level === "event" ? (
+      {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && view.level !== "event" && view.level !== "wireframe" && <NewElementsField view={view} edit={edit} />}
+      {view.level === "wireframe" ? (
+        <>
+          <dl className="facts">
+            <dt>Level</dt>
+            <dd>wireframe</dd>
+            {scope && (
+              <>
+                <dt>The screens of</dt>
+                <dd>{scope.name}</dd>
+              </>
+            )}
+            <dt>Screens</dt>
+            <dd>{view.screens.length}</dd>
+            <dt>Widgets</dt>
+            <dd>{allWidgets(view).length}</dd>
+          </dl>
+          <p className="muted small">
+            A wireframe view sketches an app's screens: what's on each, top to bottom, and which screen a button or link leads to. Use + Add to add a screen, or a widget to the screen, row or panel selected. Drag a widget to move it, or drag from the dot beside it to another screen to make it lead there. Select a screen or a widget to change it.
+          </p>
+        </>
+      ) : view.level === "event" ? (
         <>
           <dl className="facts">
             <dt>Level</dt>

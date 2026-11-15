@@ -4,7 +4,7 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 ```json
 {
-  "openarch": 12,
+  "openarch": 13,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -77,16 +77,16 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `12` |
+| `openarch` | Format version, always `13` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs (`.` for the file's own folder) |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 11 files too, and write them back as version 12. Version 11 is the same, but without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 12 files too, and write them back as version 13. Version 12 is the same, but without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
-IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view, as are the IDs of a state view's states, a deployment view's nodes, and an event view's lanes and its cards.
+IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view, as are the IDs of a state view's states, a deployment view's nodes, an event view's lanes and its cards, and a wireframe view's screens. A wireframe view's widgets have IDs unique among all its widgets, on every screen.
 
 ## Elements
 
@@ -163,17 +163,18 @@ Only associations go both ways. A relationship with a kind needs no description,
 |---|---|
 | `title` | Diagram title |
 | `description` | One sentence, shown under the title on the diagram |
-| `level` | `landscape`, `context`, `container`, `component`, `class`, `sequence`, `state`, `deployment` or `event` |
-| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, optionally any element for state views (the one whose states they are), none for landscape, sequence, deployment and event |
-| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence, state, deployment and event views |
-| `exclude` | IDs to hide. Not used on sequence, state, deployment and event views |
+| `level` | `landscape`, `context`, `container`, `component`, `class`, `sequence`, `state`, `deployment`, `event` or `wireframe` |
+| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, optionally any element for state views (the one whose states they are), optionally a system or container for wireframe views (the one whose screens they are), none for landscape, sequence, deployment and event |
+| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence, state, deployment, event and wireframe views |
+| `exclude` | IDs to hide. Not used on sequence, state, deployment, event and wireframe views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
 | `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `on` (what it's on, see below), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside what it's on, or else beside the diagram) |
-| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence, state, deployment and event views |
+| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence, state, deployment, event and wireframe views |
 | `steps` | Sequence views only: what happens, in order (see below) |
 | `states` | State views only: the states, keyed by an ID unique within the view (see below) |
 | `initial` | State views only: the ID of the state it starts in |
 | `transitions` | State views only: the ways from one state to another, in order (see below) |
+| `screens` | Wireframe views only: the screens, in order, each with its widgets (see below) |
 | `nodes` | Deployment views only: where things run, keyed by an ID unique within the view (see below) |
 | `connections` | Deployment views only: arrows to or from nodes, in order (see below) |
 | `lanes` | Event views only: the swimlanes, from the top down (see below) |
@@ -321,6 +322,78 @@ An `event` view shows what happens in a business process, as event storming and 
 
 The lists' order is the diagram's: lanes are rows from the top down, and each card has a column of its own, left to right in the order of `cards`, so time runs from left to right. `show <view>` numbers both from 1. The designer lays out an event view automatically, so it has no positions. Removing a lane leaves its cards in no lane, and removing a card removes the arrows to and from it. Nothing in an event view refers to the model's elements, so renaming or removing them doesn't change it.
 
+A `wireframe` view sketches an app's screens, as UX wireframes do: rough boxes for what's on each screen, top to bottom, and an arrow from a button or link to the screen it leads to. Its `scope`, if any, is the system or container whose screens they are, and the element's docs page lists the view. Its screens and widgets belong to the view, not the model:
+
+```json
+"checkout-screens": {
+  "title": "Checkout screens",
+  "level": "wireframe",
+  "scope": "web-app",
+  "screens": [
+    {
+      "id": "cart",
+      "name": "Cart",
+      "device": "phone",
+      "widgets": [
+        { "id": "cart-title", "kind": "heading", "text": "Your cart" },
+        { "id": "items", "kind": "table", "text": "Item | Price\nRed shoes | $80" },
+        {
+          "id": "actions",
+          "kind": "row",
+          "widgets": [
+            { "id": "keep-shopping", "kind": "link", "text": "Keep shopping" },
+            { "id": "check-out", "kind": "button", "text": "Check out", "to": "payment" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "payment",
+      "name": "Payment",
+      "widgets": [
+        { "id": "card-number", "kind": "input", "text": "Card number", "description": "The payment provider's own field." }
+      ]
+    }
+  ]
+}
+```
+
+| Screen field | Meaning |
+|---|---|
+| `id` | Unique among the view's screens |
+| `name` | Display name, at its top |
+| `description` | One sentence |
+| `device` | `desktop` (the default), `tablet` or `phone`: how wide it's drawn |
+| `widgets` | What's on it, top to bottom |
+
+| Widget field | Meaning |
+|---|---|
+| `id` | Unique among all the view's widgets, on every screen, so a widget keeps its ID when it moves to another screen |
+| `kind` | What it is (see below) |
+| `text` | What it says. A list's items, a table's rows and tabs go one to a line |
+| `description` | One sentence on what it does, shown when you point at it |
+| `to` | The ID of the screen it leads to, like the one a button opens. Drawn as an arrow to that screen |
+| `widgets` | Rows and panels only: what's inside it |
+
+| Widget `kind` | Drawn as |
+|---|---|
+| `heading` | Its text, in large type |
+| `text` | A paragraph; without text, grey lines stand in for it |
+| `button` | A button with its text |
+| `link` | Its text, underlined |
+| `input` | A box to type in, with its text as its label, like "Email" |
+| `checkbox` | A box to tick, with its text beside it |
+| `select` | A drop-down list, with its text as its label |
+| `image` | A box with a cross, and its text saying what the picture shows |
+| `list` | An item for each line of its text |
+| `table` | A row for each line of its text, with the cells split by `\|`; the first row is its headings |
+| `tabs` | A tab for each line of its text; the first is the open one |
+| `divider` | A line across, with its text in the middle, if it has any |
+| `panel` | A box round its widgets, top to bottom, with its text as its title |
+| `row` | Its widgets side by side, sharing its width, with its text above them, if it has any |
+
+The lists' order is the diagram's: screens left to right, and each screen's widgets top to bottom, or in a row left to right. `show <view>` numbers them from 1. The designer lays out a wireframe view automatically, so it has no positions: a screen is as tall as what's on it needs, and at least as tall as its device's proportions. An arrow to the next screen or the one before crosses the gap between them; one to a screen further away runs under the screens. Removing a screen removes what's on it, and the widgets that led to it lead nowhere; renaming one renames it in their `to`. Removing a widget removes what's inside it. A widget that leads to the screen it's on draws no arrow. Nothing in a wireframe view refers to the model's elements but its scope: removing the scope removes the view, as it does any view of an element.
+
 Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside their text.
 
 On a landscape, context, container, component or class view, a note can be `on` an element or a relationship, and the designer draws a dotted line from it to the box or arrow that shows it. Other views don't take `on`.
@@ -337,7 +410,7 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, each starting with what it's on, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections. An event view has a Mermaid flowchart from left to right, with a frame for each lane and each card in its kind's colour, and tables of its lanes and cards. Mermaid has no swimlanes, so the frames aren't always one above the other as the designer draws them, and a card that comes from a later card can be drawn out of its place along the timeline. A lane with no cards is a box with its name.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, each starting with what it's on, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections. An event view has a Mermaid flowchart from left to right, with a frame for each lane and each card in its kind's colour, and tables of its lanes and cards. Mermaid has no swimlanes, so the frames aren't always one above the other as the designer draws them, and a card that comes from a later card can be drawn out of its place along the timeline. A lane with no cards is a box with its name. A wireframe view has a Mermaid flowchart from left to right, with a frame for each screen and its widgets top to bottom inside it, each drawn as near as Mermaid can to how it looks, and a table of each screen's widgets, numbered within the rows and panels they're in. Mermaid can't draw an arrow from a widget without turning its screen on its side, so its arrows go from screen to screen, with the text of the widgets that lead there on them, and where the arrows go round in a circle, Mermaid decides the order of the screens.
 - `elements/<id>.md`: the element's details, notes, members (for a class), libraries (for a container), the containers built with it (for a library), relationships (with their notes), contents and the views showing it, with the nodes it runs in on deployment views.
 
 Every page starts with `<!-- Generated by open-arch from <file>`. Tools only ever overwrite or delete pages with that marker naming the same file, or a file no longer beside it (say before a rename), and only look for stale ones at the folder's top and in `views/` and `elements/`, so other files in the folder are safe, and so are the docs of another workspace whose file is in the same folder as this one's. Workspaces in different folders need docs folders of their own. The folder can be `.`, the file's own folder. Don't edit generated pages: the next change rewrites them.
@@ -349,19 +422,21 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `12` (or `1` to `11`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `13` (or `1` to `12`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
-| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment or event view, `scope` on a deployment or event view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `lanes` or `cards` on another view than an event view, or a sticky note's `on` on a sequence, state, deployment or event view, or with both `element` and `from` or `to` |
+| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment, event or wireframe view, `scope` on a deployment or event view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `lanes` or `cards` on another view than an event view, `screens` on another view than a wireframe view, `widgets` on a widget that isn't a row or a panel, or a sticky note's `on` on a sequence, state, deployment, event or wireframe view, or with both `element` and `from` or `to` |
 | `field-type` | error | A field has the wrong type |
 | `field-required` | error | A required field is missing |
 | `id-format` | error | An ID isn't kebab-case |
-| `id-duplicate` | error | An element and a view share an ID, or two lanes or two cards of an event view do |
+| `id-duplicate` | error | An element and a view share an ID, or two lanes or two cards of an event view do, or two screens or two widgets of a wireframe view |
 | `kind-invalid` | error | Unknown `kind` |
 | `level-invalid` | error | Unknown view `level` |
 | `color-invalid` | error | Unknown sticky note `color` |
 | `shape-invalid` | error | Unknown element `shape` |
 | `relationship-kind-invalid` | error | Unknown relationship `kind`, on a relationship or what a sticky note is on |
 | `card-kind-invalid` | error | Unknown card `kind` |
+| `widget-kind-invalid` | error | Unknown widget `kind` |
+| `device-invalid` | error | Unknown screen `device` |
 | `parent-required` | error | A container, component or class has no parent |
 | `parent-not-allowed` | error | A person, system or library has a parent |
 | `parent-unknown` | error | `parent` isn't an element |
@@ -410,8 +485,10 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | `card-lane-unknown` | error | A card's `lane` isn't a lane of its view |
 | `card-from-unknown` | error | A `from` entry isn't a card of its view |
 | `card-from-self` | error | A card comes from itself |
+| `widget-to-unknown` | error | A widget's `to` isn't a screen of its view |
+| `widget-to-own-screen` | warning | A widget leads to the screen it's on, so no arrow is drawn |
 | `sticky-unknown-target` | error | A sticky note is on an element that isn't there, or a relationship the model doesn't have |
 | `sticky-target-not-drawn` | warning | A sticky note is on something the view doesn't draw, so no line joins them |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |
 
-The first fourteen are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.
+The first sixteen are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.

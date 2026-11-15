@@ -1820,6 +1820,267 @@ button.heading {
   color: #1d1a12;
 }
 
+/* A wireframe view's screen: a page with its name in a bar at the top, rounder for a phone or a
+   tablet. Its widgets are boxes of their own, drawn over it. Sizes are WF's in
+   canvas/wireframeLayout.ts. (See WireframeDiagram.) */
+.wf-screen {
+  border: 1.5px solid var(--frame);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  outline: 3px solid transparent;
+  outline-offset: 2px;
+  cursor: pointer;
+}
+.wf-screen.wf-device-tablet {
+  border-radius: 14px;
+}
+.wf-screen.wf-device-phone {
+  border-radius: 22px;
+}
+.wf-screen.selected {
+  outline-color: var(--accent);
+}
+.wf-screen-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.wf-screen-name span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-screen-device {
+  font-weight: 400;
+  color: var(--muted);
+}
+/* A widget: grey and plain, as a sketch is, so it reads as a wireframe and not a finished design. */
+.wf-widget {
+  position: relative;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text);
+  border-radius: 3px;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  cursor: pointer;
+}
+.wf-widget.selected {
+  outline-color: var(--accent);
+}
+/* Text that doesn't fit is cut off here, not by the widget, which would cut the dot at its edge in half. */
+.wf-body {
+  height: 100%;
+  overflow: hidden;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.wf-placeholder {
+  color: var(--muted);
+  font-style: italic;
+  font-weight: 400;
+}
+.wf-heading {
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 700;
+}
+.wf-lines span,
+.wf-list .wf-line {
+  display: block;
+  height: 8px;
+  margin: 3px 0;
+  border-radius: 4px;
+  background: var(--border);
+}
+.wf-lines span:last-child {
+  width: 60%;
+}
+.wf-list .wf-line {
+  display: inline-block;
+  width: 60%;
+  margin: 0;
+  vertical-align: middle;
+}
+.wf-button {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  background: var(--bg);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.wf-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+.wf-field {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  background: var(--panel);
+}
+.wf-select::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--muted);
+}
+.wf-checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.wf-tick {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid var(--muted);
+  border-radius: 3px;
+}
+.wf-image {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  border: 1px solid var(--muted);
+  background: var(--bg);
+  color: var(--muted);
+  text-align: center;
+}
+.wf-image svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.wf-image line {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.wf-image span {
+  position: relative;
+  padding: 2px 6px;
+  background: var(--bg);
+}
+.wf-list {
+  margin: 0;
+  padding-left: 18px;
+}
+.wf-list li {
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.wf-table td {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-table tr:first-child td {
+  font-weight: 600;
+  background: var(--bg);
+}
+.wf-tabs {
+  display: flex;
+  height: 34px;
+  border-bottom: 1px solid var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.wf-tabs span {
+  padding: 8px 12px 0;
+  color: var(--muted);
+}
+.wf-tabs span.open {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom: 3px solid var(--text);
+}
+.wf-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.wf-divider::before,
+.wf-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--muted);
+}
+.wf-divider span {
+  white-space: nowrap;
+}
+/* A panel is a box round its widgets; a row has no frame, unless it's empty or selected. */
+.wf-kind-panel {
+  border: 1px solid var(--frame);
+  border-radius: 6px;
+}
+.wf-kind-panel .wf-holder-title {
+  padding: 3px 14px 0;
+  font-weight: 650;
+  line-height: 24px;
+}
+.wf-kind-row .wf-holder-title {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 24px;
+}
+.wf-holder-empty {
+  margin: 4px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-kind-row .wf-holder-empty {
+  margin: 0;
+  height: 36px;
+  padding: 9px 10px;
+  border: 1px dashed var(--frame);
+  border-radius: 4px;
+}
+
 /* UML arrow ends, on a class view's arrows (see UmlMarker). */
 .uml-marker {
   stroke: var(--edge);

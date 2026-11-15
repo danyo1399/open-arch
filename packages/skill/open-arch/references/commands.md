@@ -18,7 +18,7 @@ Exit codes: 0 = done, 1 = refused or failed (nothing saved), 2 = the command was
 |---|---|
 | `open-arch show` | The model as a tree, and the views |
 | `open-arch show <element-id>` | The element's fields, tags, notes, a class's stereotype and members, a container's libraries, the containers a library is built into, what it uses, what uses it (directly and through what's inside it), with those relationships' notes, and the views showing it |
-| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for, and on a class view, each arrow's kind. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along. For a state view: its states, with where it starts and can end, and its transitions in order. For a deployment view: its nodes, nested, with what each runs, its connections in order, and the arrows it draws between the copies of what runs where. For an event view: its lanes from the top down, and its cards in order, each with its kind, its lane and the cards it comes from |
+| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for, and on a class view, each arrow's kind. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along. For a state view: its states, with where it starts and can end, and its transitions in order. For a deployment view: its nodes, nested, with what each runs, its connections in order, and the arrows it draws between the copies of what runs where. For an event view: its lanes from the top down, and its cards in order, each with its kind, its lane and the cards it comes from. For a wireframe view: its screens in order, each with its device and the widgets on it, top to bottom, those in a row or panel under it, each with its kind, its text and the screen it leads to |
 | `open-arch check [--json] [--strict]` | Problems in the model; exits 1 on errors (or warnings, with `--strict`) |
 | `open-arch export [folder] [--check]` | Writes the docs to the folder, or to the workspace's docs folder; `--check` exits 1 if they're out of date |
 
@@ -39,7 +39,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--kind <association\|dependency\|inheritance\|realization\|composition\|aggregation>` (between two classes; default: association), `--bidirectional` (associations only: `<to>` uses `<from>` too), `--notes <markdown>` or `--notes-file <path\|->` |
 | `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--kind` (`--kind ""` makes it an association again), `--bidirectional` / `--one-way`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
-| `add-view <id>` | `--level <landscape\|context\|container\|component\|class\|sequence\|state\|deployment\|event>` (required), `--scope <id>` (a container or library for a component view, a component or library for a class view, and for a state view, optionally, the element of any kind whose states it shows), `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. Sequence, deployment and event views take no scope, include or exclude, and a state view no include or exclude |
+| `add-view <id>` | `--level <landscape\|context\|container\|component\|class\|sequence\|state\|deployment\|event\|wireframe>` (required), `--scope <id>` (a container or library for a component view, a component or library for a class view, for a state view, optionally, the element of any kind whose states it shows, and for a wireframe view, optionally, the system or container whose screens it shows), `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. Sequence, deployment and event views take no scope, include or exclude, and state and wireframe views no include or exclude |
 | `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--new-elements <show\|hide>`, `--notes`, `--notes-file`. `--new-elements hide` lists the view's boxes in include, so elements added later stay out; `show` puts `*` back, excluding what it would add. Either keeps the boxes the view has now |
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
@@ -68,6 +68,12 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-card <view> <id>` | Event views only. `--kind <event\|command\|actor\|policy\|read-model\|external-system\|aggregate\|hotspot>` (default: event), `--name`, `--description`, `--lane <lane>` (default: none, in a row above the lanes), `--from <card>` (a card that leads to it, drawn as an arrow to it; repeat for each), `--position <n>` (its place along the timeline: 1 is the first; default: after the last) |
 | `update-card <view> <id>` | `--kind`, `--name`, `--new-id <id>` (the cards that come from it follow it), `--description`, `--lane` (`--lane ""` takes it out of its lane), `--from` (replaces the cards it comes from; `--from ""` removes them all), `--position <n>` (moves it; the cards between move one place) |
 | `remove-card <view> <id>` | Also removes the arrows to and from it |
+| `add-screen <view> <id>` | Wireframe views only. `--name`, `--device <desktop\|tablet\|phone>` (default: desktop), `--description`, `--position <n>` (its place, left to right: 1 is the first; default: after the last) |
+| `update-screen <view> <id>` | `--name`, `--new-id <id>` (the widgets that lead to it follow it), `--device` (`--device ""` is desktop again), `--description`, `--position <n>` (moves it; the screens between move one place) |
+| `remove-screen <view> <id>` | Also removes the widgets on it; widgets on other screens that led to it lead nowhere |
+| `add-widget <view> <id>` | Wireframe views only. `--kind <heading\|text\|button\|link\|input\|checkbox\|select\|image\|list\|table\|tabs\|divider\|panel\|row>` (required), `--screen <screen>` (the screen it goes on) or `--in <widget>` (the row or panel it goes in), `--text` (a list's items, a table's rows and tabs one to a line; a table's cells split by `\|`), `--to <screen>` (the screen it leads to, drawn as an arrow), `--description`, `--position <n>` (its place among the widgets there: 1 is the first; default: after the last) |
+| `update-widget <view> <id>` | `--kind` (a row or panel with widgets in it stays a row or panel), `--text`, `--to` (`--to ""` leads nowhere), `--new-id <id>`, `--screen <screen>` (moves it onto that screen, out of any row or panel), `--in <widget>` (moves it into a row or panel; `--in ""` onto its screen), `--description`, `--position <n>` (moves it among the widgets where it is, or goes) |
+| `remove-widget <view> <id>` | Also removes the widgets inside it |
 | `update-workspace` | `--name`, `--description`, `--docs <folder>` (`--docs ""` stops generating docs) |
 | `apply [file\|-]` | A JSON list of operations, all or nothing (see below) |
 | `init [file]` | `--name`, `--docs <folder>`, `--no-skills`, `--no-agents-md` |
@@ -76,6 +82,8 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 `--index` picks one relationship when an element has several to the same target: 0 is the first. Without it, the command says how many there are and what each describes.
 
 A lane and a card are named by their IDs, each unique among its event view's lanes or cards. A card's `--from` names cards the view already has, so add a card after the ones that lead to it, or set it later with `update-card`.
+
+A screen is named by its ID, unique among its wireframe view's screens, and a widget by its ID, unique among all the view's widgets, on every screen. A widget's `--to` names a screen the view already has, so add the screens first, or set it later with `update-widget`. A widget that leads to the screen it's on is a warning: no arrow is drawn.
 
 A step is named by its number in its sequence view, as `show <view>` prints it: 1 is the first. A step from A to B needs a relationship in the model from A, or something inside A, to B, or something inside B, or one between them that goes both ways. A reply goes back along one from B to A. If there's none, the command refuses the step: add the relationship first.
 
@@ -124,6 +132,12 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `add-card` | **view**, **id**, kind (default: `"event"`), name, description, lane, from (a list of card IDs), position (its place along the timeline: 1 is the first; default: after the last) |
 | `update-card` | **view**, **id**, newId, kind, name, description, lane (`null` takes it out of its lane), from (replaces the list; `null` removes it), position (the place to move it to) |
 | `remove-card` | **view**, **id** |
+| `add-screen` | **view**, **id**, name, description, device (default: `"desktop"`), position (its place, left to right: 1 is the first; default: after the last) |
+| `update-screen` | **view**, **id**, newId, name, description, device, position (the place to move it to) |
+| `remove-screen` | **view**, **id** |
+| `add-widget` | **view**, **id**, **kind**, screen or in (the row or panel it goes in), text, description, to (the screen it leads to), position (its place among the widgets there: 1 is the first; default: after the last) |
+| `update-widget` | **view**, **id**, newId, kind, text, description, to (`null` leads nowhere), screen (moves it onto that screen, out of any row or panel), in (moves it into that row or panel; `null` onto its screen), position (the place to move it to) |
+| `remove-widget` | **view**, **id** |
 | `update-workspace` | name, description, docs |
 
 Example:

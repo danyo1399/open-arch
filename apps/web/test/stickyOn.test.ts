@@ -6,7 +6,7 @@ import { edgePoint, midpoint, nearestOnOutline, stickyLine } from "../src/canvas
 import { followRenames, renamesBetween, stickyChoices, stickyTargetFor } from "../src/model.js";
 
 const doc: OpenArchDocument = {
-  openarch: 12,
+  openarch: 13,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -48,7 +48,7 @@ describe("stickyTargetFor", () => {
     // Logging's writer is drawn in each container built with it, so its relationship to the log
     // service is an arrow from each. A note on that relationship has its line to the first.
     const model: OpenArchDocument = {
-      openarch: 12,
+      openarch: 13,
       name: "Logs",
       elements: {
         shop: { kind: "system", name: "Shop" },

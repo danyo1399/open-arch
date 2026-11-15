@@ -1,5 +1,5 @@
 {
-  "openarch": 12,
+  "openarch": 13,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -188,6 +188,97 @@
       "scope": "checkout-api",
       "include": ["*"],
       "notes": "A request from the web app comes in to the Checkout Controller. It reserves stock and takes payment before it saves the order, so every saved order is paid for."
+    },
+    "checkout-screens": {
+      "title": "Checkout screens",
+      "description": "What the customer sees, from a product to a placed order.",
+      "level": "wireframe",
+      "scope": "web-app",
+      "screens": [
+        {
+          "id": "product",
+          "name": "Product",
+          "description": "One product, with its price and a button to buy it.",
+          "widgets": [
+            { "id": "product-nav", "kind": "tabs", "text": "Shoes\nHats\nBags" },
+            {
+              "id": "product-details",
+              "kind": "row",
+              "widgets": [
+                { "id": "product-photo", "kind": "image", "text": "Photo of the product" },
+                {
+                  "id": "product-buy",
+                  "kind": "panel",
+                  "widgets": [
+                    { "id": "product-name", "kind": "heading", "text": "Red running shoes" },
+                    { "id": "product-price", "kind": "text", "text": "$80, in stock" },
+                    { "id": "product-size", "kind": "select", "text": "Size" },
+                    { "id": "add-to-cart", "kind": "button", "text": "Add to cart", "description": "Reserves nothing yet: stock is reserved when the order is placed.", "to": "cart" }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cart",
+          "name": "Cart",
+          "description": "What the customer is about to buy.",
+          "widgets": [
+            { "id": "cart-title", "kind": "heading", "text": "Your cart" },
+            { "id": "cart-items", "kind": "table", "text": "Item | Size | Price\nRed running shoes | 9 | $80\nWool hat | M | $25" },
+            { "id": "cart-total", "kind": "text", "text": "Total: $105, with free delivery" },
+            {
+              "id": "cart-actions",
+              "kind": "row",
+              "widgets": [
+                { "id": "keep-shopping", "kind": "link", "text": "Keep shopping", "to": "product" },
+                { "id": "check-out", "kind": "button", "text": "Check out", "to": "payment" }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Payment",
+          "description": "The card details, which go straight to the payment provider.",
+          "widgets": [
+            { "id": "payment-title", "kind": "heading", "text": "Pay" },
+            {
+              "id": "card",
+              "kind": "panel",
+              "text": "Card",
+              "widgets": [
+                { "id": "card-number", "kind": "input", "text": "Card number", "description": "A field from the payment provider's script, so the card number never reaches the shop." },
+                {
+                  "id": "card-dates",
+                  "kind": "row",
+                  "widgets": [
+                    { "id": "card-expiry", "kind": "input", "text": "Expiry" },
+                    { "id": "card-code", "kind": "input", "text": "Security code" }
+                  ]
+                }
+              ]
+            },
+            { "id": "save-card", "kind": "checkbox", "text": "Remember this card" },
+            { "id": "pay", "kind": "button", "text": "Pay $105", "description": "Places the order: the Checkout API reserves stock, takes payment, then saves it.", "to": "placed" },
+            { "id": "back-to-cart", "kind": "link", "text": "Back to the cart", "to": "cart" }
+          ]
+        },
+        {
+          "id": "placed",
+          "name": "Order placed",
+          "description": "Also sent as an email.",
+          "device": "phone",
+          "widgets": [
+            { "id": "placed-title", "kind": "heading", "text": "Thank you!" },
+            { "id": "placed-text", "kind": "text", "text": "Your order is on its way. We've emailed you a receipt." },
+            { "id": "placed-next", "kind": "list", "text": "Track your order\nChange the delivery address" },
+            { "id": "placed-divider", "kind": "divider" },
+            { "id": "placed-home", "kind": "link", "text": "Back to the shop", "to": "product" }
+          ]
+        }
+      ]
     },
     "landscape": {
       "title": "System landscape",

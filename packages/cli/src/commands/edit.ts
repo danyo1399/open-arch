@@ -112,7 +112,7 @@ function notes(io: Io, v: Values): string | null | undefined {
   }
 }
 
-/** A step's, transition's or connection's number, or a lane's or card's position, from `--<name> <n>` or a positional argument: 1 is the first. */
+/** A step's, transition's or connection's number, or a lane's, card's, screen's or widget's position, from `--<name> <n>` or a positional argument: 1 is the first. */
 function stepNumber(v: Values[string], name: string, what = "step"): number | undefined {
   if (v === undefined) return undefined;
   const n = Number(v);
@@ -260,7 +260,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment or event.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment, event or wireframe.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",
@@ -489,6 +489,72 @@ export const BUILDERS: Record<string, Builder> = {
   "remove-card": (_io, _v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
     return [{ op: "remove-card", view: view!, id: id! }];
+  },
+  "add-screen": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "add-screen", view: view!, id: id!, name: text(v.name), device: text(v.device) as never, description: text(v.description), position: stepNumber(v.position, "--position", "screen") }];
+  },
+  "update-screen": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    // An empty --device removes it, which makes the screen a desktop one.
+    const device = typeof v.device === "string" ? v.device.trim() || "desktop" : undefined;
+    return [
+      {
+        op: "update-screen",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        name: text(v.name),
+        device: device as never,
+        description: clearable(v.description),
+        position: stepNumber(v.position, "--position", "screen"),
+      },
+    ];
+  },
+  "remove-screen": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-screen", view: view!, id: id! }];
+  },
+  "add-widget": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    const kind = text(v.kind);
+    if (!kind) throw new CliError(`Pass --kind: heading, text, button, link, input, checkbox, select, image, list, table, tabs, divider, panel or row.\n\n${usage}`, 2);
+    return [
+      {
+        op: "add-widget",
+        view: view!,
+        id: id!,
+        kind: kind as never,
+        screen: text(v.screen),
+        in: text(v.in),
+        text: text(v.text),
+        to: text(v.to),
+        description: text(v.description),
+        position: stepNumber(v.position, "--position", "widget"),
+      },
+    ];
+  },
+  "update-widget": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "update-widget",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        kind: text(v.kind) as never,
+        text: clearable(v.text),
+        to: clearable(v.to),
+        screen: text(v.screen),
+        in: clearable(v.in),
+        description: clearable(v.description),
+        position: stepNumber(v.position, "--position", "widget"),
+      },
+    ];
+  },
+  "remove-widget": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-widget", view: view!, id: id! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

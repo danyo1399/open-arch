@@ -1,0 +1,499 @@
+/**
+ * A wireframe view's diagram: its screens left to right in their order, each a rough sketch of
+ * what's on it, top to bottom, and an arrow from each widget that leads to another screen. Drag a
+ * widget to move it on its screen, into a row or a panel, or onto another screen; drag a screen
+ * to move it along; and drag from the dot beside a widget to a screen to make the widget lead
+ * there. Nothing is placed by hand, so only sticky notes keep a position.
+ */
+import { allWidgets, screenArrows, SCREEN_DEVICE_LABELS, WIDGET_HOLDERS, WIDGET_KIND_LABELS, WIDGET_KINDS, type ComputedView, type Operation, type ScreenArrow, type Screen, type Sticky, type ViewDef, type Widget, type WidgetKind } from "@open-arch/core";
+import {
+  Background,
+  BackgroundVariant,
+  BaseEdge,
+  ConnectionMode,
+  Controls,
+  Handle,
+  MarkerType,
+  Panel,
+  Position,
+  ReactFlow,
+  applyNodeChanges,
+  useConnection,
+  useReactFlow,
+  type Connection,
+  type Edge,
+  type EdgeProps,
+  type Node,
+  type NodeChange,
+  type NodeProps,
+} from "@xyflow/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMediaQuery } from "../mediaQuery.js";
+import { uniqueAmong } from "../model.js";
+import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
+import type { Edit } from "../state.js";
+import { freeSpotAmong, NODE_W, placeStickies, STICKY, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { fitBelowToolbar, SELECTED_LIFT, STICKY_Z, type Selection } from "./Canvas.js";
+import { StickyNode, type StickyFlowNode } from "./nodes.js";
+import type { Box } from "./routing.js";
+import { pathThrough } from "./RoutedEdge.js";
+import { arrowId, arrowRoutes, screenDropOps, textLines, WF, widgetDropOps, wireframeLayout } from "./wireframeLayout.js";
+
+type ScreenNodeData = { screen: Screen; width: number; height: number };
+type ScreenFlowNode = Node<ScreenNodeData, "screen">;
+type WidgetNodeData = { widget: Widget; width: number; height: number };
+type WidgetFlowNode = Node<WidgetNodeData, "widget">;
+type FlowNode = ScreenFlowNode | WidgetFlowNode | StickyFlowNode;
+
+type LeadsData = { arrow: ScreenArrow; points: readonly Readonly<Point>[] };
+type LeadsEdge = Edge<LeadsData, "leads">;
+
+/** Screen and widget IDs are each unique only among their own kind, so each kind's nodes get a prefix. */
+const screenNodeId = (id: string) => `screen:${id}`;
+const widgetNodeId = (id: string) => `widget:${id}`;
+const stickyNodeId = (id: string) => `sticky:${id}`;
+/** How a view's diagram is fitted to the canvas, as Canvas does. */
+const FIT = { padding: 0.15, maxZoom: 1.2 };
+const TOUCH = "(any-pointer: coarse)";
+/**
+ * Arrows are drawn over the screens, so an arrow is seen to leave the widget it comes from, but
+ * under a widget or screen being dragged, which React Flow lifts by SELECTED_LIFT.
+ */
+const ARROW_Z = SELECTED_LIFT - 100;
+/** Notes stay above a selected screen's widgets, which React Flow puts above the screen, as it does nested boxes. */
+const NOTE_Z = STICKY_Z + 50;
+
+/** A screen: its name in a bar at the top, and its device, unless it's a desktop one. While an arrow is dragged, all of it is a drop target. */
+function ScreenNode({ id, data, selected }: NodeProps<ScreenFlowNode>) {
+  const { screen } = data;
+  const connection = useConnection();
+  const dropTarget = connection.inProgress && connection.fromNode.id !== id;
+  return (
+    <div className={`wf-screen wf-device-${screen.device}${selected ? " selected" : ""}`} style={{ width: data.width, height: data.height }} title={screen.description}>
+      <Handle type="target" id="left" position={Position.Left} className={dropTarget ? "handle-drop" : "handle-hidden"} isConnectableStart={false} />
+      <Handle type="target" id="right" position={Position.Right} className="handle-hidden" isConnectable={false} />
+      <div className="wf-screen-name" style={{ height: WF.head }}>
+        <span>{screen.name}</span>
+        {screen.device !== "desktop" && <span className="wf-screen-device">{SCREEN_DEVICE_LABELS[screen.device]}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** What a widget looks like, roughly: its text, in the shape of a button, a box to type in, and so on. */
+function WidgetBody({ widget }: { widget: Widget }) {
+  const lines = textLines(widget.text);
+  const text = lines.join("\n");
+  const placeholder = <span className="wf-placeholder">{WIDGET_KIND_LABELS[widget.kind]}</span>;
+  switch (widget.kind) {
+    case "heading":
+      return <div className="wf-heading">{text || placeholder}</div>;
+    case "text":
+      return lines.length ? (
+        <div className="wf-text">{text}</div>
+      ) : (
+        <div className="wf-lines" aria-label="Text">
+          <span />
+          <span />
+          <span />
+        </div>
+      );
+    case "button":
+      return <span className="wf-button">{text || "Button"}</span>;
+    case "link":
+      return <span className="wf-link">{text || "Link"}</span>;
+    case "input":
+    case "select":
+      return (
+        <>
+          {lines.length > 0 && <div className="wf-label">{lines.join(" ")}</div>}
+          <div className={`wf-field${widget.kind === "select" ? " wf-select" : ""}`}>{lines.length === 0 && placeholder}</div>
+        </>
+      );
+    case "checkbox":
+      return (
+        <div className="wf-checkbox">
+          <span className="wf-tick" />
+          <span>{text || "Checkbox"}</span>
+        </div>
+      );
+    case "image":
+      return (
+        <div className="wf-image">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <line x1="0" y1="0" x2="100" y2="100" />
+            <line x1="100" y1="0" x2="0" y2="100" />
+          </svg>
+          <span>{text || "Image"}</span>
+        </div>
+      );
+    case "list":
+      return <ul className="wf-list">{(lines.length ? lines : ["", "", ""]).map((l, i) => <li key={i}>{l || <span className="wf-line" />}</li>)}</ul>;
+    case "table":
+      return (
+        <table className="wf-table">
+          <tbody>
+            {(lines.length ? lines : ["|", "|", "|"]).map((row, i) => (
+              <tr key={i}>
+                {row.split("|").map((c, j) => (
+                  <td key={j}>{c.trim()}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+    case "tabs":
+      return (
+        <div className="wf-tabs">
+          {(lines.length ? lines : ["Tab", "Tab"]).map((t, i) => (
+            <span key={i} className={i === 0 ? "open" : undefined}>
+              {t}
+            </span>
+          ))}
+        </div>
+      );
+    case "divider":
+      return <div className="wf-divider">{text && <span>{lines.join(" ")}</span>}</div>;
+    case "panel":
+    case "row":
+      return (
+        <>
+          {lines.length > 0 && <div className="wf-holder-title">{lines.join(" ")}</div>}
+          {widget.widgets.length === 0 && <div className="wf-holder-empty">Empty {widget.kind}: drag widgets here, or select it and use + Add</div>}
+        </>
+      );
+  }
+}
+
+/** One widget, with a dot beside it to drag to a screen it leads to. While an arrow is dragged, all of it is a drop target for its screen. */
+function WidgetNode({ id, data, selected }: NodeProps<WidgetFlowNode>) {
+  const { widget } = data;
+  const connection = useConnection();
+  const dropTarget = connection.inProgress && connection.fromNode.id !== id;
+  return (
+    <div className={`wf-widget wf-kind-${widget.kind}${selected ? " selected" : ""}`} style={{ width: data.width, height: data.height }} title={widget.description}>
+      <Handle type="target" id="drop" position={Position.Left} className={dropTarget ? "handle-drop" : "handle-hidden"} isConnectableStart={false} />
+      {/* The text is cut off at the widget's edge. The dot to drag an arrow from sits half outside it, so it's outside this. */}
+      <div className="wf-body">
+        <WidgetBody widget={widget} />
+      </div>
+      <Handle type="source" id="right" position={Position.Right} className="handle-source" title="Drag to a screen to lead there" />
+      <Handle type="source" id="left" position={Position.Left} className="handle-hidden" isConnectable={false} />
+    </div>
+  );
+}
+
+function LeadsArrow({ id, data, markerEnd, selected }: EdgeProps<LeadsEdge>) {
+  if (!data || data.points.length < 2) return null;
+  return <BaseEdge id={id} path={pathThrough(data.points)} markerEnd={markerEnd} className={`arrow${selected ? " selected" : ""}`} interactionWidth={18} />;
+}
+
+const nodeTypes = { screen: ScreenNode, widget: WidgetNode, sticky: StickyNode };
+const edgeTypes = { leads: LeadsArrow };
+
+/** The screen a node is, or is on: none for a note. */
+function screenOfNode(view: ViewDef, nodeId: string | null | undefined): string | undefined {
+  if (nodeId?.startsWith("screen:")) return nodeId.slice("screen:".length);
+  if (nodeId?.startsWith("widget:")) return allWidgets(view).find((w) => w.id === nodeId.slice("widget:".length))?.screen;
+  return undefined;
+}
+
+/**
+ * The edit that makes a widget lead to the screen an arrow from it was dropped on, or onto a
+ * widget on: none for its own screen, or the one it leads to already.
+ */
+export function leadOps(view: ViewDef, source: string, target: string | null | undefined): Operation[] {
+  const widget = source.startsWith("widget:") ? allWidgets(view).find((w) => w.id === source.slice("widget:".length)) : undefined;
+  const to = screenOfNode(view, target);
+  if (!widget || !to || to === widget.screen || to === widget.to) return [];
+  return [{ op: "update-widget", view: view.id, id: widget.id, to }];
+}
+
+/**
+ * The edits that add a widget of this kind: into the selected row or panel, after the selected
+ * widget, or at the end of the selected screen, or else of the last one. With no screens yet, a
+ * screen is added for it first.
+ */
+export function addWidgetOps(view: ViewDef, kind: WidgetKind, selection: Selection): { ops: Operation[]; id: string } {
+  const id = uniqueAmong(allWidgets(view).map((w) => w.id), kind);
+  const selected = selection?.kind === "widget" ? allWidgets(view).find((w) => w.id === selection.id) : undefined;
+  const add = (where: { screen?: string; in?: string; position?: number }): Operation => ({ op: "add-widget", view: view.id, id, kind, ...where });
+  if (selected && WIDGET_HOLDERS.includes(selected.kind)) return { ops: [add({ in: selected.id })], id };
+  if (selected) return { ops: [add(selected.parent ? { in: selected.parent, position: selected.number + 1 } : { screen: selected.screen, position: selected.number + 1 })], id };
+  const screen = (selection?.kind === "screen" ? view.screens.find((s) => s.id === selection.id) : undefined) ?? view.screens.at(-1);
+  if (screen) return { ops: [add({ screen: screen.id })], id };
+  const first = addScreenOp(view, null);
+  return { ops: [first, add({ screen: first.id })], id };
+}
+
+/** The edit that adds a screen: after the selected one, or the one the selected widget is on, and for the same device; or else at the end, for the last one's. */
+export function addScreenOp(view: ViewDef, selection: Selection): Extract<Operation, { op: "add-screen" }> {
+  const after =
+    selection?.kind === "screen"
+      ? view.screens.find((s) => s.id === selection.id)
+      : selection?.kind === "widget"
+        ? view.screens.find((s) => s.id === allWidgets(view).find((w) => w.id === selection.id)?.screen)
+        : undefined;
+  const like = after ?? view.screens.at(-1);
+  const id = uniqueAmong(view.screens.map((s) => s.id), "new-screen");
+  return {
+    op: "add-screen",
+    view: view.id,
+    id,
+    name: "New screen",
+    ...(like && like.device !== "desktop" && { device: like.device }),
+    ...(after && after.number < view.screens.length && { position: after.number + 1 }),
+  };
+}
+
+interface WireframeDiagramProps {
+  computed: ComputedView;
+  selection: Selection;
+  onSelect(selection: Selection, options?: { isNew?: boolean }): void;
+  edit(edit: Edit): Promise<boolean>;
+  /** The toolbar's Export menu: ways to take the diagram elsewhere. */
+  exportItems: MenuItem[];
+}
+
+export function WireframeDiagram({ computed: cv, selection, onSelect, edit, exportItems }: WireframeDiagramProps) {
+  const view = cv.view;
+  const rf = useReactFlow<FlowNode, LeadsEdge>();
+  const wrapper = useRef<HTMLDivElement>(null);
+  const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
+  const layout = useMemo(() => wireframeLayout(view), [view]);
+  const arrows = useMemo(() => screenArrows(view), [view]);
+  // Arrows go as the screens and widgets are laid out, not as dragged: one that's dropped moves to its new place, or back.
+  const routes = useMemo(() => arrowRoutes(view, layout, arrows), [view, layout, arrows]);
+
+  /** The sticky note whose text is being edited in place. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const finishEditing = useCallback(
+    (sticky: Sticky, text: string | null) => {
+      setEditing(null);
+      if (text === null || !text.trim() || text.trim() === sticky.text) return;
+      void edit([{ op: "update-sticky", view: view.id, id: sticky.id, text }]);
+    },
+    [edit, view.id],
+  );
+
+  const [nodes, setNodes] = useState<FlowNode[]>([]);
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  /** Counts the screens and widgets dropped back where they were, each of which is drawn in its place again. */
+  const [putBack, setPutBack] = useState(0);
+
+  /** Where a widget's box starts: its parent's, a row's, a panel's or a screen's, as React Flow places it within that. */
+  const parentBox = useCallback((w: Widget): Box => (w.parent ? layout.widgets.get(w.parent)! : layout.screens.get(w.screen)!), [layout]);
+
+  useEffect(() => {
+    // Notes go to the right of the diagram, unless they've been placed.
+    const stickyAt = placeStickies(view.stickies, [{ x: Math.max(0, layout.width - NODE_W), y: 0 }], stickySize);
+    setNodes((previous) => {
+      // Each keeps what React Flow measured of it, as EventDiagram explains.
+      const measured = (id: string) => previous.find((p) => p.id === id)?.measured;
+      const out: FlowNode[] = [];
+      for (const screen of view.screens) {
+        const box = layout.screens.get(screen.id)!;
+        out.push({
+          id: screenNodeId(screen.id),
+          type: "screen",
+          position: { x: box.x, y: box.y },
+          data: { screen, width: box.w, height: box.h },
+          width: box.w,
+          height: box.h,
+          selected: selection?.kind === "screen" && selection.id === screen.id,
+          measured: measured(screenNodeId(screen.id)),
+        });
+        // In reading order, so each row or panel comes before what's inside it, as React Flow needs.
+        for (const w of allWidgets(screen)) {
+          const own = layout.widgets.get(w.id)!;
+          const parent = parentBox(w);
+          out.push({
+            id: widgetNodeId(w.id),
+            type: "widget",
+            parentId: w.parent ? widgetNodeId(w.parent) : screenNodeId(w.screen),
+            position: { x: own.x - parent.x, y: own.y - parent.y },
+            data: { widget: w, width: own.w, height: own.h },
+            width: own.w,
+            height: own.h,
+            selected: selection?.kind === "widget" && selection.id === w.id,
+            measured: measured(widgetNodeId(w.id)),
+          });
+        }
+      }
+      for (const sticky of view.stickies) {
+        out.push({
+          id: stickyNodeId(sticky.id),
+          type: "sticky",
+          position: stickyAt[sticky.id]!,
+          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text) },
+          selected: selection?.kind === "sticky" && selection.id === sticky.id,
+          measured: measured(stickyNodeId(sticky.id)),
+          connectable: false,
+          zIndex: NOTE_Z,
+        });
+      }
+      return out;
+    });
+  }, [layout, view, selection, editing, finishEditing, stickySize, putBack, parentBox]);
+
+  const select = useCallback((s: Selection) => onSelect(s), [onSelect]);
+
+  const edges = useMemo<LeadsEdge[]>(
+    () =>
+      arrows.map((a) => {
+        // React Flow wants handles at an arrow's ends, though it's drawn through the corners of its route.
+        const forward = layout.screens.get(a.to)!.x > layout.screens.get(a.screen)!.x;
+        return {
+          id: arrowId(a),
+          type: "leads",
+          source: widgetNodeId(a.from),
+          sourceHandle: forward ? "right" : "left",
+          target: screenNodeId(a.to),
+          targetHandle: forward ? "left" : "right",
+          selected: selection?.kind === "widget" && selection.id === a.from,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
+          zIndex: ARROW_Z,
+          data: { arrow: a, points: routes.get(arrowId(a)) ?? [] },
+        };
+      }),
+    [arrows, layout, routes, selection],
+  );
+
+  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
+
+  const onNodeDragStop = useCallback(
+    (_: unknown, _node: FlowNode, dragged: FlowNode[]) => {
+      const ops = dragged.flatMap((n): Operation[] => {
+        if (n.type === "sticky") return [{ op: "update-sticky", view: view.id, id: n.data.sticky.id, at: [Math.round(n.position.x), Math.round(n.position.y)] }];
+        if (n.type === "screen") return screenDropOps(view, layout, n.data.screen, { x: n.position.x + n.data.width / 2, y: n.position.y + n.data.height / 2 });
+        // A widget's position is within its parent, which stays where it was.
+        const parent = parentBox(n.data.widget);
+        return widgetDropOps(view, layout, n.data.widget, { x: parent.x + n.position.x + n.data.width / 2, y: parent.y + n.position.y + n.data.height / 2 });
+      });
+      // A screen or widget that stays where it was, or whose move is refused, goes back to its place.
+      if (ops.length) void edit(ops).then((ok) => ok || setPutBack((n) => n + 1));
+      else setPutBack((n) => n + 1);
+    },
+    [edit, view, layout, parentBox],
+  );
+
+  const onConnect = useCallback(
+    (c: Connection) => {
+      const ops = leadOps(view, c.source, c.target);
+      if (ops.length) void edit(ops).then((ok) => ok && select({ kind: "widget", id: c.source.slice("widget:".length) }));
+    },
+    [view, edit, select],
+  );
+
+  const clickNode = (node: FlowNode) => {
+    if (node.type === "sticky") select({ kind: "sticky", id: node.data.sticky.id });
+    else if (node.type === "widget") select({ kind: "widget", id: node.data.widget.id });
+    else select({ kind: "screen", id: node.data.screen.id });
+  };
+
+  const addWidget = (kind: WidgetKind) => {
+    const { ops, id } = addWidgetOps(view, kind, selection);
+    void edit(ops).then((ok) => ok && onSelect({ kind: "widget", id }, { isNew: true }));
+  };
+
+  const addScreen = () => {
+    const op = addScreenOp(view, selection);
+    void edit([op]).then((ok) => ok && onSelect({ kind: "screen", id: op.id }, { isNew: true }));
+  };
+
+  const addSticky = () => {
+    const rect = wrapper.current!.getBoundingClientRect();
+    const center = rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    const id = uniqueAmong(view.stickies.map((s) => s.id), "note");
+    // Notes are kept clear of each other, as screens and widgets are drawn where their order puts them.
+    const occupied = nodesRef.current.filter((n) => n.type === "sticky").map((n) => n.position);
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
+    void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
+      if (!ok) return;
+      select({ kind: "sticky", id });
+      setEditing(id);
+    });
+  };
+
+  const addItems: MenuAction[] = [
+    ...WIDGET_KINDS.map((kind) => ({ label: WIDGET_KIND_LABELS[kind], onSelect: () => addWidget(kind) })),
+    { label: "Screen", divider: true, onSelect: addScreen },
+    { label: "Sticky note", onSelect: addSticky },
+  ];
+
+  const fitDiagram = useCallback(
+    (options: { padding: number; maxZoom?: number } = FIT) => {
+      const canvas = wrapper.current;
+      const toolbar = canvas?.querySelector(".toolbar");
+      if (!canvas || !toolbar) return void rf.fitView(options);
+      void rf.fitView(fitBelowToolbar(options, canvas.clientHeight, toolbar.getBoundingClientRect().bottom - canvas.getBoundingClientRect().top));
+    },
+    [rf],
+  );
+
+  // Fit the diagram to the window once, after it's first drawn.
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (fitted.current) return;
+    fitted.current = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => fitDiagram()));
+  }, [fitDiagram]);
+
+  return (
+    <div className="canvas" ref={wrapper}>
+      <ReactFlow<FlowNode, LeadsEdge>
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodesChange={onNodesChange}
+        onNodeDragStop={onNodeDragStop}
+        onConnect={onConnect}
+        isValidConnection={(c) => leadOps(view, c.source, c.target).length > 0}
+        onNodeClick={(_, node) => clickNode(node)}
+        onNodeDragStart={(_, node) => clickNode(node)}
+        onEdgeClick={(_, edge) => edge.data && select({ kind: "widget", id: edge.data.arrow.from })}
+        onPaneClick={() => select(null)}
+        nodeClickDistance={4}
+        paneClickDistance={4}
+        connectionMode={ConnectionMode.Strict}
+        deleteKeyCode={null}
+        selectionKeyCode={null}
+        multiSelectionKeyCode={null}
+        panOnScroll
+        minZoom={0.1}
+        colorMode="system"
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })} />
+        <Panel position="top-left" className="toolbar">
+          <div className="toolbar-title">
+            <strong>{view.title}</strong>
+            <span>wireframe view{cv.boundary ? ` of ${cv.boundary.name}` : ""}</span>
+            {view.description && (
+              <span className="toolbar-description" title={view.description}>
+                {view.description}
+              </span>
+            )}
+          </div>
+          <MenuButton className="primary" items={addItems}>
+            + Add
+          </MenuButton>
+          {exportItems.length > 0 && (
+            <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
+              Export
+            </MenuButton>
+          )}
+        </Panel>
+      </ReactFlow>
+      {view.screens.length === 0 && (
+        <div className="empty-hint">
+          This view has no screens yet. Use <strong>+ Add</strong> to add a screen, and the headings, buttons and boxes to type in that go on it. Drag from the dot beside a widget to another screen to show where it leads.
+        </div>
+      )}
+    </div>
+  );
+}

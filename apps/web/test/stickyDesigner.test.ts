@@ -48,7 +48,7 @@ afterAll(() => {
 });
 
 const doc: OpenArchDocument = {
-  openarch: 12,
+  openarch: 13,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },

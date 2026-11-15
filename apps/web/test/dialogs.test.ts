@@ -6,7 +6,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { button, choose, click, key, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 12,
+  openarch: 13,
   name: "Shop",
   elements: { customer: { kind: "person", name: "Customer" }, shop: { kind: "system", name: "Shop" } },
   views: {},
@@ -67,5 +67,22 @@ describe("NewViewDialog", () => {
     expect(create.disabled).toBe(true);
     await key(title, "Enter");
     expect(created).toEqual([]);
+  });
+});
+
+describe("NewViewDialog for a wireframe view", () => {
+  it("makes one of a system or a container, named after it, or of nothing in particular, which needs a title", async () => {
+    const model: OpenArchDocument = { ...shop, elements: { ...shop.elements, web: { kind: "container", name: "Web App", parent: "shop" } } };
+    const { host, created, level, title, create } = dialog(model);
+    await choose(level, "wireframe");
+    expect(host.textContent).toContain("The screens of");
+    const scope = host.querySelectorAll("select")[1]!;
+    expect([...scope.options].map((o) => o.textContent)).toEqual(["Nothing in particular", "Shop [System]", "Web App [Container]"]);
+    expect(title.placeholder).toBe("e.g. Checkout");
+    expect(create.disabled).toBe(true);
+    await choose(scope, "web");
+    expect(title.placeholder).toBe("Web App wireframes");
+    await key(title, "Enter");
+    expect(created).toEqual([{ op: { op: "add-view", id: "web-app-wireframes", level: "wireframe", scope: "web", title: "Web App wireframes" }, id: "web-app-wireframes" }]);
   });
 });

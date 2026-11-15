@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { findUsages } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 12,
+  openarch: 13,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys" }] },
@@ -14,6 +14,7 @@ const ws = buildWorkspace({
   views: {
     landscape: { title: "Landscape", level: "landscape" },
     "shop-containers": { title: "Shop containers", level: "container", scope: "shop" },
+    checkout: { title: "Checkout", level: "wireframe", scope: "web", screens: [] },
   },
 });
 
@@ -38,6 +39,10 @@ describe("findUsages", () => {
       relationships: ["customer -> web drawn in landscape as customer -> shop"],
       views: ["landscape (box)", "shop-containers (frame)"],
     });
+  });
+
+  it("includes a wireframe view of the element's screens", () => {
+    expect(summary("web").views).toEqual(["checkout (screens)", "shop-containers (box)"]);
   });
 
   it("finds the arrow in the preferred view when that view draws it", () => {

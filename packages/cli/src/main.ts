@@ -76,8 +76,9 @@ With an element id: its fields, notes, what it uses and what uses it (with those
 relationships' notes), and the views showing it.
 With a view id: its description and notes, and the boxes and arrows the view draws, or for
 a sequence view, its steps in order, for a state view, its states and transitions, for a
-deployment view, its nodes and what runs in them, its connections and the arrows it draws, or
-for an event view, its lanes, and its cards in order with the cards each comes from.
+deployment view, its nodes and what runs in them, its connections and the arrows it draws, for
+an event view, its lanes, and its cards in order with the cards each comes from, or for a
+wireframe view, its screens in order, each with its widgets and the screens they lead to.
 A class's members, a relationship's kind when it isn't an association, a container's
 libraries and the containers a library is built into are shown too.
 `,
@@ -118,6 +119,7 @@ hide-in-view, set-layout, add-sticky, update-sticky, remove-sticky, add-step, up
 remove-step, add-state, update-state, remove-state, add-transition, update-transition,
 remove-transition, add-node, update-node, remove-node, add-connection, update-connection,
 remove-connection, add-lane, update-lane, remove-lane, add-card, update-card, remove-card,
+add-screen, update-screen, remove-screen, add-widget, update-widget, remove-widget,
 update-workspace.
 In updates, null removes a field.
 `,
@@ -224,7 +226,7 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event|wireframe> [options]
 
 A class view shows a component's or library's classes, with their members, as a UML class
 diagram.
@@ -240,11 +242,17 @@ It takes no scope, include or exclude.
 An event view shows what happens in a business process, as event storming does: commands,
 events and the other notes, as cards in order along a timeline, in swimlanes. Add its lanes
 with add-lane and its cards with add-card. It takes no scope, include or exclude.
+A wireframe view sketches an app's screens: what's on each, and which screen a button or link
+on one leads to. Add its screens with add-screen and what's on them with add-widget. Its
+scope, if any, is the system or container whose screens they are. It takes no include or
+exclude.
   --scope <id>           A system for context and container views, a container or library
-                         for component views, a component or library for class views, and
-                         for state views, if any, the element of any kind they're the states of
+                         for component views, a component or library for class views, for
+                         state views, if any, the element of any kind they're the states of,
+                         and for wireframe views, if any, the system or container whose
+                         screens they are
   --title <title>        Default: from the scope and level, or for a sequence, deployment or
-                         event view, or a state view without a scope, from the id
+                         event view, or a state or wireframe view without a scope, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
@@ -481,6 +489,78 @@ An empty value removes a field.
     { kind: s, name: s, "new-id": s, lane: s, from: many, description: s, position: s },
   ),
   "remove-card": writer(`Usage: open-arch remove-card <view> <id>\n\nRemoves a card, and the arrows to and from it.\n`, {}),
+  "add-screen": writer(
+    `Usage: open-arch add-screen <view> <id> [--name <name>] [--device <device>] [--description <text>] [--position <n>]
+
+Adds a screen to a wireframe view: a page of a website, or of an app, like "Cart". Screens are
+drawn left to right in order. The id must be unique among the view's screens.
+  --name <name>          Display name (default: from the id)
+  --device <device>      desktop (the default), tablet or phone: how wide it's drawn
+  --description <text>   One sentence about the screen
+  --position <n>         Its place, left to right: 1 is the first (default: after the last)
+`,
+    { name: s, device: s, description: s, position: s },
+  ),
+  "update-screen": writer(
+    `Usage: open-arch update-screen <view> <id> [--name <name>] [--new-id <id>] [--device <device>]
+                              [--description <text>] [--position <n>]
+
+--device is desktop, tablet or phone.
+--new-id changes its ID, and the widgets that lead to it follow it.
+--position moves it: 1 is the first, and the screens between move one place.
+An empty value removes a field: --device "" makes it a desktop screen again.
+`,
+    { name: s, "new-id": s, device: s, description: s, position: s },
+  ),
+  "remove-screen": writer(`Usage: open-arch remove-screen <view> <id>\n\nRemoves a screen, with the widgets on it. The widgets on other screens that led to it lead nowhere.\n`, {}),
+  "add-widget": writer(
+    `Usage: open-arch add-widget <view> <id> --kind <kind> (--screen <screen> | --in <widget>) [--text <text>]
+                           [--to <screen>] [--description <text>] [--position <n>]
+
+Adds a widget to a screen of a wireframe view, or to a row or a panel on one: what's on the
+screen, top to bottom. The id must be unique among all the view's widgets, on every screen.
+  --kind <kind>          heading: a title, in large type
+                         text: a paragraph
+                         button, link: their text is what they say
+                         input: a box to type in, with its text as its label
+                         checkbox: a box to tick, with its text beside it
+                         select: a drop-down list, with its text as its label
+                         image: where a picture goes, with its text saying what it shows
+                         list: an item for each line of its text
+                         table: a row for each line of its text, with the cells split by |;
+                         the first row is its headings
+                         tabs: a tab for each line of its text; the first is the open one
+                         divider: a line across, with its text in the middle, if any
+                         panel: a box that holds widgets, top to bottom, with its text as its
+                         title
+                         row: holds widgets side by side, with its text above them, if any
+  --screen <screen>      The screen it goes on
+  --in <widget>          The row or panel it goes in, instead
+  --text <text>          What it says. A list's items, a table's rows and tabs go on lines of
+                         their own, like --text $'Pizza\\nPasta' in bash
+  --to <screen>          The screen it leads to, like the one a button opens, drawn as an
+                         arrow to it
+  --description <text>   One sentence on what it does, shown when you point at it
+  --position <n>         Its place among the widgets where it goes: 1 is the first (default:
+                         after the last)
+`,
+    { kind: s, screen: s, in: s, text: s, to: s, description: s, position: s },
+  ),
+  "update-widget": writer(
+    `Usage: open-arch update-widget <view> <id> [--kind <kind>] [--text <text>] [--to <screen>] [--new-id <id>]
+                              [--screen <screen>] [--in <widget>] [--description <text>] [--position <n>]
+
+--kind is heading, text, button, link, input, checkbox, select, image, list, table, tabs,
+divider, panel or row. A row or panel with widgets in it can only be a row or a panel.
+--screen moves it onto that screen, out of any row or panel. --in moves it into a row or a
+panel, and --in "" out of one, onto its screen.
+--position moves it among the widgets where it is, or where it goes: 1 is the first.
+--to "" makes it lead nowhere.
+An empty value removes a field.
+`,
+    { kind: s, text: s, to: s, "new-id": s, screen: s, in: s, description: s, position: s },
+  ),
+  "remove-widget": writer(`Usage: open-arch remove-widget <view> <id>\n\nRemoves a widget, with the widgets inside it.\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -513,6 +593,8 @@ Change (each change is checked first; nothing is saved if it would break the mod
   add-connection <view> <from> <to>   update-connection <view> <n>   remove-connection <view> <n>
   add-lane <view> <id>            update-lane <view> <id>         remove-lane <view> <id>
   add-card <view> <id>            update-card <view> <id>         remove-card <view> <id>
+  add-screen <view> <id>          update-screen <view> <id>       remove-screen <view> <id>
+  add-widget <view> <id>          update-widget <view> <id>       remove-widget <view> <id>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

@@ -6,7 +6,7 @@
 import { nodeKindLabel, renderMermaid, transitionLabel } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
-import { CARD_KIND_LABELS, SHAPE_LABELS, type ArchElement, type Relationship, type RelationshipKind, type Sticky } from "./types.js";
+import { CARD_KIND_LABELS, SCREEN_DEVICE_LABELS, SHAPE_LABELS, WIDGET_KIND_LABELS, type ArchElement, type Relationship, type RelationshipKind, type Sticky, type Widget } from "./types.js";
 import type { Workspace } from "./workspace.js";
 
 export interface ExportedFile {
@@ -202,6 +202,26 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
       files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
       continue;
     }
+    if (v.level === "wireframe") {
+      const screenName = (id: string) => cell(v.screens.find((s) => s.id === id)?.name ?? id);
+      /** A screen's widgets, numbered as 1, 2, then 2.1, 2.2 for what's in the second. */
+      const rows = (widgets: Widget[], prefix: string): string[] =>
+        widgets.flatMap((w) => {
+          const number = `${prefix}${w.number}`;
+          const text = cell((w.text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(" / "));
+          return [`| ${number} | ${WIDGET_KIND_LABELS[w.kind]} | ${text} | ${w.to ? screenName(w.to) : ""} | ${cell(w.description)} |`, ...rows(w.widgets, `${number}.`)];
+        });
+      lines.push("", "## Screens");
+      if (v.screens.length === 0) lines.push("", "None yet.");
+      for (const s of v.screens) {
+        lines.push("", `### ${s.number}. ${s.name}`, "", `${SCREEN_DEVICE_LABELS[s.device]} screen.${s.description ? ` ${s.description}` : ""}`, "");
+        if (s.widgets.length) lines.push("| # | Widget | Text | Leads to | Description |", "|---|---|---|---|---|", ...rows(s.widgets, ""));
+        else lines.push("Nothing on it yet.");
+      }
+      lines.push("", `[All views and elements](../README.md)`, "");
+      files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
+      continue;
+    }
     lines.push("", "## Elements", "");
     if (cv.nodes.length) {
       lines.push("| Element | Kind | Technology | Description |", "|---|---|---|---|");
@@ -272,7 +292,7 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     if (tags.length) lines.push("", "## Tags", "", "| Tag | Value |", "|---|---|", ...tags.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
     if (d.views.length) {
       const how = ({ as, runsIn }: (typeof d.views)[number]) =>
-        as === "frame" ? " (as the frame)" : as === "states" ? " (its states)" : as === "deployed" ? ` (runs in ${runsIn!.map((n) => n.name).join(", ")})` : "";
+        as === "frame" ? " (as the frame)" : as === "states" ? " (its states)" : as === "screens" ? " (its screens)" : as === "deployed" ? ` (runs in ${runsIn!.map((n) => n.name).join(", ")})` : "";
       lines.push("", "## Shown in", "", ...d.views.map((shown) => `- [${shown.view.title}](../views/${shown.view.id}.md)${how(shown)}`));
     }
     lines.push("", `[All views and elements](../README.md)`, "");

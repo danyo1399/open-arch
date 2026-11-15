@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 10 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 11 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -339,6 +339,73 @@ Cards:
     expect(JSON.parse(read(dir)).views.returns.cards.map((c: { id: string }) => c.id)).toEqual(["return-arrived", "refund"]);
   });
 
+  it("adds a wireframe view, its screens and widgets, and shows them in order with the screens they lead to", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "sign-in", "--level", "wireframe", "--scope", "web-app", "--title", "Signing in").out).toContain("added view sign-in");
+    expect(cli(dir, "add-screen", "sign-in", "welcome").code).toBe(0);
+    expect(cli(dir, "add-screen", "sign-in", "form", "--name", "Sign in", "--device", "phone", "--description", "Asks for an email.", "--position", "1").out).toContain("added screen form to view sign-in, as screen 1");
+    expect(cli(dir, "add-widget", "sign-in", "title", "--kind", "heading", "--screen", "form", "--text", "Sign in").out).toContain("added heading title to screen form in view sign-in");
+    expect(cli(dir, "add-widget", "sign-in", "fields", "--kind", "panel", "--screen", "form").code).toBe(0);
+    expect(cli(dir, "add-widget", "sign-in", "email", "--kind", "input", "--in", "fields", "--text", "Email").out).toContain("added input email to panel fields in view sign-in");
+    expect(cli(dir, "add-widget", "sign-in", "go", "--kind", "button", "--screen", "form", "--text", "Sign in", "--to", "welcome", "--description", "Checks the email first.").code).toBe(0);
+    expect(cli(dir, "add-widget", "sign-in", "news", "--kind", "list", "--screen", "welcome", "--text", "New shoes\nSale ends Friday").code).toBe(0);
+    expect(cli(dir, "show", "sign-in").out).toBe(`sign-in: Signing in
+  level:        wireframe view of web-app (Web App)
+
+Screens:
+  1.  form  Sign in  (phone)  Asks for an email.
+       1.     title   heading     "Sign in"
+       2.     fields  panel
+          1.  email   text field  "Email"
+       3.     go      button      "Sign in"  -> welcome  Checks the email first.
+  2.  welcome  Welcome
+       1.  news  list  "New shoes / Sale ends Friday"
+`);
+    const json = JSON.parse(cli(dir, "show", "sign-in", "--json").out);
+    expect(json.scope).toBe("web-app");
+    expect(json.screens[0]).toMatchObject({ id: "form", position: 1, name: "Sign in", description: "Asks for an email.", device: "phone" });
+    expect(json.screens[0].widgets[1]).toEqual({ id: "fields", position: 2, kind: "panel", widgets: [{ id: "email", position: 1, kind: "input", text: "Email" }] });
+    expect(cli(dir, "show", "web-app").out).toContain("sign-in (its screens)");
+    expect(read(dir, "docs/views/sign-in.md")).toContain("Wireframe view of [Web App](../elements/web-app.md).");
+
+    expect(cli(dir, "update-widget", "sign-in", "go", "--in", "fields", "--position", "1").out).toContain("moved widget go to panel fields, as widget 1 there, in view sign-in");
+    expect(cli(dir, "update-widget", "sign-in", "go", "--in", "", "--to", "", "--description", "").out).toContain("updated widget go in view sign-in, and moved it to screen form, as widget 3 there");
+    expect(JSON.parse(read(dir)).views["sign-in"].screens[0].widgets[2]).toEqual({ id: "go", kind: "button", text: "Sign in" });
+    expect(cli(dir, "update-widget", "sign-in", "go", "--screen", "welcome", "--new-id", "continue").out).toContain("renamed widget go to continue in view sign-in, and moved it to screen welcome, as widget 2 there");
+    expect(cli(dir, "update-screen", "sign-in", "welcome", "--new-id", "home", "--device", "tablet", "--position", "1").out).toContain("renamed screen welcome to home in view sign-in, and moved it to screen 1");
+    expect(cli(dir, "update-widget", "sign-in", "email", "--to", "home").code).toBe(0);
+    expect(cli(dir, "update-screen", "sign-in", "home", "--device", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views["sign-in"].screens[0]).toEqual({ id: "home", name: "Welcome", widgets: [{ id: "news", kind: "list", text: "New shoes\nSale ends Friday" }, { id: "continue", kind: "button", text: "Sign in" }] });
+    expect(cli(dir, "remove-screen", "sign-in", "home").out).toContain("removed screen home from view sign-in, with 2 widgets on it, and the arrow to it from 1 widget");
+    expect(cli(dir, "remove-widget", "sign-in", "fields").out).toContain("removed widget fields from view sign-in, with 1 widget inside it");
+    expect(cli(dir, "add-widget", "sign-in", "x", "--screen", "form").err).toContain("Pass --kind: heading, text, button,");
+    expect(cli(dir, "add-widget", "sign-in", "x", "--kind", "slider", "--screen", "form").err).toContain('Unknown kind of widget "slider".');
+    expect(cli(dir, "add-widget", "sign-in", "x", "--kind", "text").err).toContain("Say where the widget goes: the screen it's on, or the row or panel it's in.");
+    expect(cli(dir, "add-widget", "sign-in", "x", "--kind", "text", "--screen", "form", "--position", "0").err).toContain("--position must be a widget's number: 1 is the first.");
+    expect(cli(dir, "add-screen", "sign-in", "x", "--device", "watch").err).toContain('Unknown device "watch".');
+    expect(cli(dir, "add-screen", "place-order", "x").err).toContain('View "place-order" is a sequence view. Only wireframe views have screens and widgets.');
+    expect(cli(dir, "check").code).toBe(0);
+    expect(cli(dir, "add-view", "--help").out).toContain("A wireframe view sketches an app's screens");
+    expect(cli(dir, "add-widget", "--help").out).toContain("--to <screen>");
+    expect(cli(dir, "--help").out).toContain("add-widget <view> <id>");
+    expect(cli(dir, "apply", "--help").out).toContain("add-screen, update-screen, remove-screen, add-widget, update-widget, remove-widget");
+  });
+
+  it("applies a batch of screens and widgets from JSON, all or nothing", () => {
+    const dir = example();
+    const ops = [
+      { op: "add-view", id: "sign-in", level: "wireframe" },
+      { op: "add-screen", view: "sign-in", id: "form" },
+      { op: "add-widget", view: "sign-in", id: "buttons", kind: "row", screen: "form" },
+      { op: "add-widget", view: "sign-in", id: "go", kind: "button", in: "buttons", text: "Go" },
+    ];
+    writeFileSync(join(dir, "good.json"), JSON.stringify(ops));
+    expect(cli(dir, "apply", "good.json").out).toContain("added row buttons to screen form in view sign-in\nadded button go to row buttons in view sign-in\n");
+    writeFileSync(join(dir, "bad.json"), JSON.stringify([{ op: "add-widget", view: "sign-in", id: "late", kind: "link", screen: "form", to: "never" }]));
+    expect(cli(dir, "apply", "bad.json").err).toContain('View "sign-in" has no screen "never".');
+    expect(JSON.parse(read(dir)).views["sign-in"].screens[0].widgets.map((w: { id: string }) => w.id)).toEqual(["buttons"]);
+  });
+
   it("removes fields with empty values and hides elements from views", () => {
     const dir = example();
     expect(cli(dir, "update-element", "web-app", "--technology", "", "--tag", "frontend").code).toBe(0);
@@ -523,22 +590,22 @@ Cards:
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 12', '"openarch": 1')
+      .replace('"openarch": 13', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 12, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 13, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11])("reads a version %i file, and writes it back as version 12", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])("reads a version %i file, and writes it back as version 13", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 12', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 13', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 12,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 13,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -625,7 +692,7 @@ describe("init", () => {
   it("export leaves the docs of another workspace in the same folder alone", () => {
     const project = tempDir();
     for (const [name, title] of [["a.openarch", "A"], ["b.openarch", "B"]]) {
-      writeFileSync(join(project, name), JSON.stringify({ openarch: 12, name: title, export: { docs: "." }, elements: {}, views: {} }));
+      writeFileSync(join(project, name), JSON.stringify({ openarch: 13, name: title, export: { docs: "." }, elements: {}, views: {} }));
     }
     expect(cli(project, "export", "--file", "a.openarch").code).toBe(0);
     const result = cli(project, "export", "--file", "b.openarch");
@@ -677,7 +744,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
     expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 12, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 13, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

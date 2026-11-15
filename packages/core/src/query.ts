@@ -19,9 +19,10 @@ export interface ElementDescription {
   builtInto: ArchElement[];
   /**
    * Views that draw this element: as a box, as the frame around the view, as what a state view
-   * shows the states of, or running in a deployment view's nodes, which `runsIn` lists.
+   * shows the states of, as the app a wireframe view shows the screens of, or running in a
+   * deployment view's nodes, which `runsIn` lists.
    */
-  views: { view: ViewDef; as: "box" | "frame" | "states" | "deployed"; runsIn?: DeploymentNode[] }[];
+  views: { view: ViewDef; as: "box" | "frame" | "states" | "screens" | "deployed"; runsIn?: DeploymentNode[] }[];
 }
 
 export function describeElement(ws: Workspace, id: string): ElementDescription | undefined {
@@ -41,7 +42,7 @@ export function describeElement(ws: Workspace, id: string): ElementDescription |
   }
   const views: ElementDescription["views"] = [];
   for (const cv of computeAllViews(ws)) {
-    if (cv.boundary?.id === id) views.push({ view: cv.view, as: cv.view.level === "state" ? "states" : "frame" });
+    if (cv.boundary?.id === id) views.push({ view: cv.view, as: cv.view.level === "state" ? "states" : cv.view.level === "wireframe" ? "screens" : "frame" });
     else if (cv.deployment) {
       const runsIn = cv.deployment.nodes.filter((n) => cv.deployment!.instances.some((i) => i.node === n.id && i.element.id === id));
       if (runsIn.length) views.push({ view: cv.view, as: "deployed", runsIn });

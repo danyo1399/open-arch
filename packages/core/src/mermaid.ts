@@ -3,8 +3,8 @@
  * markdown viewers show a diagram without open-arch.
  */
 import { inFrame, kindLabel } from "./model.js";
-import { CARD_KIND_LABELS, type ArchElement, type CardKind, type DeploymentNode, type ElementShape, type RelationshipKind, type Transition } from "./types.js";
-import { cardArrows, type ComputedView } from "./views.js";
+import { CARD_KIND_LABELS, SCREEN_DEVICE_LABELS, WIDGET_HOLDERS, WIDGET_KIND_LABELS, type ArchElement, type CardKind, type DeploymentNode, type ElementShape, type RelationshipKind, type Transition, type Widget } from "./types.js";
+import { allWidgets, cardArrows, screenArrows, type ComputedView } from "./views.js";
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
 
@@ -89,6 +89,7 @@ export function renderMermaid(cv: ComputedView): string {
   if (cv.view.level === "state") return renderStates(cv);
   if (cv.deployment) return renderDeployment(cv);
   if (cv.view.level === "event") return renderEvents(cv);
+  if (cv.view.level === "wireframe") return renderWireframe(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = cv.nodes.filter((n) => inFrame(boundary, n));
@@ -378,6 +379,119 @@ function renderEvents(cv: ComputedView): string {
     if (ids.length) lines.push(`  classDef ${CARD_DEFS[kind][0]} ${CARD_DEFS[kind][1]}`, `  class ${ids.join(",")} ${CARD_DEFS[kind][0]}`);
   }
   for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} fill:none,stroke:#8a94a6`);
+  return lines.join("\n");
+}
+
+/** How widgets look: words alone, a box to type in or pick from, and a button. A Mermaid class's name, and its style. */
+const WIDGET_DEFS = {
+  plain: ["widgetPlain", "fill:none,stroke:none,color:#000000"],
+  control: ["widgetControl", "fill:#ffffff,stroke:#8a94a6,color:#000000"],
+  button: ["widgetButton", "fill:#dde3ea,stroke:#5d6b7e,color:#000000"],
+} as const;
+
+/** A widget's text as lines, each escaped. */
+function widgetLines(w: Widget): string[] {
+  return (w.text ?? "").split(/\r?\n/).map((l) => escape(l.trim())).filter(Boolean);
+}
+
+/** A widget that isn't a row or a panel as a Mermaid node: its shape, its label, and how it looks. */
+function widgetNode(w: Widget): { line: string; look: keyof typeof WIDGET_DEFS } {
+  const id = mermaidId(w.id);
+  const lines = widgetLines(w);
+  const text = lines.join("<br/>") || WIDGET_KIND_LABELS[w.kind];
+  switch (w.kind) {
+    case "heading":
+      return { line: `${id}["<b>${text}</b>"]`, look: "plain" };
+    case "link":
+      return { line: `${id}["<u>${text}</u>"]`, look: "plain" };
+    case "button":
+      return { line: `${id}(["${text}"])`, look: "button" };
+    case "input":
+      return { line: `${id}["${lines.length ? `${text}: ` : ""}________"]`, look: "control" };
+    case "checkbox":
+      return { line: `${id}["☐ ${text}"]`, look: "plain" };
+    case "select":
+      return { line: `${id}["${text} ▾"]`, look: "control" };
+    case "image":
+      return { line: `${id}[["<i>Image</i>${lines.length ? `<br/>${text}` : ""}"]]`, look: "control" };
+    case "list":
+      return { line: `${id}["${lines.length ? lines.map((l) => `• ${l}`).join("<br/>") : text}"]`, look: "plain" };
+    case "table": {
+      // Cells are split before they're escaped, as escaping turns | into an entity.
+      const rows = (w.text ?? "").split(/\r?\n/).filter((l) => l.trim()).map((l) => l.split("|").map((c) => escape(c.trim())).join(" │ "));
+      return { line: `${id}["${rows.length ? rows.map((r, i) => (i === 0 ? `<b>${r}</b>` : r)).join("<br/>") : text}"]`, look: "control" };
+    }
+    case "tabs":
+      return { line: `${id}["${lines.length ? lines.map((l, i) => (i === 0 ? `<b><u>${l}</u></b>` : l)).join(" │ ") : text}"]`, look: "control" };
+    case "divider":
+      return { line: `${id}["${lines.length ? `──── ${lines.join(" ")} ────` : "────────────"}"]`, look: "plain" };
+    default:
+      return { line: `${id}["${text}"]`, look: "plain" };
+  }
+}
+
+/**
+ * A wireframe view as a Mermaid flowchart, left to right: each screen as a subgraph, with its
+ * widgets top to bottom inside it, each drawn as near as Mermaid can to how it looks. A panel is
+ * a subgraph of its widgets, top to bottom, and a row one of them side by side, without a frame.
+ * Links that aren't drawn keep the widgets in their order, and the screens in theirs, where no
+ * arrow decides otherwise. An arrow from a widget would make Mermaid lay out its screen from left
+ * to right, so the arrows go from screen to screen: one from a screen to each it leads to, with
+ * the text of the widgets that lead there.
+ */
+function renderWireframe(cv: ComputedView): string {
+  const v = cv.view;
+  const lines = ["flowchart LR"];
+  if (v.screens.length === 0) {
+    lines.push("  %% This view has no screens yet.");
+    return lines.join("\n");
+  }
+  // A widget's ID comes from kebab-case, so never has two underscores in a row, and a screen's can't be any widget's.
+  const screenId = (id: string) => `screen__${id.replace(/-/g, "_")}`;
+  const looks = new Map<keyof typeof WIDGET_DEFS, string[]>();
+  const holders: Widget[] = [];
+  /** Widgets, in a subgraph laid out `direction`, joined in order by links that aren't drawn. */
+  const write = (widgets: Widget[], direction: "TB" | "LR", indent: string) => {
+    // The direction is for the widgets: a subgraph without any has only its title.
+    if (widgets.length) lines.push(`${indent}direction ${direction}`);
+    for (const w of widgets) {
+      if (WIDGET_HOLDERS.includes(w.kind)) {
+        holders.push(w);
+        lines.push(`${indent}subgraph ${mermaidId(w.id)}["${widgetLines(w).join(" ") || " "}"]`);
+        write(w.widgets, w.kind === "row" ? "LR" : "TB", `${indent}  `);
+        lines.push(`${indent}end`);
+        continue;
+      }
+      const node = widgetNode(w);
+      lines.push(`${indent}${node.line}`);
+      looks.set(node.look, [...(looks.get(node.look) ?? []), mermaidId(w.id)]);
+    }
+    widgets.slice(1).forEach((w, i) => lines.push(`${indent}${mermaidId(widgets[i]!.id)} ~~~ ${mermaidId(w.id)}`));
+  };
+  for (const screen of v.screens) {
+    const device = screen.device === "desktop" ? "" : ` · ${SCREEN_DEVICE_LABELS[screen.device]}`;
+    lines.push(`  subgraph ${screenId(screen.id)}["${escape(screen.name)}${device}"]`);
+    write(screen.widgets, "TB", "    ");
+    lines.push("  end");
+  }
+  v.screens.slice(1).forEach((s, i) => lines.push(`  ${screenId(v.screens[i]!.id)} ~~~ ${screenId(s.id)}`));
+  // One arrow from a screen to another, with the text of each widget on the first that leads there, each once.
+  const widgets = new Map(allWidgets(v).map((w) => [w.id, w]));
+  const arrows = new Map<string, { from: string; to: string; labels: string[] }>();
+  for (const arrow of screenArrows(v)) {
+    const w = widgets.get(arrow.from)!;
+    const label = widgetLines(w).join(" ") || WIDGET_KIND_LABELS[w.kind];
+    const key = `${arrow.screen}\u0000${arrow.to}`;
+    const joined = arrows.get(key) ?? arrows.set(key, { from: arrow.screen, to: arrow.to, labels: [] }).get(key)!;
+    if (!joined.labels.includes(label)) joined.labels.push(label);
+  }
+  for (const a of arrows.values()) lines.push(`  ${screenId(a.from)} -->|"${a.labels.join("<br/>")}"| ${screenId(a.to)}`);
+  for (const look of Object.keys(WIDGET_DEFS) as (keyof typeof WIDGET_DEFS)[]) {
+    const ids = looks.get(look);
+    if (ids) lines.push(`  classDef ${WIDGET_DEFS[look][0]} ${WIDGET_DEFS[look][1]}`, `  class ${ids.join(",")} ${WIDGET_DEFS[look][0]}`);
+  }
+  for (const screen of v.screens) lines.push(`  style ${screenId(screen.id)} fill:#ffffff,stroke:#444444`);
+  for (const w of holders) lines.push(`  style ${mermaidId(w.id)} ${w.kind === "row" ? "fill:none,stroke:none" : "fill:none,stroke:#8a94a6"}`);
   return lines.join("\n");
 }
 

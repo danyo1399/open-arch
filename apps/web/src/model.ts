@@ -1,5 +1,6 @@
 /** Small questions about the model that the designer's UI asks. */
 import {
+  allWidgets,
   builtInto,
   computeAllViews,
   describeElement,
@@ -17,6 +18,7 @@ import {
   type ElementDescription,
   type Lane,
   type Operation,
+  type Screen,
   type Relationship,
   type RelationshipKind,
   type State,
@@ -26,6 +28,7 @@ import {
   type Transition,
   type ViewData,
   type ViewDef,
+  type Widget,
   type Workspace,
 } from "@open-arch/core";
 import type { Selection } from "./canvas/Canvas.js";
@@ -134,8 +137,8 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, and an event view its cards, so they have nothing to show or hide.
-  if (!view || !computed || !element || view.level === "sequence" || view.level === "state" || view.level === "deployment" || view.level === "event" || computed.boundary?.id === id) return null;
+  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, an event view its cards and a wireframe view its screens, so they have nothing to show or hide.
+  if (!view || !computed || !element || view.level === "sequence" || view.level === "state" || view.level === "deployment" || view.level === "event" || view.level === "wireframe" || computed.boundary?.id === id) return null;
   if (computed.nodes.some((n) => n.id === id)) return "hide";
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
@@ -313,6 +316,20 @@ export function eventSelectionGone(view: ViewDef | undefined, selection: Selecti
   return false;
 }
 
+/** The edit that deletes what's selected on a wireframe view: a screen, with what's on it, or a widget, with what's inside it. None for any other selection. */
+export function wireframeDeleteOps(view: ViewDef, selection: Selection): Operation[] {
+  if (selection?.kind === "screen") return [{ op: "remove-screen", view: view.id, id: selection.id }];
+  if (selection?.kind === "widget") return [{ op: "remove-widget", view: view.id, id: selection.id }];
+  return [];
+}
+
+/** Whether a selected screen or widget is no longer in the view, as after an Undo or a change to the file. */
+export function wireframeSelectionGone(view: ViewDef | undefined, selection: Selection): boolean {
+  if (selection?.kind === "screen") return !view?.screens.some((s) => s.id === selection.id);
+  if (selection?.kind === "widget") return !view || !allWidgets(view).some((w) => w.id === selection.id);
+  return false;
+}
+
 /** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
 export function newStickyId(view: ViewDef): string {
   const taken = new Set(view.stickies.map((s) => s.id));
@@ -402,6 +419,8 @@ export type Shown =
   | { kind: "lane"; view: ViewDef; lane: Lane }
   | { kind: "card"; view: ViewDef; card: Card }
   | { kind: "cardArrow"; view: ViewDef; from: Card; to: Card }
+  | { kind: "screen"; view: ViewDef; screen: Screen }
+  | { kind: "widget"; view: ViewDef; widget: Widget }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
@@ -440,6 +459,10 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
     const [from, to] = [view.cards.find((c) => c.id === selection.from), view.cards.find((c) => c.id === selection.to)];
     if (from && to?.from.includes(from.id)) return { kind: "cardArrow", view, from, to };
   }
+  const screen = selection?.kind === "screen" ? view?.screens.find((s) => s.id === selection.id) : undefined;
+  if (view && screen) return { kind: "screen", view, screen };
+  const widget = selection?.kind === "widget" && view ? allWidgets(view).find((w) => w.id === selection.id) : undefined;
+  if (view && widget) return { kind: "widget", view, widget };
   return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
 }
 
@@ -601,6 +624,13 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "add-card":
       case "update-card":
       case "remove-card":
+      // So are a wireframe view's screens and widgets.
+      case "add-screen":
+      case "update-screen":
+      case "remove-screen":
+      case "add-widget":
+      case "update-widget":
+      case "remove-widget":
         return { ...op, view: follow(op.view) };
       case "add-step":
         return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };

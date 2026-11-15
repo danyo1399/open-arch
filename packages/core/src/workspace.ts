@@ -1,6 +1,6 @@
 /** The model, indexed for queries, built from a parsed document. */
 import { nodeOrder, parseDocument } from "./document.js";
-import type { ArchElement, Diagnostic, OpenArchDocument, State, StateData, Sticky, StickyTarget, StickyTargetData, TransitionData, ViewDef } from "./types.js";
+import type { ArchElement, Diagnostic, OpenArchDocument, Screen, ScreenData, State, StateData, Sticky, StickyTarget, StickyTargetData, TransitionData, ViewDef, Widget, WidgetData } from "./types.js";
 
 export interface Workspace {
   doc: OpenArchDocument;
@@ -120,6 +120,7 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         lane: c.lane || undefined,
         from: [...new Set(c.from ?? [])],
       })),
+      screens: (v.screens ?? []).map((s, i) => screen(s, `views.${id}.screens[${i}]`, i + 1)),
     });
   }
   for (const element of ws.elements.values()) {
@@ -127,6 +128,29 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
     ws.children.set(element.parent, [...(ws.children.get(element.parent) ?? []), element.id]);
   }
   return ws;
+}
+
+function screen(s: ScreenData, path: string, number: number): Screen {
+  return { id: s.id, path, number, name: s.name, description: s.description || undefined, device: s.device ?? "desktop", widgets: widgets(s.widgets, path, s.id, undefined) };
+}
+
+/** A list of widgets, at `path` and its `widgets`, on a screen, and in a row or a panel, `parent`, or none. */
+function widgets(list: WidgetData[] | undefined, path: string, screen: string, parent: string | undefined): Widget[] {
+  return (list ?? []).map((w, i) => {
+    const at = `${path}.widgets[${i}]`;
+    return {
+      id: w.id,
+      path: at,
+      number: i + 1,
+      kind: w.kind,
+      text: w.text || undefined,
+      description: w.description || undefined,
+      to: w.to || undefined,
+      screen,
+      parent,
+      widgets: widgets(w.widgets, at, screen, w.id),
+    };
+  });
 }
 
 /**

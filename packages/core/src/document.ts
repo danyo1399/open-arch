@@ -11,8 +11,11 @@ import {
   FORMAT_VERSION,
   ID_PATTERN,
   RELATIONSHIP_KINDS,
+  SCREEN_DEVICES,
   STICKY_COLORS,
   VIEW_LEVELS,
+  WIDGET_HOLDERS,
+  WIDGET_KINDS,
   type CardData,
   type CardKind,
   type ConnectionData,
@@ -25,6 +28,8 @@ import {
   type Position,
   type RelationshipData,
   type RelationshipKind,
+  type ScreenData,
+  type ScreenDevice,
   type StateData,
   type StepData,
   type StickyData,
@@ -32,6 +37,8 @@ import {
   type TransitionData,
   type Tags,
   type ViewData,
+  type WidgetData,
+  type WidgetKind,
 } from "./types.js";
 
 export interface ParseResult {
@@ -74,10 +81,10 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "libraries", "tags", "notes", "members", "uses"];
 const RELATIONSHIP_KEYS = ["to", "kind", "bidirectional", "description", "technology", "tags", "notes"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "nodes", "connections", "lanes", "cards", "stickies", "layout"];
+const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "nodes", "connections", "lanes", "cards", "screens", "stickies", "layout"];
 /** Views that draw something other than boxes picked from the model. */
-type OwnLevel = "sequence" | "state" | "deployment" | "event";
-/** Fields only sequence, state, deployment and event views take, and those they don't, with why. */
+type OwnLevel = "sequence" | "state" | "deployment" | "event" | "wireframe";
+/** Fields only sequence, state, deployment, event and wireframe views take, and those they don't, with why. */
 const ONLY_ON: Record<string, OwnLevel> = {
   steps: "sequence",
   initial: "state",
@@ -87,20 +94,24 @@ const ONLY_ON: Record<string, OwnLevel> = {
   connections: "deployment",
   lanes: "event",
   cards: "event",
+  screens: "wireframe",
 };
 const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   sequence: { fields: ["include", "exclude", "layout"], why: "they show the elements in their steps, in the order they first appear" },
   state: { fields: ["include", "exclude", "layout"], why: "they show their states, each placed by its own `at`" },
   deployment: { fields: ["scope", "include", "exclude", "layout"], why: "they show their nodes and what runs in them, laid out automatically" },
   event: { fields: ["scope", "include", "exclude", "layout"], why: "they show their cards in order, each in its lane" },
+  wireframe: { fields: ["include", "exclude", "layout"], why: "they show their screens in order, each drawn from its widgets" },
 };
-const LEVEL_NAME: Record<OwnLevel, string> = { sequence: "Sequence", state: "State", deployment: "Deployment", event: "Event" };
+const LEVEL_NAME: Record<OwnLevel, string> = { sequence: "Sequence", state: "State", deployment: "Deployment", event: "Event", wireframe: "Wireframe" };
 const STATE_KEYS = ["name", "description", "final", "at"];
 const TRANSITION_KEYS = ["from", "to", "event", "guard", "action"];
 const NODE_KEYS = ["name", "parent", "description", "technology", "infrastructure", "instances", "shape", "runs"];
 const CONNECTION_KEYS = ["from", "to", "description", "technology"];
 const LANE_KEYS = ["id", "name", "description"];
 const CARD_KEYS = ["id", "kind", "name", "description", "lane", "from"];
+const SCREEN_KEYS = ["id", "name", "description", "device", "widgets"];
+const WIDGET_KEYS = ["id", "kind", "text", "description", "to", "widgets"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "on", "color", "at"];
 const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
@@ -212,6 +223,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 10) out = { ...out, openarch: 11 };
   // Version 12 let a sticky note be on an element or relationship, so a version 11 file means the same in it.
   if (out.openarch === 11) out = { ...out, openarch: 12 };
+  // Version 13 added wireframe views, so a version 12 file means the same in it.
+  if (out.openarch === 12) out = { ...out, openarch: 13 };
   return out;
 }
 
@@ -361,8 +374,9 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   const statesView = view.level === "state";
   const deployment = view.level === "deployment";
   const events = view.level === "event";
+  const wireframe = view.level === "wireframe";
   // Boxes come from include and exclude, and are placed by layout, only on the other views.
-  const boxes = !sequence && !statesView && !deployment && !events;
+  const boxes = !sequence && !statesView && !deployment && !events && !wireframe;
   const own = boxes ? undefined : (view.level as OwnLevel);
   for (const key of Object.keys(value)) {
     const only = ONLY_ON[key];
@@ -463,6 +477,20 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
           else view.cards!.push(card);
         });
       }
+    }
+  }
+  if (wireframe && value.screens !== undefined) {
+    if (!Array.isArray(value.screens)) report(`${path}.screens`, "field-type", "Must be a list of screens.");
+    else {
+      view.screens = [];
+      // Widget IDs are unique across the view's screens, so a widget can move to another screen and keep its ID.
+      const widgetIds = new Set<string>();
+      value.screens.forEach((item, i) => {
+        const screen = readScreen(item, `${path}.screens[${i}]`, report, widgetIds);
+        if (!screen) return;
+        if (view.screens!.some((s) => s.id === screen.id)) report(`${path}.screens[${i}].id`, "id-duplicate", `"${screen.id}" is the ID of two screens of this view.`, "Give one of them another ID.");
+        else view.screens!.push(screen);
+      });
     }
   }
   if (value.stickies !== undefined) {
@@ -656,6 +684,84 @@ function readCard(value: unknown, path: string, report: Report): CardData | unde
   return card;
 }
 
+function readScreen(value: unknown, path: string, report: Report, widgetIds: Set<string>): ScreenData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A screen must be an object like { "id": "cart", "name": "Cart" }.');
+    return undefined;
+  }
+  unknownKeys(value, SCREEN_KEYS, path, report);
+  const id = str(value.id, `${path}.id`, report);
+  if (!id) {
+    report(`${path}.id`, "field-required", "`id` is required: an ID unique among the view's screens.");
+    return undefined;
+  }
+  if (!readId(id, `${path}.id`, report)) return undefined;
+  const name = str(value.name, `${path}.name`, report);
+  if (!name?.trim()) report(`${path}.name`, "field-required", "`name` is required.");
+  const screen: ScreenData = { id, name: name?.trim() ? name : id };
+  const description = str(value.description, `${path}.description`, report);
+  if (description !== undefined) screen.description = description;
+  if (value.device !== undefined) {
+    if ((SCREEN_DEVICES as readonly unknown[]).includes(value.device)) {
+      if (value.device !== "desktop") screen.device = value.device as ScreenDevice;
+    } else report(`${path}.device`, "device-invalid", `\`device\` must be one of: ${SCREEN_DEVICES.join(", ")}.`);
+  }
+  const widgets = readWidgets(value.widgets, `${path}.widgets`, report, widgetIds);
+  if (widgets) screen.widgets = widgets;
+  return screen;
+}
+
+/** A list of widgets, each with an ID none of the view's widgets before it has. One with a taken ID is left out, with what's inside it. */
+function readWidgets(value: unknown, path: string, report: Report, widgetIds: Set<string>): WidgetData[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    report(path, "field-type", "Must be a list of widgets.");
+    return undefined;
+  }
+  const widgets: WidgetData[] = [];
+  value.forEach((item, i) => {
+    const widget = readWidget(item, `${path}[${i}]`, report, widgetIds);
+    if (widget) widgets.push(widget);
+  });
+  return widgets;
+}
+
+function readWidget(value: unknown, path: string, report: Report, widgetIds: Set<string>): WidgetData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A widget must be an object like { "id": "check-out", "kind": "button", "text": "Check out" }.');
+    return undefined;
+  }
+  unknownKeys(value, WIDGET_KEYS, path, report);
+  const id = str(value.id, `${path}.id`, report);
+  if (!id) {
+    report(`${path}.id`, "field-required", "`id` is required: an ID unique among the view's widgets.");
+    return undefined;
+  }
+  if (!readId(id, `${path}.id`, report)) return undefined;
+  if (widgetIds.has(id)) {
+    report(`${path}.id`, "id-duplicate", `"${id}" is the ID of two widgets of this view.`, "Give one of them another ID.");
+    return undefined;
+  }
+  if (!(WIDGET_KINDS as readonly unknown[]).includes(value.kind)) {
+    report(`${path}.kind`, value.kind === undefined ? "field-required" : "widget-kind-invalid", `\`kind\` must be one of: ${WIDGET_KINDS.join(", ")}.`);
+    return undefined;
+  }
+  widgetIds.add(id);
+  const kind = value.kind as WidgetKind;
+  const widget: WidgetData = { id, kind };
+  for (const key of ["text", "description", "to"] as const) {
+    const v = str(value[key], `${path}.${key}`, report);
+    if (v !== undefined) widget[key] = v;
+  }
+  if (value.widgets !== undefined && !WIDGET_HOLDERS.includes(kind)) {
+    report(`${path}.widgets`, "field-not-allowed", `Only rows and panels hold widgets, and this is a ${kind}.`, "Make it a row or a panel, or move its widgets out.");
+  } else {
+    const widgets = readWidgets(value.widgets, `${path}.widgets`, report, widgetIds);
+    if (widgets) widget.widgets = widgets;
+  }
+  return widget;
+}
+
 /** `own`: the view's level, when it draws something other than boxes picked from the model, whose notes can't be on anything. */
 function readSticky(id: string, value: unknown, path: string, report: Report, own: OwnLevel | undefined): StickyData | undefined {
   if (!readId(id, path, report)) return undefined;
@@ -825,6 +931,32 @@ function elementText(e: ElementData, indent: string): string {
   return block(entries, indent);
 }
 
+/** A list that's the value of an entry of a block at `indent`, with an item to a line: `[]` when it's empty. */
+function listText(items: string[], indent: string): string {
+  return items.length ? `[\n${items.map((item) => `${indent}    ${item}`).join(",\n")}\n${indent}  ]` : "[]";
+}
+
+/** A screen as a block, its widgets a list in it. */
+function screenText(s: ScreenData, indent: string): string {
+  const entries: [string, string][] = [
+    ["id", JSON.stringify(s.id)],
+    ["name", JSON.stringify(s.name)],
+  ];
+  if (present(s.description, (d) => d !== "")) entries.push(["description", JSON.stringify(s.description)]);
+  if (present(s.device, (d) => d !== "desktop")) entries.push(["device", JSON.stringify(s.device)]);
+  entries.push(["widgets", listText((s.widgets ?? []).map((w) => widgetText(w, `${indent}    `)), indent)]);
+  return block(entries, indent);
+}
+
+/** A widget on one line, or, for a row or panel with widgets in it, as a block with them a list in it. */
+function widgetText(w: WidgetData, indent: string): string {
+  const fields = { id: w.id, kind: w.kind, text: w.text || undefined, description: w.description || undefined, to: w.to || undefined };
+  if (!w.widgets?.length) return inline(fields);
+  const entries = Object.entries(fields).flatMap(([k, value]): [string, string][] => (value === undefined ? [] : [[k, JSON.stringify(value)]]));
+  entries.push(["widgets", listText(w.widgets.map((c) => widgetText(c, `${indent}    `)), indent)]);
+  return block(entries, indent);
+}
+
 function viewText(v: ViewData, indent: string): string {
   const entries: [string, string][] = [["title", JSON.stringify(v.title)]];
   if (present(v.description, (d) => d !== "")) entries.push(["description", JSON.stringify(v.description)]);
@@ -833,7 +965,8 @@ function viewText(v: ViewData, indent: string): string {
   const statesView = v.level === "state";
   const deployment = v.level === "deployment";
   const events = v.level === "event";
-  const boxes = !sequence && !statesView && !deployment && !events;
+  const wireframe = v.level === "wireframe";
+  const boxes = !sequence && !statesView && !deployment && !events && !wireframe;
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
   if (boxes) entries.push(["include", inline(v.include ?? ["*"])]);
   if (boxes && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
@@ -877,6 +1010,7 @@ function viewText(v: ViewData, indent: string): string {
     const card = (c: CardData) => inline({ id: c.id, kind: c.kind, name: c.name, description: c.description || undefined, lane: c.lane || undefined, from: c.from?.length ? [...new Set(c.from)] : undefined });
     entries.push(["cards", list((v.cards ?? []).map(card))]);
   }
+  if (wireframe) entries.push(["screens", listText((v.screens ?? []).map((s) => screenText(s, `${indent}    `)), indent)]);
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();
     const on = (t: StickyTargetData) => ("element" in t ? { element: t.element } : { from: t.from, to: t.to, kind: t.kind && t.kind !== "association" ? t.kind : undefined });

@@ -5,6 +5,8 @@
  * A deployment view shows its nodes, the containers and systems running in them, and the
  * arrows between those copies.
  * An event view shows its cards in order, each in its lane, and the arrows between them.
+ * A wireframe view shows its screens in order, each with its widgets, and arrows from the
+ * widgets that lead to other screens.
  */
 import type { Workspace } from "./workspace.js";
 import { builtInto, childrenOf, compareElements, containerOf, inFrame, kindList, libraryOf, lineage, topLevel } from "./model.js";
@@ -23,6 +25,7 @@ import {
   type StickyTargetData,
   type ViewDef,
   type ViewLevel,
+  type Widget,
 } from "./types.js";
 
 export interface ViewEdge {
@@ -132,6 +135,8 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   state: ELEMENT_KINDS,
   deployment: [],
   event: [],
+  // Optional: the app whose screens the view shows.
+  wireframe: ["system", "container"],
 };
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
@@ -151,7 +156,7 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
   }
   if (view.scope === undefined) {
-    if (view.level === "state") return [];
+    if (view.level === "state" || view.level === "wireframe") return [];
     return [{ ...at, severity: "error", rule: "view-scope-required", message: `A ${view.level} view needs \`scope\`: the ID of the ${wanted} it shows.` }];
   }
   const scope = ws.elements.get(view.scope);
@@ -249,6 +254,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
       case "state":
       case "deployment":
       case "event":
+      case "wireframe":
         return id;
     }
   };
@@ -260,6 +266,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   if (view.level === "state") return computeStates(ws, view);
   if (view.level === "deployment") return computeDeployment(ws, view);
   if (view.level === "event") return computeEvents(ws, view);
+  if (view.level === "wireframe") return computeWireframe(ws, view);
   const diagnostics: Diagnostic[] = [];
   const rep = representative(ws, view);
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
@@ -810,6 +817,72 @@ export function stickyAnchor(ws: Workspace, cv: ComputedView, on: StickyTarget):
 export function stickyTargetText(on: StickyTargetData): string {
   if ("element" in on) return on.element;
   return `${on.from} -> ${on.to}${on.kind && on.kind !== "association" ? ` (${on.kind})` : ""}`;
+}
+
+/** Every widget on a screen, or on all of a view's screens, in reading order: each widget, then what's inside it. */
+export function allWidgets(of: { widgets: Widget[] } | ViewDef): Widget[] {
+  const out: Widget[] = [];
+  const walk = (list: Widget[]) => {
+    for (const w of list) {
+      out.push(w);
+      walk(w.widgets);
+    }
+  };
+  if ("screens" in of) for (const s of of.screens) walk(s.widgets);
+  else walk(of.widgets);
+  return out;
+}
+
+/** An arrow on a wireframe view, from a widget to the screen it leads to. */
+export interface ScreenArrow {
+  /** The widget's ID. */
+  from: string;
+  /** The ID of the screen the widget is on. */
+  screen: string;
+  /** The ID of the screen it leads to. */
+  to: string;
+}
+
+/**
+ * The arrows a wireframe view draws: one from each widget whose `to` is another of its screens,
+ * in reading order. One to a screen the view doesn't have, or to the widget's own, draws nothing.
+ */
+export function screenArrows(view: ViewDef): ScreenArrow[] {
+  const ids = new Set(view.screens.map((s) => s.id));
+  return allWidgets(view).flatMap((w) => (w.to !== undefined && w.to !== w.screen && ids.has(w.to) ? [{ from: w.id, screen: w.screen, to: w.to }] : []));
+}
+
+/**
+ * A wireframe view: it draws its screens, not boxes, so it has none. Its scope, if it has one, is
+ * the app whose screens they are. Its problems are widgets that lead to a screen it doesn't have,
+ * or to their own.
+ */
+function computeWireframe(ws: Workspace, view: ViewDef): ComputedView {
+  const diagnostics: Diagnostic[] = [];
+  const screens = view.screens.map((s) => s.id);
+  for (const w of allWidgets(view)) {
+    if (w.to === undefined) continue;
+    if (!screens.includes(w.to)) {
+      const match = suggest(w.to, screens);
+      diagnostics.push({
+        severity: "error",
+        rule: "widget-to-unknown",
+        message: `Widget "${w.id}" leads to "${w.to}", which isn't a screen of this view.`,
+        path: `${w.path}.to`,
+        fix: match ? `Did you mean "${match}"?` : undefined,
+      });
+    } else if (w.to === w.screen) {
+      diagnostics.push({
+        severity: "warning",
+        rule: "widget-to-own-screen",
+        message: `Widget "${w.id}" leads to the screen it's on, so no arrow is drawn.`,
+        path: `${w.path}.to`,
+        fix: "Point `to` at another screen, or remove it.",
+      });
+    }
+  }
+  const boundary = view.scope ? ws.elements.get(view.scope) : undefined;
+  return { view, boundary, nodes: [], edges: [], steps: [], diagnostics };
 }
 
 function joinLabels(values: (string | undefined)[], separator: string): string | undefined {

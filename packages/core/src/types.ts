@@ -11,9 +11,11 @@ export type ElementKind = (typeof ELEMENT_KINDS)[number];
  * a state view: it draws the states something can be in, and the transitions between them. A
  * deployment view draws where containers run: the servers, clusters and cloud services, nested.
  * An event view draws what happens in a business process, as event storming does: commands,
- * events and the other notes, in order along a timeline, in swimlanes.
+ * events and the other notes, in order along a timeline, in swimlanes. A wireframe view draws an
+ * app's screens, as rough sketches of what's on each, and how a button or link on one leads to
+ * another.
  */
-export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event"] as const;
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event", "wireframe"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -101,13 +103,60 @@ export const CARD_KIND_LABELS: Record<CardKind, string> = {
   hotspot: "Hotspot",
 };
 
+/**
+ * What a widget on a wireframe's screen is. Each is drawn with its text:
+ * - heading: a title, in large type
+ * - text: a paragraph; without text, grey lines stand in for it
+ * - button and link: what they say
+ * - input: a box to type in, with its text as its label, like "Email"
+ * - checkbox: a box to tick, with its text beside it
+ * - select: a drop-down list, with its text as its label
+ * - image: where a picture goes, with its text saying what it shows
+ * - list: one item for each line of its text
+ * - table: one row for each line of its text, with the cells split by "|"; the first row is its headings
+ * - tabs: one tab for each line of its text; the first is the one that's open
+ * - divider: a line across, with its text in the middle, if it has any
+ * - panel: a box that holds other widgets, top to bottom, with its text as its title
+ * - row: holds other widgets side by side, with its text above them, if it has any
+ */
+export const WIDGET_KINDS = ["heading", "text", "button", "link", "input", "checkbox", "select", "image", "list", "table", "tabs", "divider", "panel", "row"] as const;
+export type WidgetKind = (typeof WIDGET_KINDS)[number];
+
+/** Each kind of widget, as the designer and the docs name it. */
+export const WIDGET_KIND_LABELS: Record<WidgetKind, string> = {
+  heading: "Heading",
+  text: "Text",
+  button: "Button",
+  link: "Link",
+  input: "Text field",
+  checkbox: "Checkbox",
+  select: "Drop-down",
+  image: "Image",
+  list: "List",
+  table: "Table",
+  tabs: "Tabs",
+  divider: "Divider",
+  panel: "Panel",
+  row: "Row",
+};
+
+/** The kinds of widget that hold other widgets: a panel, top to bottom, and a row, side by side. */
+export const WIDGET_HOLDERS: readonly WidgetKind[] = ["panel", "row"];
+
+/** What a wireframe's screen is drawn for: its width. Desktop is the default. */
+export const SCREEN_DEVICES = ["desktop", "tablet", "phone"] as const;
+export type ScreenDevice = (typeof SCREEN_DEVICES)[number];
+
+/** Each device, as the designer and the docs name it. */
+export const SCREEN_DEVICE_LABELS: Record<ScreenDevice, string> = { desktop: "Desktop", tablet: "Tablet", phone: "Phone" };
+
 /** Name/value pairs. A tag can have an empty value, which makes it a plain label. */
 export type Tags = Record<string, string>;
 
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 12;
+export const FORMAT_VERSION = 13;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -195,6 +244,35 @@ export interface ViewData {
   lanes?: LaneData[];
   /** Event views only: the cards, in order along the timeline. */
   cards?: CardData[];
+  /** Wireframe views only: the screens, in order, left to right. */
+  screens?: ScreenData[];
+}
+
+/** One screen of a wireframe view, like "Cart": a page of a website, or of an app. */
+export interface ScreenData {
+  /** Unique among the view's screens. */
+  id: string;
+  name: string;
+  description?: string;
+  /** Default: desktop. */
+  device?: ScreenDevice;
+  /** What's on it, top to bottom. */
+  widgets?: WidgetData[];
+}
+
+/** One widget on a wireframe's screen: a heading, a button, a box to type in, and so on. */
+export interface WidgetData {
+  /** Unique among all the widgets of the view, on every screen. */
+  id: string;
+  kind: WidgetKind;
+  /** What it says. A list's items, a table's rows and tabs go one to a line. */
+  text?: string;
+  /** What it does or why it's there, e.g. "Greyed out until the form is filled in". */
+  description?: string;
+  /** The ID of the screen it leads to, like the one a button opens. Drawn as an arrow to that screen. */
+  to?: string;
+  /** Rows and panels only: what's inside it, side by side in a row, and top to bottom in a panel. */
+  widgets?: WidgetData[];
 }
 
 /** One swimlane of an event view: a row for the cards of one actor, team or system, like "Customer". */
@@ -378,6 +456,39 @@ export interface ViewDef {
   lanes: Lane[];
   /** Event views only, in order along the timeline; empty on other views. */
   cards: Card[];
+  /** Wireframe views only, in order, left to right; empty on other views. */
+  screens: Screen[];
+}
+
+export interface Screen {
+  id: string;
+  /** Where it lives in the document, e.g. `views.checkout.screens[0]`. */
+  path: string;
+  /** Its place, left to right: 1 is the first. */
+  number: number;
+  name: string;
+  description?: string;
+  device: ScreenDevice;
+  /** Top to bottom. */
+  widgets: Widget[];
+}
+
+export interface Widget {
+  id: string;
+  /** Where it lives in the document, e.g. `views.checkout.screens[0].widgets[2]`. */
+  path: string;
+  /** Its place among the widgets beside it, in its screen or in its row or panel: 1 is the first. */
+  number: number;
+  kind: WidgetKind;
+  text?: string;
+  description?: string;
+  to?: string;
+  /** The ID of the screen it's on. */
+  screen: string;
+  /** The ID of the row or panel it's in, if it's in one. */
+  parent?: string;
+  /** What's inside it, for a row or a panel; empty on other widgets. */
+  widgets: Widget[];
 }
 
 export interface Lane {

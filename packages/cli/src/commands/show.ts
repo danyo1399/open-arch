@@ -11,6 +11,7 @@ import {
   tagEntries,
   tagText,
   transitionLabel,
+  WIDGET_KIND_LABELS,
   type ArchElement,
   type ComputedView,
   type NewElements,
@@ -19,6 +20,7 @@ import {
   type Tags,
   type TreeNode,
   type ViewDef,
+  type Widget,
   type Workspace,
 } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
@@ -87,7 +89,7 @@ export function show(io: Io, opts: ShowOptions): number {
       lines.push("", "Its contents are used by:", ...relTable(d.contentsUsedBy.map(({ from, rel }) => [rel, `  ${arrow(from.id, rel)}`, relLabel(rel)])));
     }
     const how = (v: (typeof d.views)[number]) =>
-      v.as === "frame" ? " (as the frame)" : v.as === "states" ? " (its states)" : v.as === "deployed" ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})` : "";
+      v.as === "frame" ? " (as the frame)" : v.as === "states" ? " (its states)" : v.as === "screens" ? " (its screens)" : v.as === "deployed" ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})` : "";
     lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => `${v.view.id}${how(v)}`).join(", ")}` : "  (none)");
     print(json, lines.join("\n") + "\n");
     return 0;
@@ -112,6 +114,10 @@ export function show(io: Io, opts: ShowOptions): number {
     }
     if (view.level === "event") {
       print(eventsJson(cv), eventsText(cv));
+      return 0;
+    }
+    if (view.level === "wireframe") {
+      print(wireframeJson(cv), wireframeText(ws, cv));
       return 0;
     }
     const json = {
@@ -382,6 +388,63 @@ function eventsText(cv: ComputedView): string {
             [c.lane ? `in ${c.lane}` : "(no lane)", c.from.length ? `<- ${c.from.join(", ")}` : "", c.description ?? ""].filter(Boolean).join("  "),
           ]),
         )
+      : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function wireframeJson(cv: ComputedView) {
+  const view = cv.view;
+  const widget = (w: Widget): unknown => ({
+    id: w.id,
+    position: w.number,
+    kind: w.kind,
+    text: w.text,
+    description: w.description,
+    to: w.to,
+    widgets: w.widgets.length ? w.widgets.map(widget) : undefined,
+  });
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    notes: view.notes,
+    screens: view.screens.map((s) => ({ id: s.id, position: s.number, name: s.name, description: s.description, device: s.device, widgets: s.widgets.map(widget) })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function wireframeText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  /** A screen's widgets, each with its place, kind and text, and what's inside it indented under it. */
+  const rows = (widgets: Widget[], indent: string): string[][] =>
+    widgets.flatMap((w) => [
+      [
+        `${indent}${w.number}.`,
+        w.id,
+        WIDGET_KIND_LABELS[w.kind].toLowerCase(),
+        [w.text ? JSON.stringify(w.text.split(/\r?\n/).join(" / ")) : "", w.to ? `-> ${w.to}` : "", w.description ?? ""].filter(Boolean).join("  "),
+      ],
+      ...rows(w.widgets, `${indent}   `),
+    ]);
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        wireframe view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Screens:",
+    ...(view.screens.length
+      ? view.screens.flatMap((s) => [
+          ...table([[`  ${s.number}.`, s.id, s.name, [s.device === "desktop" ? "" : `(${s.device})`, s.description ?? ""].filter(Boolean).join("  ")]]),
+          ...(s.widgets.length ? table(rows(s.widgets, "       ")) : ["       (nothing on it yet)"]),
+        ])
       : ["  (none)"]),
     ...(view.stickies.length
       ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]

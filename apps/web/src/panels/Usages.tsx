@@ -66,7 +66,7 @@ export function Usages({ ws, id, viewId, onGo, onClose }: UsagesProps) {
                   <span className="dot dot-view" />
                   <span className="grow">{view.title}</span>
                   <span className="muted small">
-                    {as === "frame" ? `${view.level} · frame` : as === "states" ? `${view.level} · its states` : as === "deployed" ? `${view.level} · runs in ${runsIn!.map((n) => n.name).join(", ")}` : view.level}
+                    {as === "frame" ? `${view.level} · frame` : as === "states" ? `${view.level} · its states` : as === "screens" ? `${view.level} · its screens` : as === "deployed" ? `${view.level} · runs in ${runsIn!.map((n) => n.name).join(", ")}` : view.level}
                   </span>
                 </button>
               </li>
