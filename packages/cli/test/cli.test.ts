@@ -369,7 +369,11 @@ Cards:
     expect(notes()).toEqual({ db: { text: "Backed up nightly.", on: { element: "orders-db" } }, orders: { text: "Retried twice.", on: { from: "web-app", to: "checkout-controller" } } });
     const shown = cli(dir, "show", "shop-containers").out;
     expect(shown).toContain("Sticky notes:\n  db (yellow), on orders-db:\n    Backed up nightly.\n  orders (yellow), on web-app -> checkout-controller:\n    Retried twice.\n");
-    expect(JSON.parse(cli(dir, "show", "shop-containers", "--json").out).stickies[0]).toEqual({ id: "db", text: "Backed up nightly.", on: { element: "orders-db" }, drawn: true, color: "yellow" });
+    expect(JSON.parse(cli(dir, "show", "shop-containers", "--json").out).stickies).toEqual([
+      { id: "db", text: "Backed up nightly.", on: { element: "orders-db" }, drawn: true, color: "yellow" },
+      // As the file writes it, with an association's kind left out.
+      { id: "orders", text: "Retried twice.", on: { from: "web-app", to: "checkout-controller" }, drawn: true, color: "yellow" },
+    ]);
     expect(read(dir, "docs/views/shop-containers.md")).toContain("> On [Orders DB](../elements/orders-db.md): Backed up nightly.\n");
 
     // Hidden, the box has no line to its note, and show and check say so.

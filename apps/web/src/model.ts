@@ -322,8 +322,9 @@ export function newStickyId(view: ViewDef): string {
 
 /**
  * What a sticky note can be on, from what's selected: the element of a box, or of the frame round
- * the view, or the first relationship an arrow stands for. None on other views than those of
- * boxes, or for an element or arrow the view doesn't draw as itself.
+ * the view, or the first relationship an arrow stands for whose note would have its line to that
+ * arrow. None on other views than those of boxes, for an element or arrow the view doesn't draw as
+ * itself, or for an arrow whose every relationship is drawn first by another, as a library's can be.
  */
 export function stickyTargetFor(ws: Workspace, computed: ComputedView | null, selection: Selection): StickyTargetData | undefined {
   if (!computed || !STICKY_TARGET_LEVELS.includes(computed.view.level)) return undefined;
@@ -333,9 +334,17 @@ export function stickyTargetFor(ws: Workspace, computed: ComputedView | null, se
     return anchor?.kind === "frame" || (anchor?.kind === "box" && anchor.id === selection.id) ? { element: selection.id } : undefined;
   }
   if (selection?.kind !== "arrow") return undefined;
-  const source = findArrow(computed, selection.from, selection.to, selection.relation)?.sources[0];
-  const rel = source && ws.elements.get(source.element)?.uses[source.index];
-  return source && rel ? { from: source.element, to: rel.to, ...(rel.kind !== "association" && { kind: rel.kind }) } : undefined;
+  const edge = findArrow(computed, selection.from, selection.to, selection.relation);
+  // A library's relationship is drawn once for each container built with it, and a note on it
+  // has its line to the first of those arrows: so the first relationship this one draws first.
+  for (const source of edge?.sources ?? []) {
+    const rel = ws.elements.get(source.element)?.uses[source.index];
+    if (!rel) continue;
+    const on: StickyTargetData = { from: source.element, to: rel.to, ...(rel.kind !== "association" && { kind: rel.kind }) };
+    const anchor = stickyAnchor(ws, computed, { from: source.element, to: rel.to, kind: rel.kind });
+    if (anchor?.kind === "arrow" && anchor.edge === edge) return on;
+  }
+  return undefined;
 }
 
 /** One thing a note can be put on, as the details panel lists it: `key` tells them apart. What it's on, when the view doesn't draw it, is in no group. */

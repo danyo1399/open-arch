@@ -125,7 +125,15 @@ export function show(io: Io, opts: ShowOptions): number {
       frame: cv.boundary?.id,
       boxes: cv.nodes.map(summary),
       arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, kind: kindOf(e), bidirectional: e.bidirectional || undefined, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
-      stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, on: s.on, drawn: s.on && !!stickyAnchor(ws, cv, s.on), color: s.color, at: s.at })),
+      // What a note is on as the file and the operations write it, with an association's kind left out.
+      stickies: view.stickies.map((s) => ({
+        id: s.id,
+        text: s.text,
+        on: s.on && ("element" in s.on ? s.on : { from: s.on.from, to: s.on.to, kind: s.on.kind === "association" ? undefined : s.on.kind }),
+        drawn: s.on && !!stickyAnchor(ws, cv, s.on),
+        color: s.color,
+        at: s.at,
+      })),
     };
     const scope = cv.boundary ?? (view.scope ? ws.elements.get(view.scope) : undefined);
     const on = (s: ViewDef["stickies"][number]) => (s.on ? `, on ${stickyTargetText(s.on)}${stickyAnchor(ws, cv, s.on) ? "" : ", which this view doesn't draw"}` : "");

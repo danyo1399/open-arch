@@ -44,6 +44,34 @@ describe("stickyTargetFor", () => {
     expect(stickyTargetFor(classes.ws, classes.cv, { kind: "arrow", from: "order", to: "entity", relation: "inheritance" })).toEqual({ from: "order", to: "entity", kind: "inheritance" });
   });
 
+  it("offers no note on an arrow whose relationships another arrow draws first, as a library's", () => {
+    // Logging's writer is drawn in each container built with it, so its relationship to the log
+    // service is an arrow from each. A note on that relationship has its line to the first.
+    const model: OpenArchDocument = {
+      openarch: 12,
+      name: "Logs",
+      elements: {
+        shop: { kind: "system", name: "Shop" },
+        api: { kind: "container", name: "API", parent: "shop", libraries: ["logging"] },
+        web: { kind: "container", name: "Web", parent: "shop", libraries: ["logging"], uses: [{ to: "logs", description: "Pings" }] },
+        logging: { kind: "library", name: "Logging" },
+        writer: { kind: "component", name: "Writer", parent: "logging", uses: [{ to: "logs", description: "Sends logs" }] },
+        logs: { kind: "system", name: "Logs" },
+      },
+      views: { containers: { title: "Containers", level: "container", scope: "shop", stickies: { n: { text: "N" } } } },
+    };
+    const { ws, cv } = computed(model, "containers");
+    expect(cv.edges.map((e) => `${e.from}->${e.to}`)).toEqual(["api->logs", "web->logs"]);
+    expect(stickyTargetFor(ws, cv, { kind: "arrow", from: "api", to: "logs" })).toEqual({ from: "writer", to: "logs" });
+    // Web's arrow draws the writer's relationship second, so a note goes on Web's own one.
+    expect(stickyTargetFor(ws, cv, { kind: "arrow", from: "web", to: "logs" })).toEqual({ from: "web", to: "logs" });
+    delete model.elements.web!.uses;
+    const without = computed(model, "containers");
+    expect(stickyTargetFor(without.ws, without.cv, { kind: "arrow", from: "web", to: "logs" })).toBeUndefined();
+    const keys = stickyChoices(without.ws, without.cv, without.cv.view.stickies[0]!).map((c) => c.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   it("offers nothing the view doesn't draw as itself, or on a view that isn't of boxes", () => {
     expect(stickyTargetFor(ws, cv, { kind: "element", id: "routes" })).toBeUndefined();
     expect(stickyTargetFor(ws, cv, { kind: "arrow", from: "web", to: "customer" })).toBeUndefined();
