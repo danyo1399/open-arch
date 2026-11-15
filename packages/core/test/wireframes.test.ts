@@ -242,6 +242,29 @@ describe("wireframe views", () => {
     expect(other.diagnostics.map((d) => [d.path, d.message])).toEqual([["views.v.screens", "Only wireframe views have `screens`."]]);
   });
 
+  it("leave out a screen with a taken ID before its widgets, so their IDs stay free for the widgets after it", () => {
+    const doc = {
+      ...shop(),
+      views: {
+        v: {
+          title: "V",
+          level: "wireframe",
+          screens: [
+            { id: "home", name: "Home" },
+            { id: "home", name: "Again", widgets: [{ id: "go", kind: "button" }] },
+            { id: "list", name: "List", widgets: [{ id: "go", kind: "link" }] },
+          ],
+        },
+      },
+    };
+    const parsed = parseDocument(JSON.stringify(doc));
+    expect(parsed.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual(["id-duplicate views.v.screens[1].id"]);
+    expect(parsed.doc.views.v!.screens).toEqual([
+      { id: "home", name: "Home" },
+      { id: "list", name: "List", widgets: [{ id: "go", kind: "link" }] },
+    ]);
+  });
+
   it("know where each widget is: its screen, the row or panel it's in, and its place there", () => {
     const view = def(checkout());
     expect(allWidgets(view).map((w) => [w.id, w.screen, w.parent ?? "", w.number, w.path])).toEqual([

@@ -62,7 +62,7 @@ export function uniqueNodeId(ws: Workspace, view: ViewDef, base: string, self?: 
   for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
 }
 
-/** `base`, or `base-2`, `base-3`, ... whichever isn't among `ids`, `self` aside: for an ID unique among an event view's lanes, or its cards. */
+/** `base`, or `base-2`, `base-3`, ... whichever isn't among `ids`, `self` aside: for an ID unique among an event view's lanes, or its cards, or a wireframe view's screens, or its widgets. */
 export function uniqueAmong(ids: readonly string[], base: string, self?: string): string {
   const taken = (id: string) => id !== self && ids.includes(id);
   if (!taken(base)) return base;

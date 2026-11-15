@@ -484,12 +484,11 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
     else {
       view.screens = [];
       // Widget IDs are unique across the view's screens, so a widget can move to another screen and keep its ID.
+      const screenIds = new Set<string>();
       const widgetIds = new Set<string>();
       value.screens.forEach((item, i) => {
-        const screen = readScreen(item, `${path}.screens[${i}]`, report, widgetIds);
-        if (!screen) return;
-        if (view.screens!.some((s) => s.id === screen.id)) report(`${path}.screens[${i}].id`, "id-duplicate", `"${screen.id}" is the ID of two screens of this view.`, "Give one of them another ID.");
-        else view.screens!.push(screen);
+        const screen = readScreen(item, `${path}.screens[${i}]`, report, screenIds, widgetIds);
+        if (screen) view.screens!.push(screen);
       });
     }
   }
@@ -684,7 +683,11 @@ function readCard(value: unknown, path: string, report: Report): CardData | unde
   return card;
 }
 
-function readScreen(value: unknown, path: string, report: Report, widgetIds: Set<string>): ScreenData | undefined {
+/**
+ * A screen, with an ID none of the screens before it has. One with a taken ID is left out before
+ * its widgets are read, so their IDs stay free for the widgets after it.
+ */
+function readScreen(value: unknown, path: string, report: Report, screenIds: Set<string>, widgetIds: Set<string>): ScreenData | undefined {
   if (!isObject(value)) {
     report(path, "field-type", 'A screen must be an object like { "id": "cart", "name": "Cart" }.');
     return undefined;
@@ -696,6 +699,11 @@ function readScreen(value: unknown, path: string, report: Report, widgetIds: Set
     return undefined;
   }
   if (!readId(id, `${path}.id`, report)) return undefined;
+  if (screenIds.has(id)) {
+    report(`${path}.id`, "id-duplicate", `"${id}" is the ID of two screens of this view.`, "Give one of them another ID.");
+    return undefined;
+  }
+  screenIds.add(id);
   const name = str(value.name, `${path}.name`, report);
   if (!name?.trim()) report(`${path}.name`, "field-required", "`name` is required.");
   const screen: ScreenData = { id, name: name?.trim() ? name : id };

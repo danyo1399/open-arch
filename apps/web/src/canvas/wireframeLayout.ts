@@ -89,7 +89,8 @@ export function widgetHeight(w: Widget, width: number): number {
  */
 function place(widgets: Widget[], x: number, y: number, width: number, across: boolean, out: Map<string, Box>): number {
   if (across) {
-    const each = (width - WF.gap * (widgets.length - 1)) / Math.max(widgets.length, 1);
+    // Never less than nothing, however many widgets share the row.
+    const each = Math.max(0, (width - WF.gap * (widgets.length - 1)) / Math.max(widgets.length, 1));
     return Math.max(0, ...widgets.map((w, i) => placeOne(w, x + i * (each + WF.gap), y, each, out)));
   }
   let at = y;
@@ -136,7 +137,9 @@ export function wireframeLayout(view: ViewDef): WireframeLayout {
  * along, or the one before, it crosses the gap between the two, each arrow in that gap at its own
  * place across it, and goes into the screen's near side. To a screen further away, it'd cross the
  * screens between, so it goes down beside its own screen, along under them all, each such arrow
- * at its own depth, and up into the bottom of the screen it leads to.
+ * at its own depth, and up into the bottom of the screen it leads to. However many there are,
+ * they go down within the half of the gap beside their screen, and up within the middle of the
+ * screen they lead to, closer together when there are more.
  */
 export function arrowRoutes(view: ViewDef, layout: WireframeLayout, arrows: ScreenArrow[]): Map<string, Point[]> {
   const index = new Map(view.screens.map((s, i) => [s.id, i]));
@@ -164,14 +167,16 @@ export function arrowRoutes(view: ViewDef, layout: WireframeLayout, arrows: Scre
       routes.set(arrowId(arrow), [from, { x: across, y: from.y }, { x: across, y }, { x: forward ? target.x : target.x + target.w, y }]);
     });
   }
+  const narrowest = Math.min(...[...layout.screens.values()].map((b) => b.w));
+  const step = Math.min(WF.track, WF.between / 2 / (under.length + 1), narrowest / 2 / (under.length + 1));
   under.forEach((arrow, i) => {
     const forward = index.get(arrow.to)! > index.get(arrow.screen)!;
     const from = start(arrow, forward);
     const [own, target] = [layout.screens.get(arrow.screen)!, layout.screens.get(arrow.to)!];
-    const side = forward ? own.x + own.w + WF.track * (i + 1) : own.x - WF.track * (i + 1);
+    const side = forward ? own.x + own.w + step * (i + 1) : own.x - step * (i + 1);
     const depth = layout.height + WF.under + WF.track * i;
     // Into the bottom of the screen, nearer the side it comes from, apart from the others.
-    const into = target.x + target.w / 2 + (forward ? -1 : 1) * WF.track * (i + 1);
+    const into = target.x + target.w / 2 + (forward ? -1 : 1) * step * (i + 1);
     routes.set(arrowId(arrow), [from, { x: side, y: from.y }, { x: side, y: depth }, { x: into, y: depth }, { x: into, y: target.y + target.h }]);
   });
   return routes;

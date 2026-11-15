@@ -151,6 +151,30 @@ describe("dropping a screen", () => {
   });
 });
 
+describe("crowded wireframes", () => {
+  it("never gives a widget in a crowded row a width of less than nothing", () => {
+    const crowded = structuredClone(doc);
+    crowded.views.checkout!.screens![0]!.widgets![1]!.widgets = Array.from({ length: 30 }, (_, i) => ({ id: `b-${i}`, kind: "button" as const }));
+    const layout = wireframeLayout(view(crowded));
+    expect(Array.from({ length: 30 }, (_, i) => layout.widgets.get(`b-${i}`)!.w).every((w) => w >= 0)).toBe(true);
+  });
+
+  it("keeps any number of arrows to screens further away in the gap beside their screen, and in the middle of the one they lead to", () => {
+    const many = structuredClone(doc);
+    many.views.checkout!.screens![0]!.widgets = Array.from({ length: 20 }, (_, i) => ({ id: `go-${i}`, kind: "link" as const, to: "home" }));
+    const v = view(many);
+    const layout = wireframeLayout(v);
+    const routes = arrowRoutes(v, layout, screenArrows(v));
+    const [cart, home] = [layout.screens.get("cart")!, layout.screens.get("home")!];
+    for (let i = 0; i < 20; i++) {
+      const route = routes.get(`go-${i}->home`)!;
+      expect(route[1]!.x).toBeGreaterThan(cart.x + cart.w);
+      expect(route[1]!.x).toBeLessThanOrEqual(cart.x + cart.w + WF.between / 2);
+      expect(Math.abs(route[3]!.x - (home.x + home.w / 2))).toBeLessThanOrEqual(home.w / 2);
+    }
+  });
+});
+
 describe("arrowRoutes", () => {
   it("takes an arrow to the next screen, or the one before, across the gap between them, each at its own place", () => {
     const v = view();
