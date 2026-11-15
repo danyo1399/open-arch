@@ -116,11 +116,15 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           // Gone or unreadable since the watcher looked: its next check says which.
           const next = await host.load().catch(() => null);
           if (cancelled || next === null || next === current.current) return;
-          const renames = current.current === null ? [] : renamesFrom(current.current, next);
+          // A workspace that couldn't be opened opens now, with nothing to say about it.
+          const opening = current.current === null;
+          const renames = opening ? [] : renamesFrom(current.current!, next);
+          setLoadError(null);
           commit(next);
           applied.current?.(renames);
           setSavedText(next);
           updateHistory(() => ({ undo: [], redo: [] }));
+          if (opening) return;
           // An error, such as a save refused because of this change, stays until it's dismissed.
           setMessage((shown) => (shown?.kind === "error" ? shown : { kind: "info", text: "The workspace changed outside this window, so it was reloaded." }));
         });

@@ -304,7 +304,8 @@ export class FolderHost implements WorkspaceHost {
    * Checks the file every so often while the page is showing, and as soon as it shows again, for
    * changes made outside the designer: an editor, the CLI, an agent, or Git. The first check
    * compares the file with the text loaded, so a change made in between is noticed too. Calls
-   * `onRemoved` once it's been missing for a whole interval between checks.
+   * `onRemoved` once it's been missing for a whole interval between checks. When the file
+   * couldn't be loaded, it calls `onChange` as soon as it can read it, to load it then.
    */
   watch(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string | null) => void): () => void {
     this.reload = onChange;
@@ -332,8 +333,9 @@ export class FolderHost implements WorkspaceHost {
         if (told && !stopped) onProblem?.(null);
         told = false;
         // Compared with what the designer last loaded or saved, not with the last check: a reload
-        // that fails, say because the file was moved aside for a moment, is asked for again.
-        const changed = this.known !== null && text !== this.known;
+        // that fails, say because the file was moved aside for a moment, is asked for again. A
+        // file the designer couldn't open at all is asked for as soon as it's there.
+        const changed = this.known === null || text !== this.known;
         if (changed && !stopped) onChange();
       } catch (error) {
         // Editors, agents and Git can replace the file by moving it aside first, so it's only
@@ -344,6 +346,8 @@ export class FolderHost implements WorkspaceHost {
           told = true;
           return;
         }
+        // A file the designer couldn't open isn't removed: it keeps waiting for it.
+        if (this.known === null) return;
         missingSince ??= Date.now();
         if (Date.now() - missingSince >= this.pollMs && !stopped) {
           stop();

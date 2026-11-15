@@ -199,4 +199,19 @@ describe("the open workspace", () => {
     for (let i = 0; i < 100 && state().ws?.doc.name !== "Pulled"; i++) await settle();
     expect(state().ws?.doc.name).toBe("Pulled");
   });
+
+  it("opens a workspace in a folder once its file is back, after it couldn't be opened", async () => {
+    const root = new FakeFolder("repo");
+    const host = new FolderHost("1", root, "a.openarch", 20);
+    const state = await workspaceFor(host);
+    expect(state().loadError).toBe("repo/a.openarch isn't there any more.");
+    expect(state().ws).toBeNull();
+    // Back, say after a git checkout.
+    root.put("a.openarch", text("Back"));
+    for (let i = 0; i < 100 && state().ws === null; i++) await settle();
+    expect(state().ws?.doc.name).toBe("Back");
+    expect(state().loadError).toBeNull();
+    expect(state().message).toBeNull();
+    expect(state().storage).toBe("file");
+  });
 });

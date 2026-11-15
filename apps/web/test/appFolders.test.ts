@@ -58,6 +58,17 @@ describe("reloading the page with a workspace in a folder open", () => {
     expect(location.hash).toBe("#folder/f1");
   });
 
+  it("says it couldn't open a file that's gone, and opens it once it's back", async () => {
+    const root = new FakeFolder("repo");
+    history.replaceState(null, "", "/#folder/f1");
+    const host = mount(createElement(App, { folders: foldersWith(root) }));
+    await until(() => !!host.textContent?.includes("Couldn't open the workspace"));
+    expect(host.textContent).toContain("repo/a.openarch isn't there any more.");
+    root.put("a.openarch", workspace);
+    await until(() => !!host.querySelector(".ws-name"), 1000);
+    expect(host.querySelector(".ws-name")?.textContent).toBe("Repo");
+  }, 10_000);
+
   it("shows the start page, with the folder listed, when the browser would have to ask", async () => {
     Object.assign(window, { showDirectoryPicker: async () => null });
     const root = new FakeFolder("repo");

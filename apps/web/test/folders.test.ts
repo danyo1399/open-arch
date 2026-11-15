@@ -414,12 +414,34 @@ describe("watching a workspace in a folder", () => {
     stop();
   });
 
+  it("waits for a file it couldn't load, rather than calling it removed, and asks for it once it's there", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await expect(host.load()).rejects.toThrow("isn't there any more");
+    const onChange = vi.fn(() => void host.load().catch(() => undefined));
+    const onRemoved = vi.fn();
+    const stop = host.watch(onChange, onRemoved);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onRemoved).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    root.put("a.openarch", workspace("A"));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    // Loaded, it's watched as usual.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
   it("stops when asked", async () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await host.load();
     const onChange = vi.fn();
-    const stop = new FolderHost("1", root, "a.openarch", 100).watch(onChange);
+    const stop = host.watch(onChange);
     await vi.advanceTimersByTimeAsync(150);
     stop();
     root.put("a.openarch", workspace("B"));
