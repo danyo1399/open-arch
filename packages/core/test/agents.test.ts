@@ -59,11 +59,25 @@ describe("the AGENTS.md section", () => {
 
   it("refuses a file with more than one section, rather than leave one naming an old place", () => {
     const one = agentsSection("a.openarch", undefined, "1");
-    expect(() => withAgentsSection(`${one}\n# Rules\n\n${one}`, agentsSection("b.openarch", undefined, "1"))).toThrow("AGENTS.md has more than one open-arch section, so it was left alone.");
+    expect(() => withAgentsSection(`${one}\n# Rules\n\n${one}`, agentsSection("b.openarch", undefined, "1"))).toThrow("AGENTS.md has more than one open-arch section, or a marker without its pair, so it was left alone.");
   });
 
-  it("writes a name with backticks so it reads back whole", () => {
-    for (const name of ["a`b.openarch", "``x``.openarch", "plain.openarch"]) {
+  it("refuses a stray start marker above a whole section, rather than replace the text between them", () => {
+    const one = agentsSection("a.openarch", undefined, "1");
+    expect(() => withAgentsSection(`# Rules\n<!-- open-arch:start -->\nMy own notes.\n\n${one}`, agentsSection("b.openarch", "docs", "1"))).toThrow(
+      "AGENTS.md has more than one open-arch section, or a marker without its pair, so it was left alone.",
+    );
+    expect(() => withAgentsSection(`${one}\nMy own notes.\n<!-- open-arch:end -->\n`, one)).toThrow("or a marker without its pair");
+  });
+
+  it("keeps a byte-order mark on a file with nothing else in it", () => {
+    const one = agentsSection("a.openarch", undefined, "1");
+    expect(withAgentsSection("\uFEFF", one)).toBe(`\uFEFF${one}`);
+    expect(withAgentsSection("\uFEFF\n", one)).toBe(`\uFEFF${one}`);
+  });
+
+  it("writes a name with backticks or line breaks so it reads back whole", () => {
+    for (const name of ["a`b.openarch", "``x``.openarch", "plain.openarch", "a\nb.openarch", "a\r\nb.openarch"]) {
       const section = agentsSection(name, "do`cs", "1");
       expect(agentsSectionWorkspace(section)).toBe(name);
     }

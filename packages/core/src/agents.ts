@@ -23,48 +23,72 @@ ${SECTION_END}
 `;
 }
 
-/** Where a marker is in the text, on a line of its own, or -1. One quoted in a sentence doesn't count. */
-function markerAt(text: string, marker: string): number {
-  // A line can end in \r\n, as on Windows, and the first can start with a byte-order mark, which stays where it is.
-  const match = new RegExp(`^\\uFEFF?[ \\t]*${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t\\r]*$`, "m").exec(text);
-  return match ? match.index + (match[0].startsWith("\uFEFF") ? 1 : 0) : -1;
+/** A marker on a line of its own: which, and where its text starts and ends. */
+interface Marker {
+  start: boolean;
+  at: number;
+  end: number;
+}
+
+/**
+ * Every marker in the text that's on a line of its own, in order. One quoted in a sentence doesn't
+ * count. A line can end in \r\n, as on Windows, and the first can start with a byte-order mark.
+ */
+function markers(text: string): Marker[] {
+  const found: Marker[] = [];
+  for (const match of text.matchAll(/^\uFEFF?[ \t]*(<!-- open-arch:(start|end) -->)[ \t\r]*$/gm)) {
+    const at = match.index + match[0].indexOf(match[1]!);
+    found.push({ start: match[2] === "start", at, end: at + match[1]!.length });
+  }
+  return found;
+}
+
+/** The one section's markers, none, or why the file's markers can't be told apart safely. */
+function section(text: string): [Marker, Marker] | null {
+  const found = markers(text);
+  if (found.length === 0) return null;
+  const [first, second] = found;
+  if (found.length === 2 && first!.start && !second!.start) return [first!, second!];
+  // One end alone; a start alone, or after its end; or else more markers than one section has.
+  const why =
+    found.length === 1 && !first!.start
+      ? `${SECTION_END} without ${SECTION_START} before it`
+      : found.length === 1 || (found.length === 2 && !first!.start && second!.start)
+        ? `${SECTION_START} without ${SECTION_END} after it`
+        : "more than one open-arch section, or a marker without its pair";
+  throw new Error(`AGENTS.md has ${why}, so it was left alone. Keep one open-arch section, with both its markers, or take them out.`);
 }
 
 /**
  * AGENTS.md's text with the section in it: in place of the one it has, or added at the end. The
- * rest is kept as it is. A section is marked by its two markers, each on a line of its own, so a
- * file that mentions them in a sentence keeps that sentence. When the file has one marker without
- * the other, or the end before the start, where the section ends can't be told, so it throws
- * rather than risk replacing someone's own text.
+ * rest is kept as it is, a byte-order mark and line endings included. A section is marked by its
+ * two markers, each on a line of its own, so a file that mentions them in a sentence keeps that
+ * sentence. A file whose markers aren't exactly one start and then one end can't safely be told
+ * apart from someone's own text, so it throws rather than risk replacing that text.
  */
-export function withAgentsSection(text: string, section: string): string {
+export function withAgentsSection(text: string, sectionText: string): string {
   // The section's lines end as the file's do.
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  section = section.replace(/\r?\n/g, eol);
-  const start = markerAt(text, SECTION_START);
-  const end = markerAt(text, SECTION_END);
-  if (start !== -1 && end > start) {
-    const after = text.indexOf(SECTION_END, end) + SECTION_END.length;
-    // A second section would be left as it was, naming an old place, for agents to read.
-    if (markerAt(text.slice(after), SECTION_START) !== -1 || markerAt(text.slice(after), SECTION_END) !== -1) {
-      throw new Error("AGENTS.md has more than one open-arch section, so it was left alone. Keep one, and take the others out.");
-    }
-    return text.slice(0, start) + section.trimEnd() + text.slice(after);
-  }
-  if (start !== -1 || end !== -1) {
-    throw new Error(`AGENTS.md has ${start === -1 ? `${SECTION_END} without ${SECTION_START} before it` : `${SECTION_START} without ${SECTION_END} after it`}, so it was left alone. Put the markers back round the open-arch section, or take them out.`);
-  }
-  if (!text.trim()) return section;
-  return `${text.replace(/(\r?\n)*$/, eol)}${eol}${section}`;
+  const replacement = sectionText.replace(/\r?\n/g, eol);
+  const found = section(text);
+  if (found) return text.slice(0, found[0].at) + replacement.trimEnd() + text.slice(found[1].end);
+  const bom = text.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const rest = text.slice(bom.length);
+  if (!rest.trim()) return bom + replacement;
+  return `${bom}${rest.replace(/(\r?\n)*$/, eol)}${eol}${replacement}`;
 }
 
 /** The workspace file AGENTS.md's open-arch section names, or null when it has no section, or one that names none. */
 export function agentsSectionWorkspace(text: string): string | null {
-  const start = markerAt(text, SECTION_START);
-  const end = markerAt(text, SECTION_END);
-  if (start === -1 || end < start) return null;
+  let found;
+  try {
+    found = section(text);
+  } catch {
+    return null;
+  }
+  if (!found) return null;
   // A code span: a run of backticks, the name (padded with a space when it has backticks of its own), and the same run.
-  const span = /open-arch model \([^)]*\) in (`+)(.*?)\1(?!`)\./.exec(text.slice(start, end));
+  const span = /open-arch model \([^)]*\) in (`+)([\s\S]*?)\1(?!`)\./.exec(text.slice(found[0].end, found[1].at));
   if (!span) return null;
   const name = span[2]!;
   return span[1]!.length > 1 && name.startsWith(" ") && name.endsWith(" ") ? name.slice(1, -1) : name;

@@ -51,7 +51,16 @@ export function init(io: Io, opts: InitOptions): number {
     const docsPath = docsDir ? relative(project, resolve(dirname(file), docsDir)).split(sep).join("/") : undefined;
     let text: string;
     try {
-      text = withAgentsSection(existed ? readFileSync(agentsMd, "utf8") : "", agentsSection(workspace, docsPath, VERSION));
+      // As the designer does: a byte-order mark is kept, and bytes that aren't UTF-8 would be changed, so they're refused.
+      let before = "";
+      if (existed) {
+        try {
+          before = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(readFileSync(agentsMd));
+        } catch {
+          throw new Error("AGENTS.md isn't UTF-8 text, so it was left alone.");
+        }
+      }
+      text = withAgentsSection(before, agentsSection(workspace, docsPath, VERSION));
     } catch (error) {
       throw new CliError(`${(error as Error).message} ${opts.noSkills ? "The workspace and its docs are" : "The workspace, its docs and the skill are"} in place: run open-arch init again once AGENTS.md is fixed.`);
     }

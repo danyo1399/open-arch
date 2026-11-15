@@ -530,6 +530,23 @@ describe("usage", () => {
 });
 
 describe("init", () => {
+  it("leaves an AGENTS.md alone that isn't UTF-8 text, and keeps a byte-order mark", () => {
+    const project = tempDir();
+    mkdirSync(join(project, ".git"));
+    const latin1 = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
+    writeFileSync(join(project, "AGENTS.md"), latin1);
+    const result = cli(project, "init");
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("AGENTS.md isn't UTF-8 text, so it was left alone.");
+    expect(readFileSync(join(project, "AGENTS.md"))).toEqual(latin1);
+
+    writeFileSync(join(project, "AGENTS.md"), "\uFEFF# Rules\n");
+    expect(cli(project, "init").code).toBe(0);
+    const bytes = readFileSync(join(project, "AGENTS.md"));
+    expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(bytes.toString("utf8")).toContain("# Rules\n\n<!-- open-arch:start -->");
+  });
+
   it("leaves an AGENTS.md alone that has one of the section's markers without the other", () => {
     const project = tempDir();
     mkdirSync(join(project, ".git"));

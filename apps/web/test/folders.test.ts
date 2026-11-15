@@ -285,7 +285,7 @@ describe("keeping the AGENTS.md section", () => {
     const host = new FolderHost("1", root, "a.openarch");
     for (const name of ["B", "C"]) {
       expect((await host.save(workspace(name))).agentsError).toBe(
-        "AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone. Put the markers back round the open-arch section, or take them out.",
+        "AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone. Keep one open-arch section, with both its markers, or take them out.",
       );
       expect(root.files()["AGENTS.md"]).toBe(broken);
     }
@@ -344,6 +344,17 @@ describe("keeping the AGENTS.md section", () => {
     file.bytes = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]); // "café" in Latin-1
     expect((await new FolderHost("1", latin1, "a.openarch").save(workspace("B"))).agentsError).toBe("AGENTS.md isn't UTF-8 text, so it was left alone.");
     expect(file.bytes).toEqual(new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+  });
+
+  it("writes the section for this workspace when the one it names is a folder, or can't be in the folder", async () => {
+    for (const named of ["sub", "../outside.openarch", "/abs.openarch"]) {
+      const root = new FakeFolder("repo");
+      root.put("a.openarch", workspace("A"));
+      root.put("sub/x.openarch", workspace("X"));
+      root.put("AGENTS.md", agentsInFolder(named)["AGENTS.md"]!);
+      await new FolderHost("1", root, "a.openarch").save(workspace("B"));
+      expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("a.openarch")["AGENTS.md"]);
+    }
   });
 
   it("names a workspace whose name has a backtick, and knows it's still there", async () => {
