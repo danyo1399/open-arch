@@ -129,9 +129,10 @@ const isFile = (path: string) => {
 };
 
 /**
- * Make `dir` hold exactly these generated pages. Only pages open-arch generated from the same file
- * are overwritten or deleted (see mayReplace), and stale ones are only looked for at the folder's
- * top and in DOCS_PAGE_FOLDERS; anything else is left alone. `workspaceDir` is the folder the
+ * Make `dir` hold exactly these generated pages. Only pages mayReplace allows are overwritten or
+ * deleted: generated from the same file, from one no longer beside it (say before a rename), or from
+ * no file named. A page from another workspace whose file is beside this one is left alone. Stale
+ * pages are only looked for at the folder's top and in DOCS_PAGE_FOLDERS; anything else is left alone. `workspaceDir` is the folder the
  * workspace file is in, to tell another workspace's pages from this one's.
  */
 export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?: boolean; workspaceDir?: string } = {}): DocsResult {
