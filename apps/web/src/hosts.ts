@@ -18,7 +18,7 @@ export interface WorkspaceHost {
   key: string;
   /** "file": every edit is saved to the file. "browser": every edit is saved in the browser's storage. "memory": edits stay in this tab until saved. */
   storage: "file" | "browser" | "memory";
-  /** Desktop only: saving also refreshes the docs folder. */
+  /** Saving also refreshes the docs folder: on desktop, and for a workspace in a folder (folders.ts). */
   syncsDocs?: boolean;
   load(): Promise<string>;
   /** Save the file's new text. May report the docs folder it refreshed. */

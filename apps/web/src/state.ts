@@ -119,7 +119,13 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           isDeleted.current = true;
           setDeleted(true);
           setSavedText(null);
-          setMessage({ kind: "error", text: "This workspace was deleted in another tab. It's still open here, but only in this tab: Save keeps it in this browser, or export the file." });
+          setMessage({
+            kind: "error",
+            text:
+              host.storage === "file"
+                ? "The workspace file was deleted or moved. It's still open here, but only in this tab: Save keeps it in this browser, or export the file."
+                : "This workspace was deleted in another tab. It's still open here, but only in this tab: Save keeps it in this browser, or export the file.",
+          });
         });
       },
     );

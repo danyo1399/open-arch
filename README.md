@@ -28,9 +28,9 @@ One UI, two ways to run it.
 
 | | Web app | Desktop app |
 |---|---|---|
-| Where workspaces live | In the browser's storage (IndexedDB), as many as you like, saved as you work. **Import file…** and **Export file…** copy .openarch files in and out; nothing stays linked to a file | In a .openarch file, saved as you work |
-| Docs | **Export docs** downloads them as a .zip | Every save rewrites the docs folder the workspace names |
-| Notices outside edits | Edits to the same workspace in another tab, and deleting it there: it stays open, and **Save** keeps it again | Watches the file, so an agent's or editor's changes show up |
+| Where workspaces live | In the browser's storage (IndexedDB), as many as you like, saved as you work. **Import file…** and **Export file…** copy .openarch files in and out; nothing stays linked to a file. In Chrome and Edge, **Open folder…** edits a .openarch file in a folder on this computer instead, saved as you work | In a .openarch file, saved as you work |
+| Docs | **Export docs** downloads them as a .zip. In a folder, every save rewrites the docs folder the workspace names | Every save rewrites the docs folder the workspace names |
+| Notices outside edits | Edits to the same workspace in another tab, and deleting it there: it stays open, and **Save** keeps it again. In a folder, it checks the file every few seconds, so an agent's, an editor's or Git's changes show up | Watches the file, so an agent's or editor's changes show up |
 | Try without a file | The bundled examples (the tour and the shop); **Save** keeps a copy in the browser | The bundled examples |
 | Share a link | **Share** makes a link that opens a copy; clicking it opens the workspace | The same, and links open in the web designer; **Open link…** opens one |
 | Ask AI | | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
@@ -39,6 +39,14 @@ One UI, two ways to run it.
 The web app's workspaces are only in that browser, on that device, and clearing the site's data deletes them, so export a copy of anything you want to keep. The URL names the open workspace, so reloading the page reopens it. Import and export go through a `FileProvider` ([`apps/web/src/providers.ts`](apps/web/src/providers.ts)): files on this device are the only one so far, and cloud storage such as Dropbox or iCloud Drive can be added as another.
 
 The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere. The [Pages workflow](.github/workflows/pages.yml) publishes it to GitHub Pages, at <https://danyo1399.github.io/open-arch/>, each time `main` changes. Served over HTTPS (or from localhost), it has a service worker that caches the build, so it can be installed and opened offline; opening it online always loads the latest build. Where the browser can install it, the start page offers to: **Install** opens the browser's own dialog in Chrome, Edge and other Chromium browsers, and on an iPhone or iPad, or in Safari on a Mac, it says where the browser's command is. **Not now** hides the offer in that browser for good. The app icons in `apps/web/public` are rendered from `apps/web/icons` by `sh icons/render.sh`.
+
+### Working in a folder
+
+In Chrome and Edge, the web app can work on a .openarch file in a folder on your computer, such as a Git repository, as the desktop app does. **Open folder…**, on the start page, asks for the folder, and the browser asks whether the page may change the files in it. The designer looks for .openarch files in the folder and the folders below it, three deep, skipping hidden folders and `node_modules`. One opens straight away; with several, you pick one; with none, it offers to create `architecture.openarch` there, with its docs in `docs/architecture`, as `open-arch init` would.
+
+Every change is saved to the file, and the docs folder the workspace names is rewritten, so they're there to commit and push with Git. As with the CLI, only pages open-arch generated are overwritten or removed. The docs folder has to be inside the folder you opened: open the folder that holds both. The designer checks the file every few seconds while its tab is showing, so a `git pull`, an editor or an agent's change shows up. If the file is deleted or moved, it stays open, but only in that tab.
+
+The start page lists the folders you opened, to open again, and **Forget** takes one off the list; the folder stays as it is. The browser may ask again for permission when you reopen one. Firefox and Safari can't change files in a folder, so they don't offer it.
 
 ### Moving round the diagram
 

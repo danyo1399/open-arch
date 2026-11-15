@@ -1,10 +1,11 @@
 /** The web app's start page: the workspaces kept in this browser, and the ways to add one. */
 import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { allowed, canOpenFolders, findWorkspaces, folderList as defaultFolders, FolderHost, pickFolder, type FolderHandle, type FolderList, type StoredFolder } from "./folders.js";
 import { BrowserHost, browserKey, SharedHost, type WorkspaceHost } from "./hosts.js";
 import { InstallPrompt } from "./InstallPrompt.js";
 import { importFiles, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
-import { ConfirmDialog } from "./panels/dialogs.js";
+import { ConfirmDialog, Modal } from "./panels/dialogs.js";
 import { OpenLinkDialog } from "./panels/ShareDialog.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
 import { userSettings } from "./settings.js";
@@ -13,12 +14,30 @@ import { StartPage } from "./Start.js";
 
 const edited = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; onOpen(host: WorkspaceHost): void }) {
+/** A new workspace in a folder gets the file and docs folder `open-arch init` would make there. */
+const NEW_FILE = `architecture${FILE_EXTENSION}`;
+const NEW_DOCS = "docs/architecture";
+
+/** "my-repo_name" → "My Repo Name" */
+const titleCase = (text: string) =>
+  text
+    .split(/[-_\s.]+/)
+    .filter(Boolean)
+    .map((w) => w[0]!.toUpperCase() + w.slice(1))
+    .join(" ");
+
+export function LibraryPage({ library, folders = defaultFolders, onOpen }: { library: WorkspaceLibrary; folders?: FolderList; onOpen(host: WorkspaceHost): void }) {
   const [records, setRecords] = useState<StoredWorkspace[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [removing, setRemoving] = useState<StoredWorkspace | null>(null);
   const [openingLink, setOpeningLink] = useState(false);
+  const foldersWork = canOpenFolders();
+  const [opened, setOpened] = useState<StoredFolder[] | null>(null);
+  /** A folder with several workspaces in it, to pick one from. */
+  const [choosing, setChoosing] = useState<{ root: FolderHandle; paths: string[] } | null>(null);
+  /** A folder with no workspace in it, to make one in. */
+  const [creating, setCreating] = useState<FolderHandle | null>(null);
 
   const refresh = useCallback(() => library.list().then(setRecords, (e: Error) => setError(e.message)), [library]);
 
@@ -27,6 +46,10 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
     void refresh();
     return library.onChange(() => void refresh());
   }, [library, refresh]);
+
+  useEffect(() => {
+    if (foldersWork) folders.list().then(setOpened, (e: Error) => setError(e.message));
+  }, [folders, foldersWork]);
 
   const titles = useMemo(() => new Map(records?.map((r) => [r.id, workspaceTitle(r)])), [records]);
 
@@ -39,6 +62,44 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
   const open = (record: StoredWorkspace) => onOpen(new BrowserHost(library, record.id, record.fileName));
 
   const create = () => attempt(async () => open(await library.add(`architecture${FILE_EXTENSION}`, serializeDocument(emptyDocument("Architecture")))));
+
+  /** Remembers the workspace in the folder, so the list has it next time, and opens it. */
+  const openInFolder = async (root: FolderHandle, path: string) => {
+    const record = await folders.add(root, path);
+    onOpen(new FolderHost(record.id, root, path));
+  };
+
+  /** One workspace in the folder opens straight away. With several, the user picks one; with none, they can make one. */
+  const openFolder = () =>
+    attempt(async () => {
+      const root = await pickFolder();
+      if (!root) return;
+      const paths = await findWorkspaces(root);
+      if (paths.length === 1) return openInFolder(root, paths[0]!);
+      if (paths.length === 0) setCreating(root);
+      else setChoosing({ root, paths });
+    });
+
+  const reopen = (record: StoredFolder) =>
+    attempt(async () => {
+      if (!(await allowed(record.root, true))) throw new Error(`open-arch wasn't allowed to change the files in ${record.root.name}, so it can't open ${record.path}.`);
+      await openInFolder(record.root, record.path);
+    });
+
+  const createInFolder = (root: FolderHandle) =>
+    attempt(async () => {
+      const doc = emptyDocument(titleCase(root.name) || "Architecture");
+      doc.export = { docs: NEW_DOCS };
+      await new FolderHost("new", root, NEW_FILE).save(serializeDocument(doc));
+      await openInFolder(root, NEW_FILE);
+    });
+
+  const forget = (record: StoredFolder) =>
+    attempt(async () => {
+      await folders.remove(record.id);
+      void userSettings.forget(new FolderHost(record.id, record.root, record.path).key).catch(() => undefined);
+      setOpened(await folders.list());
+    });
 
   /** One file opens straight away; several go in the list. */
   const importFrom = (files: PickedFile[] | Promise<PickedFile[]>) =>
@@ -65,6 +126,11 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
               {provider.importLabel}
             </button>
           ))}
+          {foldersWork && (
+            <button className="big" onClick={openFolder} title="Edit the .openarch file in a folder on this computer, such as a Git repository">
+              Open folder…
+            </button>
+          )}
           {shareClient && (
             <button className="big" onClick={() => setOpeningLink(true)}>
               Open link…
@@ -74,6 +140,33 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
       }
     >
       <InstallPrompt />
+      {foldersWork && (
+        <section className="library" aria-label="Folders">
+          <h2>Folders</h2>
+          {opened && opened.length > 0 && (
+            <ul className="library-list">
+              {opened.map((record) => (
+                <li key={record.id} className="library-item">
+                  <button className="link library-open" onClick={() => reopen(record)} title={`Open ${record.path} in ${record.root.name}`}>
+                    {record.root.name}
+                  </button>
+                  <span className="muted small library-meta">
+                    {record.path} · opened {edited.format(record.opened)}
+                  </span>
+                  <span className="library-actions">
+                    <button onClick={() => forget(record)} title="Take it off this list. The folder and its files stay as they are.">
+                      Forget
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="muted small">
+            Open a folder on this computer, such as a Git repository, to edit the .openarch file in it. Changes save to the file as you work, and the docs folder it names is kept up to date, ready to commit.
+          </p>
+        </section>
+      )}
       <section className="library" aria-label="Your workspaces">
         <h2>Your workspaces</h2>
         {notice && (
@@ -110,6 +203,51 @@ export function LibraryPage({ library, onOpen }: { library: WorkspaceLibrary; on
           Workspaces save in this browser as you work, on this device only, and clearing the site's data deletes them. Export a copy of any you want to keep or share. To import, you can also drop .openarch files here.
         </p>
       </section>
+      {choosing && (
+        <Modal title={`Which workspace in ${choosing.root.name}?`} onClose={() => setChoosing(null)} actions={<button onClick={() => setChoosing(null)}>Cancel</button>}>
+          <ul className="library-list">
+            {choosing.paths.map((path) => (
+              <li key={path} className="library-item">
+                <button
+                  className="link library-open"
+                  onClick={() => {
+                    const root = choosing.root;
+                    setChoosing(null);
+                    attempt(() => openInFolder(root, path));
+                  }}
+                >
+                  {path}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
+      {creating && (
+        <Modal
+          title={`No workspace in ${creating.name}`}
+          onClose={() => setCreating(null)}
+          actions={
+            <>
+              <button onClick={() => setCreating(null)}>Cancel</button>
+              <button
+                className="primary"
+                onClick={() => {
+                  const root = creating;
+                  setCreating(null);
+                  createInFolder(root);
+                }}
+              >
+                Create {NEW_FILE}
+              </button>
+            </>
+          }
+        >
+          <p>
+            There's no {FILE_EXTENSION} file in {creating.name}, or in the folders below it. Create {NEW_FILE} there, with its docs in {NEW_DOCS}/?
+          </p>
+        </Modal>
+      )}
       {openingLink && <OpenLinkDialog onClose={() => setOpeningLink(false)} onOpen={(link) => onOpen(new SharedHost(shareClient, link))} />}
       {removing && (
         <ConfirmDialog
