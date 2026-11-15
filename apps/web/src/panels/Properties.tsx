@@ -466,7 +466,7 @@ function StickyProperties({ ws, view, computed, sticky, edit, onSelect }: Proper
             {group("Arrows")}
           </select>
           <span className="field-hint">
-            {!sticky.on ? "Put it on a box or an arrow, and a line joins them." : drawn ? "A line joins the note to the box or arrow it's on." : "This view doesn't draw it, so no line joins them."}
+            {!sticky.on ? "Pick a box or an arrow, or drag from the dot under the note to one, and a line joins them." : drawn ? "A line joins the note to the box or arrow it's on." : "This view doesn't draw it, so no line joins them."}
           </span>
         </label>
       )}

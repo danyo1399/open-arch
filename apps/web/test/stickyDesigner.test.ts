@@ -4,7 +4,7 @@ import { act, createElement } from "react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
-import { choose, click, key, mount, select } from "./dom.js";
+import { button, choose, click, key, mount, select } from "./dom.js";
 
 /**
  * React Flow draws arrows once it has measured the boxes, and this page has no layout. So, as in
@@ -60,8 +60,8 @@ const doc: OpenArchDocument = {
 };
 
 /** The whole designer, open on the container view, with its boxes measured. */
-async function designer() {
-  const host = mount(createElement(Designer, { host: new MemoryHost("shop.openarch", serializeDocument(doc)), onClose() {}, onHostChange() {} }));
+async function designer(model = doc) {
+  const host = mount(createElement(Designer, { host: new MemoryHost("shop.openarch", serializeDocument(model)), onClose() {}, onHostChange() {} }));
   /** Lets the edits and the drawing settle, with every box measured. */
   const settle = async () => {
     for (let i = 0; i < 3; i++) {
@@ -85,9 +85,28 @@ async function designer() {
     await click(item);
     await settle();
   };
+  /** Where a point on the diagram is on the screen. The canvas is at the page's top left, as nothing here has a size. */
+  const onScreen = (at: { x: number; y: number }) => {
+    const transform = host.querySelector<HTMLElement>(".react-flow__viewport")!.style.transform;
+    const [x, y, zoom] = /translate\(([-\d.]+)px, ?([-\d.]+)px\) scale\(([-\d.]+)\)/.exec(transform)!.slice(1).map(Number) as [number, number, number];
+    return { clientX: at.x * zoom + x, clientY: at.y * zoom + y };
+  };
+  /** Drags a note's dot to this point on the diagram, and lets go. */
+  const dragDot = async (id: string, to: { x: number; y: number }) => {
+    const grip = host.querySelector(`.react-flow__node[data-id="sticky:${id}"] .sticky-grip`);
+    if (!grip) throw new Error(`Note ${id} has no dot to drag.`);
+    const start = { clientX: 0, clientY: 0 };
+    for (const [type, at] of [["pointerdown", start], ["pointermove", onScreen(to)], ["pointerup", onScreen(to)]] as const) {
+      await act(async () => {
+        grip.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, ...at }));
+      });
+    }
+    await settle();
+  };
   return {
     host,
     addNoteFrom,
+    dragDot,
     node: (id: string) => host.querySelector(`.react-flow__node[data-id="${id}"]`),
     lines: () => host.querySelectorAll(".sticky-lines line").length,
     /** Stops editing a note in place, keeping its text. */
@@ -137,5 +156,46 @@ describe("putting a sticky note on something in the designer", () => {
     await act(() => new Promise<void>((resolve) => setTimeout(resolve, 30)));
     expect(d.lines()).toBe(0);
     expect(d.node("sticky:note")).not.toBeNull();
+  });
+});
+
+describe("dragging from a note's dot", () => {
+  // A note on nothing, placed beside the diagram, as it hasn't been moved.
+  const withNote = structuredClone(doc);
+  withNote.views.containers!.stickies = { loose: { text: "Look here" } };
+  /** Where a note is drawn on the diagram. */
+  const at = (note: Element) => /translate\(([-\d.]+)px, ?([-\d.]+)px\)/.exec((note as HTMLElement).style.transform)!.slice(1).map(Number);
+  /** The middle of the first run of an arrow's line, on the diagram. */
+  const alongArrow = (arrow: Element) => {
+    const [x1, y1, x2, y2] = /^M ?([-\d.]+)[ ,]([-\d.]+) ?L ?([-\d.]+)[ ,]([-\d.]+)/.exec(arrow.querySelector(".react-flow__edge-path")!.getAttribute("d")!)!.slice(1).map(Number) as [number, number, number, number];
+    return { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+  };
+
+  it("puts the note on the box it's let go on, keeps the note where it is, and selects it", async () => {
+    const d = await designer(withNote);
+    const before = at(d.node("sticky:loose")!);
+    // API's box is at 500, 300, and 200 by 100.
+    await d.dragDot("loose", { x: 600, y: 350 });
+    expect(select(d.host, "On").value).toBe("element:api");
+    expect(d.lines()).toBe(1);
+    // It's kept where it was put, rather than beside the API.
+    expect(at(d.node("sticky:loose")!)).toEqual(before);
+    expect(button(d.host, "Move next to what it's on")).toBeDefined();
+  });
+
+  it("puts the note on the arrow it's let go on", async () => {
+    const d = await designer(withNote);
+    await d.dragDot("loose", alongArrow(d.host.querySelector('.react-flow__edge[data-id="web->api"]')!));
+    expect(select(d.host, "On").value).toBe("relationship:web\u0000api\u0000association");
+    expect(d.lines()).toBe(1);
+  });
+
+  it("leaves the note as it was when it's let go on nothing", async () => {
+    const d = await designer(withNote);
+    await d.dragDot("loose", { x: -2000, y: -2000 });
+    expect(d.lines()).toBe(0);
+    await click(d.node("sticky:loose")!);
+    expect(select(d.host, "On").value).toBe("");
+    expect(d.host.textContent).not.toContain("Move beside the diagram");
   });
 });

@@ -1,8 +1,9 @@
-import { applyOperations, buildWorkspace, computeView, type OpenArchDocument } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, type ArchElement, type OpenArchDocument, type Sticky } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { NODE_W, placeStickies, STICKY } from "../src/canvas/autoLayout.js";
-import { besideTargets } from "../src/canvas/Canvas.js";
-import { edgePoint, midpoint, nearestOnOutline, stickyLine } from "../src/canvas/stickyLines.js";
+import { NODE_H, NODE_W, placeStickies, STICKY } from "../src/canvas/autoLayout.js";
+import { besideTargets, noteDropAt, withFrame, type DrawnArrow } from "../src/canvas/Canvas.js";
+import type { ElementFlowNode, StickyFlowNode } from "../src/canvas/nodes.js";
+import { distanceToRoute, edgePoint, midpoint, nearestOnOutline, stickyLine } from "../src/canvas/stickyLines.js";
 import { followRenames, renamesBetween, stickyChoices, stickyTargetFor } from "../src/model.js";
 
 const doc: OpenArchDocument = {
@@ -192,5 +193,96 @@ describe("the line from a note", () => {
     expect(midpoint([{ x: 3, y: 4 }])).toEqual({ x: 3, y: 4 });
     expect(stickyLine(note, { point: { x: 50, y: 200 } })).toEqual({ from: { x: 50, y: 50 }, to: { x: 50, y: 200 } });
     expect(edgePoint(note, { x: 50, y: 25 })).toEqual({ x: 50, y: 25 });
+  });
+});
+
+describe("how far a point is from an arrow", () => {
+  const route = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+  ];
+
+  it("measures to the nearest point along any of its runs, ends included", () => {
+    expect(distanceToRoute(route, { x: 50, y: 5 })).toBe(5);
+    expect(distanceToRoute(route, { x: 90, y: 60 })).toBe(10);
+    expect(distanceToRoute(route, { x: -3, y: -4 })).toBe(5);
+    expect(distanceToRoute(route, { x: 100, y: 110 })).toBe(10);
+  });
+
+  it("measures to the one point of a route with no runs, and finds none with no points", () => {
+    expect(distanceToRoute([{ x: 3, y: 4 }], { x: 0, y: 0 })).toBe(5);
+    expect(distanceToRoute([], { x: 0, y: 0 })).toBe(Infinity);
+  });
+});
+
+describe("what a note's dot is let go on", () => {
+  // Customer above Web, and API right of Web, with the shop's frame round Web and API.
+  const { ws, cv } = computed(doc, "containers");
+  const box = (id: string, x: number, y: number): ElementFlowNode => ({
+    id,
+    type: "element",
+    position: { x, y },
+    measured: { width: NODE_W, height: NODE_H },
+    data: { element: ws.elements.get(id) as ArchElement, problems: 0 },
+  });
+  const note = (id: string, x: number, y: number): StickyFlowNode => ({
+    id: `sticky:${id}`,
+    type: "sticky",
+    position: { x, y },
+    measured: { width: 200, height: 80 },
+    data: { sticky: { id, text: id } as Sticky, editing: false, onEdit() {}, onDone() {} },
+  });
+  const nodes = [...withFrame([box("customer", 0, 0), box("web", 0, 300), box("api", 400, 300)], ws.elements.get("shop")), note("loose", 700, 0), note("over", 10, 10)];
+  const edge = (from: string, to: string) => cv.edges.find((e) => e.from === from && e.to === to)!;
+  const arrows: DrawnArrow[] = [
+    { id: "customer->web", edge: edge("customer", "web"), points: [{ x: 110, y: 100 }, { x: 110, y: 300 }] },
+    { id: "web->api", edge: edge("web", "api"), points: [{ x: 220, y: 350 }, { x: 400, y: 350 }], label: { x: 280, y: 360, w: 60, h: 20 } },
+  ];
+  const dropAt = (x: number, y: number) => noteDropAt(ws, cv, nodes, arrows, { x, y }, { reach: 9, noteSize: STICKY });
+
+  it("puts the note on the box there", () => {
+    expect(dropAt(150, 110)).toEqual({ on: { element: "customer" }, node: "customer" });
+    expect(dropAt(450, 320)).toEqual({ on: { element: "api" }, node: "api" });
+  });
+
+  it("puts the note on an arrow whose line is near enough, or whose label is there", () => {
+    expect(dropAt(118, 200)).toEqual({ on: { from: "customer", to: "web" }, arrow: "customer->web" });
+    expect(dropAt(125, 200)).toBeUndefined();
+    // The arrow from Web to API stands for Web's relationship to the routes inside the API.
+    expect(dropAt(330, 375)).toEqual({ on: { from: "web", to: "routes" }, arrow: "web->api" });
+  });
+
+  it("puts the note on the frame, inside it and off its boxes and arrows", () => {
+    expect(dropAt(300, 420)).toEqual({ on: { element: "shop" }, node: "__frame" });
+  });
+
+  it("puts the note on nothing over a note, even one over a box, or off the diagram", () => {
+    expect(dropAt(750, 40)).toBeUndefined();
+    expect(dropAt(20, 20)).toBeUndefined();
+    expect(dropAt(2000, 2000)).toBeUndefined();
+  });
+
+  it("puts the note on nothing over an arrow a note can't be on", () => {
+    // Logging's writer is drawn in each container built with it, and a note on its relationship has its line to the first arrow.
+    const model: OpenArchDocument = {
+      openarch: 13,
+      name: "Logs",
+      elements: {
+        shop: { kind: "system", name: "Shop" },
+        api: { kind: "container", name: "API", parent: "shop", libraries: ["logging"] },
+        web: { kind: "container", name: "Web", parent: "shop", libraries: ["logging"] },
+        logging: { kind: "library", name: "Logging" },
+        writer: { kind: "component", name: "Writer", parent: "logging", uses: [{ to: "logs", description: "Sends logs" }] },
+        logs: { kind: "system", name: "Logs" },
+      },
+      views: { containers: { title: "Containers", level: "container", scope: "shop" } },
+    };
+    const logs = computed(model, "containers");
+    const drawn = logs.cv.edges.map((e, k): DrawnArrow => ({ id: `${e.from}->${e.to}`, edge: e, points: [{ x: 0, y: 1000 + k * 100 }, { x: 500, y: 1000 + k * 100 }] }));
+    expect(drawn.map((a) => a.id)).toEqual(["api->logs", "web->logs"]);
+    const at = (y: number) => noteDropAt(logs.ws, logs.cv, [], drawn, { x: 250, y }, { reach: 9, noteSize: STICKY });
+    expect(at(1000)).toEqual({ on: { from: "writer", to: "logs" }, arrow: "api->logs" });
+    expect(at(1100)).toBeUndefined();
   });
 });
