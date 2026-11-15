@@ -31,8 +31,8 @@ function banner(source: string): string {
 
 /**
  * The file a generated page says it was generated from, or null for a page open-arch didn't
- * generate. Tools overwrite or delete only pages generated from the file they're saving, so two
- * workspaces whose docs share a folder leave each other's pages alone.
+ * generate, and "" for an older page that names no file. Tools use it to leave alone pages
+ * generated from another workspace whose file is in the same folder as the one they're saving.
  */
 export function generatedFrom(text: string): string | null {
   if (!text.startsWith(GENERATED_MARKER)) return null;

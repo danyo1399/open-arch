@@ -137,7 +137,7 @@ const isFile = (path: string) => {
 export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?: boolean; workspaceDir?: string } = {}): DocsResult {
   const result: DocsResult = { dir, written: [], deleted: [], skipped: [] };
   const targets = new Map(files.map((f) => [fileInside(dir, f.path), f]));
-  // Only pages generated from the same file: another workspace's docs can share the folder.
+  // Which file these pages come from, to tell another workspace's pages beside them (mayReplace).
   const source = files[0] ? generatedFrom(files[0].content) : null;
   for (const [abs, f] of targets) {
     if (existsSync(abs)) {
