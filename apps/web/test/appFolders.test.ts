@@ -104,16 +104,17 @@ describe("the designer with a workspace in a folder", () => {
   const status = (host: HTMLElement) => host.querySelector(".storage")?.textContent;
   const hasButton = (host: HTMLElement, text: string) => [...host.querySelectorAll("button")].some((b) => b.textContent?.trim() === text);
 
-  it("says where the docs are, or that they weren't written, and doesn't offer to export them", async () => {
+  it("says where the docs are, or that they weren't written, and doesn't offer a zip", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", withDocs);
     const host = await open(root);
     expect(status(host)).toBe("Saved · docs in docs/");
-    expect(hasButton(host, "Export docs")).toBe(false);
+    expect(hasButton(host, "Export zip")).toBe(false);
+    await click(host.querySelector(".ws-name")!);
+    expect(host.querySelector(".properties")?.textContent).toContain("Every save also keeps the open-arch agent skill in .agents/skills/open-arch/ and .claude/skills/open-arch/ of the folder you opened");
 
     // The docs folder can't be made, so a save writes the file but not the docs.
     root.refuse.add("docs");
-    await click(host.querySelector(".ws-name")!);
     const field = [...host.querySelectorAll("label.field")].find((l) => l.querySelector(".field-label")?.textContent === "Name");
     const name = field!.querySelector("input")!;
     await type(name, "Repo 2");
@@ -126,7 +127,7 @@ describe("the designer with a workspace in a folder", () => {
     expect(host.textContent).toContain("Saved, but the docs in docs/ weren't updated: Not allowed.×");
   });
 
-  it("offers to export the docs once the file's gone, as nothing saves them any more", async () => {
+  it("offers to export a zip once the file's gone, as nothing saves them any more", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", withDocs);
     const host = await open(root);
@@ -134,6 +135,6 @@ describe("the designer with a workspace in a folder", () => {
     // Gone once it's missing for a whole interval between checks, which are 1.5 seconds apart.
     await until(() => status(host) !== "Saved · docs in docs/", 1000);
     expect(host.textContent).toContain("The workspace file was deleted or moved.");
-    expect(hasButton(host, "Export docs")).toBe(true);
+    expect(hasButton(host, "Export zip")).toBe(true);
   }, 10_000);
 });

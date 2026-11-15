@@ -53,6 +53,7 @@ function panel(selection: Selection) {
     selection,
     isNew: false,
     syncsDocs: false,
+    syncsSkill: false,
     docs: null,
     fileName: "shop.openarch",
     edit: async (e: Edit) => {

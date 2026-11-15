@@ -3,6 +3,7 @@ import { applyOperations, checkWorkspace, loadWorkspace, OpError, serializeDocum
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DocsSummary } from "./bridge.js";
 import type { WorkspaceHost } from "./hosts.js";
+import { SKILL_TARGETS } from "./skill.js";
 import { renamesBetween, renamesIn, undoRenames, type Rename } from "./model.js";
 
 /** Operations to apply, or a function that works them out from the current workspace. */
@@ -177,8 +178,9 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
       if (!isDeleted.current) {
         const summary = await host.save(next);
         // A save with no docs folder clears what an earlier one said about the docs.
-        setDocs(summary || null);
-        if (summary?.error) saveProblem(docsProblem(summary));
+        setDocs(summary?.docs ?? null);
+        if (summary?.docs?.error) saveProblem(docsProblem(summary.docs));
+        else if (summary?.skillError) saveProblem(`Saved, but the agent skill in ${SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} wasn't updated: ${summary.skillError}`);
         // A save that went through takes down what an earlier one said went wrong.
         else setMessage((shown) => (shown === problem.current ? null : shown));
         if (host.storage === "file") setSavedText(next);

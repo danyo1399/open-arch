@@ -18,7 +18,7 @@ import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
-import { BrowserHost, copyText, desktopBridge, DesktopHost, docsZip, download, savesDocs, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, copyText, desktopBridge, DesktopHost, download, workspaceZip, savesDocs, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
 import {
@@ -389,7 +389,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const canShare = !!shareClient && state.storage !== "memory";
   // Links made in the desktop app open in the web designer; the web designer's open in itself.
   const designer = desktop || !location.protocol.startsWith("http") ? PUBLIC_DESIGNER : location.origin + location.pathname;
-  const exportDocs = () => download(`${host.name.replace(/\.openarch$/, "")}-docs.zip`, docsZip(ws, host.name) as BlobPart, "application/zip");
+  const exportZip = () => download(`${host.name.replace(/\.openarch$/, "")}.zip`, workspaceZip(ws, host.name, state.text!) as BlobPart, "application/zip");
   const toggleAsk = () => {
     setAskOpen((o) => !o);
     // The panel is drawn over the diagram; hiding it leaves the pane as it is.
@@ -436,7 +436,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   // toolbar has no room for its Export menu there either, so that's in this menu too.
   const moreItems: MenuItem[] = [
     ...(desktop ? [] : providers.map((provider) => ({ label: provider.exportLabel, onSelect: () => exportTo(provider) }))),
-    ...(syncsDocs ? [] : [{ label: "Export docs", onSelect: exportDocs }]),
+    ...(syncsDocs ? [] : [{ label: "Export zip", onSelect: exportZip }]),
     ...(canShare ? [{ label: "Share a link…", onSelect: () => setDialog({ kind: "share" }) }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
     ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
@@ -509,8 +509,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             </button>
           ))}
         {!narrow && !syncsDocs && (
-          <button onClick={exportDocs} title="Markdown pages with Mermaid diagrams">
-            Export docs
+          <button onClick={exportZip} title="The .openarch file, its markdown docs, and the agent skill for AI agents, in a .zip">
+            Export zip
           </button>
         )}
         {!narrow && canShare && (
@@ -645,6 +645,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         selection={selection}
         isNew={isNew}
         syncsDocs={syncsDocs}
+        syncsSkill={!!host.syncsSkill && state.storage === "file"}
         docs={state.docs}
         fileName={host.name}
         edit={edit}

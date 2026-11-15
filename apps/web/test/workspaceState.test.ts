@@ -2,7 +2,7 @@
 import { emptyDocument, serializeDocument } from "@open-arch/core";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
-import type { DocsSummary } from "../src/bridge.js";
+import type { DocsSummary, SaveSummary } from "../src/bridge.js";
 import type { WorkspaceHost } from "../src/hosts.js";
 import { docsProblem, useWorkspace, type WorkspaceState } from "../src/state.js";
 import { mount } from "./dom.js";
@@ -19,7 +19,7 @@ class TestHost implements WorkspaceHost {
   changed = () => {};
   removed = () => {};
   problem: (text: string | null) => void = () => {};
-  save: (next: string) => Promise<DocsSummary | null | void> = async (next) => void (this.file = next);
+  save: (next: string) => Promise<SaveSummary | void> = async (next) => void (this.file = next);
   constructor(readonly storage: WorkspaceHost["storage"]) {}
   async load() {
     return this.file;
@@ -100,7 +100,7 @@ describe("the open workspace", () => {
     const host = new TestHost("file");
     host.save = async (next) => {
       host.file = next;
-      return { dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." };
+      return { docs: { dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." } };
     };
     const state = await workspaceFor(host);
     await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
@@ -114,7 +114,7 @@ describe("the open workspace", () => {
     const summaries: (DocsSummary | null)[] = [{ dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." }, null];
     host.save = async (next) => {
       host.file = next;
-      return summaries.shift();
+      return { docs: summaries.shift() ?? null };
     };
     const state = await workspaceFor(host);
     await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
@@ -128,7 +128,7 @@ describe("the open workspace", () => {
     const summaries: (DocsSummary | null)[] = [{ dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." }, { dir: "docs", written: 1, deleted: 0, skipped: [] }];
     host.save = async (next) => {
       host.file = next;
-      return summaries.shift();
+      return { docs: summaries.shift() ?? null };
     };
     const state = await workspaceFor(host);
     await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
@@ -148,6 +148,23 @@ describe("the open workspace", () => {
     await act(async () => state().notify({ kind: "error", text: "Couldn't copy." }));
     await act(async () => void (await state().edit([{ op: "update-workspace", name: "F" }])));
     expect(state().message?.text).toBe("Couldn't copy.");
+  });
+
+  it("says when the file was saved but the agent skill wasn't", async () => {
+    const host = new TestHost("file");
+    host.save = async (next) => {
+      host.file = next;
+      return { docs: null, skillError: "Not allowed." };
+    };
+    const state = await workspaceFor(host);
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
+    expect(state().message).toEqual({ kind: "error", text: "Saved, but the agent skill in .agents/skills/open-arch/ and .claude/skills/open-arch/ wasn't updated: Not allowed." });
+    host.save = async (next) => {
+      host.file = next;
+      return { docs: null };
+    };
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "C" }])));
+    expect(state().message).toBeNull();
   });
 
   it("says how far the docs got when writing them stopped partway", () => {

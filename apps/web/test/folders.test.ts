@@ -2,9 +2,10 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allowed, findWorkspaces, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
+import { allowed, findWorkspaces, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
 import { exampleHost, MemoryHost, savesDocs } from "../src/hosts.js";
-import { FakeFile, FakeFolder } from "./fakeFolder.js";
+import { skillFiles } from "../src/skill.js";
+import { FakeFile, FakeFolder, skillInFolder } from "./fakeFolder.js";
 
 const workspace = (name: string, docs?: string) => {
   const doc = emptyDocument(name);
@@ -47,7 +48,7 @@ describe("a workspace in a folder", () => {
     expect(host).toMatchObject({ name: "architecture.openarch", storage: "file", syncsDocs: true, key: "folder/1", location: "repo/architecture.openarch" });
     expect(await host.load()).toBe(workspace("Shop", "docs/architecture"));
 
-    const summary = await host.save(workspace("Shop 2", "docs/architecture"));
+    const { docs: summary } = await host.save(workspace("Shop 2", "docs/architecture"));
     expect(root.files()["architecture.openarch"]).toBe(workspace("Shop 2", "docs/architecture"));
     expect(root.files()["docs/architecture/README.md"]).toContain("Shop 2");
     expect(root.files()["docs/architecture/README.md"]!.startsWith(GENERATED_MARKER)).toBe(true);
@@ -59,7 +60,7 @@ describe("a workspace in a folder", () => {
     const text = await exampleHost().load();
     root.put("arch/shop.openarch", text);
     const docs = loadWorkspace(text).doc.export!.docs!;
-    const summary = await new FolderHost("1", root, "arch/shop.openarch").save(text);
+    const { docs: summary } = await new FolderHost("1", root, "arch/shop.openarch").save(text);
     expect(summary?.dir).toBe(docs);
     expect(Object.keys(root.files())).toContain(`arch/${docs}/views/shop-containers.md`);
     expect(root.files()[`arch/${docs}/README.md`]).toContain("shop.openarch");
@@ -87,8 +88,8 @@ describe("a workspace in a folder", () => {
 
   it("saves only the file when the workspace names no docs folder", async () => {
     const root = new FakeFolder("repo");
-    expect(await new FolderHost("1", root, "a.openarch").save(workspace("A"))).toBeNull();
-    expect(root.files()).toEqual({ "a.openarch": workspace("A") });
+    expect(await new FolderHost("1", root, "a.openarch").save(workspace("A"))).toEqual({ docs: null });
+    expect(root.files()).toEqual({ "a.openarch": workspace("A"), ...skillInFolder() });
   });
 
   it("refuses to save over a change made outside since it was loaded, and saves once it's reloaded", async () => {
@@ -146,12 +147,12 @@ describe("a workspace in a folder", () => {
     root.put("docs", "not a folder");
     const host = new FolderHost("1", root, "a.openarch");
     await host.load();
-    const summary = await host.save(workspace("B", "docs"));
+    const { docs: summary } = await host.save(workspace("B", "docs"));
     expect(summary).toMatchObject({ dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." });
     expect(root.files()["a.openarch"]).toBe(workspace("B", "docs"));
     // The next save goes ahead: the file holds what this one wrote.
     root.entries.delete("docs");
-    expect(await host.save(workspace("C", "docs"))).toEqual({ dir: "docs", written: 1, deleted: 0, skipped: [] });
+    expect(await host.save(workspace("C", "docs"))).toEqual({ docs: { dir: "docs", written: 1, deleted: 0, skipped: [] } });
   });
 
   it("says how far the docs got when writing them stopped partway", async () => {
@@ -161,7 +162,7 @@ describe("a workspace in a folder", () => {
     root.put("shop.openarch", text);
     root.put(`${docs}/old.md`, "");
     (root.entries.get(docs) as FakeFolder).refuse.add("elements");
-    const summary = await new FolderHost("1", root, "shop.openarch").save(text);
+    const { docs: summary } = await new FolderHost("1", root, "shop.openarch").save(text);
     expect(summary?.error).toBe("Not allowed.");
     expect(summary?.written).toBeGreaterThan(0);
     // It got as far as the index and the view pages, and stopped at the first element's page. The
@@ -175,7 +176,7 @@ describe("a workspace in a folder", () => {
 
   it("creates a new workspace, but never over a file that's there", async () => {
     const root = new FakeFolder("repo");
-    expect(await new FolderHost("1", root, "architecture.openarch").create(workspace("A", "docs"))).toMatchObject({ written: 1 });
+    expect((await new FolderHost("1", root, "architecture.openarch").create(workspace("A", "docs"))).docs).toMatchObject({ written: 1 });
     expect(root.files()["architecture.openarch"]).toBe(workspace("A", "docs"));
     // Pulled in after the folder was searched, say.
     root.put("other.openarch", workspace("Pulled"));
@@ -185,6 +186,40 @@ describe("a workspace in a folder", () => {
 
   it("says when the file isn't there any more", async () => {
     await expect(new FolderHost("1", new FakeFolder("repo"), "gone.openarch").load()).rejects.toThrow("repo/gone.openarch isn't there any more.");
+  });
+});
+
+describe("keeping the agent skill", () => {
+  it("makes the folder hold exactly the skill, writing only what differs", async () => {
+    const dir = new FakeFolder("open-arch");
+    const skill = Object.fromEntries(skillFiles.map((f) => [f.path, f.content]));
+    expect((await writeSkill(dir)).sort()).toEqual(Object.keys(skill).sort());
+    expect(dir.files()).toEqual(skill);
+    // Up to date, it writes nothing.
+    const before = (dir.entries.get("SKILL.md") as FakeFile).lastModified;
+    expect(await writeSkill(dir)).toEqual([]);
+    expect((dir.entries.get("SKILL.md") as FakeFile).lastModified).toBe(before);
+    // A changed page is put back, and a file or folder the skill doesn't have goes, as open-arch init replaces the folder.
+    dir.put("SKILL.md", "edited");
+    dir.put("old/stale.md", "from an older skill");
+    expect((await writeSkill(dir)).sort()).toEqual(["SKILL.md", "old/stale.md"]);
+    expect(dir.files()).toEqual(skill);
+    expect(dir.folders()).toEqual(["references"]);
+  });
+
+  it("is kept in the folder opened by every save, and said when it can't be", async () => {
+    const root = new FakeFolder("repo");
+    root.put("arch/a.openarch", workspace("A"));
+    root.put(".claude/settings.json", "{}");
+    const host = new FolderHost("1", root, "arch/a.openarch");
+    expect(await host.save(workspace("B"))).toEqual({ docs: null });
+    expect(root.files()).toEqual({ "arch/a.openarch": workspace("B"), ".claude/settings.json": "{}", ...skillInFolder() });
+    // The skill's folder is gone, and can't be made again.
+    const agents = root.entries.get(".agents") as FakeFolder;
+    agents.entries.delete("skills");
+    agents.refuse.add("skills");
+    expect(await host.save(workspace("C"))).toEqual({ docs: null, skillError: "Not allowed." });
+    expect(root.files()["arch/a.openarch"]).toBe(workspace("C"));
   });
 });
 

@@ -77,6 +77,7 @@ function panel(id: string) {
     selection: { kind: "element", id } as Selection,
     isNew: false,
     syncsDocs: false,
+    syncsSkill: false,
     docs: null,
     fileName: "shop.openarch",
     edit: async (e: Edit) => {

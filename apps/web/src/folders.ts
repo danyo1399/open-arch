@@ -5,8 +5,9 @@
  * do. So the changes are there to commit. The folders opened are remembered in IndexedDB: the
  * browser can keep a folder's handle, and asks again before the page may change it.
  */
-import { exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, type ExportedFile } from "@open-arch/core";
-import type { DocsSummary } from "./bridge.js";
+import { exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
+import type { DocsSummary, SaveSummary } from "./bridge.js";
+import { SKILL_TARGETS, skillFiles } from "./skill.js";
 import type { WorkspaceHost } from "./hosts.js";
 import { committed, done } from "./library.js";
 
@@ -94,7 +95,7 @@ export async function findWorkspaces(root: FolderHandle): Promise<string[]> {
 const isMissing = (error: unknown) => (error as Error)?.name === "NotFoundError";
 
 /** A path's folders, with `.` and `..` worked out. Null when it goes above the folder. */
-function segments(path: string): string[] | null {
+export function segments(path: string): string[] | null {
   const out: string[] = [];
   for (const part of path.split(/[\\/]/)) {
     if (part === "" || part === ".") continue;
@@ -182,6 +183,42 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[], change
   return changes;
 }
 
+/**
+ * Makes the folder hold exactly the agent skill's files, as `open-arch init` does: the folder is
+ * the skill's own. Only files that differ are written. Resolves to the paths it wrote or deleted.
+ */
+export async function writeSkill(dir: FolderHandle): Promise<string[]> {
+  const changed: string[] = [];
+  const wanted = new Map(skillFiles.map((f) => [f.path, f.content]));
+  for (const [path, content] of wanted) {
+    let existing: string | null = null;
+    try {
+      existing = await readText(await fileAt(dir, path));
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+    if (existing === content) continue;
+    await writeText(await fileAt(dir, path, true), content);
+    changed.push(path);
+  }
+  /** Deletes what isn't the skill's below `folder`. Resolves to whether the folder is empty after. */
+  const sweep = async (folder: FolderHandle, prefix: string): Promise<boolean> => {
+    const entries: (FileHandle | FolderHandle)[] = [];
+    for await (const entry of folder.values()) entries.push(entry);
+    let left = 0;
+    for (const entry of entries) {
+      const path = prefix + entry.name;
+      if (entry.kind === "directory" ? await sweep(entry, `${path}/`) : !wanted.has(path)) {
+        await folder.removeEntry(entry.name);
+        if (entry.kind === "file") changed.push(path);
+      } else left++;
+    }
+    return left === 0;
+  };
+  await sweep(dir, "");
+  return changed;
+}
+
 // --- The workspace host --------------------------------------------------------------
 
 /** How often the file is checked for changes made outside the designer, such as `git pull`. */
@@ -191,6 +228,7 @@ const POLL_MS = 1500;
 export class FolderHost implements WorkspaceHost {
   readonly storage = "file";
   readonly syncsDocs = true;
+  readonly syncsSkill = true;
   readonly name: string;
   /** The file's text as the designer last read or wrote it. Saving over anything else would lose a change made outside. */
   private known: string | null = null;
@@ -235,7 +273,7 @@ export class FolderHost implements WorkspaceHost {
    * Saves a new workspace, and its docs. Refuses if the file is there already. A file that appears
    * in the moment between that check and the write is still overwritten: the browser can't lock it.
    */
-  async create(text: string): Promise<DocsSummary | null> {
+  async create(text: string): Promise<SaveSummary> {
     const there = await fileAt(this.root, this.path).then(
       () => true,
       (error) => {
@@ -247,7 +285,13 @@ export class FolderHost implements WorkspaceHost {
     return this.save(text);
   }
 
-  async save(text: string): Promise<DocsSummary | null> {
+  /**
+   * Saves the file, then rewrites its docs folder and keeps the agent skill up to date in the
+   * folder opened, as `open-arch init` installs it, so agents working in the folder know how to
+   * read and change the model. The file is saved by then, so the docs or the skill failing is
+   * reported, not thrown.
+   */
+  async save(text: string): Promise<SaveSummary> {
     const ws = loadWorkspace(text);
     if (!ws.valid) throw new Error(`Refusing to save: the workspace has structural errors (${ws.diagnostics.map((d) => d.message).join(" ")})`);
     // Worked out before anything is written, so a docs folder it can't reach saves nothing.
@@ -286,14 +330,22 @@ export class FolderHost implements WorkspaceHost {
     }
     await writable.close();
     this.known = saved;
-    if (!docsParts || !docs) return null;
+    const result: SaveSummary = { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
+    try {
+      for (const target of SKILL_TARGETS) await writeSkill(await folderAt(this.root, target.split("/"), true));
+    } catch (error) {
+      result.skillError = (error as Error).message;
+    }
+    return result;
+  }
+
+  /** Rewrites the docs folder. A docs folder that can't be written is reported, with what was changed before it stopped. */
+  private async saveDocs(ws: Workspace, docs: string, parts: string[]): Promise<DocsSummary> {
     const summary: DocsSummary = { dir: docs.replace(/\\/g, "/").replace(/\/+$/, ""), written: 0, deleted: 0, skipped: [] };
-    // The file is saved by now, so a docs folder that can't be written is reported, not thrown,
-    // with what was changed before it stopped.
     const changes: DocsChanges = { written: [], deleted: [], skipped: [] };
     const counts = () => ({ ...summary, written: changes.written.length, deleted: changes.deleted.length, skipped: changes.skipped });
     try {
-      await writeDocs(await folderAt(this.root, docsParts, true), exportDocs(ws, this.name), changes);
+      await writeDocs(await folderAt(this.root, parts, true), exportDocs(ws, this.name), changes);
       return counts();
     } catch (error) {
       return { ...counts(), error: (error as Error).message };

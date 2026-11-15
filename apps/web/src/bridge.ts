@@ -21,6 +21,14 @@ export interface DocsSummary {
   error?: string;
 }
 
+/** What a save did beside writing the file. */
+export interface SaveSummary {
+  /** What it did to the docs folder: null when the workspace names none. */
+  docs: DocsSummary | null;
+  /** Why the agent skill wasn't kept up to date, when the file was saved but it wasn't. */
+  skillError?: string;
+}
+
 export interface DesktopBridge {
   /** Native open dialog for a .openarch file. Null when cancelled. */
   openFile(): Promise<OpenedFile | null>;

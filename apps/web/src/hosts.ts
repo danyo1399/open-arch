@@ -7,9 +7,11 @@ import { exportDocs, FILE_EXTENSION, type Workspace } from "@open-arch/core";
 import { strToU8, zipSync } from "fflate";
 import exampleText from "../../../examples/shop/shop.openarch?raw";
 import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw";
-import type { DesktopBridge, DocsSummary } from "./bridge.js";
+import type { DesktopBridge, SaveSummary } from "./bridge.js";
 import { importProblem, type WorkspaceLibrary } from "./library.js";
 import type { LinkParts, ShareClient } from "./share.js";
+import { segments } from "./folders.js";
+import { SKILL_TARGETS, skillFiles } from "./skill.js";
 
 export interface WorkspaceHost {
   /** File name, shown in the title bar. */
@@ -21,8 +23,10 @@ export interface WorkspaceHost {
   /** Saving also refreshes the docs folder: on desktop, and for a workspace in a folder (folders.ts). */
   syncsDocs?: boolean;
   load(): Promise<string>;
-  /** Save the file's new text. May report the docs folder it refreshed. */
-  save(text: string): Promise<DocsSummary | null | void>;
+  /** Save the file's new text. May report the docs folder it refreshed, and the agent skill. */
+  save(text: string): Promise<SaveSummary | void>;
+  /** Saving also keeps the agent skill up to date beside the workspace: for a workspace in a folder (folders.ts). */
+  syncsSkill?: boolean;
   /**
    * Calls `onChange` when the workspace changes outside this window, and `onRemoved` when it's
    * deleted there. `onProblem` hears, once, when it can't tell any more, and null once it can
@@ -93,11 +97,20 @@ export async function copyText(text: string): Promise<void> {
   if (!copied) throw new Error("Couldn't copy: this browser didn't allow the clipboard.");
 }
 
-/** The generated markdown docs as a zip, with everything in one folder. */
-export function docsZip(ws: Workspace, fileName: string): Uint8Array {
-  const folder = `${fileName.replace(/\.openarch$/, "")}-docs`;
-  const entries: Record<string, Uint8Array> = {};
-  for (const f of exportDocs(ws, fileName)) entries[`${folder}/${f.path}`] = strToU8(f.content);
+/**
+ * The workspace as a zip, with everything in one folder named after the file: the .openarch file
+ * (`text`), its generated markdown docs, and the agent skill, laid out as `open-arch init` and a
+ * save would leave them in a project. The docs go in the docs folder the workspace names, or in
+ * `<name>-docs` when it names none, or one outside the file's folder.
+ */
+export function workspaceZip(ws: Workspace, fileName: string, text: string): Uint8Array {
+  const base = fileName.replace(/\.openarch$/, "");
+  const named = ws.doc.export?.docs;
+  const inside = named && !/^([\\/]|[a-zA-Z]:)/.test(named) ? segments(named) : null;
+  const docs = inside ? inside.map((part) => `${part}/`).join("") : `${base}-docs/`;
+  const entries: Record<string, Uint8Array> = { [`${base}/${fileName}`]: strToU8(text) };
+  for (const f of exportDocs(ws, fileName)) entries[`${base}/${docs}${f.path}`] = strToU8(f.content);
+  for (const target of SKILL_TARGETS) for (const f of skillFiles) entries[`${base}/${target}/${f.path}`] = strToU8(f.content);
   return zipSync(entries);
 }
 
@@ -225,8 +238,8 @@ export class DesktopHost implements WorkspaceHost {
     return this.bridge.load(this.path);
   }
 
-  save(text: string): Promise<DocsSummary | null> {
-    return this.bridge.save(this.path, text);
+  async save(text: string): Promise<SaveSummary> {
+    return { docs: await this.bridge.save(this.path, text) };
   }
 
   watch(onChange: () => void): () => void {

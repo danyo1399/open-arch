@@ -1,7 +1,8 @@
 import { buildWorkspace, checkWorkspace, loadWorkspace } from "@open-arch/core";
 import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { docsZip, exampleHost, tourHost } from "../src/hosts.js";
+import { exampleHost, tourHost, workspaceZip } from "../src/hosts.js";
+import { SKILL_TARGETS, skillFiles } from "../src/skill.js";
 import { deletePlan, relationshipRef, uniqueId } from "../src/model.js";
 
 describe("hosts", () => {
@@ -28,12 +29,29 @@ describe("hosts", () => {
     expect(await host.load()).toBe("changed");
   });
 
-  it("zips the generated docs into one folder", async () => {
-    const ws = loadWorkspace(await exampleHost().load());
-    const files = unzipSync(docsZip(ws, "shop.openarch"));
-    expect(Object.keys(files)).toContain("shop-docs/README.md");
-    expect(Object.keys(files)).toContain("shop-docs/views/shop-containers.md");
-    expect(strFromU8(files["shop-docs/views/shop-containers.md"]!)).toContain("```mermaid");
+  it("zips the workspace file, its docs where it names them, and the agent skill, in one folder", async () => {
+    const text = await exampleHost().load();
+    const ws = loadWorkspace(text);
+    const docs = ws.doc.export!.docs!;
+    const files = unzipSync(workspaceZip(ws, "shop.openarch", text));
+    expect(strFromU8(files["shop/shop.openarch"]!)).toBe(text);
+    expect(Object.keys(files)).toContain(`shop/${docs}/README.md`);
+    expect(strFromU8(files[`shop/${docs}/views/shop-containers.md`]!)).toContain("```mermaid");
+    for (const target of SKILL_TARGETS) {
+      expect(strFromU8(files[`shop/${target}/SKILL.md`]!)).toBe(skillFiles.find((f) => f.path === "SKILL.md")!.content);
+      expect(Object.keys(files)).toContain(`shop/${target}/references/commands.md`);
+    }
+    expect(Object.keys(files).every((path) => path.startsWith("shop/"))).toBe(true);
+  });
+
+  it("zips the docs in <name>-docs when the workspace names no docs folder, or one outside its folder", () => {
+    for (const docs of [undefined, "../docs", "/docs"]) {
+      const text = JSON.stringify({ openarch: 11, name: "A", ...(docs ? { export: { docs } } : {}), elements: {}, views: {} });
+      const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)));
+      expect(files).toContain("a/a-docs/README.md");
+    }
+    const text = JSON.stringify({ openarch: 11, name: "A", export: { docs: "./docs/arch/" }, elements: {}, views: {} });
+    expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)))).toContain("a/docs/arch/README.md");
   });
 });
 

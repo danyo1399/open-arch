@@ -1,5 +1,10 @@
 /** A folder on disk, in memory, for tests of workspaces in a folder (folders.ts). */
 import type { FileHandle, FolderHandle } from "../src/folders.js";
+import { SKILL_TARGETS, skillFiles } from "../src/skill.js";
+
+/** The agent skill's files, by path, as a save in a folder writes them. */
+export const skillInFolder = (): Record<string, string> =>
+  Object.fromEntries(SKILL_TARGETS.flatMap((target) => skillFiles.map((f) => [`${target}/${f.path}`, f.content])));
 
 const notFound = () => Object.assign(new Error("A requested file or directory could not be found."), { name: "NotFoundError" });
 
