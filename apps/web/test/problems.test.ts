@@ -6,13 +6,14 @@ import { App } from "../src/App.js";
 import { FolderList, pickFolder, writeDocs, type FolderHandle } from "../src/folders.js";
 import { WorkspaceLibrary } from "../src/library.js";
 import { LibraryPage } from "../src/LibraryPage.js";
-import type { AgentBridge, AgentEvent } from "../src/bridge.js";
+import type { AgentBridge, AgentEvent, DesktopBridge } from "../src/bridge.js";
 import { AskAI } from "../src/panels/AskAI.js";
 import { ShareDialog } from "../src/panels/ShareDialog.js";
 import { isProblem, problemText, UNKNOWN_PROBLEM } from "../src/problems.js";
 import { PNG_FILE, saveFile } from "../src/providers.js";
 import { Settings } from "../src/settings.js";
-import type { ShareClient } from "../src/share.js";
+import { ShareClient } from "../src/share.js";
+import { DesktopStart } from "../src/Start.js";
 import { button, click, mount } from "./dom.js";
 import { FakeFolder } from "./fakeFolder.js";
 
@@ -131,5 +132,20 @@ describe("what went wrong", () => {
     // The menu opens over the page, outside what the app is drawn in.
     await click([...document.querySelectorAll<HTMLElement>('.context-menu [role="menuitem"]')].find((item) => item.textContent?.trim() === "Copy as Mermaid")!);
     await until(host, UNKNOWN_PROBLEM);
+  });
+
+  it("on the desktop app's start page, when opening or making a file fails without saying why", async () => {
+    for (const action of ["Open…", "New workspace"]) {
+      const desktop = { openFile: () => Promise.reject(undefined), newFile: () => Promise.reject(new Error("  ")) } as unknown as DesktopBridge;
+      const host = mount(createElement(DesktopStart, { desktop, onOpen() {} }));
+      await click(button(host, action));
+      await until(host, UNKNOWN_PROBLEM);
+      host.remove();
+    }
+  });
+
+  it("from the share server, when its reason is blank, says what it answered", async () => {
+    const client = new ShareClient("https://share.example", async () => new Response(JSON.stringify({ error: " " }), { status: 500 }));
+    await expect(client.create({ name: "a.openarch", text: "{}" })).rejects.toThrow("the share server answered 500.");
   });
 });

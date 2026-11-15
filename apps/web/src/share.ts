@@ -140,7 +140,8 @@ const failed = (doing: string | null, reason: string) => (doing ? `Couldn't ${do
 /** The share server's reason a request failed, or one made up from its status. */
 async function problem(response: Response, doing: string | null): Promise<ShareError> {
   const body = (await response.json().catch(() => null)) as { error?: unknown; code?: unknown } | null;
-  const reason = typeof body?.error === "string" ? body.error : `the share server answered ${response.status}.`;
+  // A blank reason says nothing, so it's made up from the status, as a missing one is.
+  const reason = typeof body?.error === "string" && body.error.trim() ? body.error : `the share server answered ${response.status}.`;
   return new ShareError(failed(doing, reason), response.status, typeof body?.code === "string" ? body.code : undefined);
 }
 
