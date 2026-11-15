@@ -441,9 +441,9 @@ export class FolderList {
         resolve(db);
       };
       request.onerror = () => reject(request.error);
-    }).catch((error: Error) => {
+    }).catch((error: unknown) => {
       this.db = null;
-      throw new Error(`This browser won't let open-arch remember folders: ${error.message}`);
+      throw new Error(`This browser won't let open-arch remember folders: ${problemText(error)}`);
     });
     return this.db;
   }

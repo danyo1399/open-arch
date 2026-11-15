@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { committed, done } from "./library.js";
 import { renamedId, type Rename, type ViewOrder } from "./model.js";
+import { problemText } from "./problems.js";
 import type { Share } from "./share.js";
 
 const STORE = "settings";
@@ -41,9 +42,9 @@ export class Settings {
         resolve(db);
       };
       request.onerror = () => reject(request.error);
-    }).catch((error: Error) => {
+    }).catch((error: unknown) => {
       this.db = null;
-      throw new Error(`This browser won't let open-arch keep your settings: ${error.message}`);
+      throw new Error(`This browser won't let open-arch keep your settings: ${problemText(error)}`);
     });
     return this.db;
   }

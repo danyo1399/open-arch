@@ -118,7 +118,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         commit(t);
         setSavedText(t);
       })
-      .catch((e: Error) => !cancelled && setLoadError(e.message));
+      .catch((e: unknown) => !cancelled && setLoadError(problemText(e)));
     const stop = host.watch?.(
       () => {
         void enqueue(async () => {

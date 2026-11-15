@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentBridge, AgentContext, AgentEvent } from "../bridge.js";
+import { problemText } from "../problems.js";
 
 type Answer = "approved" | "denied" | "answered";
 
@@ -33,7 +34,7 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
 
 /** Errors from the main process arrive as "Error invoking remote method 'x': Error: message". */
 function errorText(error: unknown): string {
-  return String((error as Error)?.message ?? error).replace(/^Error invoking remote method '[^']*': (\w*Error: )?/, "");
+  return problemText(error).replace(/^Error invoking remote method '[^']*': (\w*Error: )?/, "");
 }
 
 /** Show the agent's `code` and **bold** markdown. */

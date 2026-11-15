@@ -5,6 +5,7 @@
  * BroadcastChannel, so a workspace open in two tabs stays in step.
  */
 import { parseDocument } from "@open-arch/core";
+import { problemText } from "./problems.js";
 
 export interface StoredWorkspace {
   id: string;
@@ -70,9 +71,9 @@ export class WorkspaceLibrary {
         resolve(db);
       };
       request.onerror = () => reject(request.error);
-    }).catch((error: Error) => {
+    }).catch((error: unknown) => {
       this.db = null;
-      throw new Error(`This browser won't let open-arch store workspaces: ${error.message}`);
+      throw new Error(`This browser won't let open-arch store workspaces: ${problemText(error)}`);
     });
     return this.db;
   }

@@ -1,6 +1,7 @@
 /** Sharing the open workspace as a link (share.ts), and opening a link someone shared. */
 import { useEffect, useState } from "react";
 import { copyText } from "../hosts.js";
+import { problemText } from "../problems.js";
 import { userSettings, type Settings } from "../settings.js";
 import { linkTo, readLink, type LinkParts, type Share, type ShareClient, type SharedFile } from "../share.js";
 import { Modal } from "./dialogs.js";
@@ -43,7 +44,7 @@ export function ShareDialog({ client, workspace, file, designer, settings = user
     setError(null);
     setNotice(null);
     task()
-      .catch((e: Error) => setError(e.message))
+      .catch((e: unknown) => setError(problemText(e)))
       .finally(() => setBusy(false));
   };
 

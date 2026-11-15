@@ -3,6 +3,7 @@ import { useState, type DragEvent, type ReactNode } from "react";
 import type { DesktopBridge } from "./bridge.js";
 import { DesktopHost, exampleHost, SharedHost, tourHost, type WorkspaceHost } from "./hosts.js";
 import { OpenLinkDialog } from "./panels/ShareDialog.js";
+import { problemText } from "./problems.js";
 import { shareClient } from "./share.js";
 
 interface StartPageProps {
@@ -66,7 +67,7 @@ export function DesktopStart({ desktop, onOpen }: { desktop: DesktopBridge; onOp
 
   const attempt = (task: () => Promise<void>) => {
     setError(null);
-    task().catch((e: Error) => setError(e.message));
+    task().catch((e: unknown) => setError(problemText(e)));
   };
 
   const open = () =>

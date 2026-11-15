@@ -54,6 +54,14 @@ function page(folders = new MemoryFolders()) {
 }
 
 describe("opening a folder from the start page", () => {
+  it("says why the folders couldn't be listed even when what failed has no message", async () => {
+    picker();
+    const folders = new MemoryFolders();
+    folders.list = () => Promise.reject(undefined);
+    const { host } = page(folders);
+    await until(host, "Something went wrong, and the browser didn't say what.");
+  });
+
   it("isn't offered where the browser can't change a folder's files", async () => {
     const { host } = page();
     await until(host, "Your workspaces");

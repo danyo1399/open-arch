@@ -7,6 +7,7 @@ import { InstallPrompt } from "./InstallPrompt.js";
 import { importFiles, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
 import { ConfirmDialog, Modal } from "./panels/dialogs.js";
 import { OpenLinkDialog } from "./panels/ShareDialog.js";
+import { problemText } from "./problems.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
 import { userSettings } from "./settings.js";
 import { shareClient } from "./share.js";
@@ -31,7 +32,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
   /** A folder with no workspace in it, to make one in. */
   const [creating, setCreating] = useState<FolderHandle | null>(null);
 
-  const refresh = useCallback(() => library.list().then(setRecords, (e: Error) => setError(e.message)), [library]);
+  const refresh = useCallback(() => library.list().then(setRecords, (e: unknown) => setError(problemText(e))), [library]);
 
   // Other tabs can add, change and delete workspaces too.
   useEffect(() => {
@@ -40,7 +41,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
   }, [library, refresh]);
 
   useEffect(() => {
-    if (foldersWork) folders.list().then(setOpened, (e: Error) => setError(e.message));
+    if (foldersWork) folders.list().then(setOpened, (e: unknown) => setError(problemText(e)));
   }, [folders, foldersWork]);
 
   const titles = useMemo(() => new Map(records?.map((r) => [r.id, workspaceTitle(r)])), [records]);
@@ -48,7 +49,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
   const attempt = (task: () => Promise<void>) => {
     setError(null);
     setNotice(null);
-    task().catch((e: Error) => setError(e.message));
+    task().catch((e: unknown) => setError(problemText(e)));
   };
 
   const open = (record: StoredWorkspace) => onOpen(new BrowserHost(library, record.id, record.fileName));

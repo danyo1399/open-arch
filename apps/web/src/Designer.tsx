@@ -43,6 +43,7 @@ import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js"
 import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
 import { ShareDialog } from "./panels/ShareDialog.js";
 import { Properties, shapesLabel } from "./panels/Properties.js";
+import { problemText } from "./problems.js";
 import { MARKDOWN_FILE, PDF_FILE, PNG_FILE, providers, saveFile, SVG_FILE, type FileProvider, type FileType } from "./providers.js";
 import { diagramImage, nextPaint, type ImageFormat } from "./image.js";
 import { Sidebar } from "./panels/Sidebar.js";
@@ -324,7 +325,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     else if (target?.kind === "element" && ws?.elements.has(target.id)) showDetails({ kind: "element", id: target.id });
   };
 
-  const attempt = (task: () => Promise<void>) => void task().catch((e: Error) => state.notify({ kind: "error", text: e.message }));
+  const attempt = (task: () => Promise<void>) => void task().catch((e: unknown) => state.notify({ kind: "error", text: problemText(e) }));
 
   /**
    * An example, or a workspace deleted in another tab, only lives in this tab until it's saved:
