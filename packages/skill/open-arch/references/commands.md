@@ -1,6 +1,6 @@
 # open-arch commands
 
-Every command takes `--file <path>` to name the `.openarch` file; without it, the CLI uses the one in the current folder or the nearest folder above, or the only one in the folders below it, two levels down.
+Every command takes `--file <path>` to name the `.openarch` file; without it, the CLI uses the one in the current folder or the nearest folder above, or the only one in the folders below it, up to two levels down.
 
 Commands that change the model also take:
 
