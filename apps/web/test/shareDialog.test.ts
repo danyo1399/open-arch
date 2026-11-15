@@ -23,6 +23,12 @@ const until = async (host: HTMLElement, text: string) => {
   expect(host.textContent).toContain(text);
 };
 
+/** Lets the dialog finish what it's doing, until the button with this text can be pressed. */
+const enabled = async (host: HTMLElement, text: string) => {
+  for (let i = 0; i < 500 && button(host, text).disabled; i++) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  expect(button(host, text).disabled).toBe(false);
+};
+
 /** What the share server says about a workspace's latest version: 200 while it's shared, 410 once it isn't. */
 const latest = async (id: string) => (await fetch(`${server.url}/v1/workspaces/${id}`)).status;
 
@@ -57,6 +63,8 @@ describe("ShareDialog", () => {
     expect(updated.hash).not.toBe(parts.hash);
     expect(host.textContent).toContain("Updated the link.");
 
+    // The notice shows before the dialog has finished keeping the link, and its buttons wait for that.
+    await enabled(host, "Stop sharing…");
     await click(button(host, "Stop sharing…"));
     await click(button(host, "Stop sharing"));
     await until(host, "Stopped sharing it.");
@@ -73,6 +81,8 @@ describe("ShareDialog, for a link the server no longer has", () => {
     await settings.setShare("browser/a", { id: "C".repeat(22), hash: "D".repeat(22), key: "k".repeat(43), token: "t".repeat(43), updated: 1 });
     const host = dialog(settings);
     await until(host, "Stop sharing…");
+    // The notice shows before the dialog has finished keeping the link, and its buttons wait for that.
+    await enabled(host, "Stop sharing…");
     await click(button(host, "Stop sharing…"));
     await click(button(host, "Stop sharing"));
     await until(host, "Stopped sharing it.");
