@@ -98,9 +98,10 @@ Rewrites the file in canonical form. With --check, changes nothing and exits 1 i
 Writes the generated markdown docs (an index, a page per element and per view with its
 Mermaid diagram) to the folder, or to the workspace's docs folder. Only pages open-arch
 generated from this file (or from one that isn't there any more) are overwritten or removed,
-and old ones are only looked for at the folder's top and in views/ and elements/. So another
-workspace's docs in the same folder are left alone. With --check, exits 1 if the docs are out
-of date.
+and old ones are only looked for at the folder's top and in views/ and elements/. So the docs
+of another workspace whose file is in the same folder as this one are left alone, even in the
+same docs folder; workspaces in different folders need docs folders of their own. With
+--check, exits 1 if the docs are out of date.
 `,
     options: { ...FILE, check: b },
     run: (io, v, p) => exportCommand(io, { file: str(v.file), dir: p[0], check: bool(v.check) }),

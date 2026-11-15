@@ -622,6 +622,18 @@ describe("init", () => {
     expect(agents.replace(/\r\n/g, "")).not.toContain("\n");
   });
 
+  it("export leaves the docs of another workspace in the same folder alone", () => {
+    const project = tempDir();
+    for (const [name, title] of [["a.openarch", "A"], ["b.openarch", "B"]]) {
+      writeFileSync(join(project, name), JSON.stringify({ openarch: 12, name: title, export: { docs: "." }, elements: {}, views: {} }));
+    }
+    expect(cli(project, "export", "--file", "a.openarch").code).toBe(0);
+    const result = cli(project, "export", "--file", "b.openarch");
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("wrote them for another workspace beside this one: README.md.");
+    expect(read(project, "README.md")).toContain("from a.openarch.");
+  });
+
   it("names docs at the top of the project as ./ in AGENTS.md", () => {
     const project = tempDir();
     mkdirSync(join(project, ".git"));

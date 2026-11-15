@@ -507,6 +507,17 @@ describe("keeping the docs folder", () => {
     expect(docs.files()).toEqual({ "README.md": from("b.openarch", "B"), "views/b.md": from("b.openarch", "B view") });
   });
 
+  it("keeps two workspaces' docs beside their files, in one folder, apart through a folder's saves", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A", "."));
+    root.put("b.openarch", workspace("B", "."));
+    await new FolderHost("1", root, "a.openarch").save(workspace("A", "."));
+    const saved = await new FolderHost("2", root, "b.openarch").save(workspace("B", "."));
+    // b's index is left to a, whose file is there; a's pages stay as a wrote them.
+    expect(saved.docs).toMatchObject({ skipped: ["README.md"], deleted: 0 });
+    expect(root.files()["README.md"]).toContain("from a.openarch.");
+  });
+
   it("keeps a renamed workspace's docs up to date through a folder's saves", async () => {
     const root = new FakeFolder("repo");
     root.put("old.openarch", workspace("A", "."));

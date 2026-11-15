@@ -130,8 +130,10 @@ export interface DocsChanges {
 
 /**
  * Makes the docs folder hold exactly these generated pages, as the CLI's `writeDocs` does. Only
- * pages carrying the generated marker are ever overwritten or deleted; anything else is left alone.
- * It records each change in `changes` as it makes it, so if it fails partway, they say how far it got.
+ * pages open-arch generated from the same file are overwritten or deleted: a page from another
+ * workspace still beside this one, which `isWorkspace` tells, is left alone. Stale pages are only
+ * looked for at the folder's top and in DOCS_PAGE_FOLDERS; anything else is left alone. It records
+ * each change in `changes` as it makes it, so if it fails partway, they say how far it got.
  */
 export async function writeDocs(
   dir: FolderHandle,
