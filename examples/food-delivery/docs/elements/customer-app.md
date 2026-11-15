@@ -8,7 +8,7 @@ Lets customers browse menus, order and track their food.
 
 **A container** is something that runs or stores data on its own: an app, a website, an API, a background worker, a database or a queue. The word has nothing to do with Docker.
 
-This one is a mobile app, installed on customers' phones.
+This one is a mobile app, installed on customers' phones. Its screens are sketched in view 7.
 
 ## Uses
 
@@ -24,6 +24,7 @@ This one is a mobile app, installed on customers' phones.
 
 ## Shown in
 
+- [7. Customer App screens](../views/customer-app-screens.md) (its screens)
 - [4. Order API components](../views/order-api-components.md)
 - [6. Placing an order](../views/ordering-flow.md)
 - [3. Delivery Platform containers](../views/platform-containers.md)

@@ -6,6 +6,8 @@
 
 Lets restaurants manage menus and incoming orders.
 
+A website restaurants keep open during service. Its screens are sketched in view 8.
+
 ## Uses
 
 | Element | Description | Technology |
@@ -22,5 +24,6 @@ Lets restaurants manage menus and incoming orders.
 
 - [4. Order API components](../views/order-api-components.md)
 - [3. Delivery Platform containers](../views/platform-containers.md)
+- [8. Restaurant Portal screens](../views/restaurant-portal-screens.md) (its screens)
 
 [All views and elements](../README.md)

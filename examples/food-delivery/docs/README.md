@@ -2,16 +2,18 @@
 
 # Food Delivery
 
-A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 6 in order: views 1 to 5 each zoom in one step, and their sticky notes explain what you're looking at.
+A guided tour of the C4 model, using a made-up food delivery business. Open views 1 to 8 in order: views 1 to 5 each zoom in one step, views 7 and 8 sketch the screens of two of its apps, and their sticky notes explain what you're looking at.
 
 ## Views
 
+- [7. Customer App screens](views/customer-app-screens.md) – What a customer taps through to order food, from finding a restaurant to tracking the courier.
 - [1. System landscape](views/landscape.md) – Every person and system in the business, and how they connect.
 - [4. Order API components](views/order-api-components.md) – How the Order API handles an order.
 - [5. Order Service classes](views/order-service-classes.md) – The code inside the Order Service: its classes, and how they relate.
 - [6. Placing an order](views/ordering-flow.md) – Only what's involved when a customer places an order.
 - [3. Delivery Platform containers](views/platform-containers.md) – The apps, services and data stores that make up the Delivery Platform.
 - [2. Delivery Platform context](views/platform-context.md) – Who uses the Delivery Platform, and which systems it depends on.
+- [8. Restaurant Portal screens](views/restaurant-portal-screens.md) – What restaurant staff see when an order comes in.
 
 ## Model
 

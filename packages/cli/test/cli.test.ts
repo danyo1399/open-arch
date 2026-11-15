@@ -45,7 +45,7 @@ describe("reading", () => {
 
   it("checks the tour example cleanly too", () => {
     const dir = fileURLToPath(new URL("../../../examples/food-delivery", import.meta.url));
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: food-delivery.openarch, 27 elements, 6 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: food-delivery.openarch, 27 elements, 8 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
