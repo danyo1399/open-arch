@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkspace, checkWorkspace, computeView, exportDocs, GENERATED_MARKER, renderMermaid, viewMarkdown } from "../src/index.js";
-import { rules, shop } from "./helpers.js";
+import { buildWorkspace, checkWorkspace, computeView, exportDocs, GENERATED_MARKER, renderMermaid, viewMarkdown, type OpenArchDocument } from "../src/index.js";
+import { apply, rules, shop } from "./helpers.js";
 
 describe("checkWorkspace", () => {
   it("passes a valid model", () => {
@@ -31,6 +31,77 @@ describe("checkWorkspace", () => {
     doc.elements.customer!.shape = "database";
     expect(rules(doc)).toEqual(["shape-ignored"]);
     expect(buildWorkspace(doc).elements.get("customer")!.shape).toBe("box");
+  });
+});
+
+describe("implied relationships", () => {
+  const implied = (doc: OpenArchDocument) =>
+    checkWorkspace(buildWorkspace(doc))
+      .filter((d) => d.rule === "relationship-implied")
+      .map((d) => `${d.path}: ${d.message}`);
+
+  it("warns about a relationship that one between elements nested in its ends already implies", () => {
+    const doc = shop();
+    // The controller, in the API in the shop, charges cards; the customer uses the shop's web app;
+    // the controller stores orders in the DB.
+    doc.elements.shop!.uses = [{ to: "payments", description: "Takes payments" }];
+    doc.elements.customer!.uses!.push({ to: "shop", description: "Shops at" });
+    doc.elements.api!.uses = [{ to: "db", description: "Stores data" }];
+    expect(implied(doc)).toEqual([
+      'elements.customer.uses[1]: "customer" uses "shop", and the relationship from "customer" to "web-app" already implies that: views that show both draw them as one arrow, with the label of the one on "customer".',
+      'elements.shop.uses[0]: "shop" uses "payments", and the relationship from "controller" to "payments" already implies that: views that show both draw them as one arrow, with the label of the one on "shop".',
+      'elements.api.uses[0]: "api" uses "db", and the relationship from "controller" to "db" already implies that: views that show both draw them as one arrow, with the label of the one on "api".',
+    ]);
+    expect(checkWorkspace(buildWorkspace(doc)).find((d) => d.rule === "relationship-implied")!.fix).toBe(
+      'Remove the one on "customer", and those views label the arrow with the more detailed one. If it says something else, put it on the most detailed elements it\'s true for instead.',
+    );
+
+    // As the warning says: one arrow, labelled with the coarser relationship.
+    const context = (d: OpenArchDocument) => computeView(buildWorkspace(d), buildWorkspace(d).views.get("shop-context")!).edges.find((e) => e.to === "payments")!;
+    expect(context(doc)).toMatchObject({ from: "shop", description: "Takes payments", implied: false, sources: [{ element: "shop" }, { element: "controller" }] });
+    // Without it, the arrow is labelled with the one that implied it.
+    const removed = apply(doc, { op: "remove-relationship", from: "shop", to: "payments" });
+    expect(context(removed)).toMatchObject({ from: "shop", description: "Charges cards", implied: true });
+    expect(implied(removed).map((d) => d.split(":")[0])).toEqual(["elements.customer.uses[1]", "elements.api.uses[0]"]);
+  });
+
+  it("names a relationship that goes both ways when it implies one the other way", () => {
+    const doc = shop();
+    doc.elements.controller!.uses![1] = { to: "payments", description: "Syncs charges with", bidirectional: true };
+    doc.elements.payments!.uses = [{ to: "shop", description: "Sends webhooks" }];
+    expect(implied(doc)).toEqual([
+      'elements.payments.uses[0]: "payments" uses "shop", and the relationship from "controller" to "payments", which goes both ways, already implies that: views that show both draw them as one arrow, with the label of the one on "payments".',
+    ]);
+  });
+
+  it("warns about a relationship that goes both ways only when both ways are implied", () => {
+    const doc = shop();
+    doc.elements.shop!.uses = [{ to: "payments", description: "Syncs payments with", bidirectional: true }];
+    // Only the controller charges cards: nothing says the payments system uses the shop.
+    expect(implied(doc)).toEqual([]);
+    doc.elements.payments!.uses = [{ to: "api", description: "Sends webhooks" }];
+    expect(implied(doc)).toEqual([
+      'elements.shop.uses[0]: "shop" and "payments" use each other, and the relationships from "controller" to "payments" and from "payments" to "api" already imply that: views that show both draw them as one arrow, with the label of the one on "shop".',
+    ]);
+    expect(checkWorkspace(buildWorkspace(doc)).find((d) => d.rule === "relationship-implied")!.fix).toBe(
+      'Remove the one on "shop", and those views label the arrow with the more detailed ones. If it says something else, put it on the most detailed elements it\'s true for instead.',
+    );
+  });
+
+  it("doesn't warn about relationships between the same elements, the other way, or to or from classes or library code", () => {
+    const doc = shop();
+    // Another relationship between the same two elements, and one the other way.
+    doc.elements.controller!.uses!.push({ to: "payments", description: "Refunds cards" });
+    doc.elements.payments!.uses = [{ to: "shop", description: "Sends webhooks" }];
+    // A class view draws a class as itself, so a class's relationship isn't always drawn on its component.
+    doc.elements.charge = { kind: "class", name: "Charge", parent: "controller", uses: [{ to: "db", description: "Saves charges" }] };
+    // A library's code isn't inside the containers built with it.
+    doc.elements.logs = { kind: "system", name: "Logs", external: true };
+    doc.elements.logging = { kind: "library", name: "Logging" };
+    doc.elements["log-client"] = { kind: "component", name: "Log client", parent: "logging", uses: [{ to: "logs", description: "Sends logs" }] };
+    doc.elements.db!.libraries = ["logging"];
+    doc.elements.db!.uses = [{ to: "logs", description: "Sends logs" }];
+    expect(rules(doc)).toEqual([]);
   });
 });
 

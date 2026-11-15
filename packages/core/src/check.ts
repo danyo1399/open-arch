@@ -1,5 +1,5 @@
-import { builtInto, containerOf, isInside, kindList, libraryOf, PARENT_KINDS } from "./model.js";
-import type { ArchElement, Diagnostic, Sticky, ViewDef } from "./types.js";
+import { builtInto, containerOf, isInside, kindList, libraryOf, lineage, PARENT_KINDS } from "./model.js";
+import type { ArchElement, Diagnostic, Relationship, Sticky, ViewDef } from "./types.js";
 import { computeView, didYouMean, scopeProblems, stickyAnchor, type ComputedView } from "./views.js";
 import type { Workspace } from "./workspace.js";
 
@@ -11,7 +11,8 @@ export function checkWorkspace(ws: Workspace): Diagnostic[] {
       out.push({ severity: "error", rule: "id-duplicate", message: `"${id}" is the ID of both an element and a view.`, path: `views.${id}`, fix: "Rename the view." });
     }
   }
-  for (const element of ws.elements.values()) checkElement(ws, element, out);
+  const implied = impliedRelationships(ws);
+  for (const element of ws.elements.values()) checkElement(ws, element, implied, out);
   for (const view of ws.views.values()) checkView(ws, view, out);
   return out;
 }
@@ -20,7 +21,62 @@ export function errorCount(diagnostics: Diagnostic[]): number {
   return diagnostics.filter((d) => d.severity === "error").length;
 }
 
-function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
+/** A relationship, and the element it's on. */
+interface PlacedRelationship {
+  from: string;
+  rel: Relationship;
+}
+
+/** A relationship that implies another, and whether it does so the other way, as it goes both ways. */
+interface Implying extends PlacedRelationship {
+  reversed: boolean;
+}
+
+/**
+ * The relationships that others, between elements nested in their two ends, already imply, with
+ * those others: one for each way it goes, and none unless every way it goes is implied. Views
+ * that show its two ends draw them all as one arrow.
+ */
+function impliedRelationships(ws: Workspace): Map<Relationship, Implying[]> {
+  // What each element is, or is inside. That's by parent, as a sequence step finds the
+  // relationships it goes along: a library's code isn't inside the containers built with it.
+  const within = new Map([...ws.elements.keys()].map((id) => [id, new Set(lineage(ws, id).map((e) => e.id))]));
+  // Relationships no view draws don't count. Nor do those to or from a class: a class view draws a
+  // class as itself wherever it is, so its relationships aren't always drawn on its component.
+  const notClass = (id: string) => ws.elements.get(id)!.kind !== "class";
+  const all: PlacedRelationship[] = [...ws.elements.values()].flatMap((el) =>
+    el.uses
+      .filter((rel) => within.has(rel.to) && notClass(el.id) && notClass(rel.to) && !within.get(el.id)!.has(rel.to) && !within.get(rel.to)!.has(el.id))
+      .map((rel) => ({ from: el.id, rel })),
+  );
+  // The relationships from each element, or from something inside it.
+  const outOf = new Map<string, PlacedRelationship[]>();
+  for (const r of all) {
+    for (const id of within.get(r.from)!) {
+      if (!outOf.has(id)) outOf.set(id, []);
+      outOf.get(id)!.push(r);
+    }
+  }
+  // The first relationship from something in `a` to something in `b`, other than one between
+  // exactly `a` and `b`; failing that, the first that goes both ways the other way.
+  const finer = (a: string, b: string): Implying | undefined => {
+    const joins = (r: PlacedRelationship, x: string, y: string) => within.get(r.rel.to)!.has(y) && !(r.from === x && r.rel.to === y);
+    const forward = outOf.get(a)?.find((r) => joins(r, a, b));
+    if (forward) return { ...forward, reversed: false };
+    const back = outOf.get(b)?.find((r) => r.rel.bidirectional && joins(r, b, a));
+    return back && { ...back, reversed: true };
+  };
+  const implied = new Map<Relationship, Implying[]>();
+  for (const { from, rel } of all) {
+    const forward = finer(from, rel.to);
+    const back = rel.bidirectional ? finer(rel.to, from) : undefined;
+    if (!forward || (rel.bidirectional && !back)) continue;
+    implied.set(rel, back && back.rel !== forward.rel ? [forward, back] : [forward]);
+  }
+  return implied;
+}
+
+function checkElement(ws: Workspace, el: ArchElement, implied: Map<Relationship, Implying[]>, out: Diagnostic[]): void {
   const at = (field: string) => `${el.path}.${field}`;
   const parentKinds = PARENT_KINDS[el.kind];
   const wantedParent = kindList(parentKinds);
@@ -135,6 +191,19 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
     const key = `${rel.to}\u0000${rel.kind}\u0000${rel.description ?? ""}`;
     if (seen.has(key)) out.push({ severity: "warning", rule: "relationship-duplicate", message: `The relationship to "${rel.to}" is listed twice.`, path, fix: "Remove one of them." });
     seen.add(key);
+    const by = implied.get(rel);
+    if (by) {
+      const one = by.length === 1;
+      const uses = rel.bidirectional ? `"${el.id}" and "${rel.to}" use each other` : `"${el.id}" uses "${rel.to}"`;
+      const names = by.map((r) => `from "${r.from}" to "${r.rel.to}"${r.reversed ? ", which goes both ways," : ""}`).join(" and ");
+      out.push({
+        severity: "warning",
+        rule: "relationship-implied",
+        message: `${uses}, and the relationship${one ? "" : "s"} ${names} already ${one ? "implies" : "imply"} that: views that show both draw them as one arrow, with the label of the one on "${el.id}".`,
+        path,
+        fix: `Remove the one on "${el.id}", and those views label the arrow with the more detailed ${one ? "one" : "ones"}. If it says something else, put it on the most detailed elements it's true for instead.`,
+      });
+    }
   });
 }
 

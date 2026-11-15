@@ -35,7 +35,8 @@ describe("relationships that go both ways", () => {
     expect(parsed.doc.elements).toEqual(site().elements);
     const bad = parseDocument(JSON.stringify({ ...site(), elements: { a: { kind: "system", name: "A", uses: [{ to: "b", bidirectional: "yes" }] }, b: { kind: "system", name: "B" } } }));
     expect(bad.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual(["field-type elements.a.uses[0].bidirectional"]);
-    expect(rules(site())).toEqual([]);
+    // The webhook to the API is drawn on the publisher's arrow, which goes both ways.
+    expect(rules(site())).toEqual(["relationship-implied"]);
   });
 
   it("are drawn as one arrow with a head at each end, standing for every relationship between the two boxes", () => {

@@ -314,8 +314,18 @@ describe("batches", () => {
   });
 
   it("reports warnings a change introduces without refusing it", () => {
-    const result = applyOperations(shop(), [{ op: "add-relationship", from: "api", to: "db" }]);
+    const result = applyOperations(shop(), [{ op: "add-relationship", from: "web-app", to: "db" }]);
     expect(result.warnings.map((w) => w.rule)).toEqual(["relationship-description"]);
+  });
+
+  it("warns when a new relationship repeats one between elements nested in its ends, whichever comes first", () => {
+    // The controller, in the API, already stores orders in the DB.
+    const coarser = applyOperations(shop(), [{ op: "add-relationship", from: "api", to: "db", description: "Stores data" }]);
+    expect(coarser.warnings.map((w) => `${w.rule} ${w.path}`)).toEqual(["relationship-implied elements.api.uses[0]"]);
+    // Adding the finer one later warns about the coarser one, which is still there.
+    const doc = apply(shop(), { op: "remove-relationship", from: "controller", to: "db" }, { op: "add-relationship", from: "api", to: "db", description: "Stores data" });
+    const finer = applyOperations(doc, [{ op: "add-relationship", from: "controller", to: "db", description: "Stores orders" }]);
+    expect(finer.warnings.map((w) => `${w.rule} ${w.path}`)).toEqual(["relationship-implied elements.api.uses[0]"]);
   });
 });
 
