@@ -137,6 +137,9 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           });
         });
       },
+      (problem) => {
+        if (!cancelled) setMessage({ kind: "error", text: problem });
+      },
     );
     return () => {
       cancelled = true;

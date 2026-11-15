@@ -306,21 +306,21 @@ export class FolderHost implements WorkspaceHost {
    * compares the file with the text loaded, so a change made in between is noticed too. Calls
    * `onRemoved` once it's been missing for a whole interval between checks.
    */
-  watch(onChange: () => void, onRemoved?: () => void): () => void {
+  watch(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string) => void): () => void {
     this.reload = onChange;
     /** The text the last check found: at first, what was loaded. */
     let seen: string | null = null;
     let started = false;
     /** When a check first found no file, in the gap it's in now. */
     let missingSince: number | null = null;
+    /** Whether the user was told the file can't be read, so they're told once, until it can be again. */
+    let told = false;
     let stopped = false;
     let checking = false;
     const check = async () => {
       if (stopped || checking || (typeof document !== "undefined" && document.hidden)) return;
       checking = true;
       try {
-        // The text, not the file's time and size: a change can keep both, on a file system
-        // that keeps times to the second. The file is small, so reading it is cheap.
         // The designer starts watching while the file is still loading, so the first check waits
         // for the load, and a change made after it read the file is noticed.
         if (!started) {
@@ -328,15 +328,23 @@ export class FolderHost implements WorkspaceHost {
           seen = this.known;
           started = true;
         }
+        // The text, not the file's time and size: a change can keep both, on a file system
+        // that keeps times to the second. The file is small, so reading it is cheap.
         const text = await readText(await fileAt(this.root, this.path));
         missingSince = null;
+        told = false;
         const changed = seen !== null && text !== seen;
         seen = text;
         if (changed && !stopped) onChange();
       } catch (error) {
         // Editors, agents and Git can replace the file by moving it aside first, so it's only
         // gone once it's been missing for a whole interval between checks.
-        if (!isMissing(error)) return;
+        if (!isMissing(error)) {
+          // Such as the browser no longer letting the page read the folder. It keeps trying.
+          if (!told && !stopped) onProblem?.(`Can't read ${this.location} to see changes made outside the designer: ${(error as Error).message}`);
+          told = true;
+          return;
+        }
         missingSince ??= Date.now();
         if (Date.now() - missingSince >= this.pollMs && !stopped) {
           stop();

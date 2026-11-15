@@ -94,7 +94,10 @@ export class FakeFile implements FileHandle {
   }
   /** Runs once, straight after the file is next read: to change it then. */
   afterRead: (() => void) | null = null;
+  /** A file the browser won't let the page read any more. */
+  unreadable = false;
   async getFile() {
+    if (this.unreadable) throw notAllowed();
     return {
       lastModified: this.lastModified,
       size: this.text.length,

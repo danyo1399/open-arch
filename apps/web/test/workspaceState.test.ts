@@ -16,14 +16,16 @@ class TestHost implements WorkspaceHost {
   file = text("A");
   changed = () => {};
   removed = () => {};
+  problem: (text: string) => void = () => {};
   save: (next: string) => Promise<DocsSummary | null | void> = async (next) => void (this.file = next);
   constructor(readonly storage: WorkspaceHost["storage"]) {}
   async load() {
     return this.file;
   }
-  watch(onChange: () => void, onRemoved?: () => void) {
+  watch(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string) => void) {
     this.changed = onChange;
     this.removed = onRemoved ?? (() => {});
+    this.problem = onProblem ?? (() => {});
     return () => {};
   }
 }
@@ -50,6 +52,14 @@ describe("the open workspace", () => {
     await settle();
     expect(state().message?.text).toContain("The workspace file was deleted or moved. It's still open here, but only in this tab");
     expect(state().storage).toBe("memory");
+  });
+
+  it("says when the host can't tell about outside changes any more", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    await act(async () => host.problem("Can't read repo/a.openarch to see changes made outside the designer: Not allowed."));
+    expect(state().message).toEqual({ kind: "error", text: "Can't read repo/a.openarch to see changes made outside the designer: Not allowed." });
+    expect(state().storage).toBe("file");
   });
 
   it("says a workspace kept in the browser was deleted in another tab", async () => {

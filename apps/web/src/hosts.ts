@@ -23,8 +23,12 @@ export interface WorkspaceHost {
   load(): Promise<string>;
   /** Save the file's new text. May report the docs folder it refreshed. */
   save(text: string): Promise<DocsSummary | null | void>;
-  /** Calls `onChange` when the workspace changes outside this window, and `onRemoved` when it's deleted there. Returns a function that stops watching. */
-  watch?(onChange: () => void, onRemoved?: () => void): () => void;
+  /**
+   * Calls `onChange` when the workspace changes outside this window, and `onRemoved` when it's
+   * deleted there. `onProblem` hears, once, when it can't tell any more. Returns a function that
+   * stops watching.
+   */
+  watch?(onChange: () => void, onRemoved?: () => void, onProblem?: (text: string) => void): () => void;
 }
 
 /**

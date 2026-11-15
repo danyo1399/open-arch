@@ -4,7 +4,7 @@ import { act, createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/App.js";
 import type { FolderList, StoredFolder } from "../src/folders.js";
-import { button, click, mount } from "./dom.js";
+import { button, click, mount, type } from "./dom.js";
 import { FakeFolder } from "./fakeFolder.js";
 
 const workspace = JSON.stringify({ openarch: 11, name: "Repo", elements: {}, views: {} });
@@ -25,8 +25,8 @@ function foldersWith(root: FakeFolder) {
 }
 
 /** Lets the app's work finish, until `done` says so. */
-const until = async (done: () => boolean) => {
-  for (let i = 0; i < 200 && !done(); i++) await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+const until = async (done: () => boolean, tries = 200) => {
+  for (let i = 0; i < tries && !done(); i++) await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
 };
 
 afterEach(() => {
@@ -78,4 +78,51 @@ describe("reloading the page with a workspace in a folder open", () => {
     expect(host.querySelector(".ws-name")).toBeNull();
     expect(location.hash).toBe("");
   });
+});
+
+describe("the designer with a workspace in a folder", () => {
+  const withDocs = JSON.stringify({ openarch: 11, name: "Repo", export: { docs: "docs" }, elements: {}, views: {} });
+
+  /** Opens repo/a.openarch, as reloading the page with it open does. */
+  async function open(root: FakeFolder) {
+    history.replaceState(null, "", "/#folder/f1");
+    const host = mount(createElement(App, { folders: foldersWith(root) }));
+    await until(() => !!host.querySelector(".ws-name"));
+    return host;
+  }
+  const status = (host: HTMLElement) => host.querySelector(".storage")?.textContent;
+  const hasButton = (host: HTMLElement, text: string) => [...host.querySelectorAll("button")].some((b) => b.textContent?.trim() === text);
+
+  it("says where the docs are, or that they weren't written, and doesn't offer to export them", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", withDocs);
+    const host = await open(root);
+    expect(status(host)).toBe("Saved · docs in docs/");
+    expect(hasButton(host, "Export docs")).toBe(false);
+
+    // The docs folder can't be made, so a save writes the file but not the docs.
+    root.refuse.add("docs");
+    await click(host.querySelector(".ws-name")!);
+    const field = [...host.querySelectorAll("label.field")].find((l) => l.querySelector(".field-label")?.textContent === "Name");
+    const name = field!.querySelector("input")!;
+    await type(name, "Repo 2");
+    await act(async () => void name.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    await until(() => !!host.querySelector('.properties [role="alert"]'));
+    expect(JSON.parse(root.files()["a.openarch"]!).name).toBe("Repo 2");
+    expect(status(host)).toBe("Saved");
+    expect(host.querySelector('.properties [role="alert"]')?.textContent).toBe("Saved, but the docs in docs/ weren't updated: Not allowed.");
+    // The message bar says so too.
+    expect(host.textContent).toContain("Saved, but the docs in docs/ weren't updated: Not allowed.×");
+  });
+
+  it("offers to export the docs once the file's gone, as nothing saves them any more", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", withDocs);
+    const host = await open(root);
+    root.entries.delete("a.openarch");
+    // Gone once it's missing for a whole interval between checks, which are 1.5 seconds apart.
+    await until(() => status(host) !== "Saved · docs in docs/", 1000);
+    expect(host.textContent).toContain("The workspace file was deleted or moved.");
+    expect(hasButton(host, "Export docs")).toBe(true);
+  }, 10_000);
 });

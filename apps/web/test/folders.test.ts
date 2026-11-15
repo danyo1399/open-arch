@@ -360,6 +360,33 @@ describe("watching a workspace in a folder", () => {
     stop();
   });
 
+  it("says once when it can't read the file any more, and again only after it could", async () => {
+    vi.useFakeTimers();
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 100);
+    await host.load();
+    const onChange = vi.fn();
+    const onRemoved = vi.fn();
+    const onProblem = vi.fn();
+    const stop = host.watch(onChange, onRemoved, onProblem);
+    await vi.advanceTimersByTimeAsync(50);
+    const file = root.entries.get("a.openarch") as FakeFile;
+    file.unreadable = true;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onProblem.mock.calls).toEqual([["Can't read repo/a.openarch to see changes made outside the designer: Not allowed."]]);
+    expect(onRemoved).not.toHaveBeenCalled();
+    // It keeps trying, and sees changes again once it can read the file.
+    file.unreadable = false;
+    root.put("a.openarch", workspace("B"));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    file.unreadable = true;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onProblem).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
   it("stops when asked", async () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
