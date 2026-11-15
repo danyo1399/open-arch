@@ -91,8 +91,9 @@ describe("the open workspace", () => {
 
   it("says what went wrong beside saving a workspace just made, when it opens", async () => {
     const host = new TestHost("file");
-    host.made = { docs: null, skillError: "Not allowed." };
+    host.made = { docs: { dir: "docs", written: 2, deleted: 0, skipped: [] }, skillError: "Not allowed." };
     const state = await workspaceFor(host);
+    expect(state().docs).toEqual({ dir: "docs", written: 2, deleted: 0, skipped: [] });
     expect(state().message).toEqual({ kind: "error", text: "Saved, but the agent skill in .agents/skills/open-arch/ and .claude/skills/open-arch/ wasn't updated: Not allowed." });
     // A save that goes through takes it down.
     await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));

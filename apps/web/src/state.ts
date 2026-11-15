@@ -122,7 +122,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         if (cancelled) return;
         commit(t);
         setSavedText(t);
-        // A workspace just made says what went wrong beside saving it, as a save would.
+        // A workspace just made shows what the save that made it did, as a save would.
+        if (host.made) setDocs(host.made.docs);
         const went = saveProblem(host.made);
         if (went) showSaveProblem(went);
       })

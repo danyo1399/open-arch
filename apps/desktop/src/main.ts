@@ -7,16 +7,16 @@
  * CLI.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync, type FSWatcher } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type OpenArchDocument, type Workspace } from "@open-arch/core";
+import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type OpenArchDocument } from "@open-arch/core";
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
-import { docsFolder, syncDocs, writeWorkspaceFile } from "open-arch/workspace";
-import type { AgentContext, DocsSummary, SaveSummary } from "../../web/src/bridge.js";
+import type { AgentContext } from "../../web/src/bridge.js";
 import { problemText } from "../../web/src/problems.js";
 import type { AgentBackend, AgentEvent } from "./agent.js";
 import { AgentSetup } from "./agent-setup.js";
 import { OpenCodeBackend } from "./opencode.js";
+import { Saver } from "./saving.js";
 import { userDataFolder } from "./user-data.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -51,12 +51,14 @@ function readState(): { lastFile?: string } {
   }
 }
 
-/** Allow the renderer to use this file, and remember it for next time. */
-function grant(path: string): { path: string; name: string } {
+/**
+ * Allow the renderer to use this file, and remember it for next time. Opened again, its first save
+ * brings the skill and AGENTS.md up to date again, unless it's `fresh`: just made, and set up then.
+ */
+function grant(path: string, fresh = false): { path: string; name: string } {
   const abs = resolve(path);
   opened.add(abs);
-  // Opened again, its first save brings the skill and AGENTS.md up to date again.
-  agentSetup.opened(abs);
+  if (!fresh) agentSetup.opened(abs);
   mkdirSync(dirname(statePath()), { recursive: true });
   writeFileSync(statePath(), JSON.stringify({ ...readState(), lastFile: abs }));
   return { path: abs, name: basename(abs) };
@@ -75,23 +77,7 @@ function bundledSkill(): { source: string; version: string } {
 
 const agentSetup = new AgentSetup(bundledSkill);
 
-/** Write the document and refresh its docs folder. Returns what happened to the docs, for the UI. */
-function write(file: string, doc: OpenArchDocument): { ws: Workspace; docs: DocsSummary | null } {
-  writeWorkspaceFile(file, doc);
-  const ws = loadWorkspace(readFileSync(file, "utf8"));
-  const docs = syncDocs(file, ws);
-  return { ws, docs: docs ? { dir: relative(dirname(file), docs.dir) || ".", written: docs.written.length, deleted: docs.deleted.length, skipped: docs.skipped } : null };
-}
-
-/**
- * Save a document from the designer: write it and its docs, and, as the web app's folder saves do,
- * set up the agent skill and the AGENTS.md section at the top of its Git repository (AgentSetup).
- * The file is saved by then, so a failure there is reported, not thrown.
- */
-function save(file: string, doc: OpenArchDocument): SaveSummary {
-  const { ws, docs } = write(file, doc);
-  return { docs, ...agentSetup.keep(file, docsFolder(file, ws.doc)) };
-}
+const saver = new Saver(agentSetup);
 
 function parseOrThrow(text: string): OpenArchDocument {
   const ws = loadWorkspace(text);
@@ -164,19 +150,14 @@ handle("newFile", async (event) => {
   if (!file) return null;
   const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
   doc.export = { docs: `${basename(file, FILE_EXTENSION)}-docs` };
-  // Opened first, so the save that makes it sets up the skill and AGENTS.md as a first save does,
-  // and the designer says what went wrong there when it opens.
-  const opened = grant(file);
-  return { ...opened, saved: save(file, doc) };
+  return saver.make(file, doc, (made) => grant(made, true));
 });
 
 handle("saveAs", async (event, text: string) => {
   const doc = parseOrThrow(text);
   const file = await askForNewPath(event, "Save workspace as");
   if (!file) return null;
-  // As for a new file.
-  const opened = grant(file);
-  return { ...opened, saved: save(file, doc) };
+  return saver.make(file, doc, (made) => grant(made, true));
 });
 
 handle("lastFile", () => {
@@ -186,7 +167,7 @@ handle("lastFile", () => {
 
 handle("load", (_event, path: string) => readFileSync(allowed(path), "utf8"));
 
-handle("save", (_event, path: string, text: string) => save(allowed(path), parseOrThrow(text)));
+handle("save", (_event, path: string, text: string) => saver.save(allowed(path), parseOrThrow(text)));
 
 ipcMain.on("watch", (event, path: string) => {
   const sender: WebContents = event.sender;
