@@ -547,6 +547,16 @@ describe("init", () => {
     expect(bytes.toString("utf8")).toContain("# Rules\n\n<!-- open-arch:start -->");
   });
 
+  it("says why when AGENTS.md can't be read at all", () => {
+    const project = tempDir();
+    mkdirSync(join(project, ".git"));
+    mkdirSync(join(project, "AGENTS.md"));
+    const result = cli(project, "init");
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("EISDIR");
+    expect(result.err).not.toContain("isn't UTF-8");
+  });
+
   it("leaves an AGENTS.md alone that has one of the section's markers without the other", () => {
     const project = tempDir();
     mkdirSync(join(project, ".git"));

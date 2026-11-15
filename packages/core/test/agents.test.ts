@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentsSection, agentsSectionWorkspace, withAgentsSection } from "../src/index.js";
+import { agentsSection, agentsSectionWorkspace, lineEnding, withAgentsSection } from "../src/index.js";
 
 describe("the AGENTS.md section", () => {
   it("names the workspace, its docs and the CLI's version", () => {
@@ -37,11 +37,14 @@ describe("the AGENTS.md section", () => {
   });
 
   it("keeps a file's Windows line endings, and finds its markers", () => {
-    const first = agentsSection("a.openarch", undefined, "1");
-    const added = withAgentsSection("# Rules\r\n\r\nUse tabs.\r\n", first);
-    expect(added).toBe(`# Rules\r\n\r\nUse tabs.\r\n\r\n${first.replace(/\n/g, "\r\n")}`);
+    const file = "# Rules\r\n\r\nUse tabs.\r\n";
+    expect(lineEnding(file)).toBe("\r\n");
+    expect(lineEnding("# Rules\n")).toBe("\n");
+    const first = agentsSection("a.openarch", undefined, "1", lineEnding(file));
+    const added = withAgentsSection(file, first);
+    expect(added).toBe(`# Rules\r\n\r\nUse tabs.\r\n\r\n${first}`);
     expect(added.replace(/\r\n/g, "")).not.toContain("\n");
-    const replaced = withAgentsSection(added, agentsSection("b.openarch", undefined, "1"));
+    const replaced = withAgentsSection(added, agentsSection("b.openarch", undefined, "1", lineEnding(added)));
     expect(replaced).toContain("in `b.openarch`");
     expect(replaced).not.toContain("in `a.openarch`");
     expect(replaced.replace(/\r\n/g, "")).not.toContain("\n");
@@ -82,6 +85,15 @@ describe("the AGENTS.md section", () => {
       expect(agentsSectionWorkspace(section)).toBe(name);
     }
     expect(agentsSection("a`b.openarch", undefined, "1")).toContain("in `` a`b.openarch ``.");
+  });
+
+  it("keeps the line breaks in a name, whatever the file's line endings", () => {
+    for (const file of ["# Rules\n", "# Rules\r\n"]) {
+      for (const name of ["a\nb.openarch", "a\r\nb.openarch"]) {
+        const written = withAgentsSection(file, agentsSection(name, undefined, "1", lineEnding(file)));
+        expect(agentsSectionWorkspace(written)).toBe(name);
+      }
+    }
   });
 
   it("tells which workspace a section names", () => {

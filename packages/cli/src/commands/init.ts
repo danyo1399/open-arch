@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { agentsSection, buildWorkspace, emptyDocument, FILE_EXTENSION, nameFromFileName, withAgentsSection } from "@open-arch/core";
+import { agentsSection, buildWorkspace, emptyDocument, FILE_EXTENSION, lineEnding, nameFromFileName, withAgentsSection } from "@open-arch/core";
 import { skillDir } from "@open-arch/skill";
 import { CliError, VERSION, type Io } from "../io.js";
 import { displayPath, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
@@ -54,13 +54,14 @@ export function init(io: Io, opts: InitOptions): number {
       // As the designer does: a byte-order mark is kept, and bytes that aren't UTF-8 would be changed, so they're refused.
       let before = "";
       if (existed) {
+        const bytes = readFileSync(agentsMd);
         try {
-          before = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(readFileSync(agentsMd));
+          before = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(bytes);
         } catch {
           throw new Error("AGENTS.md isn't UTF-8 text, so it was left alone.");
         }
       }
-      text = withAgentsSection(before, agentsSection(workspace, docsPath, VERSION));
+      text = withAgentsSection(before, agentsSection(workspace, docsPath, VERSION, lineEnding(before)));
     } catch (error) {
       throw new CliError(`${(error as Error).message} ${opts.noSkills ? "The workspace and its docs are" : "The workspace, its docs and the skill are"} in place: run open-arch init again once AGENTS.md is fixed.`);
     }

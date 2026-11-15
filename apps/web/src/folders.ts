@@ -8,7 +8,7 @@
  * changes are there to commit. The folders opened are remembered in IndexedDB: the browser can
  * keep a folder's handle, and asks again before the page may change it.
  */
-import { agentsSection, agentsSectionWorkspace, exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
+import { agentsSection, agentsSectionWorkspace, exportDocs, FILE_EXTENSION, GENERATED_MARKER, lineEnding, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
@@ -209,13 +209,13 @@ async function isFileIn(root: FolderHandle, path: string): Promise<boolean> {
 }
 
 /**
- * Puts the section for the workspace at `path` in AGENTS.md at the top of the folder, or makes
+ * Puts the section for the workspace at `path`, with its docs in `docs`, in AGENTS.md at the top of the folder, or makes
  * AGENTS.md with it. The rest of the file is kept as it is. A section that names another workspace
  * still in the folder is left as it is: it's for one model, the one it was first written for, so
  * opening each of several workspaces doesn't rewrite it to name each in turn. One that names a
  * file no longer there, say after `git mv`, is written for this workspace.
  */
-export async function writeAgentsSection(root: FolderHandle, path: string, section: string): Promise<void> {
+export async function writeAgentsSection(root: FolderHandle, path: string, docs: string | undefined): Promise<void> {
   let text = "";
   try {
     // From its bytes: the browser's text() drops a byte-order mark, and writing that back would
@@ -231,7 +231,8 @@ export async function writeAgentsSection(root: FolderHandle, path: string, secti
   }
   const named = agentsSectionWorkspace(text);
   if (named !== null && named !== path && (await isFileIn(root, named))) return;
-  const next = withAgentsSection(text, section);
+  // With the file's own line ending, so the file keeps it, and names in it are written as they are.
+  const next = withAgentsSection(text, agentsSection(path, docs, CLI_VERSION, lineEnding(text)));
   if (next !== text) await writeText(await fileAt(root, "AGENTS.md", true), next);
 }
 
@@ -352,10 +353,11 @@ export class FolderHost implements WorkspaceHost {
     this.known = saved;
     const result: SaveSummary = { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
     // The section in AGENTS.md names the file and its docs, so it's written again whenever that changes.
-    const section = agentsSection(this.path, docsParts && docs ? docsParts.join("/") : undefined, CLI_VERSION);
+    const docsPath = docsParts && docs ? docsParts.join("/") : undefined;
+    const section = agentsSection(this.path, docsPath, CLI_VERSION);
     if (section !== this.agentsKept) {
       try {
-        await writeAgentsSection(this.root, this.path, section);
+        await writeAgentsSection(this.root, this.path, docsPath);
         this.agentsKept = section;
       } catch (error) {
         result.agentsError = problemText(error);

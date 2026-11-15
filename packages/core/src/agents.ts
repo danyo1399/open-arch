@@ -9,18 +9,27 @@ const SECTION_END = "<!-- open-arch:end -->";
 
 /**
  * The section, for a workspace at `workspace` and docs in `docs`, both relative to the project's
- * top. `version` is the CLI's, for agents without it installed.
+ * top. `version` is the CLI's, for agents without it installed. Its lines end in `eol`, which is the
+ * file's own line ending (lineEnding), so the names in it are written exactly as they are, line
+ * breaks and all.
  */
-export function agentsSection(workspace: string, docs: string | undefined, version: string): string {
-  return `${SECTION_START}
-## Architecture
+export function agentsSection(workspace: string, docs: string | undefined, version: string, eol = "\n"): string {
+  return [
+    SECTION_START,
+    "## Architecture",
+    "",
+    `This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in ${code(workspace)}.${docs ? ` Readable docs generated from it are in ${code(`${docs}/`)}.` : ""}`,
+    "",
+    "- Load the `open-arch` skill before reading or changing the architecture. If your tool doesn't support skills, read `.agents/skills/open-arch/SKILL.md`.",
+    `- Never edit ${code(workspace)}${docs ? ` or ${code(`${docs}/`)}` : ""} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.`,
+    SECTION_END,
+    "",
+  ].join(eol);
+}
 
-This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in ${code(workspace)}.${docs ? ` Readable docs generated from it are in ${code(`${docs}/`)}.` : ""}
-
-- Load the \`open-arch\` skill before reading or changing the architecture. If your tool doesn't support skills, read \`.agents/skills/open-arch/SKILL.md\`.
-- Never edit ${code(workspace)}${docs ? ` or ${code(`${docs}/`)}` : ""} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.
-${SECTION_END}
-`;
+/** The line ending AGENTS.md's text uses: \r\n when it has any, as on Windows, else \n. */
+export function lineEnding(text: string): string {
+  return text.includes("\r\n") ? "\r\n" : "\n";
 }
 
 /** A marker on a line of its own: which, and where its text starts and ends. */
@@ -61,15 +70,14 @@ function section(text: string): [Marker, Marker] | null {
 
 /**
  * AGENTS.md's text with the section in it: in place of the one it has, or added at the end. The
- * rest is kept as it is, a byte-order mark and line endings included. A section is marked by its
- * two markers, each on a line of its own, so a file that mentions them in a sentence keeps that
- * sentence. A file whose markers aren't exactly one start and then one end can't safely be told
- * apart from someone's own text, so it throws rather than risk replacing that text.
+ * rest is kept as it is, a byte-order mark included. Make the section with the file's line ending
+ * (lineEnding), so the file keeps it. A section is marked by its two markers, each on a line of
+ * its own, so a file that mentions them in a sentence keeps that sentence. A file whose markers
+ * aren't exactly one start and then one end can't safely be told apart from someone's own text,
+ * so it throws rather than risk replacing that text.
  */
-export function withAgentsSection(text: string, sectionText: string): string {
-  // The section's lines end as the file's do.
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const replacement = sectionText.replace(/\r?\n/g, eol);
+export function withAgentsSection(text: string, replacement: string): string {
+  const eol = lineEnding(text);
   const found = section(text);
   if (found) return text.slice(0, found[0].at) + replacement.trimEnd() + text.slice(found[1].end);
   const bom = text.startsWith("\uFEFF") ? "\uFEFF" : "";
