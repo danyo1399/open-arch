@@ -118,6 +118,24 @@ describe("opening a folder from the start page", () => {
     expect(opened.map((h) => (h as FolderHost).path)).toEqual(["architecture.openarch"]);
   });
 
+  it("says so, and lists the new workspace to open, when its docs can't be written", async () => {
+    picker();
+    const root = new FakeFolder("repo");
+    root.put("README.md", "# Mine");
+    root.refuse.add("docs");
+    picked = root;
+    const { host, opened, folders } = page();
+    await until(host, "Folders");
+    await click(button(host, "Open folder…"));
+    await until(host, "No workspace in repo");
+    await click(button(host, "Create architecture.openarch"));
+    await until(host, "Created architecture.openarch in repo. Saved, but the docs in docs/architecture/ weren't updated: Not allowed. Open it from Folders once that's fixed.");
+    expect(opened).toEqual([]);
+    expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch"]);
+    expect(folders.records.map((r) => r.path)).toEqual(["architecture.openarch"]);
+    expect(host.textContent).toContain("architecture.openarch · opened");
+  });
+
   it("lists the folders opened, reopens one with the browser's permission, and forgets one", async () => {
     picker();
     const folders = new MemoryFolders();

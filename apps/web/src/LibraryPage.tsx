@@ -1,5 +1,5 @@
 /** The web app's start page: the workspaces kept in this browser, and the ways to add one. */
-import { emptyDocument, FILE_EXTENSION, serializeDocument } from "@open-arch/core";
+import { emptyDocument, FILE_EXTENSION, nameFromFileName, serializeDocument } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { allowed, canOpenFolders, findWorkspaces, folderList as defaultFolders, FolderHost, pickFolder, type FolderHandle, type FolderList, type StoredFolder } from "./folders.js";
 import { BrowserHost, browserKey, SharedHost, type WorkspaceHost } from "./hosts.js";
@@ -9,6 +9,7 @@ import { ConfirmDialog, Modal } from "./panels/dialogs.js";
 import { OpenLinkDialog } from "./panels/ShareDialog.js";
 import { providers, readFiles, type PickedFile } from "./providers.js";
 import { userSettings } from "./settings.js";
+import { docsProblem } from "./state.js";
 import { shareClient } from "./share.js";
 import { StartPage } from "./Start.js";
 
@@ -17,14 +18,6 @@ const edited = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeSty
 /** A new workspace in a folder gets the file and docs folder `open-arch init` would make there. */
 const NEW_FILE = `architecture${FILE_EXTENSION}`;
 const NEW_DOCS = "docs/architecture";
-
-/** "my-repo_name" → "My Repo Name" */
-const titleCase = (text: string) =>
-  text
-    .split(/[-_\s.]+/)
-    .filter(Boolean)
-    .map((w) => w[0]!.toUpperCase() + w.slice(1))
-    .join(" ");
 
 export function LibraryPage({ library, folders = defaultFolders, onOpen }: { library: WorkspaceLibrary; folders?: FolderList; onOpen(host: WorkspaceHost): void }) {
   const [records, setRecords] = useState<StoredWorkspace[] | null>(null);
@@ -88,9 +81,15 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
 
   const createInFolder = (root: FolderHandle) =>
     attempt(async () => {
-      const doc = emptyDocument(titleCase(root.name) || "Architecture");
+      const doc = emptyDocument(nameFromFileName(root.name) || "Architecture");
       doc.export = { docs: NEW_DOCS };
-      await new FolderHost("new", root, NEW_FILE).save(serializeDocument(doc));
+      const docs = await new FolderHost("new", root, NEW_FILE).save(serializeDocument(doc));
+      // Opened, the designer would hide what went wrong, so it's said here, and the list has it to open.
+      if (docs?.error) {
+        await folders.add(root, NEW_FILE);
+        setOpened(await folders.list());
+        throw new Error(`Created ${NEW_FILE} in ${root.name}. ${docsProblem(docs)} Open it from Folders once that's fixed.`);
+      }
       await openInFolder(root, NEW_FILE);
     });
 

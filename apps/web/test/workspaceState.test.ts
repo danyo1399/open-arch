@@ -4,7 +4,7 @@ import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { DocsSummary } from "../src/bridge.js";
 import type { WorkspaceHost } from "../src/hosts.js";
-import { useWorkspace, type WorkspaceState } from "../src/state.js";
+import { docsProblem, useWorkspace, type WorkspaceState } from "../src/state.js";
 import { mount } from "./dom.js";
 
 const text = (name: string) => serializeDocument(emptyDocument(name));
@@ -71,6 +71,25 @@ describe("the open workspace", () => {
     expect(state().message).toEqual({ kind: "error", text: "Saved, but the docs in docs/ weren't updated: It's a file." });
     expect(state().docs?.error).toBe("It's a file.");
     expect(state().canUndo).toBe(true);
+  });
+
+  it("forgets what an earlier save said about the docs, once a save has no docs folder", async () => {
+    const host = new TestHost("file");
+    const summaries: (DocsSummary | null)[] = [{ dir: "docs", written: 0, deleted: 0, skipped: [], error: "It's a file." }, null];
+    host.save = async (next) => {
+      host.file = next;
+      return summaries.shift();
+    };
+    const state = await workspaceFor(host);
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
+    expect(state().docs?.error).toBe("It's a file.");
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "C" }])));
+    expect(state().docs).toBeNull();
+  });
+
+  it("says how far the docs got when writing them stopped partway", () => {
+    expect(docsProblem({ dir: "docs", written: 2, deleted: 1, skipped: [], error: "Not allowed." })).toBe("Saved, but updating the docs in docs/ stopped partway, after 3 pages: Not allowed.");
+    expect(docsProblem({ dir: "docs", written: 0, deleted: 0, skipped: [], error: "Not allowed." })).toBe("Saved, but the docs in docs/ weren't updated: Not allowed.");
   });
 
   it("keeps a refused save's message up when the file then reloads", async () => {

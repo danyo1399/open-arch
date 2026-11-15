@@ -3,6 +3,8 @@ import type { FileHandle, FolderHandle } from "../src/folders.js";
 
 const notFound = () => Object.assign(new Error("A requested file or directory could not be found."), { name: "NotFoundError" });
 
+const notAllowed = () => Object.assign(new Error("Not allowed."), { name: "NotAllowedError" });
+
 /** A folder, in memory, with the parts of the File System Access API the host uses. */
 export class FakeFolder implements FolderHandle {
   readonly kind = "directory";
@@ -10,10 +12,12 @@ export class FakeFolder implements FolderHandle {
   permission: PermissionState = "granted";
   /** A folder the browser isn't allowed to list, like one only an administrator can read. */
   unreadable = false;
+  /** Names the browser isn't allowed to create here, like in a folder that's read-only. */
+  readonly refuse = new Set<string>();
   constructor(readonly name: string) {}
 
   async *values() {
-    if (this.unreadable) throw Object.assign(new Error("Not allowed."), { name: "NotAllowedError" });
+    if (this.unreadable) throw notAllowed();
     yield* this.entries.values();
   }
   async getFileHandle(name: string, options?: { create?: boolean }): Promise<FileHandle> {
@@ -21,6 +25,7 @@ export class FakeFolder implements FolderHandle {
     if (entry instanceof FakeFile) return entry;
     if (entry) throw Object.assign(new Error("It's a folder."), { name: "TypeMismatchError" });
     if (!options?.create) throw notFound();
+    if (this.refuse.has(name)) throw notAllowed();
     const file = new FakeFile(name, "");
     this.entries.set(name, file);
     return file;
@@ -30,6 +35,7 @@ export class FakeFolder implements FolderHandle {
     if (entry instanceof FakeFolder) return entry;
     if (entry) throw Object.assign(new Error("It's a file."), { name: "TypeMismatchError" });
     if (!options?.create) throw notFound();
+    if (this.refuse.has(name)) throw notAllowed();
     const folder = new FakeFolder(name);
     this.entries.set(name, folder);
     return folder;
@@ -94,6 +100,7 @@ export class FakeFile implements FileHandle {
     return {
       write: async (data: string) => void (next += data),
       close: async () => this.set(next),
+      abort: async () => void (next = ""),
     };
   }
 }

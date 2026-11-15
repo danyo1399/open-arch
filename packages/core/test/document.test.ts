@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkWorkspace, loadWorkspace, parseDocument, serializeDocument } from "../src/index.js";
+import { checkWorkspace, loadWorkspace, nameFromFileName, parseDocument, serializeDocument } from "../src/index.js";
 import { shop } from "./helpers.js";
 
 const EXAMPLE = fileURLToPath(new URL("../../../examples/shop/shop.openarch", import.meta.url));
@@ -199,5 +199,13 @@ describe("serializeDocument", () => {
     const doc = shop();
     doc.elements.api!.notes = 'Line one.\n\nSays "hi".';
     expect(serializeDocument(doc)).toContain('"notes": "Line one.\\n\\nSays \\"hi\\"."');
+  });
+});
+
+describe("nameFromFileName", () => {
+  it("makes a workspace name from a file or folder name", () => {
+    expect(nameFromFileName("payments-platform")).toBe("Payments Platform");
+    expect(nameFromFileName("my_repo.name")).toBe("My Repo Name");
+    expect(nameFromFileName("--")).toBe("");
   });
 });

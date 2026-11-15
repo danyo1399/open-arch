@@ -266,7 +266,7 @@ VITE_SHARE_SERVER=http://localhost:8787 pnpm --filter @open-arch/web dev
 open-arch init
 ```
 
-This creates `architecture.openarch`, generates its docs into `docs/architecture/`, installs the agent skill, and adds a section to `AGENTS.md` telling agents to use it. Then open the file in the desktop app, or ask an agent to model the system. The web app can't change the file itself: import it there, then export it back over the file when you're done.
+This creates `architecture.openarch`, generates its docs into `docs/architecture/`, installs the agent skill, and adds a section to `AGENTS.md` telling agents to use it. Then open the file in the desktop app, or ask an agent to model the system. In Chrome or Edge, the web app can open the folder and edit the file there too, with **Open folder…**. Other browsers can't change the file itself: import it there, then export it back over the file when you're done.
 
 ## Development
 

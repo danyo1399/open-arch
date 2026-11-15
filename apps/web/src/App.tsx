@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Designer } from "./Designer.js";
-import { allowed, FolderHost, folderList } from "./folders.js";
+import { folderHash, FolderHost, folderInUrl } from "./folders.js";
 import { BrowserHost, desktopBridge, DesktopHost, SharedHost, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { LibraryPage } from "./LibraryPage.js";
@@ -9,8 +9,6 @@ import { DesktopStart } from "./Start.js";
 
 /** The web app names the open workspace in the URL, so reloading the page reopens it. */
 const idInUrl = () => location.hash.slice(1);
-/** A workspace in a folder is named in the URL by its place in the list of folders opened. */
-const FOLDER_PREFIX = "folder/";
 
 /** The URL for what's open: a shared workspace's link, a workspace in this browser's ID, or nothing. */
 function urlFor(host: WorkspaceHost | null): string {
@@ -19,7 +17,7 @@ function urlFor(host: WorkspaceHost | null): string {
   query.delete("v");
   const page = location.pathname + (query.size ? `?${query}` : "");
   if (host instanceof SharedHost) return location.pathname + linkSuffix(host.link);
-  if (host instanceof FolderHost) return `${page}#${FOLDER_PREFIX}${host.id}`;
+  if (host instanceof FolderHost) return `${page}#${folderHash(host)}`;
   return host instanceof BrowserHost ? `${page}#${host.id}` : page;
 }
 
@@ -40,13 +38,10 @@ export function App() {
       void desktop.lastFile().then((file) => {
         if (file && !cancelled) setHost(new DesktopHost(desktop, file.path, file.name));
       });
-    } else if (restoring && idInUrl().startsWith(FOLDER_PREFIX)) {
-      // A folder reopens if the browser still lets the page change it. If it has to ask, it can
-      // only do that after a click, so the start page lists the folder to open instead.
-      folderList
-        .get(idInUrl().slice(FOLDER_PREFIX.length))
-        .then(async (record) => {
-          if (record && (await allowed(record.root, false)) && !cancelled) setHost(new FolderHost(record.id, record.root, record.path));
+    } else if (restoring && folderHash(idInUrl()) !== null) {
+      folderInUrl(idInUrl())
+        .then((folder) => {
+          if (folder && !cancelled) setHost(folder);
         })
         .catch(() => undefined)
         .finally(() => !cancelled && setRestoring(false));

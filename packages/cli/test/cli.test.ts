@@ -537,8 +537,8 @@ describe("init", () => {
 
     const created = cli(project, "init", "--name", "Payments");
     expect(created.code).toBe(0);
-    // The web app keeps its own copy, so it's the desktop app that edits the file.
-    expect(created.out).toContain("open the file in the desktop app. The web app edits a copy: import the file, then export it back.");
+    // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
+    expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
     expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 11, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {

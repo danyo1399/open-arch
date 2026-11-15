@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emptyDocument, FILE_EXTENSION, loadWorkspace, type OpenArchDocument } from "@open-arch/core";
+import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type OpenArchDocument } from "@open-arch/core";
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { syncDocs, writeWorkspaceFile } from "open-arch/workspace";
 import type { AgentContext } from "../../web/src/bridge.js";
@@ -62,14 +62,6 @@ function allowed(path: string): string {
   return abs;
 }
 
-/** "payments-platform.openarch" → "Payments Platform" */
-function nameFromFile(path: string): string {
-  return basename(path, FILE_EXTENSION)
-    .split(/[-_\s.]+/)
-    .filter(Boolean)
-    .map((w) => w[0]!.toUpperCase() + w.slice(1))
-    .join(" ");
-}
 
 /** Save a document and refresh its docs folder; returns what happened to the docs, for the UI. */
 function save(file: string, doc: OpenArchDocument) {
@@ -147,7 +139,7 @@ handle("openFile", async (event) => {
 handle("newFile", async (event) => {
   const file = await askForNewPath(event, "New workspace");
   if (!file) return null;
-  const doc = emptyDocument(nameFromFile(file) || "Architecture");
+  const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
   doc.export = { docs: `${basename(file, FILE_EXTENSION)}-docs` };
   save(file, doc);
   return grant(file);

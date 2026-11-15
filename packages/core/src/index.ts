@@ -1,5 +1,5 @@
 export * from "./types.js";
-export { parseDocument, serializeDocument, emptyDocument, elementOrder, nodeOrder, type ParseResult } from "./document.js";
+export { parseDocument, serializeDocument, emptyDocument, nameFromFileName, elementOrder, nodeOrder, type ParseResult } from "./document.js";
 export { buildWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 export { checkWorkspace, errorCount } from "./check.js";
 export { applyOperations, parseOperations, pruneLayouts, OpError, OPERATION_NAMES, LEVEL_TITLE, type Operation, type OperationName, type ApplyResult, type NewElements, type TagChanges } from "./operations.js";

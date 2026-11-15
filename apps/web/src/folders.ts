@@ -16,7 +16,15 @@ export interface FileHandle {
   readonly kind: "file";
   readonly name: string;
   getFile(): Promise<{ lastModified: number; size: number; text(): Promise<string> }>;
-  createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
+  createWritable(): Promise<Writable>;
+}
+
+export interface Writable {
+  write(data: string): Promise<void>;
+  /** Swaps the new content in. */
+  close(): Promise<void>;
+  /** Drops what was written, and leaves the file as it was. */
+  abort?(): Promise<void>;
 }
 
 export interface FolderHandle {
@@ -120,14 +128,19 @@ async function writeText(file: FileHandle, text: string): Promise<void> {
   await writable.close();
 }
 
+export interface DocsChanges {
+  written: string[];
+  deleted: string[];
+  skipped: string[];
+}
+
 /**
  * Makes the docs folder hold exactly these generated pages, as the CLI's `writeDocs` does. Only
  * pages carrying the generated marker are ever overwritten or deleted; anything else is left alone.
+ * It records each change in `changes` as it makes it, so if it fails partway, they say how far it got.
  */
-export async function writeDocs(dir: FolderHandle, files: ExportedFile[]): Promise<{ written: string[]; deleted: string[]; skipped: string[] }> {
-  const written: string[] = [];
-  const deleted: string[] = [];
-  const skipped: string[] = [];
+export async function writeDocs(dir: FolderHandle, files: ExportedFile[], changes: DocsChanges = { written: [], deleted: [], skipped: [] }): Promise<DocsChanges> {
+  const { written, deleted, skipped } = changes;
   const targets = new Map(files.map((f) => [f.path, f.content]));
   for (const [path, content] of targets) {
     if (segments(path)?.join("/") !== path) throw new Error(`Refusing to write ${JSON.stringify(path)}: it isn't a path inside the docs folder.`);
@@ -165,7 +178,7 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[]): Promi
     return left === 0 && deleted.some((d) => d.startsWith(prefix));
   };
   await sweep(dir, "");
-  return { written, deleted, skipped };
+  return changes;
 }
 
 // --- The workspace host --------------------------------------------------------------
@@ -180,6 +193,8 @@ export class FolderHost implements WorkspaceHost {
   readonly name: string;
   /** The file's text as the designer last read or wrote it. Saving over anything else would lose a change made outside. */
   private known: string | null = null;
+  /** The watcher's `onChange`, to reload the file when a save finds it changed. */
+  private reload: (() => void) | null = null;
 
   /** `path` is the file's, relative to `root`, with `/` between folders. */
   constructor(
@@ -222,28 +237,44 @@ export class FolderHost implements WorkspaceHost {
       if (docsParts === null) throw new Error(`The docs folder ${docs}/ is outside the folder you opened, ${this.root.name}, so nothing was saved. Open the folder that holds it, or choose a docs folder inside ${this.root.name}.`);
     }
     // A change made outside since the designer read the file, by Git, an editor or an agent, is
-    // kept: this save is refused, and the watcher reloads the file.
-    if (this.known !== null) {
-      let now: string;
-      try {
-        now = await readText(await fileAt(this.root, this.path));
-      } catch (error) {
-        if (isMissing(error)) throw new Error(`${this.location} isn't there any more, so the change wasn't saved.`);
-        throw error;
-      }
-      if (now !== this.known) throw new Error(`${this.location} changed outside the designer, so this change wasn't saved, to keep that one. The file is reloaded: make the change again.`);
-    }
+    // kept: this save is refused, and the file reloads. The new text is written to the browser's
+    // copy of the file first, and only swapped in after the check, which keeps the time an outside
+    // change could slip in as short as the browser allows: it has no way to lock a file.
     const saved = serializeDocument(ws.doc);
-    await writeText(await fileAt(this.root, this.path, true), saved);
+    const gone = () => new Error(`${this.location} isn't there any more, so the change wasn't saved.`);
+    let writable: Writable;
+    try {
+      // A file loaded and since deleted isn't made again; a new one is.
+      writable = await (await fileAt(this.root, this.path, this.known === null)).createWritable();
+    } catch (error) {
+      throw isMissing(error) ? gone() : error;
+    }
+    try {
+      await writable.write(saved);
+      if (this.known !== null) {
+        const now = await readText(await fileAt(this.root, this.path));
+        if (now !== this.known) {
+          this.reload?.();
+          throw new Error(`${this.location} changed outside the designer, so this change wasn't saved, to keep that one. The file is reloaded: make the change again.`);
+        }
+      }
+    } catch (error) {
+      await writable.abort?.().catch(() => undefined);
+      throw isMissing(error) ? gone() : error;
+    }
+    await writable.close();
     this.known = saved;
     if (!docsParts || !docs) return null;
     const summary: DocsSummary = { dir: docs.replace(/\\/g, "/").replace(/\/+$/, ""), written: 0, deleted: 0, skipped: [] };
-    // The file is saved by now, so a docs folder that can't be written is reported, not thrown.
+    // The file is saved by now, so a docs folder that can't be written is reported, not thrown,
+    // with what was changed before it stopped.
+    const changes: DocsChanges = { written: [], deleted: [], skipped: [] };
+    const counts = () => ({ ...summary, written: changes.written.length, deleted: changes.deleted.length, skipped: changes.skipped });
     try {
-      const result = await writeDocs(await folderAt(this.root, docsParts, true), exportDocs(ws, this.name));
-      return { ...summary, written: result.written.length, deleted: result.deleted.length, skipped: result.skipped };
+      await writeDocs(await folderAt(this.root, docsParts, true), exportDocs(ws, this.name), changes);
+      return counts();
     } catch (error) {
-      return { ...summary, error: (error as Error).message };
+      return { ...counts(), error: (error as Error).message };
     }
   }
 
@@ -254,6 +285,7 @@ export class FolderHost implements WorkspaceHost {
    * `onRemoved` once when it's gone.
    */
   watch(onChange: () => void, onRemoved?: () => void): () => void {
+    this.reload = onChange;
     let seen: string | null = null;
     let stopped = false;
     let checking = false;
@@ -281,6 +313,7 @@ export class FolderHost implements WorkspaceHost {
     void check();
     const stop = () => {
       stopped = true;
+      if (this.reload === onChange) this.reload = null;
       clearInterval(timer);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onShow);
     };
@@ -368,3 +401,30 @@ export class FolderList {
 }
 
 export const folderList = new FolderList();
+
+// --- In the URL ----------------------------------------------------------------------
+
+const FOLDER_PREFIX = "folder/";
+
+/**
+ * The web app names the open workspace in the URL's hash, so reloading the page reopens it. A
+ * workspace in a folder is named by its place in the list of folders opened. Given a host, this is
+ * its hash; given a hash, the ID it names, or null when it names no folder.
+ */
+export function folderHash(of: FolderHost): string;
+export function folderHash(of: string): string | null;
+export function folderHash(of: FolderHost | string): string | null {
+  if (typeof of !== "string") return FOLDER_PREFIX + of.id;
+  return of.startsWith(FOLDER_PREFIX) && of.length > FOLDER_PREFIX.length ? of.slice(FOLDER_PREFIX.length) : null;
+}
+
+/**
+ * The workspace in a folder that a URL's hash names, if the browser still lets the page change the
+ * folder. If it has to ask, it can only do that after a click, so it's null, and the start page
+ * lists the folder to open instead.
+ */
+export async function folderInUrl(hash: string, folders: Pick<FolderList, "get"> = folderList): Promise<FolderHost | null> {
+  const id = folderHash(hash);
+  const record = id === null ? undefined : await folders.get(id);
+  return record && (await allowed(record.root, false)) ? new FolderHost(record.id, record.root, record.path) : null;
+}

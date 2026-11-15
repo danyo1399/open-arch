@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { buildWorkspace, emptyDocument, FILE_EXTENSION } from "@open-arch/core";
+import { buildWorkspace, emptyDocument, FILE_EXTENSION, nameFromFileName } from "@open-arch/core";
 import { skillDir } from "@open-arch/skill";
 import { CliError, VERSION, type Io } from "../io.js";
 import { displayPath, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
@@ -20,15 +20,6 @@ export const SKILL_TARGETS = [".agents/skills/open-arch", ".claude/skills/open-a
 const SECTION_START = "<!-- open-arch:start -->";
 const SECTION_END = "<!-- open-arch:end -->";
 
-/** "my-repo_name" → "My Repo Name" */
-function titleCase(text: string): string {
-  return text
-    .split(/[-_\s.]+/)
-    .filter(Boolean)
-    .map((w) => w[0]!.toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
 export function init(io: Io, opts: InitOptions): number {
   let file = resolve(io.cwd, opts.file ?? `architecture${FILE_EXTENSION}`);
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, `architecture${FILE_EXTENSION}`);
@@ -39,7 +30,7 @@ export function init(io: Io, opts: InitOptions): number {
     io.out(`kept ${shown}\n`);
   } else {
     mkdirSync(dirname(file), { recursive: true });
-    const doc = emptyDocument(opts.name?.trim() || titleCase(basename(projectRoot(io.cwd, dirname(file)))) || "Architecture");
+    const doc = emptyDocument(opts.name?.trim() || nameFromFileName(basename(projectRoot(io.cwd, dirname(file)))) || "Architecture");
     doc.export = { docs: (opts.docs ?? "docs/architecture").replace(/\\/g, "/") };
     writeWorkspaceFile(file, doc);
     io.out(`created ${shown}\n`);
@@ -64,7 +55,7 @@ export function init(io: Io, opts: InitOptions): number {
     writeFileSync(agentsMd, withSection(existed ? readFileSync(agentsMd, "utf8") : "", agentsSection(workspace, docsPath)));
     io.out(`${existed ? "updated" : "created"} ${displayPath(io.cwd, agentsMd)}\n`);
   }
-  io.out("\nNext: add elements with `open-arch add-element <id> --kind system --name \"...\"`, or open the file in the desktop app. The web app edits a copy: import the file, then export it back.\n");
+  io.out("\nNext: add elements with `open-arch add-element <id> --kind system --name \"...\"`, or open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.\n");
   return 0;
 }
 

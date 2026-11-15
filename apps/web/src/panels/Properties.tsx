@@ -33,7 +33,7 @@ import {
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import { byName, cardArrowDeleteOps, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueAmong, uniqueId, uniqueNodeId, uniqueStateId, viewAction } from "../model.js";
-import type { Edit } from "../state.js";
+import { docsProblem, type Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
 
 interface PropertiesProps {
@@ -1265,7 +1265,7 @@ function WorkspaceProperties({ ws, edit, syncsDocs, docs, fileName }: Properties
       {syncsDocs && !docsFolder && <button onClick={() => void edit([{ op: "update-workspace", docs: suggestedDocs }])}>Keep docs in {suggestedDocs}/</button>}
       {syncsDocs && docs?.error && (
         <p className="error small" role="alert">
-          The last save didn't update the docs in {docs.dir}: {docs.error}
+          {docsProblem(docs)}
         </p>
       )}
       {syncsDocs && docs && !docs.error && (

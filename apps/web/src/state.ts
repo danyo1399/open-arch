@@ -36,6 +36,14 @@ export interface WorkspaceState {
 
 const HISTORY_LIMIT = 100;
 
+/** What went wrong with the docs, when the file was saved but the docs folder couldn't all be written. */
+export function docsProblem(docs: DocsSummary): string {
+  const changed = docs.written + docs.deleted;
+  return changed > 0
+    ? `Saved, but updating the docs in ${docs.dir}/ stopped partway, after ${changed} page${changed === 1 ? "" : "s"}: ${docs.error}`
+    : `Saved, but the docs in ${docs.dir}/ weren't updated: ${docs.error}`;
+}
+
 /**
  * A version of the file to go back or forward to, with the renames that lead from the earlier of
  * the two versions to the later: the ones the edit made, which Undo takes back and Redo makes again.
@@ -144,8 +152,9 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     async (next: string, then?: () => void) => {
       if (!isDeleted.current) {
         const summary = await host.save(next);
-        if (summary) setDocs(summary);
-        if (summary?.error) setMessage({ kind: "error", text: `Saved, but the docs in ${summary.dir}/ weren't updated: ${summary.error}` });
+        // A save with no docs folder clears what an earlier one said about the docs.
+        setDocs(summary || null);
+        if (summary?.error) setMessage({ kind: "error", text: docsProblem(summary) });
         if (host.storage === "file") setSavedText(next);
       }
       commit(next);

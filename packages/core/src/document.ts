@@ -42,6 +42,15 @@ export interface ParseResult {
   valid: boolean;
 }
 
+/** A workspace name from a file or folder name: "my-repo_name" → "My Repo Name". Empty when it has no words. */
+export function nameFromFileName(text: string): string {
+  return text
+    .split(/[-_\s.]+/)
+    .filter(Boolean)
+    .map((w) => w[0]!.toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 export function emptyDocument(name: string): OpenArchDocument {
   return { openarch: FORMAT_VERSION, name, elements: {}, views: {} };
 }

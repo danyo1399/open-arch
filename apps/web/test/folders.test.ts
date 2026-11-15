@@ -2,9 +2,9 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allowed, findWorkspaces, FolderHost, FolderList, writeDocs, type FolderHandle } from "../src/folders.js";
+import { allowed, findWorkspaces, folderHash, FolderHost, folderInUrl, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
 import { exampleHost, MemoryHost, savesDocs } from "../src/hosts.js";
-import { FakeFolder } from "./fakeFolder.js";
+import { FakeFile, FakeFolder } from "./fakeFolder.js";
 
 const workspace = (name: string, docs?: string) => {
   const doc = emptyDocument(name);
@@ -103,8 +103,30 @@ describe("a workspace in a folder", () => {
     await host.save(workspace("Mine"));
     expect(root.files()["a.openarch"]).toBe(workspace("Mine"));
     // Its own saves don't count as outside changes.
+    await host.save(workspace("Mine 2"));
     await host.save(workspace("Mine again"));
     expect(root.files()["a.openarch"]).toBe(workspace("Mine again"));
+  });
+
+  it("reloads the file when it refuses a save, even when the change kept the file's size and time", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const host = new FolderHost("1", root, "a.openarch", 60_000);
+    const onChange = vi.fn(async () => void (await host.load()));
+    const stop = host.watch(onChange);
+    await host.load();
+    const file = root.entries.get("a.openarch") as FakeFile;
+    const { lastModified } = file;
+    file.set(workspace("B"));
+    file.lastModified = lastModified;
+    await expect(host.save(workspace("Mine"))).rejects.toThrow("The file is reloaded");
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(file.text).toBe(workspace("B"));
+    // Reloaded, the next save goes ahead.
+    await onChange.mock.results[0]!.value;
+    await host.save(workspace("Mine"));
+    expect(file.text).toBe(workspace("Mine"));
+    stop();
   });
 
   it("refuses to save once the file's gone, rather than make it again", async () => {
@@ -130,6 +152,19 @@ describe("a workspace in a folder", () => {
     // The next save goes ahead: the file holds what this one wrote.
     root.entries.delete("docs");
     expect(await host.save(workspace("C", "docs"))).toEqual({ dir: "docs", written: 1, deleted: 0, skipped: [] });
+  });
+
+  it("says how far the docs got when writing them stopped partway", async () => {
+    const root = new FakeFolder("repo");
+    const text = await exampleHost().load();
+    const docs = loadWorkspace(text).doc.export!.docs!;
+    root.put("shop.openarch", text);
+    root.put(`${docs}/old.md`, "");
+    (root.entries.get(docs) as FakeFolder).refuse.add("views");
+    const summary = await new FolderHost("1", root, "shop.openarch").save(text);
+    expect(summary?.error).toBe("Not allowed.");
+    expect(summary?.written).toBeGreaterThan(0);
+    expect(Object.keys(root.files()).filter((p) => p.startsWith(`${docs}/elements/`))).toHaveLength(summary!.written - 1);
   });
 
   it("says when the file isn't there any more", async () => {
@@ -237,6 +272,29 @@ describe("watching a workspace in a folder", () => {
     root.put("a.openarch", workspace("B"));
     await vi.advanceTimersByTimeAsync(300);
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("a workspace in a folder in the URL", () => {
+  const stored = (root: FolderHandle): StoredFolder => ({ id: "f1", root, path: "arch/a.openarch", opened: 1 });
+
+  it("names the folder's place in the list, and reads it back", () => {
+    expect(folderHash(new FolderHost("f1", new FakeFolder("repo"), "a.openarch"))).toBe("folder/f1");
+    expect(folderHash("folder/f1")).toBe("f1");
+    expect(folderHash("folder/")).toBeNull();
+    expect(folderHash("abc123")).toBeNull();
+  });
+
+  it("reopens it when the browser still allows it, and not when it would have to ask", async () => {
+    const root = new FakeFolder("repo");
+    const folders = { get: async (id: string) => (id === "f1" ? stored(root) : undefined) };
+    expect(await folderInUrl("folder/f1", folders)).toMatchObject({ id: "f1", root, path: "arch/a.openarch" });
+    expect(await folderInUrl("folder/f2", folders)).toBeNull();
+    expect(await folderInUrl("abc123", folders)).toBeNull();
+    root.permission = "prompt";
+    expect(await folderInUrl("folder/f1", folders)).toBeNull();
+    // It didn't ask: that needs a click.
+    expect(root.permission).toBe("prompt");
   });
 });
 
