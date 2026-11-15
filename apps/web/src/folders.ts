@@ -3,9 +3,9 @@
  * Chrome or Edge with the File System Access API. The .openarch file stays in the folder and every
  * edit is saved to it, and the docs folder it names is rewritten, as the desktop app and the CLI
  * do. The first save after the folder is opened also brings the agent skill in it up to date, as
- * `open-arch init` installs it, writing only the files that changed. So the changes are there to commit. The
- * folders opened are remembered in IndexedDB: the browser can keep a folder's handle, and asks
- * again before the page may change it.
+ * `open-arch init` installs it, writing only the files that changed. So the changes are there to
+ * commit. The folders opened are remembered in IndexedDB: the browser can keep a folder's handle,
+ * and asks again before the page may change it.
  */
 import { exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
@@ -280,9 +280,9 @@ export class FolderHost implements WorkspaceHost {
 
   /**
    * Saves the file, then rewrites its docs folder and, on the first save since the folder was
-   * opened, brings the agent skill up to date in it, as `open-arch init` installs it, so agents working in the folder know how to
-   * read and change the model. The file is saved by then, so the docs or the skill failing is
-   * reported, not thrown.
+   * opened, brings the agent skill up to date in it, as `open-arch init` installs it, so agents
+   * working in the folder know how to read and change the model. The file is saved by then, so
+   * the docs or the skill failing is reported, not thrown.
    */
   async save(text: string): Promise<SaveSummary> {
     const ws = loadWorkspace(text);
