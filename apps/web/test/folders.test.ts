@@ -303,6 +303,18 @@ describe("keeping the AGENTS.md section", () => {
     expect(root.files()["AGENTS.md"]).toBe(first);
   });
 
+  it("writes the section for this workspace when the one it names is no longer in the folder", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    await new FolderHost("1", root, "a.openarch").save(workspace("A2"));
+    // Moved, as git mv a.openarch architecture.openarch would.
+    const moved = root.files()["a.openarch"]!;
+    root.entries.delete("a.openarch");
+    root.put("architecture.openarch", moved);
+    await new FolderHost("2", root, "architecture.openarch").save(workspace("A3"));
+    expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("architecture.openarch")["AGENTS.md"]);
+  });
+
   it("puts back a section taken out while the folder is open the next time it's opened, not on every save", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));

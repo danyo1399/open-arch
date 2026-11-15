@@ -23,7 +23,7 @@ export interface WorkspaceHost {
   /** Saving also refreshes the docs folder: on desktop, and for a workspace in a folder (folders.ts). */
   syncsDocs?: boolean;
   load(): Promise<string>;
-  /** Save the file's new text. May report the docs folder it refreshed, and the agent skill. */
+  /** Save the file's new text. May report the docs folder it refreshed, the agent skill, and the section in AGENTS.md. */
   save(text: string): Promise<SaveSummary | void>;
   /** Saving also keeps the agent skill up to date beside the workspace: for a workspace in a folder (folders.ts). */
   syncsSkill?: boolean;

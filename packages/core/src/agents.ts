@@ -25,7 +25,8 @@ ${SECTION_END}
 
 /** Where a marker is in the text, on a line of its own, or -1. One quoted in a sentence doesn't count. */
 function markerAt(text: string, marker: string): number {
-  return new RegExp(`^[ \\t]*${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*$`, "m").exec(text)?.index ?? -1;
+  // A line can end in \r\n, as on Windows.
+  return new RegExp(`^[ \\t]*${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t\\r]*$`, "m").exec(text)?.index ?? -1;
 }
 
 /**
@@ -36,6 +37,9 @@ function markerAt(text: string, marker: string): number {
  * rather than risk replacing someone's own text.
  */
 export function withAgentsSection(text: string, section: string): string {
+  // The section's lines end as the file's do.
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  section = section.replace(/\r?\n/g, eol);
   const start = markerAt(text, SECTION_START);
   const end = markerAt(text, SECTION_END);
   if (start !== -1 && end > start) return text.slice(0, start) + section.trimEnd() + text.slice(text.indexOf(SECTION_END, end) + SECTION_END.length);
@@ -43,7 +47,7 @@ export function withAgentsSection(text: string, section: string): string {
     throw new Error(`AGENTS.md has ${start === -1 ? `${SECTION_END} without ${SECTION_START} before it` : `${SECTION_START} without ${SECTION_END} after it`}, so it was left alone. Put the markers back round the open-arch section, or take them out.`);
   }
   if (!text.trim()) return section;
-  return `${text.replace(/\n*$/, "\n")}\n${section}`;
+  return `${text.replace(/(\r?\n)*$/, eol)}${eol}${section}`;
 }
 
 /** The workspace file AGENTS.md's open-arch section names, or null when it has no section, or one that names none. */

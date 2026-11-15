@@ -3,10 +3,10 @@
  * Chrome or Edge with the File System Access API. The .openarch file stays in the folder and every
  * edit is saved to it, and the docs folder it names is rewritten, as the desktop app and the CLI
  * do. The first save after the folder is opened also brings the agent skill in it up to date, as
- * `open-arch init` installs it, writing only the files that changed, and puts the open-arch section
- * in its AGENTS.md, which a later save writes again when what it names changes. So the changes are
- * there to commit. The folders opened are remembered in IndexedDB: the browser can keep a folder's handle,
- * and asks again before the page may change it.
+ * `open-arch init` installs it, writing only the files that changed, and puts the open-arch
+ * section in its AGENTS.md, which a later save writes again when what it names changes. So the
+ * changes are there to commit. The folders opened are remembered in IndexedDB: the browser can
+ * keep a folder's handle, and asks again before the page may change it.
  */
 import { agentsSection, agentsSectionWorkspace, exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
@@ -195,11 +195,25 @@ export async function writeSkill(dir: FolderHandle): Promise<string[]> {
   return written;
 }
 
+/** Whether a file is at this path in the folder. A path that can't be in it isn't. */
+async function isFileIn(root: FolderHandle, path: string): Promise<boolean> {
+  const parts = isAbsolutePath(path) ? null : segments(path);
+  if (!parts?.length) return false;
+  try {
+    await fileAt(root, parts.join("/"));
+    return true;
+  } catch (error) {
+    if (isMissing(error) || isNamed(error, "TypeMismatchError")) return false;
+    throw error;
+  }
+}
+
 /**
  * Puts the section for the workspace at `path` in AGENTS.md at the top of the folder, or makes
  * AGENTS.md with it. The rest of the file is kept as it is. A section that names another workspace
- * in the folder is left as it is: it's for one model, the one it was first written for, so
- * opening each of several workspaces doesn't rewrite it to name each in turn.
+ * still in the folder is left as it is: it's for one model, the one it was first written for, so
+ * opening each of several workspaces doesn't rewrite it to name each in turn. One that names a
+ * file no longer there, say after `git mv`, is written for this workspace.
  */
 export async function writeAgentsSection(root: FolderHandle, path: string, section: string): Promise<void> {
   let text = "";
@@ -209,7 +223,7 @@ export async function writeAgentsSection(root: FolderHandle, path: string, secti
     if (!isMissing(error)) throw error;
   }
   const named = agentsSectionWorkspace(text);
-  if (named !== null && named !== path) return;
+  if (named !== null && named !== path && (await isFileIn(root, named))) return;
   const next = withAgentsSection(text, section);
   if (next !== text) await writeText(await fileAt(root, "AGENTS.md", true), next);
 }

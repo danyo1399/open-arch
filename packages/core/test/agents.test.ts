@@ -36,6 +36,17 @@ describe("the AGENTS.md section", () => {
     expect(indented).not.toContain("in `a.openarch`");
   });
 
+  it("keeps a file's Windows line endings, and finds its markers", () => {
+    const first = agentsSection("a.openarch", undefined, "1");
+    const added = withAgentsSection("# Rules\r\n\r\nUse tabs.\r\n", first);
+    expect(added).toBe(`# Rules\r\n\r\nUse tabs.\r\n\r\n${first.replace(/\n/g, "\r\n")}`);
+    expect(added.replace(/\r\n/g, "")).not.toContain("\n");
+    const replaced = withAgentsSection(added, agentsSection("b.openarch", undefined, "1"));
+    expect(replaced).toContain("in `b.openarch`");
+    expect(replaced).not.toContain("in `a.openarch`");
+    expect(replaced.replace(/\r\n/g, "")).not.toContain("\n");
+  });
+
   it("tells which workspace a section names", () => {
     expect(agentsSectionWorkspace(withAgentsSection("# Rules\n", agentsSection("arch/a.openarch", "docs", "1")))).toBe("arch/a.openarch");
     expect(agentsSectionWorkspace("# Rules\n")).toBeNull();
