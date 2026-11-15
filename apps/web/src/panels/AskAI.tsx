@@ -33,7 +33,7 @@ interface AskAIProps {
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 /** Errors from the main process arrive as "Error invoking remote method 'x': Error: message". What's left once that's taken off may be nothing. */
-export function errorText(error: unknown): string {
+function errorText(error: unknown): string {
   return problemText(error).replace(/^Error invoking remote method '[^']*': (\w*Error: )?/, "").trim() || UNKNOWN_PROBLEM;
 }
 
@@ -75,7 +75,7 @@ export function AskAI({ agent, path, context, contextLabel, text, restore, open,
     if (event.type === "progress") add({ kind: "progress", text: event.text });
     else if (event.type === "permission") add({ kind: "permission", id: event.id, text: event.description });
     else if (event.type === "permission-replied") setAnswer(event.id, "answered", true);
-    else if (event.type === "error") add({ kind: "error", text: event.message });
+    else if (event.type === "error") add({ kind: "error", text: problemText(event.message) });
     else {
       // The summary is usually the agent's last message: show it once.
       setLog((l) => {

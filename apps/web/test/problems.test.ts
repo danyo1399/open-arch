@@ -6,7 +6,8 @@ import { App } from "../src/App.js";
 import { FolderList, pickFolder, writeDocs, type FolderHandle } from "../src/folders.js";
 import { WorkspaceLibrary } from "../src/library.js";
 import { LibraryPage } from "../src/LibraryPage.js";
-import { errorText } from "../src/panels/AskAI.js";
+import type { AgentBridge, AgentEvent } from "../src/bridge.js";
+import { AskAI } from "../src/panels/AskAI.js";
 import { ShareDialog } from "../src/panels/ShareDialog.js";
 import { isProblem, problemText, UNKNOWN_PROBLEM } from "../src/problems.js";
 import { PNG_FILE, saveFile } from "../src/providers.js";
@@ -20,8 +21,12 @@ const until = async (host: HTMLElement, text: string) => {
   expect(host.textContent).toContain(text);
 };
 
+const realClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
 afterEach(() => {
   vi.restoreAllMocks();
+  if (realClipboard) Object.defineProperty(navigator, "clipboard", realClipboard);
+  else delete (navigator as { clipboard?: unknown }).clipboard;
   for (const name of ["showDirectoryPicker", "showSaveFilePicker"]) delete (window as unknown as Record<string, unknown>)[name];
 });
 
@@ -41,7 +46,9 @@ describe("what went wrong", () => {
   it("is the message, or what was thrown when that's text, or else a sentence saying so", () => {
     expect(problemText(new Error("Not allowed."))).toBe("Not allowed.");
     expect(problemText("Locked.")).toBe("Locked.");
-    for (const thrown of [new Error(""), "", undefined, null, 42, {}]) expect(problemText(thrown)).toBe(UNKNOWN_PROBLEM);
+    // An error from another frame or a worker isn't an Error here, but has a message.
+    expect(problemText({ name: "NotAllowedError", message: "Not allowed there." })).toBe("Not allowed there.");
+    for (const thrown of [new Error(""), new Error("   "), "", " \n ", undefined, null, 42, {}]) expect(problemText(thrown)).toBe(UNKNOWN_PROBLEM);
   });
 
   it("tells a kind of failure apart, whatever was thrown", () => {
@@ -50,10 +57,33 @@ describe("what went wrong", () => {
     for (const thrown of [undefined, null, "AbortError"]) expect(isProblem(thrown, "AbortError")).toBe(false);
   });
 
-  it("from Ask AI takes off the desktop app's prefix, and says so when nothing's left", () => {
-    expect(errorText(new Error("Error invoking remote method 'agentRun': Error: OpenCode isn't installed."))).toBe("OpenCode isn't installed.");
-    expect(errorText(new Error("Error invoking remote method 'agentRun': Error: "))).toBe(UNKNOWN_PROBLEM);
-    expect(errorText(undefined)).toBe(UNKNOWN_PROBLEM);
+  it("in Ask AI, from the agent or the desktop app, says so when it gives no reason", async () => {
+    const errors = async (run: AgentBridge["run"]) => {
+      const agent = { run, reply: async () => {}, cancel: async () => {} } as AgentBridge;
+      const host = mount(createElement(AskAI, { agent, path: "a.openarch", context: { selection: [] }, contextLabel: "", text: "", restore: async () => true, open: true, onClose() {} }));
+      const box = host.querySelector("textarea")!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "Add a cache");
+        box.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => void host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+      return [...host.querySelectorAll(".ask-ai-log .error, .error")].map((e) => e.textContent);
+    };
+    // An error event with no text.
+    expect(await errors(async (_path, _prompt, _context, onEvent: (event: AgentEvent) => void) => onEvent({ type: "error", message: "" }))).toContain(UNKNOWN_PROBLEM);
+    // The desktop app's prefix, with nothing after it.
+    expect(
+      await errors(async () => {
+        throw new Error("Error invoking remote method 'agentRun': Error: ");
+      }),
+    ).toContain(UNKNOWN_PROBLEM);
+    // With a reason, the prefix comes off.
+    expect(
+      await errors(async () => {
+        throw new Error("Error invoking remote method 'agentRun': Error: OpenCode isn't installed.");
+      }),
+    ).toContain("OpenCode isn't installed.");
   });
 
   it("from a picker that fails without saying why is passed on as it was, not as a different error", async () => {

@@ -6,7 +6,6 @@ import { allowed, findWorkspaces, writeSkill, folderIdInHash, FolderHost, folder
 import { exampleHost, MemoryHost, savesDocs, savesSkill } from "../src/hosts.js";
 import { skillFiles } from "../src/skill.js";
 import { FakeFile, FakeFolder, skillInFolder } from "./fakeFolder.js";
-import { problemText } from "../src/problems.js";
 
 const workspace = (name: string, docs?: string) => {
   const doc = emptyDocument(name);
@@ -219,11 +218,6 @@ describe("keeping the agent skill", () => {
     const saved = await new FolderHost("1", root, "a.openarch").save(workspace("B", "docs"));
     expect(saved.skillError).toBe("Something went wrong, and the browser didn't say what.");
     expect(saved.docs?.error).toBe("The folder is locked.");
-    expect(problemText(undefined)).toBe("Something went wrong, and the browser didn't say what.");
-    expect(problemText(new Error("Not allowed."))).toBe("Not allowed.");
-    // An error from another frame or a worker isn't an Error here, but has a message.
-    expect(problemText({ name: "NotAllowedError", message: "Not allowed there." })).toBe("Not allowed there.");
-    expect(problemText(null)).toBe("Something went wrong, and the browser didn't say what.");
   });
 
   it("is brought up to date in the folder opened by the first save after opening it, not every save", async () => {
