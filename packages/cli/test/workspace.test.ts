@@ -156,3 +156,20 @@ describe("a docs folder that's the file's own folder", () => {
     expect(existsSync(join(dir, "views"))).toBe(false);
   });
 });
+
+describe("two workspaces whose docs share a folder", () => {
+  it("leave each other's pages alone: only pages generated from the file being saved are written over or deleted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "open-arch-test-"));
+    temps.push(dir);
+    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in the designer or with the open-arch CLI, and this page is rewritten. -->\n\n${body}\n`;
+    writeDocs(dir, [{ path: "README.md", content: from("b.openarch", "B") }, { path: "views/b.md", content: from("b.openarch", "B view") }]);
+    const result = writeDocs(dir, [{ path: "README.md", content: from("a.openarch", "A") }, { path: "views/a.md", content: from("a.openarch", "A view") }]);
+    expect(result).toMatchObject({ written: ["views/a.md"], deleted: [], skipped: ["README.md"] });
+    expect(readFileSync(join(dir, "README.md"), "utf8")).toBe(from("b.openarch", "B"));
+    expect(readFileSync(join(dir, "views", "b.md"), "utf8")).toBe(from("b.openarch", "B view"));
+    // Its own stale pages still go.
+    writeDocs(dir, [{ path: "views/a2.md", content: from("a.openarch", "A again") }]);
+    expect(existsSync(join(dir, "views", "a.md"))).toBe(false);
+    expect(existsSync(join(dir, "views", "b.md"))).toBe(true);
+  });
+});

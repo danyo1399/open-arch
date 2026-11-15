@@ -10,7 +10,7 @@ import {
   DOCS_PAGE_FOLDERS,
   exportDocs,
   FILE_EXTENSION,
-  GENERATED_MARKER,
+  generatedFrom,
   lineEnding,
   loadWorkspace,
   serializeDocument,
@@ -101,9 +101,14 @@ export interface DocsResult {
   skipped: string[];
 }
 
-const isGenerated = (path: string) => {
+/**
+ * Whether the page at `path` is one open-arch generated from `source`, the file the docs being
+ * written come from, so it may be overwritten or deleted. With no source known, any generated page.
+ */
+const isGeneratedFrom = (path: string, source: string | null) => {
   try {
-    return readFileSync(path, "utf8").startsWith(GENERATED_MARKER);
+    const from = generatedFrom(readFileSync(path, "utf8"));
+    return from !== null && (source === null || from === source);
   } catch {
     return false;
   }
@@ -116,10 +121,12 @@ const isGenerated = (path: string) => {
 export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?: boolean } = {}): DocsResult {
   const result: DocsResult = { dir, written: [], deleted: [], skipped: [] };
   const targets = new Map(files.map((f) => [fileInside(dir, f.path), f]));
+  // Only pages generated from the same file: another workspace's docs can share the folder.
+  const source = files[0] ? generatedFrom(files[0].content) : null;
   for (const [abs, f] of targets) {
     if (existsSync(abs)) {
       if (readFileSync(abs, "utf8") === f.content) continue;
-      if (!isGenerated(abs)) {
+      if (!isGeneratedFrom(abs, source)) {
         result.skipped.push(f.path);
         continue;
       }
@@ -143,7 +150,7 @@ export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?
       // file's own folder, or a repository's top, with other things in it.
       if (e.isDirectory()) {
         if (folder !== dir || DOCS_PAGE_FOLDERS.includes(e.name)) walk(abs);
-      } else if (e.name.endsWith(".md") && !targets.has(abs) && isGenerated(abs)) {
+      } else if (e.name.endsWith(".md") && !targets.has(abs) && isGeneratedFrom(abs, source)) {
         result.deleted.push(relative(dir, abs).split(sep).join("/"));
         if (!options.dryRun) {
           unlinkSync(abs);

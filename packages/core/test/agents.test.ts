@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentsSection, agentsSectionWorkspace, lineEnding, withAgentsSection } from "../src/index.js";
+import { agentsSection, agentsSectionWorkspace, exportDocs, generatedFrom, lineEnding, loadWorkspace, withAgentsSection } from "../src/index.js";
 
 describe("the AGENTS.md section", () => {
   it("names the workspace, its docs and the CLI's version", () => {
@@ -120,5 +120,13 @@ describe("the AGENTS.md section", () => {
     expect(() => withAgentsSection("# Rules\n<!-- open-arch:start -->\nMine.\n", section)).toThrow("AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone.");
     expect(() => withAgentsSection("# Rules\n<!-- open-arch:end -->\nMine.\n", section)).toThrow("AGENTS.md has <!-- open-arch:end --> without <!-- open-arch:start --> before it");
     expect(() => withAgentsSection("<!-- open-arch:end -->\nMine.\n<!-- open-arch:start -->\n", section)).toThrow("without <!-- open-arch:end --> after it");
+  });
+});
+
+describe("the file a generated page came from", () => {
+  it("is read from the page's first line, and is null for a page open-arch didn't generate", () => {
+    const page = exportDocs(loadWorkspace(JSON.stringify({ openarch: 12, name: "A", elements: {}, views: {} })), "arch/a.openarch")[0]!.content;
+    expect(generatedFrom(page)).toBe("arch/a.openarch");
+    expect(generatedFrom("# Mine\n")).toBeNull();
   });
 });

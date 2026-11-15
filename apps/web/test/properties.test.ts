@@ -19,7 +19,7 @@ const doc: OpenArchDocument = {
 };
 
 /** The details panel for a view of this model, showing what's selected. It keeps the edits it sends, what it selects, and the notes it adds. */
-function panel(model: OpenArchDocument, viewId: string, selection: Selection) {
+function panel(model: OpenArchDocument, viewId: string, selection: Selection, options: { syncsDocs?: boolean } = {}) {
   const ws = buildWorkspace(model);
   const view = ws.views.get(viewId)!;
   const edits: Operation[][] = [];
@@ -31,7 +31,7 @@ function panel(model: OpenArchDocument, viewId: string, selection: Selection) {
     computed: computeView(ws, view),
     selection,
     isNew: false,
-    syncsDocs: false,
+    syncsDocs: options.syncsDocs ?? false,
     syncsSkill: false,
     docs: null,
     fileName: "shop.openarch",
@@ -60,6 +60,18 @@ function box(html: string, label: string): string | undefined {
 }
 
 describe("Properties", () => {
+  it("offers to keep the docs beside the file, where saving keeps docs, and says what . means", async () => {
+    const { element, edits } = panel(doc, "landscape", { kind: "workspace" }, { syncsDocs: true });
+    const host = mount(element);
+    expect(host.textContent).toContain("Set a folder, relative to the workspace file, to keep markdown docs there; . is the file's own folder.");
+    await click(button(host, "Keep docs beside the file"));
+    expect(edits).toEqual([[{ op: "update-workspace", docs: "." }]]);
+    const named = panel({ ...doc, export: { docs: "." } }, "landscape", { kind: "workspace" }, { syncsDocs: true });
+    const html = renderToString(named.element).replaceAll("&#x27;", "'");
+    expect(html).toContain("Relative to the workspace file; . is the file's own folder. Every save rewrites the markdown docs there.");
+    expect(html).not.toContain("Keep docs beside the file");
+  });
+
   it("says where Export zip puts the docs, when nothing saves them", () => {
     const html = render({ kind: "workspace" }).replaceAll("&#x27;", "'");
     expect(html).toContain("Here, Export zip puts the docs where a save would. With none, or one the zip has no place for, it puts them beside the file.");

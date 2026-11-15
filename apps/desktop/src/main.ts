@@ -9,14 +9,14 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type OpenArchDocument } from "@open-arch/core";
+import { FILE_EXTENSION, loadWorkspace, type OpenArchDocument } from "@open-arch/core";
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import type { AgentContext } from "../../web/src/bridge.js";
 import { problemText } from "../../web/src/problems.js";
 import type { AgentBackend, AgentEvent } from "./agent.js";
 import { AgentSetup } from "./agent-setup.js";
 import { OpenCodeBackend } from "./opencode.js";
-import { Saver } from "./saving.js";
+import { newDocument, Saver } from "./saving.js";
 import { userDataFolder } from "./user-data.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -148,10 +148,7 @@ handle("openFile", async (event) => {
 handle("newFile", async (event) => {
   const file = await askForNewPath(event, "New workspace");
   if (!file) return null;
-  const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
-  // The docs beside the file, in its own folder, with no folder of their own.
-  doc.export = { docs: "." };
-  return saver.make(file, doc, (made) => grant(made, true));
+  return saver.make(file, newDocument(file), (made) => grant(made, true));
 });
 
 handle("saveAs", async (event, text: string) => {

@@ -8,7 +8,7 @@
  * changes are there to commit. The folders opened are remembered in IndexedDB: the browser can
  * keep a folder's handle, and asks again before the page may change it.
  */
-import { agentsSection, agentsSectionWorkspace, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, GENERATED_MARKER, lineEnding, LineBreakInPath, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
+import { agentsSection, agentsSectionWorkspace, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, generatedFrom, lineEnding, LineBreakInPath, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
@@ -136,6 +136,12 @@ export interface DocsChanges {
 export async function writeDocs(dir: FolderHandle, files: ExportedFile[], changes: DocsChanges = { written: [], deleted: [], skipped: [] }): Promise<DocsChanges> {
   const { written, deleted, skipped } = changes;
   const targets = new Map(files.map((f) => [f.path, f.content]));
+  // Only pages generated from the same file, as the CLI does: another workspace's docs can share the folder.
+  const source = files[0] ? generatedFrom(files[0].content) : null;
+  const ours = (text: string) => {
+    const from = generatedFrom(text);
+    return from !== null && (source === null || from === source);
+  };
   for (const [path, content] of targets) {
     if (segments(path)?.join("/") !== path) throw new Error(`Refusing to write ${JSON.stringify(path)}: it isn't a path inside the docs folder.`);
     let existing: string | null = null;
@@ -147,7 +153,7 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[], change
       else if (!isMissing(error)) throw error;
     }
     if (existing === content) continue;
-    if (existing !== null && !existing.startsWith(GENERATED_MARKER)) {
+    if (existing !== null && !ours(existing)) {
       skipped.push(path);
       continue;
     }
@@ -167,7 +173,7 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[], change
         if (prefix === "" && !DOCS_PAGE_FOLDERS.includes(entry.name)) left++;
         else if (await sweep(entry, `${path}/`)) await folder.removeEntry(entry.name);
         else left++;
-      } else if (entry.name.endsWith(".md") && !targets.has(path) && (await readText(entry)).startsWith(GENERATED_MARKER)) {
+      } else if (entry.name.endsWith(".md") && !targets.has(path) && ours(await readText(entry))) {
         await folder.removeEntry(entry.name);
         deleted.push(path);
       } else left++;

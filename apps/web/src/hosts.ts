@@ -118,8 +118,8 @@ export interface FilePlace {
  * after the file and holds it, and the docs go where a save would put them beside it: a path that
  * goes up and comes back in, like `../<name>/docs`, is worked out from that folder.
  *
- * When the workspace names no docs folder, or one the zip has no place for, the docs go beside
- * the file, in its own folder, with no folder of their own.
+ * When the workspace names no docs folder, or one the zip has no place for, the docs go in the
+ * file's own folder.
  */
 export function workspaceZip(ws: Workspace, fileName: string, text: string, place?: FilePlace): Uint8Array {
   const base = fileName.replace(/\.openarch$/, "");
@@ -137,7 +137,7 @@ export function workspaceZip(ws: Workspace, fileName: string, text: string, plac
     }
   }
   const prefix = (parts: string[]) => parts.map((part) => `${part}/`).join("");
-  // With none, or one the zip has no place for, beside the file: no folder of their own.
+  // With none, or one the zip has no place for, in the file's own folder.
   const docs = docsParts ? prefix(docsParts) : prefix(fileDir);
   const entries: Record<string, Uint8Array> = { [`${root}/${prefix(fileDir)}${fileName}`]: strToU8(text) };
   for (const f of exportDocs(ws, fileName)) entries[`${root}/${docs}${f.path}`] = strToU8(f.content);

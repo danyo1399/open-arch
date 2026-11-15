@@ -493,6 +493,17 @@ describe("keeping the docs folder", () => {
     expect(docs.folders().sort()).toEqual(["elements", "node_modules", "node_modules/pkg", "other", "untouched"]);
   });
 
+  it("leaves another workspace's pages alone when their docs share a folder", async () => {
+    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in the designer or with the open-arch CLI, and this page is rewritten. -->\n${body}`;
+    const docs = new FakeFolder("repo");
+    docs.put("README.md", from("b.openarch", "B"));
+    docs.put("views/b.md", from("b.openarch", "B view"));
+    docs.put("views/old.md", from("a.openarch", "stale"));
+    const result = await writeDocs(docs, [{ path: "README.md", content: from("a.openarch", "A") }]);
+    expect(result).toEqual({ written: [], deleted: ["views/old.md"], skipped: ["README.md"] });
+    expect(docs.files()).toEqual({ "README.md": from("b.openarch", "B"), "views/b.md": from("b.openarch", "B view") });
+  });
+
   it("leaves a folder alone where a page would go", async () => {
     const docs = new FakeFolder("docs");
     docs.put("README.md/mine.md", "Mine.");

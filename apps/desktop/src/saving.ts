@@ -4,11 +4,18 @@
  * main process, so it can be tested.
  */
 import { readFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
-import { loadWorkspace, type OpenArchDocument, type Workspace } from "@open-arch/core";
+import { basename, dirname, relative } from "node:path";
+import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type OpenArchDocument, type Workspace } from "@open-arch/core";
 import { docsFolder, syncDocs, writeWorkspaceFile } from "open-arch/workspace";
 import type { DocsSummary, OpenedFile, SaveSummary } from "../../web/src/bridge.js";
 import type { AgentSetup } from "./agent-setup.js";
+
+/** A new, empty workspace for `file`: named after it, with its docs in the file's own folder. */
+export function newDocument(file: string): OpenArchDocument {
+  const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
+  doc.export = { docs: "." };
+  return doc;
+}
 
 export class Saver {
   constructor(private readonly setup: AgentSetup) {}
