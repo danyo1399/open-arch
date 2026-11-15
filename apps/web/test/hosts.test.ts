@@ -3,6 +3,8 @@ import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { exampleHost, tourHost, workspaceZip } from "../src/hosts.js";
 import { SKILL_TARGETS, skillFiles } from "../src/skill.js";
+import { FolderHost } from "../src/folders.js";
+import { FakeFolder } from "./fakeFolder.js";
 import { deletePlan, relationshipRef, uniqueId } from "../src/model.js";
 
 describe("hosts", () => {
@@ -52,6 +54,22 @@ describe("hosts", () => {
     }
     const text = JSON.stringify({ openarch: 11, name: "A", export: { docs: "./docs/arch/" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)))).toContain("a/docs/arch/README.md");
+  });
+
+  it("works out a docs folder from the file's folder, as a save does, so one that goes up and comes back in is kept", async () => {
+    const text = JSON.stringify({ openarch: 11, name: "A", export: { docs: "../a/docs" }, elements: {}, views: {} });
+    // In a folder, with the file in a/, a save writes these docs to a/docs/.
+    const root = new FakeFolder("repo");
+    root.put("a/a.openarch", text);
+    await new FolderHost("1", root, "a/a.openarch").save(text);
+    expect(Object.keys(root.files())).toContain("a/docs/README.md");
+    // The zip's one folder is named after the file, and the docs land in the same place in it.
+    const zipped = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)));
+    expect(zipped).toContain("a/docs/README.md");
+    expect(zipped.some((path) => path.startsWith("a/a-docs/"))).toBe(false);
+    // Up and into another folder isn't inside the file's folder: the zip has no place for it.
+    const other = JSON.stringify({ openarch: 11, name: "A", export: { docs: "../arch/docs" }, elements: {}, views: {} });
+    expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(other), "a.openarch", other)))).toContain("a/a-docs/README.md");
   });
 });
 

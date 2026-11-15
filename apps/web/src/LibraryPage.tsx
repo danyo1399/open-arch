@@ -163,7 +163,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
             </ul>
           )}
           <p className="muted small">
-            Open a folder on this computer, such as a Git repository, to edit the .openarch file in it. Changes save to the file as you work, and the docs folder it names is kept up to date, with the agent skill that lets AI agents change the model, ready to commit.
+            Open a folder on this computer, such as a Git repository, to edit the .openarch file in it. Changes save to the file as you work, and the docs folder it names is kept up to date, ready to commit. The first save also adds the agent skill that lets AI agents change the model.
           </p>
         </section>
       )}

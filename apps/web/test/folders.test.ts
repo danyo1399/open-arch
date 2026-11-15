@@ -191,7 +191,7 @@ describe("a workspace in a folder", () => {
 });
 
 describe("keeping the agent skill", () => {
-  it("makes the folder hold exactly the skill, writing only what differs", async () => {
+  it("writes the skill's files, only those that differ, and leaves anything else alone", async () => {
     const dir = new FakeFolder("open-arch");
     const skill = Object.fromEntries(skillFiles.map((f) => [f.path, f.content]));
     expect((await writeSkill(dir)).sort()).toEqual(Object.keys(skill).sort());
@@ -200,12 +200,11 @@ describe("keeping the agent skill", () => {
     const before = (dir.entries.get("SKILL.md") as FakeFile).lastModified;
     expect(await writeSkill(dir)).toEqual([]);
     expect((dir.entries.get("SKILL.md") as FakeFile).lastModified).toBe(before);
-    // A changed page is put back, and a file or folder the skill doesn't have goes, as open-arch init replaces the folder.
+    // A changed page is put back. Someone's own file is left as it is.
     dir.put("SKILL.md", "edited");
-    dir.put("old/stale.md", "from an older skill");
-    expect((await writeSkill(dir)).sort()).toEqual(["SKILL.md", "old/stale.md"]);
-    expect(dir.files()).toEqual(skill);
-    expect(dir.folders()).toEqual(["references"]);
+    dir.put("notes/mine.md", "Mine.");
+    expect(await writeSkill(dir)).toEqual(["SKILL.md"]);
+    expect(dir.files()).toEqual({ ...skill, "notes/mine.md": "Mine." });
   });
 
   it("says the skill or the docs weren't written even when what failed has no message", async () => {

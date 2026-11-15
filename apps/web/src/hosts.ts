@@ -107,12 +107,18 @@ export async function copyText(text: string): Promise<void> {
  * folder, as a save would put them. When it names none, they go in `<name>-docs`. Docs for a
  * folder outside the file's folder also go in `<name>-docs`: a save in a folder writes them above
  * the file, if that's still inside the folder opened, but the zip's one folder has no place above
- * the file.
+ * the file. A path that goes up and comes back into the file's folder is worked out as a save
+ * does: the zip's one folder is named after the file, so `../<name>/docs` is its `docs`.
  */
 export function workspaceZip(ws: Workspace, fileName: string, text: string): Uint8Array {
   const base = fileName.replace(/\.openarch$/, "");
   const named = ws.doc.export?.docs;
-  const inside = named && !isAbsolutePath(named) ? segments(named) : null;
+  // Worked out from the file's folder, as a save does, which in the zip is the folder named after
+  // the file. So a path that goes up and comes back into it, like ../shop/docs for shop.openarch,
+  // stays inside. A path into any other folder doesn't: the zip has only the one.
+  const above = "\u0000"; // No real folder has this name.
+  const parts = named && !isAbsolutePath(named) ? segments(`${above}/${base}/${named}`) : null;
+  const inside = parts?.[0] === above && parts[1] === base ? parts.slice(2) : null;
   const docs = inside ? inside.map((part) => `${part}/`).join("") : `${base}-docs/`;
   const entries: Record<string, Uint8Array> = { [`${base}/${fileName}`]: strToU8(text) };
   for (const f of exportDocs(ws, fileName)) entries[`${base}/${docs}${f.path}`] = strToU8(f.content);

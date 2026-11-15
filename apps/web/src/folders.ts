@@ -175,13 +175,12 @@ export async function writeDocs(dir: FolderHandle, files: ExportedFile[], change
 }
 
 /**
- * Makes the folder hold exactly the agent skill's files, as `open-arch init` does: the folder is
- * the skill's own. Only files that differ are written. Resolves to the paths it wrote or deleted.
+ * Writes the agent skill's files into the folder, only those that differ. Anything else in it,
+ * such as a file someone put there, is left alone. Resolves to the paths it wrote.
  */
 export async function writeSkill(dir: FolderHandle): Promise<string[]> {
-  const changed: string[] = [];
-  const wanted = new Map(skillFiles.map((f) => [f.path, f.content]));
-  for (const [path, content] of wanted) {
+  const written: string[] = [];
+  for (const { path, content } of skillFiles) {
     let existing: string | null = null;
     try {
       existing = await readText(await fileAt(dir, path));
@@ -190,24 +189,9 @@ export async function writeSkill(dir: FolderHandle): Promise<string[]> {
     }
     if (existing === content) continue;
     await writeText(await fileAt(dir, path, true), content);
-    changed.push(path);
+    written.push(path);
   }
-  /** Deletes what isn't the skill's below `folder`. Resolves to whether the folder is empty after. */
-  const sweep = async (folder: FolderHandle, prefix: string): Promise<boolean> => {
-    const entries: (FileHandle | FolderHandle)[] = [];
-    for await (const entry of folder.values()) entries.push(entry);
-    let left = 0;
-    for (const entry of entries) {
-      const path = prefix + entry.name;
-      if (entry.kind === "directory" ? await sweep(entry, `${path}/`) : !wanted.has(path)) {
-        await folder.removeEntry(entry.name);
-        if (entry.kind === "file") changed.push(path);
-      } else left++;
-    }
-    return left === 0;
-  };
-  await sweep(dir, "");
-  return changed;
+  return written;
 }
 
 // --- The workspace host --------------------------------------------------------------
