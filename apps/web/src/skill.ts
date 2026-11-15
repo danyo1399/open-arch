@@ -8,6 +8,9 @@ import cliPackage from "../../../packages/cli/package.json";
 /** Where agents look for project skills, as `open-arch init` installs them (SKILL_TARGETS there). Claude Code reads `.claude/skills`; most others read `.agents/skills`. */
 export const SKILL_TARGETS = [".agents/skills/open-arch", ".claude/skills/open-arch"];
 
+/** The CLI's version, which the skill and the AGENTS.md section tell an agent without the CLI to run. */
+export const CLI_VERSION = cliPackage.version;
+
 const raw = import.meta.glob<string>("../../../packages/skill/open-arch/**/*", { query: "?raw", import: "default", eager: true });
 
 /**
@@ -15,5 +18,5 @@ const raw = import.meta.glob<string>("../../../packages/skill/open-arch/**/*", {
  * pages, as `open-arch init` does, so an agent without the CLI runs the version that matches the skill.
  */
 export const skillFiles: { path: string; content: string }[] = Object.entries(raw)
-  .map(([path, content]) => ({ path: path.slice(path.indexOf("/open-arch/") + "/open-arch/".length), content: path.endsWith(".md") ? content.replaceAll("{{version}}", cliPackage.version) : content }))
+  .map(([path, content]) => ({ path: path.slice(path.indexOf("/open-arch/") + "/open-arch/".length), content: path.endsWith(".md") ? content.replaceAll("{{version}}", CLI_VERSION) : content }))
   .sort((a, b) => a.path.localeCompare(b.path));

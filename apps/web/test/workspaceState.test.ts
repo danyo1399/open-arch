@@ -177,6 +177,13 @@ describe("the open workspace", () => {
     await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
     expect(state().message?.text).toBe("Saved, but the docs in docs/ weren't updated: It's a file. Also, the agent skill in .agents/skills/open-arch/ and .claude/skills/open-arch/ wasn't updated: Not allowed.");
     expect(saveProblem({ docs: null })).toBeNull();
+    expect(saveProblem({ docs: null, agentsError: "Locked." })).toBe("Saved, but the open-arch section in AGENTS.md wasn't updated: Locked.");
+    expect(saveProblem({ docs: null, skillError: "No.", agentsError: "Locked." })).toBe(
+      "Saved, but the agent skill in .agents/skills/open-arch/ and .claude/skills/open-arch/ wasn't updated: No. Also, the open-arch section in AGENTS.md wasn't updated: Locked.",
+    );
+    expect(saveProblem({ docs: { dir: "docs", written: 0, deleted: 0, skipped: [], error: "Full." }, agentsError: "Locked." })).toBe(
+      "Saved, but the docs in docs/ weren't updated: Full. Also, the open-arch section in AGENTS.md wasn't updated: Locked.",
+    );
     expect(saveProblem(undefined)).toBeNull();
   });
 

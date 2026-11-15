@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { allowed, findWorkspaces, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
 import { exampleHost, MemoryHost, savesDocs, savesSkill } from "../src/hosts.js";
 import { skillFiles } from "../src/skill.js";
-import { FakeFile, FakeFolder, skillInFolder } from "./fakeFolder.js";
+import { agentsInFolder, FakeFile, FakeFolder, skillInFolder } from "./fakeFolder.js";
 
 const workspace = (name: string, docs?: string) => {
   const doc = emptyDocument(name);
@@ -89,7 +89,7 @@ describe("a workspace in a folder", () => {
   it("saves only the file when the workspace names no docs folder", async () => {
     const root = new FakeFolder("repo");
     expect(await new FolderHost("1", root, "a.openarch").save(workspace("A"))).toEqual({ docs: null });
-    expect(root.files()).toEqual({ "a.openarch": workspace("A"), ...skillInFolder() });
+    expect(root.files()).toEqual({ "a.openarch": workspace("A"), ...skillInFolder(), ...agentsInFolder("a.openarch") });
   });
 
   it("refuses to save over a change made outside since it was loaded, and saves once it's reloaded", async () => {
@@ -226,14 +226,14 @@ describe("keeping the agent skill", () => {
     root.put(".claude/settings.json", "{}");
     const host = new FolderHost("1", root, "arch/a.openarch");
     expect(await host.save(workspace("B"))).toEqual({ docs: null });
-    expect(root.files()).toEqual({ "arch/a.openarch": workspace("B"), ".claude/settings.json": "{}", ...skillInFolder() });
+    expect(root.files()).toEqual({ "arch/a.openarch": workspace("B"), ".claude/settings.json": "{}", ...skillInFolder(), ...agentsInFolder("arch/a.openarch") });
     // Saves after that leave it alone.
     (root.entries.get(".agents") as FakeFolder).entries.delete("skills");
     expect(await host.save(workspace("C"))).toEqual({ docs: null });
     expect(Object.keys(root.files()).some((p) => p.startsWith(".agents/"))).toBe(false);
     // Opened again, the first save puts it back.
     await new FolderHost("1", root, "arch/a.openarch").save(workspace("D"));
-    expect(root.files()).toEqual({ "arch/a.openarch": workspace("D"), ".claude/settings.json": "{}", ...skillInFolder() });
+    expect(root.files()).toEqual({ "arch/a.openarch": workspace("D"), ".claude/settings.json": "{}", ...skillInFolder(), ...agentsInFolder("arch/a.openarch") });
   });
 
   it("says when the skill can't be written, and tries again on each save until it is", async () => {
@@ -246,7 +246,47 @@ describe("keeping the agent skill", () => {
     expect(await host.save(workspace("C"))).toEqual({ docs: null, skillError: "Not allowed." });
     root.refuse.delete(".agents");
     expect(await host.save(workspace("D"))).toEqual({ docs: null });
-    expect(root.files()).toEqual({ "a.openarch": workspace("D"), ...skillInFolder() });
+    expect(root.files()).toEqual({ "a.openarch": workspace("D"), ...skillInFolder(), ...agentsInFolder("a.openarch") });
+  });
+});
+
+describe("keeping the AGENTS.md section", () => {
+  it("names the file and its docs from the top of the folder opened, and keeps the rest of AGENTS.md", async () => {
+    const root = new FakeFolder("repo");
+    root.put("arch/a.openarch", workspace("A", "docs"));
+    root.put("AGENTS.md", "# Rules\n\nUse tabs.\n");
+    const host = new FolderHost("1", root, "arch/a.openarch");
+    expect(await host.save(workspace("B", "docs"))).toMatchObject({ docs: { dir: "docs" } });
+    const agents = root.files()["AGENTS.md"]!;
+    expect(agents.startsWith("# Rules\n\nUse tabs.\n\n<!-- open-arch:start -->")).toBe(true);
+    expect(agents).toContain("in `arch/a.openarch`. Readable docs generated from it are in `arch/docs/`.");
+  });
+
+  it("is written again when the docs folder changes, and left alone when nothing it says has", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A", "docs"));
+    const host = new FolderHost("1", root, "a.openarch");
+    await host.save(workspace("B", "docs"));
+    const file = root.entries.get("AGENTS.md") as FakeFile;
+    const written = file.lastModified;
+    await host.save(workspace("C", "docs"));
+    expect(file.lastModified).toBe(written);
+    await host.save(workspace("D", "manual"));
+    expect(file.text).toContain("Readable docs generated from it are in `manual/`.");
+    await host.save(workspace("E"));
+    expect(file.text).not.toContain("Readable docs");
+  });
+
+  it("says when it can't be written, and tries again on each save until it is", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    root.refuse.add("AGENTS.md");
+    const host = new FolderHost("1", root, "a.openarch");
+    expect(await host.save(workspace("B"))).toEqual({ docs: null, agentsError: "Not allowed." });
+    expect(root.files()["a.openarch"]).toBe(workspace("B"));
+    root.refuse.delete("AGENTS.md");
+    expect(await host.save(workspace("C"))).toEqual({ docs: null });
+    expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("a.openarch")["AGENTS.md"]);
   });
 });
 

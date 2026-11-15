@@ -122,7 +122,7 @@ describe("opening a folder from the start page", () => {
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
     const doc = loadWorkspace(root.files()["architecture.openarch"]!).doc;
     expect(doc).toMatchObject({ name: "My Repo", export: { docs: "docs/architecture" } });
-    expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch", "docs/architecture/README.md", ...Object.keys(skillInFolder())].sort());
+    expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch", "docs/architecture/README.md", "AGENTS.md", ...Object.keys(skillInFolder())].sort());
     expect(opened.map((h) => (h as FolderHost).path)).toEqual(["architecture.openarch"]);
   });
 
@@ -139,7 +139,7 @@ describe("opening a folder from the start page", () => {
     await click(button(host, "Create architecture.openarch"));
     await until(host, "Created architecture.openarch in repo, but couldn't write its docs in docs/architecture/: Not allowed. Open it from Folders once that's fixed.");
     expect(opened).toEqual([]);
-    expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch", ...Object.keys(skillInFolder())].sort());
+    expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch", "AGENTS.md", ...Object.keys(skillInFolder())].sort());
     expect(folders.records.map((r) => r.path)).toEqual(["architecture.openarch"]);
     expect(host.textContent).toContain("architecture.openarch · opened");
   });
@@ -170,6 +170,20 @@ describe("opening a folder from the start page", () => {
     await until(host, "No workspace in repo");
     await click(button(host, "Create architecture.openarch"));
     await until(host, "Created architecture.openarch in repo, but couldn't write its docs in docs/architecture/: Not allowed. It also couldn't add the agent skill: Not allowed. Open it from Folders once that's fixed.");
+  });
+
+  it("says so when the new workspace's section in AGENTS.md can't be written", async () => {
+    picker();
+    const root = new FakeFolder("repo");
+    root.refuse.add("AGENTS.md");
+    picked = root;
+    const { host, opened } = page();
+    await until(host, "Folders");
+    await click(button(host, "Open folder…"));
+    await until(host, "No workspace in repo");
+    await click(button(host, "Create architecture.openarch"));
+    await until(host, "Created architecture.openarch in repo, but couldn't add its section to AGENTS.md: Not allowed. Open it from Folders once that's fixed.");
+    expect(opened).toEqual([]);
   });
 
   it("lists the folders opened, reopens one with the browser's permission, and forgets one", async () => {

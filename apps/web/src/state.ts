@@ -46,11 +46,16 @@ export function docsProblem(docs: DocsSummary): string {
     : `Saved, but the docs in ${docs.dir}/ weren't updated: ${docs.error}`;
 }
 
-/** What went wrong beside saving the file, with the docs, the agent skill or both, or null when nothing did. */
+/** What went wrong beside saving the file, with the docs, the agent skill, AGENTS.md, or several, or null when nothing did. */
 export function saveProblem(summary: SaveSummary | void): string | null {
-  const skill = summary?.skillError && `the agent skill in ${SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} wasn't updated: ${summary.skillError}`;
-  if (summary?.docs?.error) return skill ? `${docsProblem(summary.docs)} Also, ${skill}` : docsProblem(summary.docs);
-  return skill ? `Saved, but ${skill}` : null;
+  const others = [
+    summary?.skillError && `the agent skill in ${SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} wasn't updated: ${summary.skillError}`,
+    summary?.agentsError && `the open-arch section in AGENTS.md wasn't updated: ${summary.agentsError}`,
+  ].filter((text): text is string => !!text);
+  const also = (texts: string[]) => texts.map((text) => ` Also, ${text}`).join("");
+  if (summary?.docs?.error) return docsProblem(summary.docs) + also(others);
+  const [first, ...more] = others;
+  return first ? `Saved, but ${first}${also(more)}` : null;
 }
 
 /**

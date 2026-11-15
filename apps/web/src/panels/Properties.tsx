@@ -1279,7 +1279,7 @@ function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }
       )}
       {syncsSkill && (
         <p className="muted small">
-          The first save after opening the folder also brings the open-arch agent skill up to date in {SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} of the folder, so AI agents working there know how to read and change the model. If that save can't write it, each save after tries again. Anything else in those folders is left alone.
+          The first save after opening the folder also brings the open-arch agent skill up to date in {SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} of the folder, so AI agents working there know how to read and change the model. If that save can't write it, each save after tries again. Anything else in those folders is left alone. Saves also keep the open-arch section in the folder's AGENTS.md, which tells agents where the model and its docs are, and leave the rest of that file alone.
         </p>
       )}
       <dl className="facts">

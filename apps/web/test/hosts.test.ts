@@ -44,6 +44,10 @@ describe("hosts", () => {
       expect(Object.keys(files)).toContain(`shop/${target}/references/commands.md`);
     }
     expect(Object.keys(files).every((path) => path.startsWith("shop/"))).toBe(true);
+    // AGENTS.md, with the section open-arch init adds, naming the file and its docs in the zip.
+    const agents = strFromU8(files["shop/AGENTS.md"]!);
+    expect(agents.startsWith("<!-- open-arch:start -->")).toBe(true);
+    expect(agents).toContain(`in \`shop.openarch\`. Readable docs generated from it are in \`${docs}/\`.`);
   });
 
   it("zips the docs in <name>-docs when the workspace names no docs folder, or one outside its folder", () => {
@@ -70,9 +74,12 @@ describe("hosts", () => {
       root.put("arch/a.openarch", text);
       const saved = await new FolderHost("1", root, "arch/a.openarch").save(text).catch(() => null);
       if (saved) expect(Object.keys(root.files())).toContain(`${where.slice("repo/".length)}README.md`);
-      const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text, { folder: "repo", path: "arch/a.openarch" })));
+      const zipped = unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text, { folder: "repo", path: "arch/a.openarch" }));
+      const files = Object.keys(zipped);
       expect(files).toContain(`${where}README.md`);
+      expect(strFromU8(zipped["repo/AGENTS.md"]!)).toContain(`in \`arch/a.openarch\`. Readable docs generated from it are in \`${where.slice("repo/".length)}\`.`);
       expect(files).toContain("repo/arch/a.openarch");
+      expect(files).toContain("repo/AGENTS.md");
       for (const target of SKILL_TARGETS) expect(files).toContain(`repo/${target}/SKILL.md`);
     }
   });

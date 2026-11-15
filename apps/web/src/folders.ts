@@ -7,11 +7,11 @@
  * commit. The folders opened are remembered in IndexedDB: the browser can keep a folder's handle,
  * and asks again before the page may change it.
  */
-import { exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
+import { agentsSection, exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
-import { SKILL_TARGETS, skillFiles } from "./skill.js";
+import { CLI_VERSION, SKILL_TARGETS, skillFiles } from "./skill.js";
 import type { WorkspaceHost } from "./hosts.js";
 import { committed, done } from "./library.js";
 
@@ -194,6 +194,18 @@ export async function writeSkill(dir: FolderHandle): Promise<string[]> {
   return written;
 }
 
+/** Puts the section in AGENTS.md at the top of the folder, or makes AGENTS.md with it. The rest of the file is kept as it is. */
+export async function writeAgentsSection(root: FolderHandle, section: string): Promise<void> {
+  let text = "";
+  try {
+    text = await readText(await fileAt(root, "AGENTS.md"));
+  } catch (error) {
+    if (!isMissing(error)) throw error;
+  }
+  const next = withAgentsSection(text, section);
+  if (next !== text) await writeText(await fileAt(root, "AGENTS.md", true), next);
+}
+
 // --- The workspace host --------------------------------------------------------------
 
 /** How often the file is checked for changes made outside the designer, such as `git pull`. */
@@ -213,6 +225,8 @@ export class FolderHost implements WorkspaceHost {
   private reload: (() => void) | null = null;
   /** Whether a save brought the agent skill up to date since the folder was opened. Until one does, each save tries. */
   private skillKept = false;
+  /** The section this host last wrote to AGENTS.md, or null before it has. */
+  private agentsKept: string | null = null;
 
   /** `path` is the file's, relative to `root`, with `/` between folders. */
   constructor(
@@ -308,6 +322,16 @@ export class FolderHost implements WorkspaceHost {
     await writable.close();
     this.known = saved;
     const result: SaveSummary = { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
+    // The section in AGENTS.md names the file and its docs, so it's written again whenever that changes.
+    const section = agentsSection(this.path, docsParts && docs ? docsParts.join("/") : undefined, CLI_VERSION);
+    if (section !== this.agentsKept) {
+      try {
+        await writeAgentsSection(this.root, section);
+        this.agentsKept = section;
+      } catch (error) {
+        result.agentsError = problemText(error);
+      }
+    }
     // Once each time the folder is opened, not on every save: saves come as the user types.
     if (!this.skillKept) {
       try {

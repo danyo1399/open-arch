@@ -27,6 +27,8 @@ export interface SaveSummary {
   docs: DocsSummary | null;
   /** Why the agent skill wasn't kept up to date, when the file was saved but it wasn't. */
   skillError?: string;
+  /** Why the section in AGENTS.md wasn't kept up to date, when the file was saved but it wasn't. */
+  agentsError?: string;
 }
 
 export interface DesktopBridge {
