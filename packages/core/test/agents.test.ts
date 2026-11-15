@@ -88,9 +88,23 @@ describe("the AGENTS.md section", () => {
   });
 
   it("refuses to name a path with a line break in it, as the section is read a line at a time", () => {
-    for (const [workspace, docs] of [["a\nb.openarch", undefined], ["a.openarch", "do\r\ncs"], ["a.openarch", "x\n<!-- open-arch:end -->"]] as const) {
+    const cases = [
+      ["a\nb.openarch", undefined],
+      ["a.openarch", "do\r\ncs"],
+      ["a.openarch", "x\n<!-- open-arch:end -->"],
+      // Unicode's line and paragraph separators end a line too, where markers are looked for.
+      ["a\u2028<!-- open-arch:end -->\u2028b.openarch", undefined],
+      ["a.openarch", "do\u2029cs"],
+    ] as const;
+    for (const [workspace, docs] of cases) {
       expect(() => agentsSection(workspace, docs, "1")).toThrow("its path has a line break in it.");
     }
+  });
+
+  it("says docs at the top of the project, beside AGENTS.md, are in ./", () => {
+    const section = agentsSection("shop.openarch", "", "1");
+    expect(section).toContain("Readable docs generated from it are in `./`.");
+    expect(section).toContain("Never edit `shop.openarch` or `./` by hand.");
   });
 
   it("tells which workspace a section names", () => {

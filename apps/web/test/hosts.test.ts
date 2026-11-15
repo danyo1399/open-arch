@@ -55,6 +55,16 @@ describe("hosts", () => {
     const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a\nb.openarch", text)));
     expect(files).toContain("a\nb/a\nb.openarch");
     expect(files.some((path) => path.endsWith("AGENTS.md"))).toBe(false);
+    // Or its docs folder's.
+    const docsText = JSON.stringify({ openarch: 11, name: "A", export: { docs: "do\u2029cs" }, elements: {}, views: {} });
+    expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(docsText), "a.openarch", docsText))).some((path) => path.endsWith("AGENTS.md"))).toBe(false);
+  });
+
+  it("says docs in the file's own folder are in ./, in the zip's AGENTS.md", () => {
+    const text = JSON.stringify({ openarch: 11, name: "A", export: { docs: "." }, elements: {}, views: {} });
+    const files = unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text));
+    expect(Object.keys(files)).toContain("a/README.md");
+    expect(strFromU8(files["a/AGENTS.md"]!)).toContain("Readable docs generated from it are in `./`.");
   });
 
   it("zips the docs in <name>-docs when the workspace names no docs folder, or one outside its folder", () => {

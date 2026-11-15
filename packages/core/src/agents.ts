@@ -15,19 +15,29 @@ const SECTION_END = "<!-- open-arch:end -->";
  */
 export function agentsSection(workspace: string, docs: string | undefined, version: string, eol = "\n"): string {
   for (const path of [workspace, docs]) {
-    if (path && /[\r\n]/.test(path)) throw new Error(`AGENTS.md's open-arch section can't name ${JSON.stringify(path)}: its path has a line break in it.`);
+    // Every character that ends a line where markers are looked for: \r, \n, and Unicode's line and paragraph separators.
+    if (path && /[\r\n\u2028\u2029]/.test(path)) throw new LineBreakInPath(path);
   }
+  // Docs at the top of the project, beside AGENTS.md, have the path "".
+  const docsFolder = docs === undefined ? undefined : code(`${docs || "."}/`);
   return [
     SECTION_START,
     "## Architecture",
     "",
-    `This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in ${code(workspace)}.${docs ? ` Readable docs generated from it are in ${code(`${docs}/`)}.` : ""}`,
+    `This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in ${code(workspace)}.${docsFolder ? ` Readable docs generated from it are in ${docsFolder}.` : ""}`,
     "",
     "- Load the `open-arch` skill before reading or changing the architecture. If your tool doesn't support skills, read `.agents/skills/open-arch/SKILL.md`.",
-    `- Never edit ${code(workspace)}${docs ? ` or ${code(`${docs}/`)}` : ""} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.`,
+    `- Never edit ${code(workspace)}${docsFolder ? ` or ${docsFolder}` : ""} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.`,
     SECTION_END,
     "",
   ].join(eol);
+}
+
+/** What agentsSection throws for a path it can't name, as the section is read a line at a time. */
+export class LineBreakInPath extends Error {
+  constructor(readonly path: string) {
+    super(`AGENTS.md's open-arch section can't name ${JSON.stringify(path)}: its path has a line break in it.`);
+  }
 }
 
 /** The line ending AGENTS.md's text uses: \r\n when it has any, as on Windows, else \n. */

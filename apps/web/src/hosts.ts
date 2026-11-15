@@ -3,7 +3,7 @@
  * talks to a WorkspaceHost, so the same UI runs in the browser (workspaces kept
  * in IndexedDB, and the examples in memory) and in Electron (Node's fs).
  */
-import { agentsSection, exportDocs, FILE_EXTENSION, type Workspace } from "@open-arch/core";
+import { agentsSection, exportDocs, FILE_EXTENSION, LineBreakInPath, type Workspace } from "@open-arch/core";
 import { strToU8, zipSync } from "fflate";
 import exampleText from "../../../examples/shop/shop.openarch?raw";
 import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw";
@@ -143,8 +143,8 @@ export function workspaceZip(ws: Workspace, fileName: string, text: string, plac
   // zip. A path with a line break in it can't be named there, so then the zip has no AGENTS.md.
   try {
     entries[`${root}/AGENTS.md`] = strToU8(agentsSection(`${prefix(fileDir)}${fileName}`, docs.replace(/\/$/, ""), CLI_VERSION));
-  } catch {
-    // Left out.
+  } catch (error) {
+    if (!(error instanceof LineBreakInPath)) throw error;
   }
   return zipSync(entries);
 }

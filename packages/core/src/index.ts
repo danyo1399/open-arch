@@ -28,4 +28,4 @@ export { renderMermaid, mermaidId, viewMarkdown, transitionLabel, nodeKindLabel 
 export { lineage, topLevel, isInside, childrenOf, kindLabel, kindList, tagEntries, tagText, libraryOf, containerOf, builtInto, inFrame, PARENT_KINDS, KIND_RANK } from "./model.js";
 export { describeElement, computeAllViews, modelTree, type ElementDescription, type TreeNode } from "./query.js";
 export { suggest } from "./suggest.js";
-export { agentsSection, agentsSectionWorkspace, lineEnding, withAgentsSection } from "./agents.js";
+export { agentsSection, agentsSectionWorkspace, lineEnding, LineBreakInPath, withAgentsSection } from "./agents.js";

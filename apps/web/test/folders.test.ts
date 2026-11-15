@@ -399,6 +399,10 @@ describe("keeping the AGENTS.md section", () => {
     root.put("a\nb.openarch", workspace("A"));
     expect((await new FolderHost("1", root, "a\nb.openarch").save(workspace("B"))).agentsError).toContain("its path has a line break in it.");
     expect(root.files()["AGENTS.md"]).toBeUndefined();
+    // Or of its docs folder, with a Unicode line separator.
+    root.put("c.openarch", workspace("C"));
+    expect((await new FolderHost("2", root, "c.openarch").save(workspace("C2", "do\u2028cs"))).agentsError).toContain("its path has a line break in it.");
+    expect(root.files()["AGENTS.md"]).toBeUndefined();
   });
 
   it("says when it can't be written, and tries again on each save until it is", async () => {
