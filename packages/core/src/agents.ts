@@ -23,19 +23,33 @@ ${SECTION_END}
 `;
 }
 
+/** Where a marker is in the text, on a line of its own, or -1. One quoted in a sentence doesn't count. */
+function markerAt(text: string, marker: string): number {
+  return new RegExp(`^[ \\t]*${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*$`, "m").exec(text)?.index ?? -1;
+}
+
 /**
  * AGENTS.md's text with the section in it: in place of the one it has, or added at the end. The
- * rest is kept as it is. When the file has one marker without the other, or the end before the
- * start, where the section ends can't be told, so it throws rather than risk replacing someone's
- * own text.
+ * rest is kept as it is. A section is marked by its two markers, each on a line of its own, so a
+ * file that mentions them in a sentence keeps that sentence. When the file has one marker without
+ * the other, or the end before the start, where the section ends can't be told, so it throws
+ * rather than risk replacing someone's own text.
  */
 export function withAgentsSection(text: string, section: string): string {
-  const start = text.indexOf(SECTION_START);
-  const end = text.indexOf(SECTION_END);
-  if (start !== -1 && end > start) return text.slice(0, start) + section.trimEnd() + text.slice(end + SECTION_END.length);
+  const start = markerAt(text, SECTION_START);
+  const end = markerAt(text, SECTION_END);
+  if (start !== -1 && end > start) return text.slice(0, start) + section.trimEnd() + text.slice(text.indexOf(SECTION_END, end) + SECTION_END.length);
   if (start !== -1 || end !== -1) {
     throw new Error(`AGENTS.md has ${start === -1 ? `${SECTION_END} without ${SECTION_START} before it` : `${SECTION_START} without ${SECTION_END} after it`}, so it was left alone. Put the markers back round the open-arch section, or take them out.`);
   }
   if (!text.trim()) return section;
   return `${text.replace(/\n*$/, "\n")}\n${section}`;
+}
+
+/** The workspace file AGENTS.md's open-arch section names, or null when it has no section, or one that names none. */
+export function agentsSectionWorkspace(text: string): string | null {
+  const start = markerAt(text, SECTION_START);
+  const end = markerAt(text, SECTION_END);
+  if (start === -1 || end < start) return null;
+  return /open-arch model \([^)]*\) in `([^`]+)`/.exec(text.slice(start, end))?.[1] ?? null;
 }

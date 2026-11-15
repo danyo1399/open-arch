@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentsSection, withAgentsSection } from "../src/index.js";
+import { agentsSection, agentsSectionWorkspace, withAgentsSection } from "../src/index.js";
 
 describe("the AGENTS.md section", () => {
   it("names the workspace, its docs and the CLI's version", () => {
@@ -24,6 +24,22 @@ describe("the AGENTS.md section", () => {
     expect(replaced).toBe(`# Rules\n\nUse tabs.\n\n${second.trimEnd()}\n\n## More\n`);
     // Again with the same section, nothing changes.
     expect(withAgentsSection(replaced, second)).toBe(replaced);
+  });
+
+  it("counts a marker only on a line of its own, so one quoted in a sentence is kept as it is", () => {
+    const section = agentsSection("a.openarch", undefined, "1");
+    const notes = "Use `<!-- open-arch:start -->` to begin the section.\nMy rule one.\nMy rule two.\nUse `<!-- open-arch:end -->` to end it.\n";
+    expect(withAgentsSection(notes, section)).toBe(`${notes}\n${section}`);
+    // Indented markers on their own lines still count.
+    const indented = withAgentsSection(`# Rules\n\n  ${section.trimEnd().replace(/\n/g, "\n  ")}\n`, agentsSection("b.openarch", undefined, "1"));
+    expect(indented).toContain("in `b.openarch`");
+    expect(indented).not.toContain("in `a.openarch`");
+  });
+
+  it("tells which workspace a section names", () => {
+    expect(agentsSectionWorkspace(withAgentsSection("# Rules\n", agentsSection("arch/a.openarch", "docs", "1")))).toBe("arch/a.openarch");
+    expect(agentsSectionWorkspace("# Rules\n")).toBeNull();
+    expect(agentsSectionWorkspace("<!-- open-arch:start -->\nSomething else.\n<!-- open-arch:end -->\n")).toBeNull();
   });
 
   it("refuses a file with one marker without the other, or the end before the start, rather than replace someone's own text", () => {

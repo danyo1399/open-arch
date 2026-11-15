@@ -291,6 +291,18 @@ describe("keeping the AGENTS.md section", () => {
     }
   });
 
+  it("leaves a section that names another workspace in the folder as it is", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    root.put("b.openarch", workspace("B"));
+    await new FolderHost("1", root, "a.openarch").save(workspace("A2"));
+    const first = root.files()["AGENTS.md"];
+    expect(first).toContain("in `a.openarch`");
+    // Opening the other one doesn't rewrite it to name that one.
+    expect(await new FolderHost("2", root, "b.openarch").save(workspace("B2", "docs"))).toMatchObject({ docs: { dir: "docs" } });
+    expect(root.files()["AGENTS.md"]).toBe(first);
+  });
+
   it("puts back a section taken out while the folder is open the next time it's opened, not on every save", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));

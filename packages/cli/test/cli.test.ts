@@ -538,6 +538,7 @@ describe("init", () => {
     const result = cli(project, "init");
     expect(result.code).toBe(1);
     expect(result.err).toContain("AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone.");
+    expect(result.err).toContain("The workspace, its docs and the skill are in place: run open-arch init again once AGENTS.md is fixed.");
     expect(read(project, "AGENTS.md")).toBe(broken);
   });
 

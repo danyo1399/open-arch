@@ -53,7 +53,7 @@ export function init(io: Io, opts: InitOptions): number {
     try {
       text = withAgentsSection(existed ? readFileSync(agentsMd, "utf8") : "", agentsSection(workspace, docsPath, VERSION));
     } catch (error) {
-      throw new CliError((error as Error).message);
+      throw new CliError(`${(error as Error).message} ${opts.noSkills ? "The workspace and its docs are" : "The workspace, its docs and the skill are"} in place: run open-arch init again once AGENTS.md is fixed.`);
     }
     writeFileSync(agentsMd, text);
     io.out(`${existed ? "updated" : "created"} ${displayPath(io.cwd, agentsMd)}\n`);

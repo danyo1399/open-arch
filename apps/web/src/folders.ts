@@ -3,11 +3,12 @@
  * Chrome or Edge with the File System Access API. The .openarch file stays in the folder and every
  * edit is saved to it, and the docs folder it names is rewritten, as the desktop app and the CLI
  * do. The first save after the folder is opened also brings the agent skill in it up to date, as
- * `open-arch init` installs it, writing only the files that changed. So the changes are there to
- * commit. The folders opened are remembered in IndexedDB: the browser can keep a folder's handle,
+ * `open-arch init` installs it, writing only the files that changed, and puts the open-arch section
+ * in its AGENTS.md, which a later save writes again when what it names changes. So the changes are
+ * there to commit. The folders opened are remembered in IndexedDB: the browser can keep a folder's handle,
  * and asks again before the page may change it.
  */
-import { agentsSection, exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
+import { agentsSection, agentsSectionWorkspace, exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
@@ -194,14 +195,21 @@ export async function writeSkill(dir: FolderHandle): Promise<string[]> {
   return written;
 }
 
-/** Puts the section in AGENTS.md at the top of the folder, or makes AGENTS.md with it. The rest of the file is kept as it is. */
-export async function writeAgentsSection(root: FolderHandle, section: string): Promise<void> {
+/**
+ * Puts the section for the workspace at `path` in AGENTS.md at the top of the folder, or makes
+ * AGENTS.md with it. The rest of the file is kept as it is. A section that names another workspace
+ * in the folder is left as it is: it's for one model, the one it was first written for, so
+ * opening each of several workspaces doesn't rewrite it to name each in turn.
+ */
+export async function writeAgentsSection(root: FolderHandle, path: string, section: string): Promise<void> {
   let text = "";
   try {
     text = await readText(await fileAt(root, "AGENTS.md"));
   } catch (error) {
     if (!isMissing(error)) throw error;
   }
+  const named = agentsSectionWorkspace(text);
+  if (named !== null && named !== path) return;
   const next = withAgentsSection(text, section);
   if (next !== text) await writeText(await fileAt(root, "AGENTS.md", true), next);
 }
@@ -326,7 +334,7 @@ export class FolderHost implements WorkspaceHost {
     const section = agentsSection(this.path, docsParts && docs ? docsParts.join("/") : undefined, CLI_VERSION);
     if (section !== this.agentsKept) {
       try {
-        await writeAgentsSection(this.root, section);
+        await writeAgentsSection(this.root, this.path, section);
         this.agentsKept = section;
       } catch (error) {
         result.agentsError = problemText(error);
