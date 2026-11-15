@@ -10,7 +10,7 @@ import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw
 import type { DesktopBridge, SaveSummary } from "./bridge.js";
 import { importProblem, type WorkspaceLibrary } from "./library.js";
 import type { LinkParts, ShareClient } from "./share.js";
-import { isAbsolutePath, segments } from "./paths.js";
+import { docsPlace, isAbsolutePath, segments } from "./paths.js";
 import { CLI_VERSION, SKILL_TARGETS, skillFiles } from "./skill.js";
 
 export interface WorkspaceHost {
@@ -126,19 +126,12 @@ export function workspaceZip(ws: Workspace, fileName: string, text: string, plac
   const root = place?.folder ?? base;
   const fileDir = place ? place.path.split("/").slice(0, -1) : [];
   const named = ws.doc.export?.docs;
-  let docsParts: string[] | null = null;
-  if (named && !isAbsolutePath(named)) {
-    // As a save does: from the file's folder, and never above the folder the zip holds.
-    if (place) docsParts = segments([...fileDir, named].join("/"));
-    else {
-      const above = "\u0000"; // No real folder has this name.
-      const parts = segments(`${above}/${base}/${named}`);
-      docsParts = parts?.[0] === above && parts[1] === base ? parts.slice(2) : null;
-    }
-  }
+  // As a save does: from the file's folder, and never above the folder the zip holds. With none,
+  // or one the zip has no place for, in the file's own folder.
+  const inFolder = place && named && !isAbsolutePath(named) ? segments([...fileDir, named].join("/")) : null;
+  const docsParts = place ? (inFolder ?? fileDir) : docsPlace(named, base);
   const prefix = (parts: string[]) => parts.map((part) => `${part}/`).join("");
-  // With none, or one the zip has no place for, in the file's own folder.
-  const docs = docsParts ? prefix(docsParts) : prefix(fileDir);
+  const docs = prefix(docsParts);
   const entries: Record<string, Uint8Array> = { [`${root}/${prefix(fileDir)}${fileName}`]: strToU8(text) };
   for (const f of exportDocs(ws, fileName)) entries[`${root}/${docs}${f.path}`] = strToU8(f.content);
   for (const target of SKILL_TARGETS) for (const f of skillFiles) entries[`${root}/${target}/${f.path}`] = strToU8(f.content);

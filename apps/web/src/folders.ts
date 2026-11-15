@@ -10,7 +10,7 @@
  */
 import { agentsSection, agentsSectionWorkspace, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, generatedFrom, lineEnding, LineBreakInPath, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
-import { isAbsolutePath, segments } from "./paths.js";
+import { docsPlace, isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
 import { CLI_VERSION, SKILL_TARGETS, skillFiles } from "./skill.js";
 import type { WorkspaceHost } from "./hosts.js";
@@ -140,8 +140,9 @@ export async function writeDocs(
   dir: FolderHandle,
   files: ExportedFile[],
   changes: DocsChanges = { written: [], deleted: [], skipped: [] },
-  isWorkspace?: (name: string) => Promise<boolean>,
+  options: { isWorkspace?: (name: string) => Promise<boolean>; sweep?: boolean } = {},
 ): Promise<DocsChanges> {
+  const { isWorkspace, sweep: removeStale = true } = options;
   const { written, deleted, skipped } = changes;
   const targets = new Map(files.map((f) => [f.path, f.content]));
   // As the CLI does: a page generated from another workspace still beside this one, which
@@ -192,7 +193,7 @@ export async function writeDocs(
     }
     return left === 0 && deleted.some((d) => d.startsWith(prefix));
   };
-  await sweep(dir, "");
+  if (removeStale) await sweep(dir, "");
   return changes;
 }
 
@@ -230,11 +231,11 @@ async function isFileIn(root: FolderHandle, path: string): Promise<boolean> {
 }
 
 /**
- * Puts the section for the workspace at `path`, with its docs in `docs`, in AGENTS.md at the top of the folder, or makes
- * AGENTS.md with it. The rest of the file is kept as it is. A section that names another workspace
- * still in the folder is left as it is: it's for one model, the one it was first written for, so
- * opening each of several workspaces doesn't rewrite it to name each in turn. One that names a
- * file no longer there, say after `git mv`, is written for this workspace.
+ * Puts the section for the workspace at `path`, with its docs in `docs`, in AGENTS.md at the top
+ * of the folder, or makes AGENTS.md with it. The rest of the file is kept as it is. A section that
+ * names another workspace still in the folder is left as it is: it's for one model, the one it was
+ * first written for, so opening each of several workspaces doesn't rewrite it to name each in
+ * turn. One that names a file no longer there, say after `git mv`, is written for this workspace.
  */
 export async function writeAgentsSection(root: FolderHandle, path: string, docs: string | undefined): Promise<void> {
   let text = "";
@@ -256,6 +257,44 @@ export async function writeAgentsSection(root: FolderHandle, path: string, docs:
   // With the file's own line ending, so the file keeps it, and names in it are written as they are.
   const next = withAgentsSection(text, agentsSection(path, docs, CLI_VERSION, lineEnding(text)));
   if (next !== text) await writeText(await fileAt(root, "AGENTS.md", true), next);
+}
+
+/**
+ * Exports a workspace to a folder the user chose, such as a Git repository: what the zip holds,
+ * laid out the same way, with the .openarch file at the folder's top. A copy: the workspace stays
+ * where it is. The file's name mustn't be taken there, so nothing is written over. Its docs go
+ * where docsPlace puts them, and nothing is deleted, not even stale pages. The skill's files are
+ * written, and the AGENTS.md section is put in AGENTS.md, keeping the rest. Resolves to what was
+ * written beside the file, with anything that went wrong there, as a save reports it.
+ */
+export async function exportToFolder(root: FolderHandle, ws: Workspace, fileName: string, text: string): Promise<SaveSummary> {
+  if (await isFileIn(root, fileName)) {
+    throw new Error(`${root.name} has a ${fileName} already, so nothing was exported. Choose another folder, or open that one with Open folder….`);
+  }
+  await writeText(await fileAt(root, fileName, true), text);
+  const parts = docsPlace(ws.doc.export?.docs, root.name);
+  const docs = parts.join("/");
+  const summary: DocsSummary = { dir: docs || ".", written: 0, deleted: 0, skipped: [] };
+  const changes: DocsChanges = { written: [], deleted: [], skipped: [] };
+  const counts = () => ({ ...summary, written: changes.written.length, deleted: changes.deleted.length, skipped: changes.skipped });
+  const result: SaveSummary = { docs: summary };
+  try {
+    await writeDocs(await folderAt(root, parts, true), exportDocs(ws, fileName), changes, { isWorkspace: (name) => isFileIn(root, name), sweep: false });
+    result.docs = counts();
+  } catch (error) {
+    result.docs = { ...counts(), error: problemText(error) };
+  }
+  try {
+    for (const target of SKILL_TARGETS) await writeSkill(await folderAt(root, target.split("/"), true));
+  } catch (error) {
+    result.skillError = problemText(error);
+  }
+  try {
+    await writeAgentsSection(root, fileName, docs);
+  } catch (error) {
+    result.agentsError = problemText(error);
+  }
+  return result;
 }
 
 // --- The workspace host --------------------------------------------------------------
@@ -407,7 +446,7 @@ export class FolderHost implements WorkspaceHost {
     const counts = () => ({ ...summary, written: changes.written.length, deleted: changes.deleted.length, skipped: changes.skipped });
     try {
       const fileDir = this.path.split("/").slice(0, -1);
-      await writeDocs(await folderAt(this.root, parts, true), exportDocs(ws, this.name), changes, (name) => isFileIn(this.root, [...fileDir, name].join("/")));
+      await writeDocs(await folderAt(this.root, parts, true), exportDocs(ws, this.name), changes, { isWorkspace: (name) => isFileIn(this.root, [...fileDir, name].join("/")) });
       return counts();
     } catch (error) {
       return { ...counts(), error: problemText(error) };

@@ -2,7 +2,7 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allowed, findWorkspaces, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
+import { allowed, exportToFolder, findWorkspaces, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
 import { exampleHost, MemoryHost, savesDocs, savesSkill } from "../src/hosts.js";
 import { skillFiles } from "../src/skill.js";
 import { agentsInFolder, FakeFile, FakeFolder, skillInFolder } from "./fakeFolder.js";
@@ -502,7 +502,7 @@ describe("keeping the docs folder", () => {
     // b.openarch is there beside a.openarch; old.openarch, which a was before a rename, isn't.
     docs.put("views/renamed.md", from("old.openarch", "stale"));
     const isWorkspace = async (name: string) => name === "b.openarch";
-    const result = await writeDocs(docs, [{ path: "README.md", content: from("a.openarch", "A") }], undefined, isWorkspace);
+    const result = await writeDocs(docs, [{ path: "README.md", content: from("a.openarch", "A") }], undefined, { isWorkspace });
     expect(result).toEqual({ written: [], deleted: ["views/old.md", "views/renamed.md"], skipped: ["README.md"] });
     expect(docs.files()).toEqual({ "README.md": from("b.openarch", "B"), "views/b.md": from("b.openarch", "B view") });
   });
@@ -862,3 +862,65 @@ describe("the folders opened", () => {
     expect(await list.list()).toHaveLength(2);
   });
 });
+
+describe("exporting a workspace to a folder", () => {
+  it("writes the file at the folder's top, its docs beside it, the skill and AGENTS.md, keeping what's there", async () => {
+    const root = new FakeFolder("repo");
+    root.put("AGENTS.md", "# Rules\n");
+    root.put("notes.md", "Mine.");
+    const text = await exampleHost().load();
+    const ws = loadWorkspace(text);
+    const docs = ws.doc.export!.docs!;
+    const result = await exportToFolder(root, ws, "shop.openarch", text);
+    expect(result).toMatchObject({ docs: { dir: docs, deleted: 0, skipped: [] } });
+    expect(result.skillError).toBeUndefined();
+    expect(result.agentsError).toBeUndefined();
+    const files = root.files();
+    expect(files["shop.openarch"]).toBe(text);
+    expect(files[`${docs}/README.md`]).toContain("from shop.openarch.");
+    expect(files["notes.md"]).toBe("Mine.");
+    for (const [path, content] of Object.entries(skillInFolder())) expect(files[path]).toBe(content);
+    expect(files["AGENTS.md"]).toBe(`# Rules\n\n${agentsInFolder("shop.openarch", docs)["AGENTS.md"]}`);
+  });
+
+  it("puts the docs beside the file when the workspace names no docs folder", async () => {
+    const root = new FakeFolder("repo");
+    const text = workspace("A");
+    await exportToFolder(root, loadWorkspace(text), "a.openarch", text);
+    expect(root.files()["README.md"]).toContain("from a.openarch.");
+    expect(root.files()["AGENTS.md"]).toContain("Readable docs generated from it are in `./`.");
+  });
+
+  it("refuses a folder that has a file of that name already, and writes nothing", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("Theirs"));
+    const text = workspace("Mine");
+    await expect(exportToFolder(root, loadWorkspace(text), "a.openarch", text)).rejects.toThrow("repo has a a.openarch already, so nothing was exported.");
+    expect(root.files()).toEqual({ "a.openarch": workspace("Theirs") });
+  });
+
+  it("deletes nothing, not even stale pages, and leaves another workspace's pages beside it alone", async () => {
+    const root = new FakeFolder("repo");
+    const page = (source: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in the designer or with the open-arch CLI, and this page is rewritten. -->\nOld`;
+    root.put("b.openarch", workspace("B"));
+    root.put("README.md", page("b.openarch"));
+    root.put("views/stale.md", page("gone.openarch"));
+    const text = workspace("A");
+    const result = await exportToFolder(root, loadWorkspace(text), "a.openarch", text);
+    expect(result.docs).toMatchObject({ deleted: 0, skipped: ["README.md"] });
+    expect(root.files()["README.md"]).toBe(page("b.openarch"));
+    expect(root.files()["views/stale.md"]).toBe(page("gone.openarch"));
+  });
+
+  it("says what went wrong beside writing the file", async () => {
+    const root = new FakeFolder("repo");
+    root.refuse.add(".claude");
+    root.put("AGENTS.md", "# Rules\n<!-- open-arch:start -->\n");
+    const text = workspace("A");
+    const result = await exportToFolder(root, loadWorkspace(text), "a.openarch", text);
+    expect(result.skillError).toBe("Not allowed.");
+    expect(result.agentsError).toContain("so it was left alone");
+    expect(root.files()["a.openarch"]).toBe(text);
+  });
+});
+

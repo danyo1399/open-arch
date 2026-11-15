@@ -19,7 +19,7 @@ import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
-import { FolderHost } from "./folders.js";
+import { canOpenFolders, exportToFolder, FolderHost, folderList, pickFolder } from "./folders.js";
 import { BrowserHost, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
@@ -53,7 +53,7 @@ import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
 import { userSettings, useViewSettings } from "./settings.js";
 import { PUBLIC_DESIGNER, shareClient } from "./share.js";
-import { useWorkspace, type Edit } from "./state.js";
+import { saveProblem, useWorkspace, type Edit } from "./state.js";
 
 type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | { kind: "share" } | null;
 
@@ -407,6 +407,27 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const designer = desktop || !location.protocol.startsWith("http") ? PUBLIC_DESIGNER : location.origin + location.pathname;
   // A workspace from a folder whose file is gone is zipped as that folder, so the docs are where a save put them.
   const place = host instanceof FolderHost ? { folder: host.root.name, path: host.path } : undefined;
+  // Chrome and Edge can write to a folder; the desktop app keeps its files where they are.
+  const canExportToFolder = !desktop && canOpenFolders();
+  /**
+   * A copy of the workspace, as the zip holds it, written to a folder the user chooses, such as a
+   * Git repository. The folder is listed on the start page, to open and keep working on it there.
+   */
+  const exportToFolderNow = () =>
+    attempt(async () => {
+      if (state.text === null) return;
+      const root = await pickFolder();
+      if (!root) return;
+      const result = await exportToFolder(root, ws, host.name, state.text);
+      await folderList.add(root, host.name).catch(() => undefined);
+      if (state.storage === "memory") state.markSaved();
+      const went = saveProblem(result);
+      state.notify(
+        went
+          ? { kind: "error", text: went.replace(/^Saved, but /, `Exported ${host.name} to ${root.name}, but `) }
+          : { kind: "info", text: `Exported ${host.name}, its docs, the agent skill and AGENTS.md to ${root.name}. Open it from Folders on the start page to keep working on it there.` },
+      );
+    });
   const exportZip = () => download(`${place?.folder ?? host.name.replace(/\.openarch$/, "")}.zip`, workspaceZip(ws, host.name, state.text!, place) as BlobPart, "application/zip");
   const toggleAsk = () => {
     setAskOpen((o) => !o);
@@ -455,6 +476,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const moreItems: MenuItem[] = [
     ...(desktop ? [] : providers.map((provider) => ({ label: provider.exportLabel, onSelect: () => exportTo(provider) }))),
     ...(syncsDocs ? [] : [{ label: "Export zip", onSelect: exportZip }]),
+    ...(canExportToFolder ? [{ label: "Export to folder…", onSelect: exportToFolderNow }] : []),
     ...(canShare ? [{ label: "Share a link…", onSelect: () => setDialog({ kind: "share" }) }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
     ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
@@ -533,6 +555,11 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         {!narrow && !syncsDocs && (
           <button onClick={exportZip} title="The .openarch file, its markdown docs, and the agent skill and AGENTS.md, for AI agents, in a .zip">
             Export zip
+          </button>
+        )}
+        {!narrow && canExportToFolder && (
+          <button onClick={exportToFolderNow} title="The .openarch file, its markdown docs, and the agent skill and AGENTS.md, for AI agents, into a folder you choose, such as a Git repository">
+            Export to folder…
           </button>
         )}
         {!narrow && canShare && (
