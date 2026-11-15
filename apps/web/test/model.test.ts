@@ -12,6 +12,7 @@ import {
   notesName,
   notesOf,
   notesOp,
+  notesOwnerAsIs,
   renamedNotesOwner,
   renamedId,
   renamedSelection,
@@ -157,6 +158,32 @@ describe("notes", () => {
     expect(notesName(model, { kind: "relationship", from: "api", to: "db", index: 0 })).toBe("API → Orders DB");
     expect(notesName(model, { kind: "relationship", from: "api", to: "db", index: 1 })).toBe("API ↔ Orders DB");
     expect(notesName(model, { kind: "view", id: "landscape" })).toBe("Landscape");
+  });
+
+  it("aren't taken from, or saved to, another relationship that took one's place", () => {
+    const second = notesOwnerAsIs(model, { kind: "relationship", from: "api", to: "db", index: 1 });
+    expect(notesOf(model, second)).toBe("Syncs stock.");
+    // Edits to notes, and to other targets, leave it as it is.
+    const edited = buildWorkspace(
+      applyOperations(model.doc, [
+        { op: "update-relationship", from: "api", to: "db", index: 0, notes: "Reads orders." },
+        { op: "add-relationship", from: "db", to: "api", description: "Calls back" },
+      ]).doc,
+    );
+    expect(notesOf(edited, second)).toBe("Syncs stock.");
+    // With the first relationship gone, the second is the first, and isn't found by its old place.
+    const removed = buildWorkspace(applyOperations(model.doc, [{ op: "remove-relationship", from: "api", to: "db", index: 0 }]).doc);
+    expect(notesOf(removed, second)).toBeUndefined();
+    const first = notesOwnerAsIs(model, { kind: "relationship", from: "api", to: "db", index: 0 });
+    expect(notesOf(removed, first)).toBeUndefined();
+    // Nor is one changed elsewhere, as it might be another.
+    const changed = buildWorkspace(applyOperations(model.doc, [{ op: "update-relationship", from: "api", to: "db", index: 1, description: "Copies stock to" }]).doc);
+    expect(notesOf(changed, second)).toBeUndefined();
+    // Renaming either end keeps it.
+    const renamed = buildWorkspace(applyOperations(model.doc, [{ op: "rename", id: "db", to: "orders-db" }]).doc);
+    expect(notesOf(renamed, renamedNotesOwner(second, (id) => (id === "db" ? "orders-db" : id)))).toBe("Syncs stock.");
+    // Elements and views are found by their IDs, whatever else changes.
+    expect(notesOwnerAsIs(model, { kind: "element", id: "api" })).toEqual({ kind: "element", id: "api" });
   });
 
   it("follow renames", () => {

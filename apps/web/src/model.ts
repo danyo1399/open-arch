@@ -114,17 +114,42 @@ export function relationshipRef(element: ArchElement, position: number): { from:
   return { from: element.id, to, index: element.uses.slice(0, position).filter((r) => r.to === to).length };
 }
 
-/** What has notes: an element, a relationship (named as operations name one) or a view. */
-export type NotesOwner = { kind: "element"; id: string } | { kind: "relationship"; from: string; to: string; index: number } | { kind: "view"; id: string };
+/**
+ * What has notes: an element, a relationship or a view. A relationship is named as operations
+ * name one, by its place among the element's relationships to the same target. An edit elsewhere
+ * can put another relationship in that place, so `look` is how those relationships looked when
+ * its notes were opened (see notesOwnerAsIs). Once they look different, it's taken as gone,
+ * rather than saving over another relationship's notes.
+ */
+export type NotesOwner = { kind: "element"; id: string } | { kind: "relationship"; from: string; to: string; index: number; look?: string } | { kind: "view"; id: string };
 
-/** The relationship operations name this way, if it's still there. */
-function relationshipAt(ws: Workspace, from: string, to: string, index: number): Relationship | undefined {
-  return ws.elements.get(from)?.uses.filter((r) => r.to === to)[index];
+/**
+ * How an element's relationships to a target look, but for their notes. Their places in the
+ * element's whole list, and the target's ID, which a rename changes, are left out too.
+ */
+function relationshipsLook(ws: Workspace, from: string, to: string): string {
+  const all = ws.elements.get(from)?.uses.filter((r) => r.to === to) ?? [];
+  return JSON.stringify(all.map(({ to: _to, notes: _notes, index: _index, ...rest }) => rest));
 }
 
-/** The notes it has now, "" when it has none, or undefined when it's no longer in the model. */
+/** The owner as it is now: a relationship with how its element's relationships to the same target look. */
+export function notesOwnerAsIs(ws: Workspace, owner: NotesOwner): NotesOwner {
+  return owner.kind === "relationship" ? { ...owner, look: relationshipsLook(ws, owner.from, owner.to) } : owner;
+}
+
+/** The relationship the owner names, if it's still there and nothing has taken its place. */
+function relationshipAt(ws: Workspace, owner: Extract<NotesOwner, { kind: "relationship" }>): Relationship | undefined {
+  if (owner.look !== undefined && relationshipsLook(ws, owner.from, owner.to) !== owner.look) return undefined;
+  return ws.elements.get(owner.from)?.uses.filter((r) => r.to === owner.to)[owner.index];
+}
+
+/**
+ * The notes it has now, "" when it has none, or undefined when it's no longer in the model. A
+ * relationship whose element's relationships to the same target changed since its `look` counts
+ * as no longer there.
+ */
 export function notesOf(ws: Workspace, owner: NotesOwner): string | undefined {
-  const found = owner.kind === "view" ? ws.views.get(owner.id) : owner.kind === "element" ? ws.elements.get(owner.id) : relationshipAt(ws, owner.from, owner.to, owner.index);
+  const found = owner.kind === "view" ? ws.views.get(owner.id) : owner.kind === "element" ? ws.elements.get(owner.id) : relationshipAt(ws, owner);
   return found && (found.notes ?? "");
 }
 
@@ -146,7 +171,7 @@ export function notesName(ws: Workspace, owner: NotesOwner): string {
   if (owner.kind === "view") return ws.views.get(owner.id)?.title ?? owner.id;
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   if (owner.kind === "element") return name(owner.id);
-  return `${name(owner.from)} ${relationshipAt(ws, owner.from, owner.to, owner.index)?.bidirectional ? "↔" : "→"} ${name(owner.to)}`;
+  return `${name(owner.from)} ${relationshipAt(ws, owner)?.bidirectional ? "↔" : "→"} ${name(owner.to)}`;
 }
 
 /** What deleting an element would remove, for the confirmation dialog: `builtWith` are the containers built with a library being deleted. */

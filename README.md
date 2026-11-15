@@ -98,7 +98,7 @@ Drag from the dot under a box to another box to add a relationship. To move one,
 
 ### Notes
 
-An element, a relationship or a view can have notes: longer documentation, in markdown, which the generated docs show. Select it and write them under **Notes** in its details. For more than a few lines, **Expand** opens them in an editor as big as the window. **Done**, Esc or Ctrl+Enter (⌘Enter on a Mac) saves them, and Undo takes them back. **Cancel** leaves them as they were. If a save doesn't go through, the editor stays open with what you wrote.
+An element, a relationship or a view can have notes: longer documentation, in markdown, which the generated docs show. Select it and write them under **Notes** in its details. For more than a few lines, **Expand** opens them in an editor as big as the window. **Done**, Esc or Ctrl+Enter (⌘Enter on a Mac) saves them, and Undo takes them back. **Cancel** leaves them as they were. If the notes can't be saved, say because what they're on was deleted elsewhere while you wrote, the editor stays open with what you wrote, to copy.
 
 ### Sticky notes
 

@@ -2361,9 +2361,28 @@ button.heading {
 .notes-editor .modal-actions {
   align-items: center;
 }
-/* The hint gets a line of its own on a phone, rather than squeezing beside the buttons. */
+/* The hint gets a line of its own on a phone, rather than squeezing beside the buttons, which
+   stay together. */
 .notes-editor .modal-actions .grow {
   flex: 1 1 240px;
+}
+.notes-editor .buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+/* On a phone it fills the screen, for all the room there is, clear of the notch and the home
+   indicator. */
+.app.narrow .modal.notes-editor {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom))
+    calc(16px + env(safe-area-inset-left));
 }
 .modal-actions {
   display: flex;

@@ -91,7 +91,7 @@ describe("NewViewDialog for a wireframe view", () => {
  * The notes editor for the Orders API, starting from `text`, with the notes saved as `saved`.
  * It keeps what it saves and how often it closed; `saves` says whether a save goes through.
  */
-function notesEditor(text: string, saved: string | undefined = text, saves = true) {
+function notesEditor(text: string, saved: string | undefined = text, saves: boolean | Promise<boolean> = true) {
   const saving: string[] = [];
   const closes: true[] = [];
   let setSaved: (saved: string | undefined) => void = () => {};
@@ -189,9 +189,35 @@ describe("NotesEditor", () => {
     expect(host.textContent).toContain(warning);
   });
 
-  it("says when what the notes are on is no longer in the model", () => {
-    const { host, saved } = notesEditor("Takes orders.");
+  it("says when what the notes are on is no longer in the model, and keeps the text rather than saving it", async () => {
+    const { host, dialog, box, saving, closes, saved } = notesEditor("Takes orders.");
     saved(undefined);
-    expect(host.textContent).toContain("Orders API is no longer in the model, so these notes can't be saved. Copy them to keep them.");
+    expect(host.textContent).toContain("Orders API was changed or deleted elsewhere, so these notes can't be saved. Copy them to keep them.");
+    await click(button(host, "Done"));
+    await act(async () => dialog.close());
+    expect(saving).toEqual([]);
+    expect(closes).toEqual([]);
+    expect(dialog.open).toBe(true);
+    expect(box.value).toBe("Takes orders.");
+    await click(button(host, "Cancel"));
+    expect(closes).toHaveLength(1);
+  });
+
+  it("can't be changed or closed while a save runs, so it closes on what was saved", async () => {
+    let finish: (ok: boolean) => void = () => {};
+    const { host, dialog, box, saving, closes } = notesEditor("Takes orders.", "Takes orders.", new Promise<boolean>((resolve) => (finish = resolve)));
+    box.value = "Takes refunds.";
+    await click(button(host, "Done"));
+    expect(box.readOnly).toBe(true);
+    expect(button(host, "Done").disabled).toBe(true);
+    expect(button(host, "Cancel").disabled).toBe(true);
+    // Esc, and the browser closing it, wait for the save too.
+    await act(async () => void dialog.dispatchEvent(new Event("cancel", { cancelable: true })));
+    await act(async () => dialog.close());
+    expect(saving).toEqual(["Takes refunds."]);
+    expect(dialog.open).toBe(true);
+    expect(closes).toEqual([]);
+    await act(async () => finish(true));
+    expect(closes).toHaveLength(1);
   });
 });

@@ -34,7 +34,7 @@ interface NotesEditorProps {
  * Notes in an editor as big as the window, for writing at length. Done, Ctrl+Enter (⌘Enter on a
  * Mac) and Esc all save them, so a stray key doesn't lose what was written, and Undo takes them
  * back. Cancel leaves them as they were. A save that doesn't go through keeps the editor open,
- * with the text still in it.
+ * with the text still in it, and so does what the notes are on going.
  */
 export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorProps) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -42,15 +42,30 @@ export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorP
   // What was saved when it opened, to tell when the notes are changed elsewhere meanwhile.
   const [opened] = useState(saved);
   const [failed, setFailed] = useState(false);
+  // While a save runs, the text can't change and nothing else can close the editor, so what it
+  // closes on is what was saved. A ref, as a second key can come before the render that shows it.
+  const busy = useRef(false);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     ref.current?.showModal();
   }, []);
-  const done = async () => {
-    const next = box.current!.value;
-    if (next === saved || (await onSave(next))) return onClose();
-    setFailed(true);
-    // Esc pressed twice can close the dialog whatever the page does: open it again, to keep the text.
+  /** Keeps the editor open, with the text, as Esc pressed twice can close it whatever the page does. */
+  const stayOpen = () => {
     if (!ref.current!.open) ref.current!.showModal();
+  };
+  const done = async () => {
+    if (busy.current) return stayOpen();
+    const next = box.current!.value;
+    if (next === saved) return onClose();
+    if (saved === undefined) return stayOpen();
+    busy.current = true;
+    setSaving(true);
+    const ok = await onSave(next);
+    busy.current = false;
+    setSaving(false);
+    if (ok) return onClose();
+    setFailed(true);
+    stayOpen();
   };
   // The box's own text landing after it opened, as leaving the box saves it, isn't a change from elsewhere.
   const changed = saved !== undefined && saved !== opened && saved !== text;
@@ -69,6 +84,7 @@ export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorP
       <textarea
         ref={box}
         defaultValue={text}
+        readOnly={saving}
         aria-label="Notes"
         placeholder="Longer documentation, in markdown"
         onKeyDown={(e) => {
@@ -80,7 +96,7 @@ export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorP
       />
       {saved === undefined ? (
         <p className="error small" role="alert">
-          {name} is no longer in the model, so these notes can't be saved. Copy them to keep them.
+          {name} was changed or deleted elsewhere, so these notes can't be saved. Copy them to keep them.
         </p>
       ) : failed ? (
         <p className="error small" role="alert">
@@ -91,10 +107,14 @@ export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorP
       )}
       <div className="modal-actions">
         <span className="muted small grow">In markdown. Done, Esc or {isMac ? "⌘" : "Ctrl+"}Enter saves them, and Undo takes them back.</span>
-        <button onClick={onClose}>Cancel</button>
-        <button className="primary" onClick={() => void done()}>
-          Done
-        </button>
+        <span className="buttons">
+          <button onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button className="primary" onClick={() => void done()} disabled={saving}>
+            Done
+          </button>
+        </span>
       </div>
     </dialog>
   );

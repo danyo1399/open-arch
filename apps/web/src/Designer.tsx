@@ -1,6 +1,7 @@
 import {
   computeView,
   diagnosticTarget,
+  OpError,
   renderMermaid,
   scopeProblems,
   viewMarkdown,
@@ -38,6 +39,7 @@ import {
   notesName,
   notesOf,
   notesOp,
+  notesOwnerAsIs,
   renamedId,
   renamedNotesOwner,
   renamedSelection,
@@ -744,7 +746,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onAddSticky={addStickyOn}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
         onEditNotes={(owner, text) => {
-          const now = renamedNotesOwner(owner, current);
+          // How a relationship looks is taken from this render's workspace, with this render's IDs.
+          const now = renamedNotesOwner(notesOwnerAsIs(ws, owner), current);
           setDialog({ kind: "notes", owner: now, name: notesName(ws, now), text });
         }}
       />
@@ -814,7 +817,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           name={notesOf(ws, dialog.owner) === undefined ? dialog.name : notesName(ws, dialog.owner)}
           text={dialog.text}
           saved={notesOf(ws, dialog.owner)}
-          onSave={(text) => edit([notesOp(dialog.owner, text)])}
+          // Checked again as the save runs, in case an edit elsewhere lands first.
+          onSave={(text) =>
+            edit((now) => {
+              if (notesOf(now, dialog.owner) === undefined) throw new OpError(`${dialog.name} was changed or deleted elsewhere, so its notes weren't saved.`);
+              return [notesOp(dialog.owner, text)];
+            })
+          }
           onClose={() => setDialog(null)}
         />
       )}
