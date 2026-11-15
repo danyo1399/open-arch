@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import "fake-indexeddb/auto";
 import { act, createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { unzipSync } from "fflate";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App.js";
 import type { FolderList, StoredFolder } from "../src/folders.js";
 import { button, click, mount, type } from "./dom.js";
@@ -136,5 +137,19 @@ describe("the designer with a workspace in a folder", () => {
     await until(() => status(host) !== "Saved · docs in docs/", 1000);
     expect(host.textContent).toContain("The workspace file was deleted or moved.");
     expect(hasButton(host, "Export zip")).toBe(true);
+    // It's zipped as the folder, with the docs where its saves put them.
+    const blobs: Blob[] = [];
+    const names: string[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => (blobs.push(blob as Blob), "blob:zip"));
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      names.push(this.download);
+    });
+    await click(button(host, "Export zip"));
+    expect(names).toEqual(["repo.zip"]);
+    const files = Object.keys(unzipSync(new Uint8Array(await blobs[0]!.arrayBuffer())));
+    expect(files).toContain("repo/a.openarch");
+    expect(files).toContain("repo/docs/README.md");
+    vi.restoreAllMocks();
   }, 10_000);
 });

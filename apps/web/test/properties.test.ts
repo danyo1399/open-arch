@@ -60,7 +60,7 @@ function box(html: string, label: string): string | undefined {
 describe("Properties", () => {
   it("says where Export zip puts the docs, when nothing saves them", () => {
     const html = render({ kind: "workspace" }).replaceAll("&#x27;", "'");
-    expect(html).toContain("Here, with a docs folder inside the file's folder, Export zip puts the docs there. With none, or one outside, it puts them in shop-docs/.");
+    expect(html).toContain("Here, Export zip puts the docs where a save would. With none, or one the zip has no place for, it puts them in shop-docs/.");
   });
 
   it("shows a view's description and notes, to edit", () => {

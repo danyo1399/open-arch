@@ -100,29 +100,44 @@ export async function copyText(text: string): Promise<void> {
   if (!copied) throw new Error("Couldn't copy: this browser didn't allow the clipboard.");
 }
 
+/** Where a workspace's file is in a folder opened from the start page: the folder's name, and the file's path in it. */
+export interface FilePlace {
+  folder: string;
+  path: string;
+}
+
 /**
- * The workspace as a zip, with everything in one folder named after the file: the .openarch file
- * (`text`), its generated markdown docs, and the agent skill, which goes where `open-arch init`
- * installs it. The docs go in the docs folder the workspace names when it's inside the file's
- * folder, as a save would put them. When it names none, they go in `<name>-docs`. Docs for a
- * folder outside the file's folder also go in `<name>-docs`: a save in a folder writes them above
- * the file, if that's still inside the folder opened, but the zip's one folder has no place above
- * the file. A path that goes up and comes back into the file's folder is worked out as a save
- * does: the zip's one folder is named after the file, so `../<name>/docs` is its `docs`.
+ * The workspace as a zip, with everything in one folder: the .openarch file (`text`), its
+ * generated markdown docs, and the agent skill, at the top, where `open-arch init` installs it.
+ *
+ * For a workspace from a folder (`place`), the zip's folder is that folder: the file is at its path
+ * there, and the docs are where a save in the folder writes them. Otherwise the zip's folder is named
+ * after the file and holds it, and the docs go where a save would put them beside it: a path that
+ * goes up and comes back in, like `../<name>/docs`, is worked out from that folder.
+ *
+ * When the workspace names no docs folder, or one the zip has no place for, the docs go in
+ * `<name>-docs` beside the file.
  */
-export function workspaceZip(ws: Workspace, fileName: string, text: string): Uint8Array {
+export function workspaceZip(ws: Workspace, fileName: string, text: string, place?: FilePlace): Uint8Array {
   const base = fileName.replace(/\.openarch$/, "");
+  const root = place?.folder ?? base;
+  const fileDir = place ? place.path.split("/").slice(0, -1) : [];
   const named = ws.doc.export?.docs;
-  // Worked out from the file's folder, as a save does, which in the zip is the folder named after
-  // the file. So a path that goes up and comes back into it, like ../shop/docs for shop.openarch,
-  // stays inside. A path into any other folder doesn't: the zip has only the one.
-  const above = "\u0000"; // No real folder has this name.
-  const parts = named && !isAbsolutePath(named) ? segments(`${above}/${base}/${named}`) : null;
-  const inside = parts?.[0] === above && parts[1] === base ? parts.slice(2) : null;
-  const docs = inside ? inside.map((part) => `${part}/`).join("") : `${base}-docs/`;
-  const entries: Record<string, Uint8Array> = { [`${base}/${fileName}`]: strToU8(text) };
-  for (const f of exportDocs(ws, fileName)) entries[`${base}/${docs}${f.path}`] = strToU8(f.content);
-  for (const target of SKILL_TARGETS) for (const f of skillFiles) entries[`${base}/${target}/${f.path}`] = strToU8(f.content);
+  let docsParts: string[] | null = null;
+  if (named && !isAbsolutePath(named)) {
+    // As a save does: from the file's folder, and never above the folder the zip holds.
+    if (place) docsParts = segments([...fileDir, named].join("/"));
+    else {
+      const above = "\u0000"; // No real folder has this name.
+      const parts = segments(`${above}/${base}/${named}`);
+      docsParts = parts?.[0] === above && parts[1] === base ? parts.slice(2) : null;
+    }
+  }
+  const prefix = (parts: string[]) => parts.map((part) => `${part}/`).join("");
+  const docs = docsParts ? prefix(docsParts) : `${prefix(fileDir)}${base}-docs/`;
+  const entries: Record<string, Uint8Array> = { [`${root}/${prefix(fileDir)}${fileName}`]: strToU8(text) };
+  for (const f of exportDocs(ws, fileName)) entries[`${root}/${docs}${f.path}`] = strToU8(f.content);
+  for (const target of SKILL_TARGETS) for (const f of skillFiles) entries[`${root}/${target}/${f.path}`] = strToU8(f.content);
   return zipSync(entries);
 }
 

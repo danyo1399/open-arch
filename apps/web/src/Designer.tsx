@@ -18,6 +18,7 @@ import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
+import { FolderHost } from "./folders.js";
 import { BrowserHost, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
@@ -389,7 +390,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const canShare = !!shareClient && state.storage !== "memory";
   // Links made in the desktop app open in the web designer; the web designer's open in itself.
   const designer = desktop || !location.protocol.startsWith("http") ? PUBLIC_DESIGNER : location.origin + location.pathname;
-  const exportZip = () => download(`${host.name.replace(/\.openarch$/, "")}.zip`, workspaceZip(ws, host.name, state.text!) as BlobPart, "application/zip");
+  // A workspace from a folder whose file is gone is zipped as that folder, so the docs are where a save put them.
+  const place = host instanceof FolderHost ? { folder: host.root.name, path: host.path } : undefined;
+  const exportZip = () => download(`${place?.folder ?? host.name.replace(/\.openarch$/, "")}.zip`, workspaceZip(ws, host.name, state.text!, place) as BlobPart, "application/zip");
   const toggleAsk = () => {
     setAskOpen((o) => !o);
     // The panel is drawn over the diagram; hiding it leaves the pane as it is.

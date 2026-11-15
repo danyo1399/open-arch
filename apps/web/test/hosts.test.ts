@@ -56,6 +56,27 @@ describe("hosts", () => {
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)))).toContain("a/docs/arch/README.md");
   });
 
+  it("zips a workspace from a folder as that folder, with the docs where a save puts them", async () => {
+    const cases: [string, string][] = [
+      ["../arch/docs", "repo/arch/docs/"],
+      ["../docs", "repo/docs/"],
+      ["docs", "repo/arch/docs/"],
+      ["../../out", "repo/arch/a-docs/"],
+    ];
+    for (const [docs, where] of cases) {
+      const text = JSON.stringify({ openarch: 11, name: "A", export: { docs }, elements: {}, views: {} });
+      // Where a save in the folder writes them, when it can.
+      const root = new FakeFolder("repo");
+      root.put("arch/a.openarch", text);
+      const saved = await new FolderHost("1", root, "arch/a.openarch").save(text).catch(() => null);
+      if (saved) expect(Object.keys(root.files())).toContain(`${where.slice("repo/".length)}README.md`);
+      const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text, { folder: "repo", path: "arch/a.openarch" })));
+      expect(files).toContain(`${where}README.md`);
+      expect(files).toContain("repo/arch/a.openarch");
+      for (const target of SKILL_TARGETS) expect(files).toContain(`repo/${target}/SKILL.md`);
+    }
+  });
+
   it("works out a docs folder from the file's folder, as a save does, so one that goes up and comes back in is kept", async () => {
     const text = JSON.stringify({ openarch: 11, name: "A", export: { docs: "../a/docs" }, elements: {}, views: {} });
     // In a folder, with the file in a/, a save writes these docs to a/docs/.
