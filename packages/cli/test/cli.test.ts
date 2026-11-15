@@ -530,6 +530,17 @@ describe("usage", () => {
 });
 
 describe("init", () => {
+  it("leaves an AGENTS.md alone that has one of the section's markers without the other", () => {
+    const project = tempDir();
+    mkdirSync(join(project, ".git"));
+    const broken = "# Rules\n<!-- open-arch:start -->\nMy own notes.\n";
+    writeFileSync(join(project, "AGENTS.md"), broken);
+    const result = cli(project, "init");
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone.");
+    expect(read(project, "AGENTS.md")).toBe(broken);
+  });
+
   it("creates a workspace with docs, installs the skill and AGENTS.md section, and can run again", () => {
     const project = tempDir();
     mkdirSync(join(project, ".git"));

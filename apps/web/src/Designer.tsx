@@ -513,7 +513,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             </button>
           ))}
         {!narrow && !syncsDocs && (
-          <button onClick={exportZip} title="The .openarch file, its markdown docs, and the agent skill for AI agents, in a .zip">
+          <button onClick={exportZip} title="The .openarch file, its markdown docs, and the agent skill and an AGENTS.md for AI agents, in a .zip">
             Export zip
           </button>
         )}

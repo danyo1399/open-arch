@@ -49,7 +49,13 @@ export function init(io: Io, opts: InitOptions): number {
     const workspace = relative(project, file).split(sep).join("/");
     const docsDir = readWorkspaceFile(file).doc.export?.docs;
     const docsPath = docsDir ? relative(project, resolve(dirname(file), docsDir)).split(sep).join("/") : undefined;
-    writeFileSync(agentsMd, withAgentsSection(existed ? readFileSync(agentsMd, "utf8") : "", agentsSection(workspace, docsPath, VERSION)));
+    let text: string;
+    try {
+      text = withAgentsSection(existed ? readFileSync(agentsMd, "utf8") : "", agentsSection(workspace, docsPath, VERSION));
+    } catch (error) {
+      throw new CliError((error as Error).message);
+    }
+    writeFileSync(agentsMd, text);
     io.out(`${existed ? "updated" : "created"} ${displayPath(io.cwd, agentsMd)}\n`);
   }
   io.out("\nNext: add elements with `open-arch add-element <id> --kind system --name \"...\"`, or open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.\n");

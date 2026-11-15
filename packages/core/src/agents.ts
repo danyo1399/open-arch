@@ -23,11 +23,19 @@ ${SECTION_END}
 `;
 }
 
-/** AGENTS.md's text with the section in it: in place of the one it has, or added at the end. The rest is kept as it is. */
+/**
+ * AGENTS.md's text with the section in it: in place of the one it has, or added at the end. The
+ * rest is kept as it is. When the file has one marker without the other, or the end before the
+ * start, where the section ends can't be told, so it throws rather than risk replacing someone's
+ * own text.
+ */
 export function withAgentsSection(text: string, section: string): string {
   const start = text.indexOf(SECTION_START);
   const end = text.indexOf(SECTION_END);
   if (start !== -1 && end > start) return text.slice(0, start) + section.trimEnd() + text.slice(end + SECTION_END.length);
+  if (start !== -1 || end !== -1) {
+    throw new Error(`AGENTS.md has ${start === -1 ? `${SECTION_END} without ${SECTION_START} before it` : `${SECTION_START} without ${SECTION_END} after it`}, so it was left alone. Put the markers back round the open-arch section, or take them out.`);
+  }
   if (!text.trim()) return section;
   return `${text.replace(/\n*$/, "\n")}\n${section}`;
 }

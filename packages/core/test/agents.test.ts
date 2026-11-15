@@ -25,4 +25,11 @@ describe("the AGENTS.md section", () => {
     // Again with the same section, nothing changes.
     expect(withAgentsSection(replaced, second)).toBe(replaced);
   });
+
+  it("refuses a file with one marker without the other, or the end before the start, rather than replace someone's own text", () => {
+    const section = agentsSection("a.openarch", undefined, "1");
+    expect(() => withAgentsSection("# Rules\n<!-- open-arch:start -->\nMine.\n", section)).toThrow("AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone.");
+    expect(() => withAgentsSection("# Rules\n<!-- open-arch:end -->\nMine.\n", section)).toThrow("AGENTS.md has <!-- open-arch:end --> without <!-- open-arch:start --> before it");
+    expect(() => withAgentsSection("<!-- open-arch:end -->\nMine.\n<!-- open-arch:start -->\n", section)).toThrow("without <!-- open-arch:end --> after it");
+  });
 });

@@ -277,6 +277,33 @@ describe("keeping the AGENTS.md section", () => {
     expect(file.text).not.toContain("Readable docs");
   });
 
+  it("leaves an AGENTS.md alone that has one of the section's markers without the other, and says why", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const broken = "# Rules\n<!-- open-arch:start -->\nMy own notes.\n";
+    root.put("AGENTS.md", broken);
+    const host = new FolderHost("1", root, "a.openarch");
+    for (const name of ["B", "C"]) {
+      expect((await host.save(workspace(name))).agentsError).toBe(
+        "AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone. Put the markers back round the open-arch section, or take them out.",
+      );
+      expect(root.files()["AGENTS.md"]).toBe(broken);
+    }
+  });
+
+  it("puts back a section taken out while the folder is open the next time it's opened, not on every save", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    await new FolderHost("1", root, "a.openarch").save(workspace("B"));
+    const host = new FolderHost("1", root, "a.openarch");
+    await host.save(workspace("C"));
+    root.put("AGENTS.md", "# Rules\n");
+    await host.save(workspace("D"));
+    expect(root.files()["AGENTS.md"]).toBe("# Rules\n");
+    await new FolderHost("1", root, "a.openarch").save(workspace("E"));
+    expect(root.files()["AGENTS.md"]).toBe(`# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
+  });
+
   it("says when it can't be written, and tries again on each save until it is", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
