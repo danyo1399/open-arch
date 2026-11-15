@@ -100,7 +100,7 @@ flowchart LR
 
 > A wireframe view sketches an app's screens: what's on each one, and where tapping a button or link takes you. This one is the Customer App, a container from view 3.
 >
-> It isn't one of C4's levels of zoom, but it's drawn for a container of the model, and that container's details list it.
+> It isn't one of C4's levels of zoom, but it's drawn for a container of the model. Select the Customer App and use Find usages in its details to find it.
 
 > Read an arrow as a tap: Pay $19 on the Basket screen opens Your order. Click a widget to see the screen it leads to in its details.
 

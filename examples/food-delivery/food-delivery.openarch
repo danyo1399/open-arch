@@ -386,7 +386,7 @@
         }
       ],
       "stickies": {
-        "about": { "text": "A wireframe view sketches an app's screens: what's on each one, and where tapping a button or link takes you. This one is the Customer App, a container from view 3.\n\nIt isn't one of C4's levels of zoom, but it's drawn for a container of the model, and that container's details list it.", "color": "blue", "at": [40, 560] },
+        "about": { "text": "A wireframe view sketches an app's screens: what's on each one, and where tapping a button or link takes you. This one is the Customer App, a container from view 3.\n\nIt isn't one of C4's levels of zoom, but it's drawn for a container of the model. Select the Customer App and use Find usages in its details to find it.", "color": "blue", "at": [40, 560] },
         "arrows": { "text": "Read an arrow as a tap: Pay $19 on the Basket screen opens Your order. Click a widget to see the screen it leads to in its details.", "at": [480, 560] },
         "rough": { "text": "Keep wireframes rough: grey boxes and short labels, not colours and fonts. They're for agreeing what goes on each screen before anyone designs it.", "color": "pink", "at": [920, 560] },
         "try": { "text": "Your turn! Select a screen and use + Add to put a widget on it, or drag a widget to another screen. Drag from the dot beside a widget to a screen to make it lead there.", "color": "green", "at": [1360, 560] }
@@ -398,12 +398,12 @@
       "level": "landscape",
       "include": ["*"],
       "stickies": {
-        "about": { "text": "This is a landscape view: every person and system in the model, and how they connect. It's the map of the whole business.\n\nClick any box to read about it in its details.", "color": "blue", "at": [-200, -330] },
+        "about": { "text": "This is a landscape view: every person and system in the model, and how they connect. It's the map of the whole business.\n\nClick any box to read about it in its details.", "color": "blue", "at": [-200, -360] },
         "arrows": { "text": "Read an arrow as a sentence: Support Agent → handles customer problems using → Support Desk.\n\nDashed arrows stand for arrows between the parts inside the boxes. View 3 explains.", "at": [-440, 520] },
         "external": { "text": "Grey boxes are external: run by another company. You show how you use them, never what's inside them.", "at": [960, 520] },
         "people": { "text": "The boxes with rounded tops are people: roles like Customer or Courier, not named individuals.", "at": [960, 0] },
         "systems": { "text": "The square blue boxes are software systems. A system is something one team owns that does a job for people, like the Delivery Platform.", "at": [960, 260] },
-        "welcome": { "text": "Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.\n\nOpen views 1 to 8 under Views, in order. Views 1 to 5 each zoom in a step, down to the code, and views 7 and 8 sketch the screens of two of its apps.", "color": "green", "at": [-440, -330] }
+        "welcome": { "text": "Welcome! This example teaches you to read architecture diagrams drawn with the C4 model, using a made-up food delivery business.\n\nOpen views 1 to 8 under Views, in order. Views 1 to 5 each zoom in a step, down to the code, and views 7 and 8 sketch the screens of two of its apps.", "color": "green", "at": [-440, -360] }
       },
       "layout": {
         "courier": [640, 0],

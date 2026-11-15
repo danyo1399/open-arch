@@ -49,7 +49,7 @@ export function StartPage({ actions, error, onOpen, onDropFiles, children }: Sta
             Try the example
           </button>
         </div>
-        <p className="muted small">New to architecture diagrams? The tour walks through a made-up food delivery business one zoom level at a time, with sticky notes explaining what you see.</p>
+        <p className="muted small">New to architecture diagrams? The tour walks through a made-up food delivery business one zoom level at a time, then sketches the screens of two of its apps, with sticky notes explaining what you see.</p>
         {error && (
           <p className="error" role="alert">
             {error}
