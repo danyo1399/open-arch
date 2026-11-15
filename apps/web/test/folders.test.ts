@@ -216,7 +216,7 @@ describe("keeping the agent skill", () => {
       return make(name, options);
     };
     const saved = await new FolderHost("1", root, "a.openarch").save(workspace("B", "docs"));
-    expect(saved.skillError).toBe("Something went wrong, and the browser didn't say what.");
+    expect(saved.skillError).toBe("Something went wrong, and no reason was given.");
     expect(saved.docs?.error).toBe("The folder is locked.");
   });
 
@@ -510,7 +510,7 @@ describe("watching a workspace in a folder", () => {
       throw new Error("");
     };
     await vi.advanceTimersByTimeAsync(100);
-    expect(onProblem.mock.calls).toEqual([["Can't read repo/a.openarch to see changes made outside the designer: Something went wrong, and the browser didn't say what."]]);
+    expect(onProblem.mock.calls).toEqual([["Can't read repo/a.openarch to see changes made outside the designer: Something went wrong, and no reason was given."]]);
     stop();
   });
 

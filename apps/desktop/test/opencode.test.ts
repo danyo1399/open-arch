@@ -1,5 +1,6 @@
 import type { OpenCodeClient, OpenCodeEvent } from "@opencode/client";
 import { describe, expect, it } from "vitest";
+import { UNKNOWN_PROBLEM } from "../../web/src/problems.js";
 import { agentPrompt, type AgentEvent, type AgentRequest } from "../src/agent.js";
 import { OpenCodeBackend } from "../src/opencode.js";
 
@@ -122,6 +123,23 @@ describe("OpenCode backend", () => {
     const events = await collect(backend);
     expect(calls.interrupt).toEqual([{ sessionID: SESSION }]);
     expect(events.at(-1)).toEqual({ type: "error", message: "Stopped." });
+  });
+
+  it("says what failed even when OpenCode gives no reason", async () => {
+    const offline = fakeOpenCode({ connect: () => Promise.reject(undefined) });
+    expect((await collect(offline.backend)).at(-1)).toEqual({ type: "error", message: UNKNOWN_PROBLEM });
+    const { backend } = fakeOpenCode({
+      onPrompt(push) {
+        push("session.tool.input.started", { id: "t1", name: "bash" });
+        push("session.tool.failed", { id: "t1", error: {} });
+        push("session.retry.scheduled", { error: { message: "" } });
+        push("session.execution.failed", { error: { type: "unknown" } });
+      },
+    });
+    const events = await collect(backend);
+    expect(events).toContainEqual({ type: "progress", text: `bash failed: ${UNKNOWN_PROBLEM}` });
+    expect(events).toContainEqual({ type: "progress", text: `Retrying: ${UNKNOWN_PROBLEM}` });
+    expect(events.at(-1)).toEqual({ type: "error", message: UNKNOWN_PROBLEM });
   });
 
   it("reports failures as events, and runs one request at a time", async () => {

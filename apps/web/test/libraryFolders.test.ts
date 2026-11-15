@@ -59,7 +59,7 @@ describe("opening a folder from the start page", () => {
     const folders = new MemoryFolders();
     folders.list = () => Promise.reject(undefined);
     const { host } = page(folders);
-    await until(host, "Something went wrong, and the browser didn't say what.");
+    await until(host, "Something went wrong, and no reason was given.");
   });
 
   it("isn't offered where the browser can't change a folder's files", async () => {

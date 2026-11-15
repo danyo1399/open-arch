@@ -13,6 +13,7 @@ import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { OpenCode, type OpenCodeClient, type OpenCodeEvent } from "@opencode/client";
 import { Service } from "@opencode/client/service";
+import { problemText } from "../../web/src/problems.js";
 import { agentPrompt, shellQuote, type AgentBackend, type AgentEvent, type AgentRequest } from "./agent.js";
 
 const SKILL_ID = "open-arch";
@@ -49,7 +50,7 @@ async function connectToService(): Promise<OpenCodeClient> {
   try {
     endpoint = await Service.ensure({ command: [opencodeCommand(), "serve", "--service"] });
   } catch (error) {
-    throw new Error(`Couldn't start OpenCode: ${(error as Error).message}. Install OpenCode 2 from https://opencode.ai, or start it with \`opencode serve --service\`.`);
+    throw new Error(`Couldn't start OpenCode: ${problemText(error).replace(/\.$/, "")}. Install OpenCode 2 from https://opencode.ai, or start it with \`opencode serve --service\`.`);
   }
   const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) });
   const { version } = await client.server.info();
@@ -78,7 +79,7 @@ export class OpenCodeBackend implements AgentBackend {
     } catch (error) {
       // The service may have restarted somewhere else; connect again next time.
       this.client = undefined;
-      onEvent(active.cancelled ? STOPPED : { type: "error", message: (error as Error).message });
+      onEvent(active.cancelled ? STOPPED : { type: "error", message: problemText(error) });
     } finally {
       active.abort.abort();
       this.active = undefined;
@@ -176,7 +177,7 @@ function follow(events: AsyncIterable<OpenCodeEvent>, active: Active, onEvent: (
           break;
         }
         case "session.tool.failed":
-          onEvent({ type: "progress", text: `${tools.get(event.data.id) ?? "A tool"} failed: ${event.data.error.message}` });
+          onEvent({ type: "progress", text: `${tools.get(event.data.id) ?? "A tool"} failed: ${problemText(event.data.error)}` });
           break;
         case "session.text.ended":
           if (event.data.text.trim()) {
@@ -185,7 +186,7 @@ function follow(events: AsyncIterable<OpenCodeEvent>, active: Active, onEvent: (
           }
           break;
         case "session.retry.scheduled":
-          onEvent({ type: "progress", text: `Retrying: ${event.data.error.message}` });
+          onEvent({ type: "progress", text: `Retrying: ${problemText(event.data.error)}` });
           break;
         case "permission.asked":
           onEvent({ type: "permission", id: event.data.id, description: describePermission(event.data, short) });
@@ -196,7 +197,7 @@ function follow(events: AsyncIterable<OpenCodeEvent>, active: Active, onEvent: (
         case "session.execution.succeeded":
           return { type: "done", summary: summary || "Done." };
         case "session.execution.failed":
-          return { type: "error", message: event.data.error.message };
+          return { type: "error", message: problemText(event.data.error) };
         case "session.execution.interrupted":
           return event.data.reason === "user" ? STOPPED : { type: "error", message: `OpenCode stopped the request (${event.data.reason}).` };
       }

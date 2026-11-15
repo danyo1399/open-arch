@@ -1,5 +1,5 @@
 /** What's shown when what failed says nothing about why. */
-export const UNKNOWN_PROBLEM = "Something went wrong, and the browser didn't say what.";
+export const UNKNOWN_PROBLEM = "Something went wrong, and no reason was given.";
 
 /** What went wrong, to show: the message of what was thrown, or what was thrown when that's text. */
 export function problemText(error: unknown): string {

@@ -205,7 +205,7 @@ describe("the open workspace", () => {
       throw new Error("");
     };
     const state = await workspaceFor(host);
-    expect(state().loadError).toBe("Something went wrong, and the browser didn't say what.");
+    expect(state().loadError).toBe("Something went wrong, and no reason was given.");
   });
 
   it("says why a save failed even when what failed has no message", async () => {
@@ -215,7 +215,7 @@ describe("the open workspace", () => {
       throw new Error("");
     };
     await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
-    expect(state().message?.text).toBe("Couldn't save: Something went wrong, and the browser didn't say what.");
+    expect(state().message?.text).toBe("Couldn't save: Something went wrong, and no reason was given.");
   });
 
   it("says so when Undo can't be saved", async () => {

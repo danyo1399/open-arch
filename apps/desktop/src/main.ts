@@ -11,6 +11,7 @@ import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type Op
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { syncDocs, writeWorkspaceFile } from "open-arch/workspace";
 import type { AgentContext } from "../../web/src/bridge.js";
+import { problemText } from "../../web/src/problems.js";
 import type { AgentBackend, AgentEvent } from "./agent.js";
 import { OpenCodeBackend } from "./opencode.js";
 import { userDataFolder } from "./user-data.js";
@@ -221,7 +222,7 @@ handle("agentRun", async (event, run: number, path: string, prompt: string, cont
     const viewId = typeof context?.viewId === "string" ? context.viewId : undefined;
     await agentFor(sender).run({ file, prompt, selection, viewId }, emit);
   } catch (error) {
-    emit({ type: "error", message: (error as Error).message });
+    emit({ type: "error", message: problemText(error) });
   }
 });
 
