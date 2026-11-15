@@ -364,7 +364,7 @@ export class FolderHost implements WorkspaceHost {
     } catch (error) {
       result.agentsError = problemText(error);
       // Say how to put it right, too.
-      if (error instanceof LineBreakInPath) result.agentsError += error.of === "docs" ? " Choose another docs folder in the workspace's details." : " Rename the file, then open the folder again.";
+      if (error instanceof LineBreakInPath) result.agentsError += error.of === "docs" ? " Choose another docs folder in the workspace's details." : " Rename the file, or the folder in its path with the break, then open the folder again.";
     }
     // Once each time the folder is opened, not on every save: saves come as the user types.
     if (!this.skillKept) {

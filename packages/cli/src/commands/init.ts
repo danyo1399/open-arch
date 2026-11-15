@@ -75,7 +75,7 @@ export function init(io: Io, opts: InitOptions): number {
         ? `run \`open-arch init ${shown}\` again once AGENTS.md is fixed`
         : error.of === "docs"
           ? `choose a docs folder without one, with \`open-arch update-workspace --file ${shown} --docs <folder>\`, then run \`open-arch init ${shown}\` again`
-          : "rename the file so its path has no line break, then run `open-arch init <new name>`";
+          : "rename the file, or the folder in its path with the break, so its path has none, then run `open-arch init <new path>` with the file's new path from here";
       throw new CliError(`${(error as Error).message} ${inPlace} in place: ${fix}.`);
     }
     writeFileSync(agentsMd, text);

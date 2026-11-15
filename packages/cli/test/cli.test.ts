@@ -553,7 +553,16 @@ describe("init", () => {
     const result = cli(project, "init", "a\u2028b.openarch");
     expect(result.code).toBe(1);
     expect(result.err).toContain('can\'t name "a\\u2028b.openarch": the workspace\'s path has a line break in it.');
-    expect(result.err).toContain("rename the file so its path has no line break, then run `open-arch init <new name>`.");
+    expect(result.err).toContain("rename the file, or the folder in its path with the break, so its path has none, then run `open-arch init <new path>` with the file's new path from here.");
+
+    // A break in a folder's name, for a file in a subfolder: the steps say the folder and the path.
+    const nested = tempDir();
+    mkdirSync(join(nested, ".git"));
+    const inFolder = cli(nested, "init", "ar\nch/a.openarch");
+    expect(inFolder.code).toBe(1);
+    expect(inFolder.err).toContain('can\'t name "ar\\nch/a.openarch": the workspace\'s path has a line break in it.');
+    expect(inFolder.err).toContain("or the folder in its path with the break");
+    expect(inFolder.err).toContain("`open-arch init <new path>` with the file's new path from here");
     expect(existsSync(join(project, "AGENTS.md"))).toBe(false);
 
     // A docs folder's is fixed in the workspace, not by renaming the folder. The steps name the

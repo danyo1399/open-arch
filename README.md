@@ -77,7 +77,7 @@ The designer leaves `AGENTS.md` alone, and says why, when:
 - it has one of the section's markers without the other, or the two out of order
 - it has more than one section
 - its bytes aren't UTF-8 text
-- the path of the workspace or of its docs folder has a line break in it, including Unicode's line and paragraph separators. Rename the file, or choose another docs folder in the workspace's details.
+- the path of the workspace or of its docs folder has a line break in it, including Unicode's line and paragraph separators. Rename the file, or the folder in its path with the break, or choose another docs folder in the workspace's details.
 
 A marker quoted in a sentence, not on a line of its own, is just text. The check for changes made outside is for the .openarch file only, and `AGENTS.md` can't be locked either. An edit to it that lands in the moment a save writes it is overwritten.
 

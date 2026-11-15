@@ -416,7 +416,12 @@ describe("keeping the AGENTS.md section", () => {
     const root = new FakeFolder("repo");
     root.put("a\nb.openarch", workspace("A"));
     expect((await new FolderHost("1", root, "a\nb.openarch").save(workspace("B"))).agentsError).toBe(
-      'AGENTS.md\'s open-arch section can\'t name "a\\nb.openarch": the workspace\'s path has a line break in it. Rename the file, then open the folder again.',
+      'AGENTS.md\'s open-arch section can\'t name "a\\nb.openarch": the workspace\'s path has a line break in it. Rename the file, or the folder in its path with the break, then open the folder again.',
+    );
+    // A break in a folder's name on the path.
+    root.put("ar\nch/x.openarch", workspace("X"));
+    expect((await new FolderHost("3", root, "ar\nch/x.openarch").save(workspace("X2"))).agentsError).toBe(
+      'AGENTS.md\'s open-arch section can\'t name "ar\\nch/x.openarch": the workspace\'s path has a line break in it. Rename the file, or the folder in its path with the break, then open the folder again.',
     );
     expect(root.files()["AGENTS.md"]).toBeUndefined();
     // Or of its docs folder, with a Unicode line separator.
