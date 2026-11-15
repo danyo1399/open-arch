@@ -74,7 +74,7 @@ describe("Properties", () => {
 
   it("says where Export zip puts the docs, when nothing saves them", () => {
     const html = render({ kind: "workspace" }).replaceAll("&#x27;", "'");
-    expect(html).toContain("Here, Export zip puts the docs where a save would. With none, or one the zip has no place for, it puts them beside the file.");
+    expect(html).toContain("Here, Export zip puts the docs where a save would. With none, or one the zip has no place for, it puts them beside the file. Export to folder keeps them beside the file when none is set.");
   });
 
   it("shows a view's description and notes, to edit", () => {

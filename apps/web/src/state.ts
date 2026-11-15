@@ -27,7 +27,8 @@ export interface WorkspaceState {
   storage: WorkspaceHost["storage"];
   /** Changes since the workspace was last saved or exported (memory only). */
   unsaved: boolean;
-  markSaved(): void;
+  /** Marks the text as saved or exported (memory only): `text` when given, the text now otherwise. */
+  markSaved(text?: string): void;
   /** What the last save did to the docs folder (desktop). */
   docs: DocsSummary | null;
   message: { kind: "error" | "info"; text: string } | null;
@@ -298,7 +299,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     canRedo: history.redo.length > 0,
     storage,
     unsaved: storage === "memory" && text !== null && text !== savedText,
-    markSaved: () => setSavedText(current.current),
+    markSaved: (text?: string) => setSavedText(text ?? current.current),
     docs,
     message,
     notify: setMessage,

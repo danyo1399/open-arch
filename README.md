@@ -54,13 +54,12 @@ Where the zip puts things:
 - When the workspace names no docs folder, or one the zip has no place for, the docs go beside the file, with no folder of their own.
 - When the path of the file or of its docs folder has a line break in it, the zip has no `AGENTS.md`. That includes Unicode's line and paragraph separators.
 
-**Export to folder…**, beside it, in Chrome and Edge, writes the same files into a folder you choose, such as a Git repository, for any workspace, one opened from a folder too. It's a copy: the workspace stays where it is.
+**Export to folder…**, beside it, in Chrome and Edge, copies any workspace, one opened from a folder too, into a folder you choose, such as a Git repository. The copy becomes a workspace there, as if you'd made it with **Open folder…**: the workspace you exported stays where it is.
 
-- The .openarch file goes at the folder's top. If the folder has a file of that name already, nothing is exported.
-- The docs go in the docs folder the workspace names, as in the zip, or beside the file.
-- The skill's files are written, and the open-arch section is put in the folder's `AGENTS.md`, keeping the rest of it, as a folder's saves do.
-- Nothing is deleted, and pages generated from another workspace beside the file are left alone.
-- The folder is then listed under Folders on the start page, to open and keep working on it there.
+- The .openarch file goes at the folder's top. If the folder has something of that name already, nothing is exported.
+- It's saved there as a folder's first save is: its docs, the agent skill and the open-arch section in `AGENTS.md` are written as later saves there keep them. The rest of `AGENTS.md` is kept, and pages generated from another workspace beside it are left alone.
+- A workspace that names no docs folder has its copy keep them beside the file (`.`). One whose docs folder would be outside the folder you chose isn't exported: choose a docs folder inside it, or none, in the workspace's details first.
+- The folder is then listed under Folders on the start page, to open and keep working on it there. The message says what was written, and anything left alone.
 
 The web build is plain static files (`apps/web/dist`) with relative paths, so it can be hosted anywhere. The [Pages workflow](.github/workflows/pages.yml) publishes it to GitHub Pages, at <https://danyo1399.github.io/open-arch/>, each time `main` changes. Served over HTTPS (or from localhost), it has a service worker that caches the build, so it can be installed and opened offline; opening it online always loads the latest build. Where the browser can install it, the start page offers to: **Install** opens the browser's own dialog in Chrome, Edge and other Chromium browsers, and on an iPhone or iPad, or in Safari on a Mac, it says where the browser's command is. **Not now** hides the offer in that browser for good. The app icons in `apps/web/public` are rendered from `apps/web/icons` by `sh icons/render.sh`.
 
