@@ -6,7 +6,9 @@ import {
   KIND_RANK,
   kindLabel,
   scopeProblems,
+  stickyAnchor,
   type ArchElement,
+  type ComputedView,
   type Diagnostic,
   type ElementKind,
   type Operation,
@@ -34,13 +36,14 @@ import {
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { arrowRelation, isArrow, relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
+import { arrowRelation, isArrow, newStickyId, relationshipRef, sameShapes, selectedShapes, selectShapes, toggleShape, uniqueId, type Rename, type Shapes } from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { classHeight, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
+import { besideArrow, besideBox, besideFrame, midpoint, stickyLine, type LineEnd } from "./stickyLines.js";
 
 /** What's selected. `several` is two or more boxes and sticky notes on the open view, which move together. */
 export type Selection =
@@ -126,6 +129,8 @@ interface CanvasProps {
   renames: Rename[];
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
+  /** A note just added from a menu or the details, to edit in place. */
+  editSticky?: string | null;
 }
 
 /**
@@ -163,13 +168,6 @@ export function addableKinds(ws: Workspace, view: ViewDef): { kind: ElementKind;
   return top;
 }
 
-/** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
-function newStickyId(view: ViewDef): string {
-  const taken = new Set(view.stickies.map((s) => s.id));
-  if (!taken.has("note")) return "note";
-  for (let i = 2; ; i++) if (!taken.has(`note-${i}`)) return `note-${i}`;
-}
-
 /**
  * The frame, when this point on the diagram is inside it. The frame takes no pointer events, so a
  * drag that starts on it draws a selection box, or pans on a touch screen, as on the background
@@ -204,6 +202,25 @@ export function connectOps(view: string, from: string, to: string, layout: Recor
     { op: "add-relationship", from, to },
     { op: "set-layout", view, positions: layout },
   ];
+}
+
+/**
+ * Where each note on something that hasn't been moved goes, by the note's ID: beside the box, the
+ * frame or the arrow it's on. `positions` are the boxes'; the frame is worked out from those inside it.
+ */
+export function besideTargets(ws: Workspace, cv: ComputedView, positions: Record<string, Point>): Record<string, Point> {
+  const out: Record<string, Point> = {};
+  const inside = cv.nodes.filter((n) => inFrame(cv.boundary, n) && positions[n.id]).map((n) => positions[n.id]!);
+  for (const sticky of cv.view.stickies) {
+    const anchor = !sticky.at && sticky.on ? stickyAnchor(ws, cv, sticky.on) : undefined;
+    if (anchor?.kind === "box" && positions[anchor.id]) out[sticky.id] = besideBox(positions[anchor.id]!);
+    if (anchor?.kind === "frame" && inside.length) {
+      const [left, top] = [Math.min(...inside.map((p) => p.x)) - FRAME_PAD.x, Math.min(...inside.map((p) => p.y)) - FRAME_PAD.top];
+      out[sticky.id] = besideFrame({ x: left, y: top, w: Math.max(...inside.map((p) => p.x)) + NODE_W + FRAME_PAD.x - left, h: 0 });
+    }
+    if (anchor?.kind === "arrow" && positions[anchor.edge.from] && positions[anchor.edge.to]) out[sticky.id] = besideArrow(positions[anchor.edge.from]!, positions[anchor.edge.to]!);
+  }
+  return out;
 }
 
 /** The box at this point on the diagram, if there is one: the one drawn on top, where boxes overlap. The frame isn't a box. */
@@ -324,7 +341,7 @@ export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<strin
   return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames, exportItems }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -399,11 +416,15 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     [edit, view.id],
   );
 
+  useEffect(() => {
+    if (editSticky) setEditing(editSticky);
+  }, [editSticky]);
+
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
 
   useEffect(() => {
     if (!cv || !positions) return setNodes([]);
-    const stickyAt = placeStickies(view.stickies, Object.values(positions), stickySize);
+    const stickyAt = placeStickies(view.stickies, Object.values(positions), stickySize, besideTargets(ws, cv, positions));
     setNodes((previous) => [
       // With the frame drawn now, so the new one keeps what React Flow measured of it (see withFrame).
       ...withFrame(
@@ -434,7 +455,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         }),
       ),
     ]);
-  }, [cv, nodeIdOf, positions, problemCounts, selection, picked, view.stickies, stickySize, editing, finishEditing]);
+  }, [ws, cv, nodeIdOf, positions, problemCounts, selection, picked, view.stickies, stickySize, editing, finishEditing]);
 
   /**
    * The ID of the element a node is for, as this render has it. React Flow has the nodes from an
@@ -475,6 +496,35 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     const { routes, labels } = layoutArrows(boxes, links, sizes, { frames, notes, keepClear: frameNames });
     return { routes, labels, crossed: crossings(routes) };
   }, [nodes, cv, sizes, stickySize, elementOfNode]);
+
+  // The line from each note on something to the box, the frame or the arrow that draws it, as drawn now.
+  const stickyLines = useMemo(() => {
+    if (!cv) return [];
+    const rectOf = (n: FlowNode) =>
+      n.type === "frame" ? { x: n.position.x, y: n.position.y, w: n.data.width, h: n.data.height } : { x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H };
+    const box = (id: string) => nodes.find((n) => n.type === "element" && elementOfNode(n) === id);
+    return nodes.flatMap((n) => {
+      const on = n.type === "sticky" ? n.data.sticky.on : undefined;
+      const anchor = on && stickyAnchor(ws, cv, on);
+      if (n.type !== "sticky" || !anchor) return [];
+      let end: LineEnd | undefined;
+      if (anchor.kind === "box") {
+        const target = box(anchor.id);
+        end = target && { rect: rectOf(target) };
+      } else if (anchor.kind === "frame") {
+        const frame = nodes.find((f) => f.type === "frame");
+        end = frame && { outline: rectOf(frame) };
+      } else {
+        const id = arrowId(anchor.edge);
+        const label = labels.get(id);
+        const point = midpoint(routes.get(id) ?? []);
+        end = label ? { rect: { x: label.x - label.w / 2, y: label.y - label.h / 2, w: label.w, h: label.h } } : point && { point };
+      }
+      const note = { x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight(n.data.sticky.text, stickySize) };
+      const line = end && stickyLine(note, end);
+      return line ? [{ id: n.data.sticky.id, ...line, selected: !!n.selected }] : [];
+    });
+  }, [ws, cv, nodes, routes, labels, stickySize, elementOfNode]);
 
   /** Every box's position as shown now, including ones placed automatically. */
   const currentLayout = useCallback((): Record<string, Position> => {
@@ -790,6 +840,15 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+        {stickyLines.length > 0 && (
+          <ViewportPortal>
+            <svg className="sticky-lines" aria-hidden="true">
+              {stickyLines.map((l) => (
+                <line key={l.id} className={l.selected ? "selected" : undefined} x1={l.from.x} y1={l.from.y} x2={l.to.x} y2={l.to.y} />
+              ))}
+            </svg>
+          </ViewportPortal>
+        )}
         {movingLine && (
           <ViewportPortal>
             <svg className="arrow-moving" style={{ zIndex: DRAWING_Z }} aria-hidden="true">

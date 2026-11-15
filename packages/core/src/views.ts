@@ -7,7 +7,7 @@
  * An event view shows its cards in order, each in its lane, and the arrows between them.
  */
 import type { Workspace } from "./workspace.js";
-import { builtInto, childrenOf, compareElements, containerOf, kindList, libraryOf, lineage, topLevel } from "./model.js";
+import { builtInto, childrenOf, compareElements, containerOf, inFrame, kindList, libraryOf, lineage, topLevel } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
   ELEMENT_KINDS,
@@ -19,6 +19,8 @@ import {
   type ElementKind,
   type RelationshipKind,
   type Step,
+  type StickyTarget,
+  type StickyTargetData,
   type ViewDef,
   type ViewLevel,
 } from "./types.js";
@@ -772,6 +774,42 @@ function computeEvents(ws: Workspace, view: ViewDef): ComputedView {
     });
   }
   return { view, nodes: [], edges: [], steps: [], diagnostics };
+}
+
+/** The views whose sticky notes can be on an element or a relationship: those that draw the model as boxes and arrows. */
+export const STICKY_TARGET_LEVELS: readonly ViewLevel[] = ["landscape", "context", "container", "component", "class"];
+
+/** Where a view draws what a sticky note is on: a box, the frame round the view, or an arrow. */
+export type StickyAnchor = { kind: "box"; id: string } | { kind: "frame"; id: string } | { kind: "arrow"; edge: ViewEdge };
+
+/**
+ * Where a view draws what a sticky note is on, or undefined when it doesn't. An element is drawn
+ * as the box that shows it, as a relationship's end is: its own, or the one it's inside, as a
+ * component is on a container view. The view's scope is the frame, while it's drawn round
+ * anything. A relationship is drawn as the arrow that stands for it: the first, when it's in a
+ * library built into several containers.
+ */
+export function stickyAnchor(ws: Workspace, cv: ComputedView, on: StickyTarget): StickyAnchor | undefined {
+  if (!STICKY_TARGET_LEVELS.includes(cv.view.level)) return undefined;
+  if ("element" in on) {
+    if (!ws.elements.has(on.element)) return undefined;
+    if (cv.boundary?.id === on.element) return cv.nodes.some((n) => inFrame(cv.boundary, n)) ? { kind: "frame", id: on.element } : undefined;
+    const box = representative(ws, cv.view)(on.element);
+    return box && cv.nodes.some((n) => n.id === box) ? { kind: "box", id: box } : undefined;
+  }
+  const edge = cv.edges.find((e) =>
+    e.sources.some((s) => {
+      const rel = ws.elements.get(s.element)?.uses[s.index];
+      return s.element === on.from && rel?.to === on.to && rel.kind === on.kind;
+    }),
+  );
+  return edge && { kind: "arrow", edge };
+}
+
+/** What a sticky note is on, as the CLI writes it: "cache", or "web-app -> orders-db", with the relationship's kind when it isn't an association. */
+export function stickyTargetText(on: StickyTargetData): string {
+  if ("element" in on) return on.element;
+  return `${on.from} -> ${on.to}${on.kind && on.kind !== "association" ? ` (${on.kind})` : ""}`;
 }
 
 function joinLabels(values: (string | undefined)[], separator: string): string | undefined {

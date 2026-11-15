@@ -11,6 +11,8 @@ import {
   RUNNABLE_KINDS,
   SHAPE_LABELS,
   STICKY_COLORS,
+  stickyAnchor,
+  STICKY_TARGET_LEVELS,
   transitionLabel,
   type ArchElement,
   type Card,
@@ -27,12 +29,29 @@ import {
   type Transition,
   type Step,
   type Sticky,
+  type StickyTargetData,
   type ViewDef,
   type Workspace,
 } from "@open-arch/core";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
-import { byName, cardArrowDeleteOps, findArrow, followsName, idFromName, relationshipRef, shownInProperties, uniqueAmong, uniqueId, uniqueNodeId, uniqueStateId, viewAction } from "../model.js";
+import {
+  byName,
+  cardArrowDeleteOps,
+  findArrow,
+  followsName,
+  idFromName,
+  relationshipRef,
+  shownInProperties,
+  stickyChoices,
+  stickyKey,
+  stickyTargetFor,
+  uniqueAmong,
+  uniqueId,
+  uniqueNodeId,
+  uniqueStateId,
+  viewAction,
+} from "../model.js";
 import { SKILL_TARGETS } from "../skill.js";
 import { docsProblem, type Edit } from "../state.js";
 import { Field, TagsEditor } from "./fields.js";
@@ -56,6 +75,8 @@ interface PropertiesProps {
   onHide(id: string): void;
   onDelete(id: string): void;
   onFindUsages(id: string): void;
+  /** Adds a note on a box, the frame or an arrow, beside it on the diagram. */
+  onAddSticky(on: StickyTargetData): void;
   onDeleteView(id: string): void;
 }
 
@@ -104,7 +125,7 @@ export function Properties(props: PropertiesProps) {
   );
 }
 
-function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages }: PropertiesProps & { element: ArchElement }) {
+function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onAddSticky }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
@@ -124,6 +145,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
   const build = (container: ArchElement, library: string, built: boolean) =>
     void edit([{ op: "update-element", id: container.id, libraries: built ? [...container.libraries, library] : container.libraries.filter((l) => l !== library) }]);
   const canHide = viewAction(ws, view, computed, element.id) === "hide";
+  const noteOn = stickyTargetFor(ws, computed, { kind: "element", id: element.id });
 
   return (
     <>
@@ -254,6 +276,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
       <div className="actions">
         <button onClick={() => onFindUsages(element.id)}>Find usages</button>
         {canHide && <button onClick={() => onHide(element.id)}>Hide from this view</button>}
+        {noteOn && <button onClick={() => onAddSticky(noteOn)}>Add sticky note</button>}
         <button className="danger" onClick={() => onDelete(element.id)}>
           Delete from model…
         </button>
@@ -298,10 +321,11 @@ function BothWays({ checked, onChange }: { checked: boolean; onChange(bidirectio
   );
 }
 
-function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect }: PropertiesProps & { from: string; to: string; relation?: RelationshipKind }) {
+function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect, onAddSticky }: PropertiesProps & { from: string; to: string; relation?: RelationshipKind }) {
   const edge = findArrow(computed, from, to, relation);
   if (!edge) return <p className="muted">This arrow is no longer in the view.</p>;
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
+  const noteOn = stickyTargetFor(ws, computed, { kind: "arrow", from, to, relation });
   return (
     <>
       <header className="props-header">
@@ -373,12 +397,34 @@ function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect }: P
           );
         })}
       </ul>
+      {noteOn && (
+        <div className="actions">
+          <button onClick={() => onAddSticky(noteOn)}>Add sticky note</button>
+        </div>
+      )}
     </>
   );
 }
 
-function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { view: ViewDef; sticky: Sticky }) {
+function StickyProperties({ ws, view, computed, sticky, edit, onSelect }: PropertiesProps & { view: ViewDef; sticky: Sticky }) {
   const set = (fields: Omit<Extract<Operation, { op: "update-sticky" }>, "op" | "view" | "id">) => void edit([{ op: "update-sticky", view: view.id, id: sticky.id, ...fields }]);
+  // Views of boxes draw a line from a note to the box or arrow it's on.
+  const choices = computed && STICKY_TARGET_LEVELS.includes(view.level) ? stickyChoices(ws, computed, sticky) : null;
+  const drawn = !!(computed && sticky.on && stickyAnchor(ws, computed, sticky.on));
+  const group = (name: "Boxes" | "Arrows") => {
+    const items = choices!.filter((c) => c.group === name);
+    return (
+      items.length > 0 && (
+        <optgroup label={name}>
+          {items.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.label}
+            </option>
+          ))}
+        </optgroup>
+      )
+    );
+  };
   return (
     <>
       <header className="props-header">
@@ -392,6 +438,24 @@ function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { 
         onCommit={(text) => text.trim() && set({ text })}
         hint={view.level === "sequence" ? "A sequence's notes are shown beside it." : "Double-click the note to edit it in place."}
       />
+      {choices && (
+        <label className="field">
+          <span className="field-label">On</span>
+          <select value={sticky.on ? stickyKey(sticky.on) : ""} onChange={(e) => set({ on: choices.find((c) => c.key === e.target.value)?.on ?? null })}>
+            <option value="">Nothing: the whole diagram</option>
+            {choices
+              .filter((c) => !c.group)
+              .map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                </option>
+              ))}
+            {group("Boxes")}
+            {group("Arrows")}
+          </select>
+          <span className="field-hint">{sticky.on && !drawn ? "This view doesn't draw it, so no line joins them." : "A line joins the note to the box or arrow it's on."}</span>
+        </label>
+      )}
       <fieldset className="field swatches">
         <legend className="field-label">Colour</legend>
         {STICKY_COLORS.map((color) => (
@@ -402,7 +466,7 @@ function StickyProperties({ view, sticky, edit, onSelect }: PropertiesProps & { 
       </fieldset>
       <p className="muted small">Sticky notes explain this diagram to the people reading it: what to look at, or why it's drawn this way. They belong to this view and aren't part of the model, so other views don't show them. The docs show them under the diagram.</p>
       <div className="actions">
-        {sticky.at && view.level !== "sequence" && <button onClick={() => set({ at: null })}>Move beside the diagram</button>}
+        {sticky.at && view.level !== "sequence" && <button onClick={() => set({ at: null })}>{drawn ? "Move next to what it's on" : "Move beside the diagram"}</button>}
         <button className="danger" onClick={() => void edit([{ op: "remove-sticky", view: view.id, id: sticky.id }]).then(() => onSelect(null))}>
           Delete note
         </button>

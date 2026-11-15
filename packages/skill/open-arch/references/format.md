@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 11)
+# The open-arch workspace (format version 12)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 11,
+  "openarch": 12,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -55,7 +55,9 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
       "include": ["*"],
       "notes": "Drawn for new starters. Start at the customer.",
       "stickies": {
-        "how-orders-flow": { "text": "Every order goes through the web app.", "color": "blue", "at": [260, 0] }
+        "how-orders-flow": { "text": "Every order goes through the web app.", "color": "blue", "at": [260, 0] },
+        "cdn": { "text": "Cached at the edge for an hour.", "on": { "element": "web-app" }, "at": [260, 160] },
+        "https": { "text": "The only way in.", "on": { "from": "customer", "to": "web-app" } }
       },
       "layout": { "customer": [0, 0], "web-app": [0, 160] }
     },
@@ -75,14 +77,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `11` |
+| `openarch` | Format version, always `12` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 10 files too, and write them back as version 11. Version 10 is the same, but without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 11 files too, and write them back as version 12. Version 11 is the same, but without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view, as are the IDs of a state view's states, a deployment view's nodes, and an event view's lanes and its cards.
 
@@ -166,7 +168,7 @@ Only associations go both ways. A relationship with a kind needs no description,
 | `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence, state, deployment and event views |
 | `exclude` | IDs to hide. Not used on sequence, state, deployment and event views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
-| `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside the diagram) |
+| `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `on` (what it's on, see below), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside what it's on, or else beside the diagram) |
 | `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence, state, deployment and event views |
 | `steps` | Sequence views only: what happens, in order (see below) |
 | `states` | State views only: the states, keyed by an ID unique within the view (see below) |
@@ -319,7 +321,14 @@ An `event` view shows what happens in a business process, as event storming and 
 
 The lists' order is the diagram's: lanes are rows from the top down, and each card has a column of its own, left to right in the order of `cards`, so time runs from left to right. `show <view>` numbers both from 1. The designer lays out an event view automatically, so it has no positions. Removing a lane leaves its cards in no lane, and removing a card removes the arrows to and from it. Nothing in an event view refers to the model's elements, so renaming or removing them doesn't change it.
 
-Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside them.
+Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside their text.
+
+On a landscape, context, container, component or class view, a note can be `on` an element or a relationship, and the designer draws a dotted line from it to the box or arrow that shows it. Other views don't take `on`.
+
+- `{ "element": "<id>" }` is on an element. The line goes to the box that draws it: its own, or the box of what it's inside, as a component is drawn as its container on a container view. On the view's scope, it goes to the frame.
+- `{ "from": "<id>", "to": "<id>" }` is on a relationship, named as `add-relationship` names it: `from` uses `to`. Add `"kind"` when the relationship isn't an association, as between two classes. The line goes to the arrow that draws it, which can be an implied one.
+
+The model must have what a note is on. Renaming an element renames it in the notes on it. Removing an element, or the last relationship of its kind from one element to another, takes the notes off it; they stay on the view. Moving a relationship's ends or changing its kind takes its notes with it, unless another relationship like it is still there. A note on something the view doesn't draw, such as an element hidden from it, has no line, and `check` warns.
 
 Each element is drawn at the level of detail the view allows: in a container view of `shop`, a component inside `checkout-api` appears as `checkout-api`, and a container of another system appears as that system. Relationships move up with their elements, and several relationships between the same two boxes become one arrow.
 
@@ -328,7 +337,7 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections. An event view has a Mermaid flowchart from left to right, with a frame for each lane and each card in its kind's colour, and tables of its lanes and cards. Mermaid has no swimlanes, so the frames aren't always one above the other as the designer draws them, and a card that comes from a later card can be drawn out of its place along the timeline. A lane with no cards is a box with its name.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, each starting with what it's on, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections. An event view has a Mermaid flowchart from left to right, with a frame for each lane and each card in its kind's colour, and tables of its lanes and cards. Mermaid has no swimlanes, so the frames aren't always one above the other as the designer draws them, and a card that comes from a later card can be drawn out of its place along the timeline. A lane with no cards is a box with its name.
 - `elements/<id>.md`: the element's details, notes, members (for a class), libraries (for a container), the containers built with it (for a library), relationships (with their notes), contents and the views showing it, with the nodes it runs in on deployment views.
 
 Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite or delete pages with that marker, so other files in the folder are safe. Don't edit generated pages: the next change rewrites them.
@@ -340,9 +349,9 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `11` (or `1` to `10`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `12` (or `1` to `11`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
-| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment or event view, `scope` on a deployment or event view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, or `lanes` or `cards` on another view than an event view |
+| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment or event view, `scope` on a deployment or event view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `lanes` or `cards` on another view than an event view, or a sticky note's `on` on a sequence, state, deployment or event view, or with both `element` and `from` or `to` |
 | `field-type` | error | A field has the wrong type |
 | `field-required` | error | A required field is missing |
 | `id-format` | error | An ID isn't kebab-case |
@@ -351,7 +360,7 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | `level-invalid` | error | Unknown view `level` |
 | `color-invalid` | error | Unknown sticky note `color` |
 | `shape-invalid` | error | Unknown element `shape` |
-| `relationship-kind-invalid` | error | Unknown relationship `kind` |
+| `relationship-kind-invalid` | error | Unknown relationship `kind`, on a relationship or what a sticky note is on |
 | `card-kind-invalid` | error | Unknown card `kind` |
 | `parent-required` | error | A container, component or class has no parent |
 | `parent-not-allowed` | error | A person, system or library has a parent |
@@ -401,6 +410,8 @@ Every page starts with `<!-- Generated by open-arch`. Tools only ever overwrite 
 | `card-lane-unknown` | error | A card's `lane` isn't a lane of its view |
 | `card-from-unknown` | error | A `from` entry isn't a card of its view |
 | `card-from-self` | error | A card comes from itself |
+| `sticky-unknown-target` | error | A sticky note is on an element that isn't there, or a relationship the model doesn't have |
+| `sticky-target-not-drawn` | warning | A sticky note is on something the view doesn't draw, so no line joins them |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |
 
 The first fourteen are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.

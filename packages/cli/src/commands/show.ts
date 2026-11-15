@@ -5,6 +5,8 @@ import {
   nodeKindLabel,
   modelTree,
   scopeProblems,
+  stickyAnchor,
+  stickyTargetText,
   suggest,
   tagEntries,
   tagText,
@@ -123,9 +125,10 @@ export function show(io: Io, opts: ShowOptions): number {
       frame: cv.boundary?.id,
       boxes: cv.nodes.map(summary),
       arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, kind: kindOf(e), bidirectional: e.bidirectional || undefined, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
-      stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+      stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, on: s.on, drawn: s.on && !!stickyAnchor(ws, cv, s.on), color: s.color, at: s.at })),
     };
     const scope = cv.boundary ?? (view.scope ? ws.elements.get(view.scope) : undefined);
+    const on = (s: ViewDef["stickies"][number]) => (s.on ? `, on ${stickyTargetText(s.on)}${stickyAnchor(ws, cv, s.on) ? "" : ", which this view doesn't draw"}` : "");
     const lines = [
       `${view.id}: ${view.title}`,
       `  level:        ${view.level}${scope ? ` view of ${scope.id} (${scope.name})` : ""}`,
@@ -146,7 +149,7 @@ export function show(io: Io, opts: ShowOptions): number {
           )
         : ["  (none)"]),
       ...(view.stickies.length
-        ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+        ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""})${on(s)}:`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
         : []),
     ];
     print(json, lines.join("\n") + "\n");

@@ -115,7 +115,7 @@ describe("what went wrong", () => {
 
   it("in the share dialog, when the share server fails without saying why", async () => {
     const client = { create: () => Promise.reject(undefined) } as unknown as ShareClient;
-    const file = { name: "a.openarch", text: JSON.stringify({ openarch: 11, name: "A", elements: {}, views: {} }) };
+    const file = { name: "a.openarch", text: JSON.stringify({ openarch: 12, name: "A", elements: {}, views: {} }) };
     const host = mount(createElement(ShareDialog, { client, workspace: "browser/a", file, designer: "https://designer.example/", settings: new Settings(`share-${Math.random()}`), onClose() {} }));
     await until(host, "Create link");
     await click(button(host, "Create link"));

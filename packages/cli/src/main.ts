@@ -265,20 +265,30 @@ An empty value removes a field.
   "show-in-view": writer(`Usage: open-arch show-in-view <view> <id>...\n\nShows elements in a view, removing them from its exclude list or adding them to include.\n`, {}),
   "hide-in-view": writer(`Usage: open-arch hide-in-view <view> <id>...\n\nHides elements from a view, without removing them from the model.\n`, {}),
   "add-sticky": writer(
-    `Usage: open-arch add-sticky <view> <id> --text <text> [--color <yellow|pink|blue|green>] [--at <x,y>]
+    `Usage: open-arch add-sticky <view> <id> --text <text> [--element <id> | --from <id> --to <id> [--kind <kind>]]
+                            [--color <yellow|pink|blue|green>] [--at <x,y>]
 
 Adds a sticky note to a view: text for people reading the diagram, such as what to notice or
 why it's drawn this way. It isn't part of the model. The id must be unique within the view.
-  --at <x,y>             Top-left corner (default: the designer puts it beside the diagram)
+On a landscape, context, container, component or class view, a note can be on an element or
+a relationship: the designer draws a line from the note to the box or arrow that shows it.
+  --element <id>         The element it's on
+  --from <id> --to <id>  The relationship it's on: <from> uses <to>, as add-relationship says
+  --kind <kind>          That relationship's kind, when it isn't an association
+  --at <x,y>             Top-left corner (default: the designer puts it beside what it's on,
+                         or else beside the diagram)
 `,
-    { text: s, color: s, at: s },
+    { text: s, element: s, from: s, to: s, kind: s, color: s, at: s },
   ),
   "update-sticky": writer(
-    `Usage: open-arch update-sticky <view> <id> [--text <text>] [--color <yellow|pink|blue|green>] [--at <x,y>]
+    `Usage: open-arch update-sticky <view> <id> [--text <text>] [--element <id> | --from <id> --to <id> [--kind <kind>] | --detach]
+                               [--color <yellow|pink|blue|green>] [--at <x,y>]
 
+--element, or --from and --to, put the note on an element or a relationship (see add-sticky),
+and --detach takes it off.
 --at "" lets the designer place it again.
 `,
-    { text: s, color: s, at: s },
+    { text: s, element: s, from: s, to: s, kind: s, detach: b, color: s, at: s },
   ),
   "remove-sticky": writer(`Usage: open-arch remove-sticky <view> <id>\n`, {}),
   "add-step": writer(

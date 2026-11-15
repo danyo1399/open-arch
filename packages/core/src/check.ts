@@ -1,6 +1,6 @@
 import { builtInto, containerOf, isInside, kindList, libraryOf, PARENT_KINDS } from "./model.js";
-import type { ArchElement, Diagnostic, ViewDef } from "./types.js";
-import { computeView, didYouMean, scopeProblems } from "./views.js";
+import type { ArchElement, Diagnostic, Sticky, ViewDef } from "./types.js";
+import { computeView, didYouMean, scopeProblems, stickyAnchor, type ComputedView } from "./views.js";
 import type { Workspace } from "./workspace.js";
 
 /** Every problem in the workspace: the file's shape, then the model's meaning. */
@@ -141,8 +141,9 @@ function checkElement(ws: Workspace, el: ArchElement, out: Diagnostic[]): void {
 function checkView(ws: Workspace, view: ViewDef, out: Diagnostic[]): void {
   const problems = scopeProblems(ws, view);
   out.push(...problems);
-  if (problems.length) return;
-  const cv = computeView(ws, view);
+  const cv = problems.length ? undefined : computeView(ws, view);
+  for (const sticky of view.stickies) checkSticky(ws, view, cv, sticky, out);
+  if (!cv) return;
   out.push(...cv.diagnostics);
   const shown = new Set(cv.nodes.map((n) => n.id));
   const stale = Object.keys(view.layout).filter((id) => !shown.has(id));
@@ -153,6 +154,48 @@ function checkView(ws: Workspace, view: ViewDef, out: Diagnostic[]): void {
       message: `The layout has positions for elements no longer in this view: ${stale.join(", ")}.`,
       path: `${view.path}.layout`,
       fix: "Run `open-arch fmt`.",
+    });
+  }
+}
+
+/** What a sticky note is on: something in the model, which the view draws. `cv` is the view, when it can be drawn. */
+function checkSticky(ws: Workspace, view: ViewDef, cv: ComputedView | undefined, sticky: Sticky, out: Diagnostic[]): void {
+  const on = sticky.on;
+  if (!on) return;
+  const at = `${sticky.path}.on`;
+  const unknown = (field: string, id: string, message: string) => void out.push({ severity: "error", rule: "sticky-unknown-target", message, path: `${at}.${field}`, fix: didYouMean(ws, id) });
+  let what: string;
+  if ("element" in on) {
+    if (!ws.elements.has(on.element)) return unknown("element", on.element, `The note is on "${on.element}", which isn't an element.`);
+    what = `"${on.element}"`;
+  } else {
+    const from = ws.elements.get(on.from);
+    const end = (id: string) => `The note is on a relationship from "${on.from}" to "${on.to}", and "${id}" isn't an element.`;
+    if (!from) unknown("from", on.from, end(on.from));
+    if (!ws.elements.has(on.to)) unknown("to", on.to, end(on.to));
+    if (!from || !ws.elements.has(on.to)) return;
+    const kind = on.kind === "association" ? "" : ` of the kind "${on.kind}"`;
+    if (!from.uses.some((r) => r.to === on.to && r.kind === on.kind)) {
+      // One that goes both ways is on the element at its other end.
+      const back = ws.elements.get(on.to)!.uses.some((r) => r.to === on.from && r.kind === on.kind && r.bidirectional);
+      out.push({
+        severity: "error",
+        rule: "sticky-unknown-target",
+        message: `The note is on a relationship from "${on.from}" to "${on.to}"${kind}, and "${on.from}" has none.`,
+        path: at,
+        fix: back ? `That relationship goes both ways, and it's on "${on.to}": swap \`from\` and \`to\`.` : undefined,
+      });
+      return;
+    }
+    what = `the relationship from "${on.from}" to "${on.to}"${kind}`;
+  }
+  if (cv && !stickyAnchor(ws, cv, on)) {
+    out.push({
+      severity: "warning",
+      rule: "sticky-target-not-drawn",
+      message: `The note "${sticky.id}" is on ${what}, which this view doesn't draw, so no line joins them.`,
+      path: at,
+      fix: `Show it in this view, or take the note off it: \`open-arch update-sticky ${view.id} ${sticky.id} --detach\`.`,
     });
   }
 }

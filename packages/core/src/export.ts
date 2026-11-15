@@ -6,7 +6,7 @@
 import { nodeKindLabel, renderMermaid, transitionLabel } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
-import { CARD_KIND_LABELS, SHAPE_LABELS, type ArchElement, type Relationship, type RelationshipKind } from "./types.js";
+import { CARD_KIND_LABELS, SHAPE_LABELS, type ArchElement, type Relationship, type RelationshipKind, type Sticky } from "./types.js";
 import type { Workspace } from "./workspace.js";
 
 export interface ExportedFile {
@@ -30,6 +30,18 @@ function cell(text: string | undefined): string {
 function link(e: ArchElement, from: "root" | "elements" | "views"): string {
   const href = from === "elements" ? `${e.id}.md` : from === "views" ? `../elements/${e.id}.md` : `elements/${e.id}.md`;
   return `[${e.name}](${href})`;
+}
+
+/** What a sticky note is on, to start its quote: "On [Cache](…): ", or "On [Web App](…) → [Orders DB](…): ". Nothing for a note on nothing. */
+function stickyOn(ws: Workspace, s: Sticky): string {
+  const on = s.on;
+  if (!on) return "";
+  const name = (id: string) => {
+    const e = ws.elements.get(id);
+    return e ? link(e, "views") : id;
+  };
+  if ("element" in on) return `On ${name(on.element)}: `;
+  return `On ${name(on.from)} → ${name(on.to)}${on.kind === "association" ? "" : ` (${on.kind})`}: `;
 }
 
 /** A relationship's description for a table, saying what kind it is, when it isn't an association, and when it goes both ways. */
@@ -107,8 +119,8 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     if (v.description) lines.push("", v.description);
     if (v.notes) lines.push("", v.notes);
     lines.push("", "```mermaid", renderMermaid(cv), "```");
-    // The diagram's sticky notes, as quotes in reading order.
-    if (v.stickies.length) lines.push("", "## Sticky notes", ...v.stickies.flatMap((s) => ["", ...s.text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd())]));
+    // The diagram's sticky notes, as quotes in reading order, each starting with what it's on.
+    if (v.stickies.length) lines.push("", "## Sticky notes", ...v.stickies.flatMap((s) => ["", ...s.text.split(/\r?\n/).map((l, i) => `> ${i === 0 ? stickyOn(ws, s) : ""}${l}`.trimEnd())]));
     if (v.level === "state") {
       const name = (id: string) => cell(v.states.find((s) => s.id === id)?.name ?? id);
       lines.push("", "## States", "");

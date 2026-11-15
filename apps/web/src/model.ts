@@ -5,6 +5,8 @@ import {
   describeElement,
   isInside,
   representative,
+  stickyAnchor,
+  STICKY_TARGET_LEVELS,
   VIEW_LEVELS,
   type ArchElement,
   type Card,
@@ -20,6 +22,7 @@ import {
   type State,
   type Step,
   type Sticky,
+  type StickyTargetData,
   type Transition,
   type ViewData,
   type ViewDef,
@@ -310,6 +313,72 @@ export function eventSelectionGone(view: ViewDef | undefined, selection: Selecti
   return false;
 }
 
+/** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
+export function newStickyId(view: ViewDef): string {
+  const taken = new Set(view.stickies.map((s) => s.id));
+  if (!taken.has("note")) return "note";
+  for (let i = 2; ; i++) if (!taken.has(`note-${i}`)) return `note-${i}`;
+}
+
+/**
+ * What a sticky note can be on, from what's selected: the element of a box, or of the frame round
+ * the view, or the first relationship an arrow stands for. None on other views than those of
+ * boxes, or for an element or arrow the view doesn't draw as itself.
+ */
+export function stickyTargetFor(ws: Workspace, computed: ComputedView | null, selection: Selection): StickyTargetData | undefined {
+  if (!computed || !STICKY_TARGET_LEVELS.includes(computed.view.level)) return undefined;
+  if (selection?.kind === "element") {
+    // Its own box, or the frame: not the box of something it's inside.
+    const anchor = stickyAnchor(ws, computed, { element: selection.id });
+    return anchor?.kind === "frame" || (anchor?.kind === "box" && anchor.id === selection.id) ? { element: selection.id } : undefined;
+  }
+  if (selection?.kind !== "arrow") return undefined;
+  const source = findArrow(computed, selection.from, selection.to, selection.relation)?.sources[0];
+  const rel = source && ws.elements.get(source.element)?.uses[source.index];
+  return source && rel ? { from: source.element, to: rel.to, ...(rel.kind !== "association" && { kind: rel.kind }) } : undefined;
+}
+
+/** One thing a note can be put on, as the details panel lists it: `key` tells them apart. What it's on, when the view doesn't draw it, is in no group. */
+export interface StickyChoice {
+  key: string;
+  label: string;
+  group?: "Boxes" | "Arrows";
+  on: StickyTargetData;
+}
+
+/** A key for what a note is on, the same for a relationship's kind given or left out as an association. */
+export function stickyKey(on: StickyTargetData): string {
+  return "element" in on ? `element:${on.element}` : `relationship:${on.from}\u0000${on.to}\u0000${on.kind ?? "association"}`;
+}
+
+/**
+ * What a note on this view can be put on: its boxes and its frame, by name, then its arrows, each
+ * as the relationship it stands for first, unless the note is on another of them already. What
+ * the note is on is among them even when the view doesn't draw it, so the list can show it.
+ */
+export function stickyChoices(ws: Workspace, computed: ComputedView, sticky: Sticky): StickyChoice[] {
+  const name = (id: string) => ws.elements.get(id)?.name ?? id;
+  const current = sticky.on && stickyAnchor(ws, computed, sticky.on);
+  const choice = (on: StickyTargetData, label: string, group?: StickyChoice["group"]): StickyChoice => ({ key: stickyKey(on), label, group, on });
+  const boxes = [...computed.nodes, ...(computed.boundary ? [computed.boundary] : [])]
+    .filter((e) => stickyAnchor(ws, computed, { element: e.id }))
+    .sort(byName)
+    .map((e) => choice({ element: e.id }, e.id === computed.boundary?.id ? `${e.name} (the frame)` : e.name, "Boxes"));
+  const arrows = computed.edges.flatMap((edge) => {
+    const label = `${name(edge.from)} ${edge.bidirectional ? "↔" : "→"} ${name(edge.to)}${edge.description ? `: ${edge.description}` : ""}`;
+    if (current?.kind === "arrow" && current.edge === edge) return [choice(sticky.on!, label, "Arrows")];
+    const on = stickyTargetFor(ws, computed, { kind: "arrow", from: edge.from, to: edge.to, ...arrowRelation(edge) });
+    return on ? [choice(on, label, "Arrows")] : [];
+  });
+  const all = [...boxes, ...arrows];
+  if (sticky.on && !all.some((c) => c.key === stickyKey(sticky.on!))) {
+    const on = sticky.on;
+    const label = "element" in on ? name(on.element) : `${name(on.from)} → ${name(on.to)}`;
+    all.unshift(choice(on, current?.kind === "box" ? `${label} (drawn as ${name(current.id)})` : `${label} (not in this view)`));
+  }
+  return all;
+}
+
 /** What the details panel shows. */
 export type Shown =
   | { kind: "element"; element: ArchElement }
@@ -391,6 +460,11 @@ export function undoRenames(renames: Rename[]): Rename[] {
   return [...renames].reverse().map((r) => ({ op: "rename", id: r.to, to: r.id }));
 }
 
+/** What a note is on, with its IDs passed through `to`. */
+function followTarget(on: StickyTargetData, to: (id: string) => string): StickyTargetData {
+  return "element" in on ? { element: to(on.element) } : { ...on, from: to(on.from), to: to(on.to) };
+}
+
 /** Data as text with its keys in order, so two copies compare equal whatever order they were written in. */
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -432,6 +506,7 @@ export function renamesBetween(before: Workspace, after: Workspace): Rename[] {
       exclude: v.exclude?.map(to),
       layout: v.layout && Object.fromEntries(Object.entries(v.layout).map(([id, at]) => [to(id), at])),
       steps: v.steps?.map((step) => ({ ...step, from: to(step.from), to: to(step.to) })),
+      stickies: v.stickies && Object.fromEntries(Object.entries(v.stickies).map(([id, s]) => [id, { ...s, on: s.on && followTarget(s.on, to) }])),
       nodes: v.nodes && Object.fromEntries(Object.entries(v.nodes).map(([id, n]) => [id, { ...n, runs: n.runs?.map(to) }])),
       connections: v.connections?.map((c) => ({ ...c, from: Object.hasOwn(v.nodes ?? {}, c.from) ? c.from : to(c.from), to: Object.hasOwn(v.nodes ?? {}, c.to) ? c.to : to(c.to) })),
     });
@@ -497,8 +572,10 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
         return { ...op, view: follow(op.view), id: follow(op.id) };
       case "set-layout":
         return { ...op, view: follow(op.view), positions: Object.fromEntries(Object.entries(op.positions).map(([id, at]) => [follow(id), at])) };
+      // A note's ID is its view's own; what it's on is in the model.
       case "add-sticky":
       case "update-sticky":
+        return { ...op, view: follow(op.view), ...(op.on && { on: followTarget(op.on, follow) }) };
       case "remove-sticky":
       case "remove-step":
       // A state's ID, and the ends of its transitions, are its view's own.

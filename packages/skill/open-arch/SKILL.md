@@ -64,6 +64,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 - **Show or hide something in one diagram:** `open-arch show-in-view <view> <id>...` / `hide-in-view <view> <id>...`.
 - **Keep elements added later out of a view:** `open-arch update-view <view> --new-elements hide`. The view keeps its boxes, and new elements stay out of it until you `show-in-view` them. `--new-elements show` lets them in again. A new view shows them; check `show <view>` before adding an element, so you know which views it lands in.
 - **Explain a diagram with a sticky note:** `open-arch add-sticky <view> <id> --text "Orders are paid before they're saved."` (`--color yellow|pink|blue|green`). Notes are for people reading that diagram, not part of the model; leave out `--at` and the designer places them beside it. Change or remove one with `update-sticky` / `remove-sticky <view> <id>`.
+- **Point a sticky note at a box or an arrow:** on a landscape, context, container, component or class view, `--element <id>` puts the note on an element, and `--from <id> --to <id>` on the relationship where `<from>` uses `<to>` (add `--kind` when it isn't an association). The designer draws a line from the note to the box or arrow that shows it, even an implied one. `update-sticky <view> <id> --detach` takes it off. `show <view>` says what each note is on, and whether the view draws it.
 - **Several changes at once:** write a JSON list of operations and run `open-arch apply changes.json` (or pipe it to `open-arch apply -`):
   ```json
   [
