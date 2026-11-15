@@ -230,7 +230,8 @@ export async function writeAgentsSection(root: FolderHandle, path: string, docs:
     if (!isMissing(error)) throw error;
   }
   const named = agentsSectionWorkspace(text);
-  if (named !== null && named !== path && (await isFileIn(root, named))) return;
+  // Compared as folders, so ./a.openarch or arch\a.openarch, written by hand, is this workspace too.
+  if (named !== null && segments(named)?.join("/") !== path && (await isFileIn(root, named))) return;
   // With the file's own line ending, so the file keeps it, and names in it are written as they are.
   const next = withAgentsSection(text, agentsSection(path, docs, CLI_VERSION, lineEnding(text)));
   if (next !== text) await writeText(await fileAt(root, "AGENTS.md", true), next);

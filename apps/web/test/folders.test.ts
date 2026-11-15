@@ -318,6 +318,16 @@ describe("keeping the AGENTS.md section", () => {
     expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("b.openarch")["AGENTS.md"]);
   });
 
+  it("writes the section for this workspace when one written by hand names it another way", async () => {
+    for (const named of ["./arch/a.openarch", "arch\\a.openarch", "arch/./a.openarch"]) {
+      const root = new FakeFolder("repo");
+      root.put("arch/a.openarch", workspace("A", "docs"));
+      root.put("AGENTS.md", agentsInFolder(named)["AGENTS.md"]!);
+      await new FolderHost("1", root, "arch/a.openarch").save(workspace("B", "docs"));
+      expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("arch/a.openarch", "arch/docs")["AGENTS.md"]);
+    }
+  });
+
   it("writes the section for this workspace when the one it names is no longer in the folder", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));

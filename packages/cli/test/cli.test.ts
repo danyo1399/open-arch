@@ -563,6 +563,7 @@ describe("init", () => {
     expect(inFolder.err).toContain('can\'t name "ar\\nch/a.openarch": the workspace\'s path has a line break in it.');
     expect(inFolder.err).toContain("or the folder in its path with the break");
     expect(inFolder.err).toContain("`open-arch init <new path>` with the file's new path from here");
+    expect(existsSync(join(nested, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(project, "AGENTS.md"))).toBe(false);
 
     // A docs folder's is fixed in the workspace, not by renaming the folder. The steps name the
