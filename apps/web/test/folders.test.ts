@@ -2,10 +2,11 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allowed, findWorkspaces, problemText, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
+import { allowed, findWorkspaces, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
 import { exampleHost, MemoryHost, savesDocs, savesSkill } from "../src/hosts.js";
 import { skillFiles } from "../src/skill.js";
 import { FakeFile, FakeFolder, skillInFolder } from "./fakeFolder.js";
+import { problemText } from "../src/problems.js";
 
 const workspace = (name: string, docs?: string) => {
   const doc = emptyDocument(name);
@@ -217,9 +218,9 @@ describe("keeping the agent skill", () => {
       return make(name, options);
     };
     const saved = await new FolderHost("1", root, "a.openarch").save(workspace("B", "docs"));
-    expect(saved.skillError).toBe("Error");
+    expect(saved.skillError).toBe("Something went wrong, and the browser didn't say what.");
     expect(saved.docs?.error).toBe("The folder is locked.");
-    expect(problemText(undefined)).toBe("undefined");
+    expect(problemText(undefined)).toBe("Something went wrong, and the browser didn't say what.");
     expect(problemText(new Error("Not allowed."))).toBe("Not allowed.");
   });
 

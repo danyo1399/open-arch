@@ -3,6 +3,7 @@ import { applyOperations, checkWorkspace, loadWorkspace, OpError, serializeDocum
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import type { WorkspaceHost } from "./hosts.js";
+import { problemText } from "./problems.js";
 import { SKILL_TARGETS } from "./skill.js";
 import { renamesBetween, renamesIn, undoRenames, type Rename } from "./model.js";
 
@@ -223,7 +224,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(next, () => applied.current?.(ops));
         } catch (error) {
-          showSaveProblem(`Couldn't save: ${(error as Error).message}`);
+          showSaveProblem(`Couldn't save: ${problemText(error)}`);
           return false;
         }
         updateHistory((h) => ({ undo: [...h.undo, { text: before, renames: renamesIn(ops) }].slice(-HISTORY_LIMIT), redo: [] }));
@@ -242,7 +243,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(target, () => applied.current?.(renames));
         } catch (error) {
-          showSaveProblem(`Couldn't save: ${(error as Error).message}`);
+          showSaveProblem(`Couldn't save: ${problemText(error)}`);
           return false;
         }
         updateHistory((h) => ({ undo: [...h.undo, { text: before, renames }].slice(-HISTORY_LIMIT), redo: [] }));
@@ -262,7 +263,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(target.text, () => applied.current?.(direction === "undo" ? undoRenames(renames) : renames));
         } catch (error) {
-          showSaveProblem(`Couldn't save: ${(error as Error).message}`);
+          showSaveProblem(`Couldn't save: ${problemText(error)}`);
           return;
         }
         const back: Step = { text: now, renames };

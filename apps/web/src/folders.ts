@@ -10,6 +10,7 @@
 import { exportDocs, FILE_EXTENSION, GENERATED_MARKER, loadWorkspace, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
+import { problemText } from "./problems.js";
 import { SKILL_TARGETS, skillFiles } from "./skill.js";
 import type { WorkspaceHost } from "./hosts.js";
 import { committed, done } from "./library.js";
@@ -96,11 +97,6 @@ export async function findWorkspaces(root: FolderHandle): Promise<string[]> {
 // --- Paths inside the folder ---------------------------------------------------------
 
 const isMissing = (error: unknown) => (error as Error)?.name === "NotFoundError";
-
-/** What went wrong, to show: an error's message, or what was thrown when it has none. */
-export function problemText(error: unknown): string {
-  return (error instanceof Error ? error.message : "") || String(error) || "Something went wrong.";
-}
 
 async function folderAt(root: FolderHandle, parts: string[], create: boolean): Promise<FolderHandle> {
   let dir = root;
@@ -389,7 +385,7 @@ export class FolderHost implements WorkspaceHost {
         // gone once it's been missing for a whole interval between checks.
         if (!isMissing(error)) {
           // Such as the browser no longer letting the page read the folder. It keeps trying.
-          if (!told && !stopped) onProblem?.(`Can't read ${this.location} to see changes made outside the designer: ${(error as Error).message}`);
+          if (!told && !stopped) onProblem?.(`Can't read ${this.location} to see changes made outside the designer: ${problemText(error)}`);
           told = true;
           return;
         }

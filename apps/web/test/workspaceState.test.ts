@@ -199,6 +199,16 @@ describe("the open workspace", () => {
     expect(state().message).toEqual({ kind: "error", text: "Couldn't save: a.openarch changed outside the designer, so this change wasn't saved." });
   });
 
+  it("says why a save failed even when what failed has no message", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    host.save = async () => {
+      throw new Error("");
+    };
+    await act(async () => void (await state().edit([{ op: "update-workspace", name: "B" }])));
+    expect(state().message?.text).toBe("Couldn't save: Something went wrong, and the browser didn't say what.");
+  });
+
   it("says so when Undo can't be saved", async () => {
     const host = new TestHost("file");
     const state = await workspaceFor(host);
