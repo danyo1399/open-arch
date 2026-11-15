@@ -99,24 +99,29 @@ export class FakeFile implements FileHandle {
   ) {}
   set(text: string) {
     this.text = text;
+    this.bytes = null;
     this.lastModified = clock++;
   }
   /** Runs once, straight after the file is next read: to change it then. */
   afterRead: (() => void) | null = null;
   /** A file the browser won't let the page read any more. */
   unreadable = false;
+  /** The file's bytes, when they aren't its text as UTF-8. */
+  bytes: Uint8Array | null = null;
   async getFile() {
     if (this.unreadable) throw notAllowed();
     return {
       lastModified: this.lastModified,
       size: this.text.length,
       text: async () => {
-        const text = this.text;
+        // As a browser's File does, it takes off a byte-order mark.
+        const text = this.text.replace(/^\uFEFF/, "");
         const after = this.afterRead;
         this.afterRead = null;
         after?.();
         return text;
       },
+      arrayBuffer: async () => (this.bytes ?? new TextEncoder().encode(this.text)).slice().buffer,
     };
   }
   async createWritable() {

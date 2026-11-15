@@ -57,6 +57,19 @@ describe("the AGENTS.md section", () => {
     expect(agentsSectionWorkspace(`\uFEFF${old}`)).toBe("a.openarch");
   });
 
+  it("refuses a file with more than one section, rather than leave one naming an old place", () => {
+    const one = agentsSection("a.openarch", undefined, "1");
+    expect(() => withAgentsSection(`${one}\n# Rules\n\n${one}`, agentsSection("b.openarch", undefined, "1"))).toThrow("AGENTS.md has more than one open-arch section, so it was left alone.");
+  });
+
+  it("writes a name with backticks so it reads back whole", () => {
+    for (const name of ["a`b.openarch", "``x``.openarch", "plain.openarch"]) {
+      const section = agentsSection(name, "do`cs", "1");
+      expect(agentsSectionWorkspace(section)).toBe(name);
+    }
+    expect(agentsSection("a`b.openarch", undefined, "1")).toContain("in `` a`b.openarch ``.");
+  });
+
   it("tells which workspace a section names", () => {
     expect(agentsSectionWorkspace(withAgentsSection("# Rules\n", agentsSection("arch/a.openarch", "docs", "1")))).toBe("arch/a.openarch");
     expect(agentsSectionWorkspace("# Rules\n")).toBeNull();

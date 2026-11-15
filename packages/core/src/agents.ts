@@ -15,10 +15,10 @@ export function agentsSection(workspace: string, docs: string | undefined, versi
   return `${SECTION_START}
 ## Architecture
 
-This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in \`${workspace}\`.${docs ? ` Readable docs generated from it are in \`${docs}/\`.` : ""}
+This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in ${code(workspace)}.${docs ? ` Readable docs generated from it are in ${code(`${docs}/`)}.` : ""}
 
 - Load the \`open-arch\` skill before reading or changing the architecture. If your tool doesn't support skills, read \`.agents/skills/open-arch/SKILL.md\`.
-- Never edit \`${workspace}\`${docs ? ` or \`${docs}/\`` : ""} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.
+- Never edit ${code(workspace)}${docs ? ` or ${code(`${docs}/`)}` : ""} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.
 ${SECTION_END}
 `;
 }
@@ -43,7 +43,14 @@ export function withAgentsSection(text: string, section: string): string {
   section = section.replace(/\r?\n/g, eol);
   const start = markerAt(text, SECTION_START);
   const end = markerAt(text, SECTION_END);
-  if (start !== -1 && end > start) return text.slice(0, start) + section.trimEnd() + text.slice(text.indexOf(SECTION_END, end) + SECTION_END.length);
+  if (start !== -1 && end > start) {
+    const after = text.indexOf(SECTION_END, end) + SECTION_END.length;
+    // A second section would be left as it was, naming an old place, for agents to read.
+    if (markerAt(text.slice(after), SECTION_START) !== -1 || markerAt(text.slice(after), SECTION_END) !== -1) {
+      throw new Error("AGENTS.md has more than one open-arch section, so it was left alone. Keep one, and take the others out.");
+    }
+    return text.slice(0, start) + section.trimEnd() + text.slice(after);
+  }
   if (start !== -1 || end !== -1) {
     throw new Error(`AGENTS.md has ${start === -1 ? `${SECTION_END} without ${SECTION_START} before it` : `${SECTION_START} without ${SECTION_END} after it`}, so it was left alone. Put the markers back round the open-arch section, or take them out.`);
   }
@@ -56,5 +63,19 @@ export function agentsSectionWorkspace(text: string): string | null {
   const start = markerAt(text, SECTION_START);
   const end = markerAt(text, SECTION_END);
   if (start === -1 || end < start) return null;
-  return /open-arch model \([^)]*\) in `([^`]+)`/.exec(text.slice(start, end))?.[1] ?? null;
+  // A code span: a run of backticks, the name (padded with a space when it has backticks of its own), and the same run.
+  const span = /open-arch model \([^)]*\) in (`+)(.*?)\1(?!`)\./.exec(text.slice(start, end));
+  if (!span) return null;
+  const name = span[2]!;
+  return span[1]!.length > 1 && name.startsWith(" ") && name.endsWith(" ") ? name.slice(1, -1) : name;
+}
+
+/**
+ * A name as Markdown code. One with backticks in it, which a file's name can have, is fenced with a
+ * longer run of them and padded with spaces, as Markdown reads it, so it comes back whole.
+ */
+function code(name: string): string {
+  if (!name.includes("`")) return `\`${name}\``;
+  const fence = "`".repeat(Math.max(...(name.match(/`+/g) ?? [""]).map((run) => run.length)) + 1);
+  return `${fence} ${name} ${fence}`;
 }

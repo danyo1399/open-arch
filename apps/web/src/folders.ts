@@ -21,7 +21,7 @@ import { committed, done } from "./library.js";
 export interface FileHandle {
   readonly kind: "file";
   readonly name: string;
-  getFile(): Promise<{ lastModified: number; size: number; text(): Promise<string> }>;
+  getFile(): Promise<{ lastModified: number; size: number; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer> }>;
   createWritable(): Promise<Writable>;
 }
 
@@ -218,7 +218,14 @@ async function isFileIn(root: FolderHandle, path: string): Promise<boolean> {
 export async function writeAgentsSection(root: FolderHandle, path: string, section: string): Promise<void> {
   let text = "";
   try {
-    text = await readText(await fileAt(root, "AGENTS.md"));
+    // From its bytes: the browser's text() drops a byte-order mark, and writing that back would
+    // change the rest of the file. Bytes that aren't UTF-8 would be changed too, so it refuses those.
+    const bytes = await (await (await fileAt(root, "AGENTS.md")).getFile()).arrayBuffer();
+    try {
+      text = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(bytes);
+    } catch {
+      throw new Error("AGENTS.md isn't UTF-8 text, so it was left alone.");
+    }
   } catch (error) {
     if (!isMissing(error)) throw error;
   }

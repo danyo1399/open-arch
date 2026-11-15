@@ -330,6 +330,33 @@ describe("keeping the AGENTS.md section", () => {
     expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("architecture.openarch")["AGENTS.md"]);
   });
 
+  it("keeps a byte-order mark at the start of AGENTS.md, and leaves a file that isn't UTF-8 alone", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    root.put("AGENTS.md", "\uFEFF# Rules\n");
+    await new FolderHost("1", root, "a.openarch").save(workspace("B"));
+    expect(root.files()["AGENTS.md"]).toBe(`\uFEFF# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
+
+    const latin1 = new FakeFolder("repo");
+    latin1.put("a.openarch", workspace("A"));
+    latin1.put("AGENTS.md", "");
+    const file = latin1.entries.get("AGENTS.md") as FakeFile;
+    file.bytes = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]); // "café" in Latin-1
+    expect((await new FolderHost("1", latin1, "a.openarch").save(workspace("B"))).agentsError).toBe("AGENTS.md isn't UTF-8 text, so it was left alone.");
+    expect(file.bytes).toEqual(new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+  });
+
+  it("names a workspace whose name has a backtick, and knows it's still there", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a`b.openarch", workspace("A"));
+    root.put("c.openarch", workspace("C"));
+    await new FolderHost("1", root, "a`b.openarch").save(workspace("A2"));
+    const first = root.files()["AGENTS.md"];
+    expect(first).toContain("in `` a`b.openarch ``.");
+    await new FolderHost("2", root, "c.openarch").save(workspace("C2"));
+    expect(root.files()["AGENTS.md"]).toBe(first);
+  });
+
   it("puts back a section taken out while the folder is open the next time it's opened, not on every save", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
