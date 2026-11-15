@@ -175,6 +175,24 @@ describe("writing notes in the bigger editor", () => {
     expect(d.file.doc.elements["orders-api"]!.notes).toBe("Takes orders, now by its new name.");
   });
 
+  it("follows a rename made elsewhere while it's open", async () => {
+    const d = await designer();
+    await d.select("API");
+    await click(button(d.panel(), "Expand"));
+    d.box().value = "Takes orders, whatever it's called.";
+    d.file.change([
+      { op: "update-element", id: "api", name: "Orders API" },
+      { op: "rename", id: "api", to: "orders-api" },
+    ]);
+    await d.settle();
+    expect(d.title()).toBe("Notes on Orders API");
+    expect(d.editor()!.textContent).not.toContain("changed or deleted elsewhere");
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.file.doc.elements["orders-api"]!.notes).toBe("Takes orders, whatever it's called.");
+  });
+
   it("keeps the name it had, and the text, without saving, when the element is deleted elsewhere", async () => {
     const d = await designer();
     await d.select("API");
@@ -190,6 +208,28 @@ describe("writing notes in the bigger editor", () => {
     expect(d.editor()?.open).toBe(true);
     expect(d.box().value).toBe("Long notes, half written.");
     expect(d.file.doc.elements.api).toBeUndefined();
+  });
+
+  it("takes how a relationship looks once its description, typed just before Expand, is saved", async () => {
+    const d = await designer();
+    await click(d.host.querySelector('.react-flow__edge[data-id="web->api"]')!);
+    const description = d.panel().querySelectorAll<HTMLInputElement>('input[aria-label="Description"]')[0]!;
+    const expand = [...d.panel().querySelectorAll("button")].filter((b) => b.textContent === "Expand")[0]!;
+    // Leaving the Description box saves it; Expand is pressed before that lands.
+    await act(async () => {
+      description.value = "Calls over REST";
+      description.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      expand.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.file.doc.elements.web!.uses![0]!.description).toBe("Calls over REST");
+    expect(d.editor()!.textContent).not.toContain("changed or deleted elsewhere");
+
+    d.box().value = "Every call is authenticated.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.file.doc.elements.web!.uses![0]).toEqual({ to: "api", description: "Calls over REST", notes: "Every call is authenticated." });
   });
 
   it("checks again as the save runs, for an edit elsewhere that lands just before it", async () => {

@@ -557,6 +557,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     },
     { pane: "details", label: "Details", detail: detailsName(ws, view, computed, selection) },
   ];
+  // Whose notes the notes editor has open: renamed meanwhile, they're called by the new name; gone, by the name they had.
+  const notesNamed = dialog?.kind === "notes" ? (notesOf(ws, dialog.owner) === undefined ? dialog.name : notesName(ws, dialog.owner)) : "";
 
   return (
     <div className={narrow ? `app narrow pane-${pane}` : "app"}>
@@ -745,11 +747,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onFindUsages={findUsages}
         onAddSticky={addStickyOn}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
-        onEditNotes={(owner, text) => {
-          // How a relationship looks is taken from this render's workspace, with this render's IDs.
-          const now = renamedNotesOwner(notesOwnerAsIs(ws, owner), current);
-          setDialog({ kind: "notes", owner: now, name: notesName(ws, now), text });
-        }}
+        // The editor opens once the edits made before Expand have landed, such as a rename or a
+        // relationship's description saved as its box was left. So it names what the notes are on
+        // by its new ID, and takes how a relationship looks with those edits made.
+        onEditNotes={(owner, text) =>
+          void edit((now) => {
+            const opened = notesOwnerAsIs(now, renamedNotesOwner(owner, current));
+            setDialog({ kind: "notes", owner: opened, name: notesName(now, opened), text });
+            return [];
+          })
+        }
       />
 
       {narrow && (
@@ -813,14 +820,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       )}
       {dialog?.kind === "notes" && (
         <NotesEditor
-          // Renamed meanwhile, it's called by its new name; gone, by the name it had.
-          name={notesOf(ws, dialog.owner) === undefined ? dialog.name : notesName(ws, dialog.owner)}
+          name={notesNamed}
           text={dialog.text}
           saved={notesOf(ws, dialog.owner)}
           // Checked again as the save runs, in case an edit elsewhere lands first.
           onSave={(text) =>
             edit((now) => {
-              if (notesOf(now, dialog.owner) === undefined) throw new OpError(`${dialog.name} was changed or deleted elsewhere, so its notes weren't saved.`);
+              if (notesOf(now, dialog.owner) === undefined) throw new OpError(`${notesNamed} was changed or deleted elsewhere, so its notes weren't saved.`);
               return [notesOp(dialog.owner, text)];
             })
           }
