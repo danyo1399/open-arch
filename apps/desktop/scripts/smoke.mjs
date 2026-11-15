@@ -19,6 +19,8 @@ const temp = mkdtempSync(join(tmpdir(), "open-arch-smoke-"));
 const folder = join(temp, "shop");
 const userData = join(temp, "user");
 cpSync(at("../../../examples/shop"), folder, { recursive: true });
+// A Git repository, where saves set up the agent skill and AGENTS.md.
+mkdirSync(join(folder, ".git"));
 mkdirSync(userData, { recursive: true });
 writeFileSync(join(userData, "state.json"), JSON.stringify({ lastFile: join(folder, "shop.openarch") }));
 const out = at("../smoke");

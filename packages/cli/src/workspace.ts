@@ -192,11 +192,11 @@ export function displayPath(cwd: string, abs: string): string {
 /** Where agents look for project skills, below the project's top. Claude Code reads only `.claude/skills`; most others read `.agents/skills`. */
 export const SKILL_TARGETS = [".agents/skills/open-arch", ".claude/skills/open-arch"];
 
-/** The top of the Git repository `dir` is in, or `dir` itself outside one. */
-export function repositoryRoot(dir: string): string {
+/** The top of the Git repository `dir` is in, or undefined outside one. */
+export function repositoryRoot(dir: string): string | undefined {
   for (let d = resolve(dir); ; d = dirname(d)) {
     if (existsSync(join(d, ".git"))) return d;
-    if (dirname(d) === d) return resolve(dir);
+    if (dirname(d) === d) return undefined;
   }
 }
 

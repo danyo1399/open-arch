@@ -9,12 +9,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emptyDocument, FILE_EXTENSION, LineBreakInPath, loadWorkspace, nameFromFileName, type OpenArchDocument } from "@open-arch/core";
+import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type OpenArchDocument, type Workspace } from "@open-arch/core";
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
-import { docsFolder, keepAgentsSection, keepSkill, repositoryRoot, SKILL_TARGETS, syncDocs, writeWorkspaceFile } from "open-arch/workspace";
-import type { AgentContext, SaveSummary } from "../../web/src/bridge.js";
+import { docsFolder, syncDocs, writeWorkspaceFile } from "open-arch/workspace";
+import type { AgentContext, DocsSummary, SaveSummary } from "../../web/src/bridge.js";
 import { problemText } from "../../web/src/problems.js";
 import type { AgentBackend, AgentEvent } from "./agent.js";
+import { AgentSetup } from "./agent-setup.js";
 import { OpenCodeBackend } from "./opencode.js";
 import { userDataFolder } from "./user-data.js";
 
@@ -55,8 +56,7 @@ function grant(path: string): { path: string; name: string } {
   const abs = resolve(path);
   opened.add(abs);
   // Opened again, its first save brings the skill and AGENTS.md up to date again.
-  skillKept.delete(abs);
-  agentsKept.delete(abs);
+  agentSetup.opened(abs);
   mkdirSync(dirname(statePath()), { recursive: true });
   writeFileSync(statePath(), JSON.stringify({ ...readState(), lastFile: abs }));
   return { path: abs, name: basename(abs) };
@@ -68,51 +68,29 @@ function allowed(path: string): string {
   return abs;
 }
 
-/** Files whose agent skill a save brought up to date since they were opened. */
-const skillKept = new Set<string>();
-/** The AGENTS.md section a save last wrote for each file since it was opened. */
-const agentsKept = new Map<string, string>();
-
 /** The skill the app bundles, as the CLI has it, and the CLI's version, to fill in. */
 function bundledSkill(): { source: string; version: string } {
   return { source: join(cliDir, "bin", "open-arch"), version: (JSON.parse(readFileSync(join(cliDir, "package.json"), "utf8")) as { version: string }).version };
 }
 
-/**
- * Save a document and refresh its docs folder. As the web app's folder saves do, the first save
- * after the file is opened brings the agent skill up to date at the top of its repository (or
- * beside the file outside one), and a save keeps the AGENTS.md section there when what it names
- * changes. Returns what happened, for the UI: the file is saved by then, so the skill or AGENTS.md
- * failing is reported, not thrown.
- */
-function save(file: string, doc: OpenArchDocument): SaveSummary {
+const agentSetup = new AgentSetup(bundledSkill);
+
+/** Write the document and refresh its docs folder. Returns what happened to the docs, for the UI. */
+function write(file: string, doc: OpenArchDocument): { ws: Workspace; docs: DocsSummary | null } {
   writeWorkspaceFile(file, doc);
   const ws = loadWorkspace(readFileSync(file, "utf8"));
   const docs = syncDocs(file, ws);
-  const result: SaveSummary = { docs: docs ? { dir: relative(dirname(file), docs.dir) || ".", written: docs.written.length, deleted: docs.deleted.length, skipped: docs.skipped } : null };
-  const root = repositoryRoot(dirname(file));
-  if (!skillKept.has(file)) {
-    try {
-      const { source, version } = bundledSkill();
-      for (const target of SKILL_TARGETS) keepSkill(source, join(root, ...target.split("/")), version);
-      skillKept.add(file);
-    } catch (error) {
-      result.skillError = problemText(error);
-    }
-  }
-  try {
-    const { version } = bundledSkill();
-    const docsDir = docsFolder(file, ws.doc);
-    const key = `${docsDir ?? ""}`;
-    if (agentsKept.get(file) !== key) {
-      keepAgentsSection(root, file, docsDir, version);
-      agentsKept.set(file, key);
-    }
-  } catch (error) {
-    result.agentsError = problemText(error);
-    if (error instanceof LineBreakInPath) result.agentsError += error.of === "docs" ? " Choose another docs folder in the workspace's details." : " Rename the file, or the folder in its path with the break, then open it again.";
-  }
-  return result;
+  return { ws, docs: docs ? { dir: relative(dirname(file), docs.dir) || ".", written: docs.written.length, deleted: docs.deleted.length, skipped: docs.skipped } : null };
+}
+
+/**
+ * Save a document from the designer: write it and its docs, and, as the web app's folder saves do,
+ * set up the agent skill and the AGENTS.md section at the top of its Git repository (AgentSetup).
+ * The file is saved by then, so a failure there is reported, not thrown.
+ */
+function save(file: string, doc: OpenArchDocument): SaveSummary {
+  const { ws, docs } = write(file, doc);
+  return { docs, ...agentSetup.keep(file, docsFolder(file, ws.doc)) };
 }
 
 function parseOrThrow(text: string): OpenArchDocument {
@@ -186,7 +164,8 @@ handle("newFile", async (event) => {
   if (!file) return null;
   const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
   doc.export = { docs: `${basename(file, FILE_EXTENSION)}-docs` };
-  save(file, doc);
+  // The file and its docs. The designer's first save sets up the skill and AGENTS.md, and says if it can't.
+  write(file, doc);
   return grant(file);
 });
 
@@ -194,7 +173,8 @@ handle("saveAs", async (event, text: string) => {
   const doc = parseOrThrow(text);
   const file = await askForNewPath(event, "Save workspace as");
   if (!file) return null;
-  save(file, doc);
+  // As for a new file, the designer's first save sets up the skill and AGENTS.md.
+  write(file, doc);
   return grant(file);
 });
 

@@ -102,7 +102,7 @@ export function DesktopStart({ desktop, onOpen }: { desktop: DesktopBridge; onOp
         </>
       }
     >
-      <p className="muted small">Changes save to the file as you work, and the docs folder it names is kept up to date, with the agent skill and AGENTS.md section that let AI agents change the model, at the top of its Git repository.</p>
+      <p className="muted small">Changes save to the file as you work, and the docs folder it names is kept up to date, with the agent skill and AGENTS.md section that let AI agents change the model, at the top of its Git repository. Outside a repository, nothing else is written.</p>
       {openingLink && <OpenLinkDialog onClose={() => setOpeningLink(false)} onOpen={(link) => onOpen(new SharedHost(shareClient, link))} />}
     </StartPage>
   );

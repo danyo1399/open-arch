@@ -70,13 +70,13 @@ describe("the agent skill and AGENTS.md beside a workspace", () => {
     return dir;
   };
 
-  it("finds the top of the Git repository a folder is in, or the folder outside one", () => {
+  it("finds the top of the Git repository a folder is in, and nothing outside one", () => {
     const repo = project();
     mkdirSync(join(repo, ".git"));
     mkdirSync(join(repo, "arch", "deep"), { recursive: true });
     expect(repositoryRoot(join(repo, "arch", "deep"))).toBe(repo);
     const loose = project();
-    expect(repositoryRoot(loose)).toBe(loose);
+    expect(repositoryRoot(loose)).toBeUndefined();
   });
 
   it("writes the skill's files with the version filled in, only those that differ, and leaves anything else alone", () => {
