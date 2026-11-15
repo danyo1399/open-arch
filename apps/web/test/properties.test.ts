@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
+import type { NotesOwner } from "../src/model.js";
 import { Properties } from "../src/panels/Properties.js";
 import type { Edit } from "../src/state.js";
 import { button, checkbox, choose, click, mount, select } from "./dom.js";
@@ -18,13 +19,14 @@ const doc: OpenArchDocument = {
   views: { landscape: { title: "Landscape", description: "Everything.", level: "landscape", notes: "Drawn for **new starters**." } },
 };
 
-/** The details panel for a view of this model, showing what's selected. It keeps the edits it sends, what it selects, and the notes it adds. */
+/** The details panel for a view of this model, showing what's selected. It keeps the edits it sends, what it selects, the notes it adds, and the notes it opens in the bigger editor. */
 function panel(model: OpenArchDocument, viewId: string, selection: Selection, options: { syncsDocs?: boolean } = {}) {
   const ws = buildWorkspace(model);
   const view = ws.views.get(viewId)!;
   const edits: Operation[][] = [];
   const selected: Selection[] = [];
   const added: StickyTargetData[] = [];
+  const expanded: { owner: NotesOwner; text: string }[] = [];
   const element = createElement(Properties, {
     ws,
     view,
@@ -45,8 +47,9 @@ function panel(model: OpenArchDocument, viewId: string, selection: Selection, op
     onFindUsages() {},
     onAddSticky: (on: StickyTargetData) => void added.push(on),
     onDeleteView() {},
+    onEditNotes: (owner: NotesOwner, text: string) => void expanded.push({ owner, text }),
   });
-  return { element, edits, selected, added };
+  return { element, edits, selected, added, expanded };
 }
 
 /** The details panel, with the landscape view open, showing what's selected. */
@@ -85,6 +88,23 @@ describe("Properties", () => {
 
   it("shows an arrow's relationship notes, to edit", () => {
     expect(box(render({ kind: "arrow", from: "customer", to: "shop" }), "Notes")).toBe("Pays by **card**.");
+  });
+
+  it("opens an element's, a relationship's and a view's notes in the bigger editor, with what's in the box", async () => {
+    const expand = async (selection: Selection, typed?: string) => {
+      const { element, expanded, edits } = panel(doc, "landscape", selection);
+      const host = mount(element);
+      const notes = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Notes"]')!;
+      // The label is for the box, not the button beside it.
+      expect(host.querySelector<HTMLLabelElement>(`label[for="${notes.id}"]`)?.textContent).toBe("Notes");
+      if (typed !== undefined) notes.value = typed;
+      await click(button(host, "Expand"));
+      expect(edits).toEqual([]);
+      return expanded;
+    };
+    expect(await expand({ kind: "element", id: "customer" }, "Shops **weekly**.")).toEqual([{ owner: { kind: "element", id: "customer" }, text: "Shops **weekly**." }]);
+    expect(await expand({ kind: "arrow", from: "customer", to: "shop" })).toEqual([{ owner: { kind: "relationship", from: "customer", to: "shop", index: 0 }, text: "Pays by **card**." }]);
+    expect(await expand(null)).toEqual([{ owner: { kind: "view", id: "landscape" }, text: "Drawn for **new starters**." }]);
   });
 });
 

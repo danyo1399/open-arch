@@ -114,6 +114,41 @@ export function relationshipRef(element: ArchElement, position: number): { from:
   return { from: element.id, to, index: element.uses.slice(0, position).filter((r) => r.to === to).length };
 }
 
+/** What has notes: an element, a relationship (named as operations name one) or a view. */
+export type NotesOwner = { kind: "element"; id: string } | { kind: "relationship"; from: string; to: string; index: number } | { kind: "view"; id: string };
+
+/** The relationship operations name this way, if it's still there. */
+function relationshipAt(ws: Workspace, from: string, to: string, index: number): Relationship | undefined {
+  return ws.elements.get(from)?.uses.filter((r) => r.to === to)[index];
+}
+
+/** The notes it has now, "" when it has none, or undefined when it's no longer in the model. */
+export function notesOf(ws: Workspace, owner: NotesOwner): string | undefined {
+  const found = owner.kind === "view" ? ws.views.get(owner.id) : owner.kind === "element" ? ws.elements.get(owner.id) : relationshipAt(ws, owner.from, owner.to, owner.index);
+  return found && (found.notes ?? "");
+}
+
+/** The same owner after renames: `to` gives an element's or view's new ID. */
+export function renamedNotesOwner(owner: NotesOwner, to: (id: string) => string): NotesOwner {
+  return owner.kind === "relationship" ? { ...owner, from: to(owner.from), to: to(owner.to) } : { ...owner, id: to(owner.id) };
+}
+
+/** The edit that gives it these notes. Empty notes are taken off. */
+export function notesOp(owner: NotesOwner, text: string): Operation {
+  const notes = text || null;
+  if (owner.kind === "view") return { op: "update-view", id: owner.id, notes };
+  if (owner.kind === "element") return { op: "update-element", id: owner.id, notes };
+  return { op: "update-relationship", from: owner.from, to: owner.to, index: owner.index, notes };
+}
+
+/** What the notes editor calls it: an element's name, a view's title, or a relationship's two ends. */
+export function notesName(ws: Workspace, owner: NotesOwner): string {
+  if (owner.kind === "view") return ws.views.get(owner.id)?.title ?? owner.id;
+  const name = (id: string) => ws.elements.get(id)?.name ?? id;
+  if (owner.kind === "element") return name(owner.id);
+  return `${name(owner.from)} ${relationshipAt(ws, owner.from, owner.to, owner.index)?.bidirectional ? "↔" : "→"} ${name(owner.to)}`;
+}
+
 /** What deleting an element would remove, for the confirmation dialog: `builtWith` are the containers built with a library being deleted. */
 export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; views: ViewDef[]; affected: ArchElement[]; builtWith: ArchElement[] } {
   const gone = new Set([id, ...[...ws.elements.keys()].filter((e) => isInside(ws, e, id))]);

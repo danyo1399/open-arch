@@ -9,6 +9,10 @@ import {
   followsName,
   isArrow,
   idFromName,
+  notesName,
+  notesOf,
+  notesOp,
+  renamedNotesOwner,
   renamedId,
   renamedSelection,
   renamesBetween,
@@ -111,6 +115,55 @@ describe("byName", () => {
   it("orders elements with the same name by ID", () => {
     expect(names(modelTree(ws, byName))).toEqual(["API", "API", "Orders DB"]);
     expect(modelTree(ws, byName).map((n) => n.element.id)).toEqual(["api", "api-2", "db"]);
+  });
+});
+
+describe("notes", () => {
+  const model = buildWorkspace({
+    openarch: 13,
+    name: "Shop",
+    elements: {
+      api: { kind: "system", name: "API", notes: "Runs the **shop**.", uses: [{ to: "db" }, { to: "db", bidirectional: true, notes: "Syncs stock." }] },
+      db: { kind: "system", name: "Orders DB" },
+    },
+    views: { landscape: { title: "Landscape", level: "landscape", notes: "For new starters." } },
+  });
+
+  it("reads an element's, a relationship's and a view's notes, with none as empty", () => {
+    expect(notesOf(model, { kind: "element", id: "api" })).toBe("Runs the **shop**.");
+    expect(notesOf(model, { kind: "element", id: "db" })).toBe("");
+    expect(notesOf(model, { kind: "relationship", from: "api", to: "db", index: 0 })).toBe("");
+    expect(notesOf(model, { kind: "relationship", from: "api", to: "db", index: 1 })).toBe("Syncs stock.");
+    expect(notesOf(model, { kind: "view", id: "landscape" })).toBe("For new starters.");
+  });
+
+  it("says when what they're on is no longer in the model", () => {
+    expect(notesOf(model, { kind: "element", id: "gone" })).toBeUndefined();
+    expect(notesOf(model, { kind: "relationship", from: "api", to: "db", index: 2 })).toBeUndefined();
+    expect(notesOf(model, { kind: "relationship", from: "db", to: "api", index: 0 })).toBeUndefined();
+    expect(notesOf(model, { kind: "view", id: "gone" })).toBeUndefined();
+  });
+
+  it("saves them with the operation for each, and takes empty notes off", () => {
+    expect(notesOp({ kind: "element", id: "api" }, "New.")).toEqual({ op: "update-element", id: "api", notes: "New." });
+    expect(notesOp({ kind: "relationship", from: "api", to: "db", index: 1 }, "")).toEqual({ op: "update-relationship", from: "api", to: "db", index: 1, notes: null });
+    expect(notesOp({ kind: "view", id: "landscape" }, "")).toEqual({ op: "update-view", id: "landscape", notes: null });
+    const saved = applyOperations(model.doc, [notesOp({ kind: "relationship", from: "api", to: "db", index: 1 }, "Every hour.")]).doc;
+    expect(saved.elements.api!.uses).toEqual([{ to: "db" }, { to: "db", bidirectional: true, notes: "Every hour." }]);
+  });
+
+  it("names whose they are", () => {
+    expect(notesName(model, { kind: "element", id: "api" })).toBe("API");
+    expect(notesName(model, { kind: "relationship", from: "api", to: "db", index: 0 })).toBe("API → Orders DB");
+    expect(notesName(model, { kind: "relationship", from: "api", to: "db", index: 1 })).toBe("API ↔ Orders DB");
+    expect(notesName(model, { kind: "view", id: "landscape" })).toBe("Landscape");
+  });
+
+  it("follow renames", () => {
+    const to = (id: string) => (id === "api" ? "shop-api" : id);
+    expect(renamedNotesOwner({ kind: "element", id: "api" }, to)).toEqual({ kind: "element", id: "shop-api" });
+    expect(renamedNotesOwner({ kind: "relationship", from: "db", to: "api", index: 0 }, to)).toEqual({ kind: "relationship", from: "db", to: "shop-api", index: 0 });
+    expect(renamedNotesOwner({ kind: "view", id: "landscape" }, to)).toEqual({ kind: "view", id: "landscape" });
   });
 });
 

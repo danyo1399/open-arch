@@ -96,6 +96,10 @@ With a mouse, drag across the diagram's background to select the boxes and stick
 
 Drag from the dot under a box to another box to add a relationship. To move one, select its arrow and drag the dot at either end to another box: the relationship keeps its description, technology, tags and notes. An arrow that stands for several relationships moves them all. When two elements call each other, select the relationship and tick **Goes both ways**: its arrow gets a head at each end, and stands for every relationship between the two boxes.
 
+### Notes
+
+An element, a relationship or a view can have notes: longer documentation, in markdown, which the generated docs show. Select it and write them under **Notes** in its details. For more than a few lines, **Expand** opens them in an editor as big as the window. **Done**, Esc or Ctrl+Enter (⌘Enter on a Mac) saves them, and Undo takes them back. **Cancel** leaves them as they were. If a save doesn't go through, the editor stays open with what you wrote.
+
 ### Sticky notes
 
 **+ Add** and **Sticky note** add a note to the diagram, for the people reading it: what to notice, or why it's drawn this way. Double-click a note to change its text. On a landscape, context, container, component or class view, a note can be on a box, the frame or an arrow: right-click it and choose **Add sticky note**, or use **Add sticky note** in its details. A dotted line joins the note to what it's on. To put a note that's already there on something, drag from the dot under the note to a box, the frame or an arrow, as you'd draw an arrow from a box: the note stays where it is. Or pick it under **On** in the note's details, which can take it off too.

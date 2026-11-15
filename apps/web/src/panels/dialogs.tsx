@@ -16,6 +16,90 @@ export function Modal({ title, children, actions, onClose }: { title: string; ch
   );
 }
 
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+interface NotesEditorProps {
+  /** Whose notes they are: an element's name, a view's title, or a relationship's two ends. */
+  name: string;
+  /** The text to start from: what's in the box in the details panel. */
+  text: string;
+  /** The notes as they're saved now, or undefined when what they're on is no longer in the model. */
+  saved: string | undefined;
+  /** Saves the text, and says whether it was saved. */
+  onSave(text: string): Promise<boolean>;
+  onClose(): void;
+}
+
+/**
+ * Notes in an editor as big as the window, for writing at length. Done, Ctrl+Enter (⌘Enter on a
+ * Mac) and Esc all save them, so a stray key doesn't lose what was written, and Undo takes them
+ * back. Cancel leaves them as they were. A save that doesn't go through keeps the editor open,
+ * with the text still in it.
+ */
+export function NotesEditor({ name, text, saved, onSave, onClose }: NotesEditorProps) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  // What was saved when it opened, to tell when the notes are changed elsewhere meanwhile.
+  const [opened] = useState(saved);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  const done = async () => {
+    const next = box.current!.value;
+    if (next === saved || (await onSave(next))) return onClose();
+    setFailed(true);
+    // Esc pressed twice can close the dialog whatever the page does: open it again, to keep the text.
+    if (!ref.current!.open) ref.current!.showModal();
+  };
+  // The box's own text landing after it opened, as leaving the box saves it, isn't a change from elsewhere.
+  const changed = saved !== undefined && saved !== opened && saved !== text;
+  return (
+    <dialog
+      ref={ref}
+      className="modal notes-editor"
+      aria-label={`Notes on ${name}`}
+      onCancel={(e) => {
+        e.preventDefault();
+        void done();
+      }}
+      onClose={() => void done()}
+    >
+      <h2>Notes on {name}</h2>
+      <textarea
+        ref={box}
+        defaultValue={text}
+        aria-label="Notes"
+        placeholder="Longer documentation, in markdown"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (isMac ? e.metaKey : e.ctrlKey)) {
+            e.preventDefault();
+            void done();
+          }
+        }}
+      />
+      {saved === undefined ? (
+        <p className="error small" role="alert">
+          {name} is no longer in the model, so these notes can't be saved. Copy them to keep them.
+        </p>
+      ) : failed ? (
+        <p className="error small" role="alert">
+          These notes weren't saved. They're still here: try again, or copy them to keep them.
+        </p>
+      ) : (
+        changed && <p className="error small">These notes were changed elsewhere since you opened them. Done saves yours in their place.</p>
+      )}
+      <div className="modal-actions">
+        <span className="muted small grow">In markdown. Done, Esc or {isMac ? "⌘" : "Ctrl+"}Enter saves them, and Undo takes them back.</span>
+        <button onClick={onClose}>Cancel</button>
+        <button className="primary" onClick={() => void done()}>
+          Done
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
 export function DeleteElementDialog({ ws, id, inView, onHide, onDelete, onClose }: { ws: Workspace; id: string; inView: boolean; onHide(): void; onDelete(): void; onClose(): void }) {
   const element = ws.elements.get(id);
   if (!element) return null;

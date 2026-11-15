@@ -56,6 +56,7 @@ import {
   stickyChoices,
   stickyKey,
   stickyTargetFor,
+  type NotesOwner,
   uniqueAmong,
   uniqueId,
   uniqueNodeId,
@@ -64,7 +65,7 @@ import {
 } from "../model.js";
 import { SKILL_TARGETS } from "../skill.js";
 import { docsProblem, type Edit } from "../state.js";
-import { Field, TagsEditor } from "./fields.js";
+import { Field, NotesField, TagsEditor } from "./fields.js";
 
 interface PropertiesProps {
   ws: Workspace;
@@ -88,6 +89,8 @@ interface PropertiesProps {
   /** Adds a note on a box, the frame or an arrow, beside it on the diagram. */
   onAddSticky(on: StickyTargetData): void;
   onDeleteView(id: string): void;
+  /** Opens notes in the bigger editor, starting from this text. */
+  onEditNotes(owner: NotesOwner, text: string): void;
 }
 
 /**
@@ -137,7 +140,7 @@ export function Properties(props: PropertiesProps) {
   );
 }
 
-function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onAddSticky }: PropertiesProps & { element: ArchElement }) {
+function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
@@ -238,7 +241,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           <span className="field-hint">Each container built with it has its own copy, drawn inside that container's component views. Its classes are kept here, once.</span>
         </fieldset>
       )}
-      <Field label="Notes" value={element.notes ?? ""} onCommit={(notes) => set({ notes: notes || null })} multiline rows={6} placeholder="Longer documentation, in markdown" />
+      <NotesField value={element.notes ?? ""} onCommit={(notes) => set({ notes: notes || null })} rows={6} onExpand={(text) => onEditNotes({ kind: "element", id: element.id }, text)} />
 
       <h3>Tags</h3>
       <TagsEditor tags={element.tags} onChange={(tags) => set({ tags })} />
@@ -333,7 +336,7 @@ function BothWays({ checked, onChange }: { checked: boolean; onChange(bidirectio
   );
 }
 
-function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect, onAddSticky }: PropertiesProps & { from: string; to: string; relation?: RelationshipKind }) {
+function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect, onAddSticky, onEditNotes }: PropertiesProps & { from: string; to: string; relation?: RelationshipKind }) {
   const edge = findArrow(computed, from, to, relation);
   if (!edge) return <p className="muted">This arrow is no longer in the view.</p>;
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
@@ -382,13 +385,11 @@ function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect, onA
                 onCommit={(description) => void edit([{ op: "update-relationship", ...ref, description: description || null }])}
               />
               <Field label="Technology" value={rel.technology ?? ""} placeholder="e.g. HTTPS/JSON" onCommit={(technology) => void edit([{ op: "update-relationship", ...ref, technology: technology || null }])} />
-              <Field
-                label="Notes"
+              <NotesField
                 value={rel.notes ?? ""}
-                multiline
                 rows={4}
-                placeholder="Longer documentation, in markdown"
                 onCommit={(notes) => void edit([{ op: "update-relationship", ...ref, notes: notes || null }])}
+                onExpand={(text) => onEditNotes({ kind: "relationship", ...ref }, text)}
               />
               {hasKind(ws, element, rel) && (
                 <KindField
@@ -1374,7 +1375,7 @@ function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & {
   );
 }
 
-function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: PropertiesProps & { view: ViewDef }) {
+function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEditNotes }: PropertiesProps & { view: ViewDef }) {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const retitle = (title: string) => {
     void edit(renameOps(ws, view.id, view.title, title, { op: "update-view", id: view.id, title }));
@@ -1398,13 +1399,11 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect }: Pr
         placeholder="One sentence, shown under the title"
         onCommit={(description) => void edit([{ op: "update-view", id: view.id, description: description || null }])}
       />
-      <Field
-        label="Notes"
+      <NotesField
         value={view.notes ?? ""}
-        multiline
         rows={6}
-        placeholder="Longer documentation, in markdown"
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
+        onExpand={(text) => onEditNotes({ kind: "view", id: view.id }, text)}
       />
       {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && view.level !== "event" && view.level !== "wireframe" && <NewElementsField view={view} edit={edit} />}
       {view.level === "wireframe" ? (

@@ -35,7 +35,11 @@ import {
   findArrow,
   followRenames,
   newStickyId,
+  notesName,
+  notesOf,
+  notesOp,
   renamedId,
+  renamedNotesOwner,
   renamedSelection,
   renamesIn,
   selectShapes,
@@ -43,11 +47,12 @@ import {
   stickyTargetFor,
   viewAction,
   viewList,
+  type NotesOwner,
   type Rename,
 } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
-import { ConfirmDialog, DeleteElementDialog, NewViewDialog } from "./panels/dialogs.js";
+import { ConfirmDialog, DeleteElementDialog, NewViewDialog, NotesEditor } from "./panels/dialogs.js";
 import { ShareDialog } from "./panels/ShareDialog.js";
 import { Properties, shapesLabel } from "./panels/Properties.js";
 import { problemText } from "./problems.js";
@@ -59,7 +64,14 @@ import { userSettings, useViewSettings } from "./settings.js";
 import { PUBLIC_DESIGNER, shareClient } from "./share.js";
 import { saveProblem, useWorkspace, type Edit } from "./state.js";
 
-type Dialog = { kind: "delete"; id: string } | { kind: "deleteView"; id: string } | { kind: "newView" } | { kind: "share" } | null;
+type Dialog =
+  | { kind: "delete"; id: string }
+  | { kind: "deleteView"; id: string }
+  | { kind: "newView" }
+  | { kind: "share" }
+  /** `name` is whose notes they are, as they were called when the editor opened, and `text` what it started from. */
+  | { kind: "notes"; owner: NotesOwner; name: string; text: string }
+  | null;
 
 /** What a right-click menu is for, and where it opened on the screen. */
 type Menu = ({ kind: "element"; id: string } | { kind: "arrow"; from: string; to: string; relation?: RelationshipKind }) & { x: number; y: number };
@@ -142,7 +154,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     setSelection((s) => renamedSelection(s, to));
     setViewId((v) => v && to(v));
     setUsagesOf((u) => u && to(u));
-    setDialog((d) => (d && "id" in d && to(d.id) !== d.id ? { ...d, id: to(d.id) } : d));
+    setDialog((d) => (d?.kind === "notes" ? { ...d, owner: renamedNotesOwner(d.owner, to) } : d && "id" in d && to(d.id) !== d.id ? { ...d, id: to(d.id) } : d));
     setMenu((m) => m && renamedSelection(m, to));
     attempt(() => viewSettings.followRenames(applied));
   });
@@ -731,6 +743,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onFindUsages={findUsages}
         onAddSticky={addStickyOn}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
+        onEditNotes={(owner, text) => {
+          const now = renamedNotesOwner(owner, current);
+          setDialog({ kind: "notes", owner: now, name: notesName(ws, now), text });
+        }}
       />
 
       {narrow && (
@@ -790,6 +806,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             setDialog(null);
             void edit([op]).then((ok) => ok && showView(id));
           }}
+        />
+      )}
+      {dialog?.kind === "notes" && (
+        <NotesEditor
+          // Renamed meanwhile, it's called by its new name; gone, by the name it had.
+          name={notesOf(ws, dialog.owner) === undefined ? dialog.name : notesName(ws, dialog.owner)}
+          text={dialog.text}
+          saved={notesOf(ws, dialog.owner)}
+          onSave={(text) => edit([notesOp(dialog.owner, text)])}
+          onClose={() => setDialog(null)}
         />
       )}
       {dialog?.kind === "share" && shareClient && (

@@ -90,6 +90,7 @@ function panel(id: string) {
     onFindUsages() {},
     onAddSticky() {},
     onDeleteView() {},
+    onEditNotes() {},
   });
   return { host: mount(element), edits };
 }

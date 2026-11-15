@@ -690,6 +690,16 @@ button.heading {
   font-weight: 600;
   margin-bottom: 4px;
 }
+/* A field's label with a button at the other end, like Notes and its Expand. */
+.field-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.field-head .field-label {
+  flex: 1;
+}
 .field-hint {
   display: block;
   font-size: 12px;
@@ -2328,6 +2338,32 @@ button.heading {
 }
 .modal-body ul {
   padding-left: 18px;
+}
+/* Notes in an editor as big as the window, for writing at length: the box takes the room the
+   title and buttons leave. Only while it's open, as a closed dialog isn't shown at all. */
+.modal.notes-editor {
+  width: min(960px, calc(100vw - 32px));
+  height: min(760px, calc(100dvh - 32px));
+}
+.notes-editor[open] {
+  display: flex;
+  flex-direction: column;
+}
+.notes-editor textarea {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  line-height: 1.5;
+}
+.notes-editor .error {
+  margin: 8px 0 0;
+}
+.notes-editor .modal-actions {
+  align-items: center;
+}
+/* The hint gets a line of its own on a phone, rather than squeezing beside the buttons. */
+.notes-editor .modal-actions .grow {
+  flex: 1 1 240px;
 }
 .modal-actions {
   display: flex;

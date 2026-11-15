@@ -66,6 +66,7 @@ function panel(selection: Selection, isNew = false) {
     onFindUsages() {},
     onAddSticky() {},
     onDeleteView() {},
+    onEditNotes() {},
   });
   return { host: mount(element), edits, selected };
 }

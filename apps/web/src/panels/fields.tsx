@@ -1,6 +1,6 @@
 /** Inputs that save when you leave them (or press Enter), not on every keystroke. */
 import { tagEntries, type TagChanges, type Tags } from "@open-arch/core";
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 /**
  * A text box that saves when you leave it, and puts the saved text back on Escape. It follows
@@ -52,6 +52,33 @@ export function Field({ label, value, onCommit, multiline, rows = 3, placeholder
       {multiline ? <textarea {...box} placeholder={placeholder} aria-label={label} rows={rows} /> : <input {...box} placeholder={placeholder} aria-label={label} onKeyDown={onKeyDown} />}
       {hint && <span className="field-hint">{hint}</span>}
     </label>
+  );
+}
+
+interface NotesFieldProps {
+  value: string;
+  onCommit(value: string): void;
+  rows: number;
+  /** Opens the notes in a bigger editor, starting from the text in the box. */
+  onExpand(text: string): void;
+}
+
+/** Markdown notes: a box that saves like Field, and Expand, which opens them in an editor as big as the window. */
+export function NotesField({ value, onCommit, rows, onExpand }: NotesFieldProps) {
+  const { box } = useSavedText<HTMLTextAreaElement>(value, onCommit);
+  const id = useId();
+  return (
+    <div className="field">
+      <div className="field-head">
+        <label className="field-label" htmlFor={id}>
+          Notes
+        </label>
+        <button className="link small" title="Write the notes in an editor as big as the window" onClick={() => onExpand(box.ref.current!.value)}>
+          Expand
+        </button>
+      </div>
+      <textarea {...box} id={id} aria-label="Notes" rows={rows} placeholder="Longer documentation, in markdown" />
+    </div>
   );
 }
 
