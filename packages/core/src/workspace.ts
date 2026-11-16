@@ -121,6 +121,29 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         from: [...new Set(c.from ?? [])],
       })),
       screens: (v.screens ?? []).map((s, i) => screen(s, `views.${id}.screens[${i}]`, i + 1)),
+      shapes: (v.shapes ?? []).map((s, i) => ({
+        id: s.id,
+        path: `views.${id}.shapes[${i}]`,
+        number: i + 1,
+        kind: s.kind,
+        text: s.text || undefined,
+        at: s.at,
+        points: s.points ?? [],
+        size: s.size ?? "medium",
+        color: s.color ?? "black",
+        fill: s.fill,
+        dashed: s.dashed ?? false,
+      })),
+      arrows: (v.arrows ?? []).map((a, i) => ({
+        id: a.id,
+        path: `views.${id}.arrows[${i}]`,
+        from: a.from,
+        to: a.to,
+        text: a.text || undefined,
+        heads: a.heads ?? "end",
+        color: a.color ?? "black",
+        dashed: a.dashed ?? false,
+      })),
     });
   }
   for (const element of ws.elements.values()) {

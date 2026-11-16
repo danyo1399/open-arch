@@ -12,6 +12,7 @@ import {
   STICKY_TARGET_LEVELS,
   VIEW_LEVELS,
   type ArchElement,
+  type Arrow,
   type Card,
   type ComputedView,
   type Connection,
@@ -21,6 +22,7 @@ import {
   type Lane,
   type Operation,
   type Screen,
+  type Shape,
   type Relationship,
   type RelationshipKind,
   type State,
@@ -65,7 +67,7 @@ export function uniqueNodeId(ws: Workspace, view: ViewDef, base: string, self?: 
   for (let i = 2; ; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
 }
 
-/** `base`, or `base-2`, `base-3`, ... whichever isn't among `ids`, `self` aside: for an ID unique among an event view's lanes, or its cards, or a wireframe view's screens, or its widgets. */
+/** `base`, or `base-2`, `base-3`, ... whichever isn't among `ids`, `self` aside: for an ID unique among an event view's lanes, or its cards, a wireframe view's screens, or its widgets, or a whiteboard's shapes and arrows. */
 export function uniqueAmong(ids: readonly string[], base: string, self?: string): string {
   const taken = (id: string) => id !== self && ids.includes(id);
   if (!taken(base)) return base;
@@ -223,6 +225,7 @@ export const LEVEL_NAMES: Record<ViewLevel, string> = {
   deployment: "Deployment view",
   event: "Event view",
   wireframe: "Wireframe view",
+  whiteboard: "Whiteboard view",
 };
 
 /**
@@ -250,8 +253,20 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, an event view its cards and a wireframe view its screens, so they have nothing to show or hide.
-  if (!view || !computed || !element || view.level === "sequence" || view.level === "state" || view.level === "deployment" || view.level === "event" || view.level === "wireframe" || computed.boundary?.id === id) return null;
+  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, an event view its cards, a wireframe view its screens and a whiteboard its shapes, so they have nothing to show or hide.
+  if (
+    !view ||
+    !computed ||
+    !element ||
+    view.level === "sequence" ||
+    view.level === "state" ||
+    view.level === "deployment" ||
+    view.level === "event" ||
+    view.level === "wireframe" ||
+    view.level === "whiteboard" ||
+    computed.boundary?.id === id
+  )
+    return null;
   if (computed.nodes.some((n) => n.id === id)) return "hide";
   return canShowAsBox(ws, view, element) ? "show" : null;
 }
@@ -443,6 +458,63 @@ export function wireframeSelectionGone(view: ViewDef | undefined, selection: Sel
   return false;
 }
 
+/** What's on a whiteboard that's selected together: its shapes, its arrows and its sticky notes. */
+export interface BoardItems {
+  shapes: string[];
+  arrows: string[];
+  stickies: string[];
+}
+
+/** The selection of these shapes, arrows and notes: one of them on its own, two or more together, or nothing. */
+export function selectBoard({ shapes, arrows, stickies }: BoardItems): Selection {
+  if (shapes.length + arrows.length + stickies.length > 1) return { kind: "board", shapes, arrows, stickies };
+  if (shapes.length === 1) return { kind: "shape", id: shapes[0]! };
+  if (arrows.length === 1) return { kind: "boardArrow", id: arrows[0]! };
+  if (stickies.length === 1) return { kind: "sticky", id: stickies[0]! };
+  return null;
+}
+
+/** What's on a whiteboard in a selection: the shape, arrow or note selected, or those selected together. */
+export function boardItemsOf(selection: Selection): BoardItems {
+  if (selection?.kind === "board") return selection;
+  return {
+    shapes: selection?.kind === "shape" ? [selection.id] : [],
+    arrows: selection?.kind === "boardArrow" ? [selection.id] : [],
+    stickies: selection?.kind === "sticky" ? [selection.id] : [],
+  };
+}
+
+/**
+ * The edit that deletes what's selected on a whiteboard view: shapes, with the arrows to and from
+ * them, arrows and sticky notes. The arrows go first, as removing a shape takes the arrows to it
+ * with it. None for any other selection.
+ */
+export function whiteboardDeleteOps(view: ViewDef, selection: Selection): Operation[] {
+  if (view.level !== "whiteboard" || (selection?.kind !== "shape" && selection?.kind !== "boardArrow" && selection?.kind !== "board")) return [];
+  const { shapes, arrows, stickies } = boardItemsOf(selection);
+  return [
+    ...arrows.filter((id) => view.arrows.some((a) => a.id === id)).map((id): Operation => ({ op: "remove-arrow", view: view.id, id })),
+    ...shapes.filter((id) => view.shapes.some((s) => s.id === id)).map((id): Operation => ({ op: "remove-shape", view: view.id, id })),
+    ...stickies.filter((id) => view.stickies.some((s) => s.id === id)).map((id): Operation => ({ op: "remove-sticky", view: view.id, id })),
+  ];
+}
+
+/**
+ * A whiteboard selection with what's no longer on the view left out, as after an Undo or a change
+ * to the file: the same one when it's all still there.
+ */
+export function whiteboardSelectionLeft(view: ViewDef | undefined, selection: Selection): Selection {
+  if (selection?.kind !== "shape" && selection?.kind !== "boardArrow" && selection?.kind !== "board") return selection;
+  const items = boardItemsOf(selection);
+  const left = {
+    shapes: items.shapes.filter((id) => view?.shapes.some((s) => s.id === id)),
+    arrows: items.arrows.filter((id) => view?.arrows.some((a) => a.id === id)),
+    stickies: items.stickies.filter((id) => view?.stickies.some((s) => s.id === id)),
+  };
+  const same = left.shapes.length === items.shapes.length && left.arrows.length === items.arrows.length && left.stickies.length === items.stickies.length;
+  return same ? selection : selectBoard(left);
+}
+
 /** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
 export function newStickyId(view: ViewDef): string {
   const taken = new Set(view.stickies.map((s) => s.id));
@@ -534,6 +606,9 @@ export type Shown =
   | { kind: "cardArrow"; view: ViewDef; from: Card; to: Card }
   | { kind: "screen"; view: ViewDef; screen: Screen }
   | { kind: "widget"; view: ViewDef; widget: Widget }
+  | { kind: "shape"; view: ViewDef; shape: Shape }
+  | { kind: "boardArrow"; view: ViewDef; arrow: Arrow }
+  | { kind: "board"; view: ViewDef; shapes: Shape[]; arrows: Arrow[]; stickies: Sticky[] }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
@@ -547,6 +622,18 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
     // What's left of it, if only one is.
     return shownInProperties(ws, view, selectShapes({ elements: elements.map((e) => e.id), stickies: stickies.map((s) => s.id) }));
   }
+  if (selection?.kind === "board" && view) {
+    const left = whiteboardSelectionLeft(view, selection);
+    if (left?.kind !== "board") return shownInProperties(ws, view, left);
+    const shapes = view.shapes.filter((s) => left.shapes.includes(s.id));
+    const arrows = view.arrows.filter((a) => left.arrows.includes(a.id));
+    const stickies = view.stickies.filter((s) => left.stickies.includes(s.id));
+    return { kind: "board", view, shapes, arrows, stickies };
+  }
+  const shape = selection?.kind === "shape" ? view?.shapes.find((s) => s.id === selection.id) : undefined;
+  if (view && shape) return { kind: "shape", view, shape };
+  const boardArrow = selection?.kind === "boardArrow" ? view?.arrows.find((a) => a.id === selection.id) : undefined;
+  if (view && boardArrow) return { kind: "boardArrow", view, arrow: boardArrow };
   const element = selection?.kind === "element" ? ws.elements.get(selection.id) : undefined;
   if (element) return { kind: "element", element };
   if (selection?.kind === "arrow") return selection;
@@ -744,6 +831,13 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "add-widget":
       case "update-widget":
       case "remove-widget":
+      // So are a whiteboard's shapes and arrows.
+      case "add-shape":
+      case "update-shape":
+      case "remove-shape":
+      case "add-arrow":
+      case "update-arrow":
+      case "remove-arrow":
         return { ...op, view: follow(op.view) };
       case "add-step":
         return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };

@@ -3,10 +3,23 @@
  * element and one per view with its Mermaid diagram. They're output only:
  * every page says so, and tools rewrite them freely.
  */
-import { nodeKindLabel, renderMermaid, transitionLabel } from "./mermaid.js";
+import { drawnArrows, nodeKindLabel, renderMermaid, shapesInReadingOrder, transitionLabel } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
-import { CARD_KIND_LABELS, SCREEN_DEVICE_LABELS, SHAPE_LABELS, WIDGET_KIND_LABELS, type ArchElement, type Relationship, type RelationshipKind, type Sticky, type Widget } from "./types.js";
+import { shapeName } from "./views.js";
+import {
+  CARD_KIND_LABELS,
+  SCREEN_DEVICE_LABELS,
+  SHAPE_KIND_LABELS,
+  SHAPE_LABELS,
+  WIDGET_KIND_LABELS,
+  type ArchElement,
+  type Arrow,
+  type Relationship,
+  type RelationshipKind,
+  type Sticky,
+  type Widget,
+} from "./types.js";
 import type { Workspace } from "./workspace.js";
 
 export interface ExportedFile {
@@ -217,6 +230,32 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
         lines.push("", `### ${s.number}. ${s.name}`, "", `${SCREEN_DEVICE_LABELS[s.device]} screen.${s.description ? ` ${s.description}` : ""}`, "");
         if (s.widgets.length) lines.push("| # | Widget | Text | Leads to | Description |", "|---|---|---|---|---|", ...rows(s.widgets, ""));
         else lines.push("Nothing on it yet.");
+      }
+      lines.push("", `[All views and elements](../README.md)`, "");
+      files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
+      continue;
+    }
+    if (v.level === "whiteboard") {
+      const shapes = shapesInReadingOrder(v.shapes);
+      const end = (e: Arrow["from"]) => {
+        if (typeof e !== "string") return `the point (${e[0]}, ${e[1]})`;
+        const s = v.shapes.find((x) => x.id === e);
+        return cell(s ? shapeName(s) : e);
+      };
+      lines.push("", "## Shapes", "");
+      if (shapes.length) {
+        lines.push("| Shape | Text |", "|---|---|");
+        for (const s of shapes) lines.push(`| ${s.kind === "pen" ? "Pen line" : SHAPE_KIND_LABELS[s.kind]} | ${cell((s.text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(" / "))} |`);
+      } else lines.push("None yet.");
+      if (v.arrows.length) {
+        lines.push("", "## Arrows", "", "| Arrow | From | To | Text |", "|---|---|---|---|");
+        for (const a of v.arrows) lines.push(`| ${a.heads === "none" ? "Line" : a.heads === "both" ? "Arrow both ways" : "Arrow"} | ${end(a.from)} | ${end(a.to)} | ${cell(a.text)} |`);
+      }
+      const pens = v.shapes.filter((s) => s.kind === "pen").length;
+      const loose = v.arrows.length - drawnArrows(v).length;
+      if (pens || loose) {
+        const left = [pens ? `the ${pens === 1 ? "line" : `${pens} lines`} drawn with the pen` : "", loose ? `${loose === 1 ? "the arrow" : `${loose} arrows`} with an end at a point or on a pen's line` : ""].filter(Boolean);
+        lines.push("", `The diagram above leaves out ${left.join(", and ")}, as Mermaid can't draw ${pens + loose === 1 ? "it" : "them"}. Open the view in the designer to see the whole whiteboard.`);
       }
       lines.push("", `[All views and elements](../README.md)`, "");
       files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });

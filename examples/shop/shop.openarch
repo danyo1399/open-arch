@@ -1,5 +1,5 @@
 {
-  "openarch": 13,
+  "openarch": 14,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -279,6 +279,31 @@
           ]
         }
       ]
+    },
+    "faster-checkout-ideas": {
+      "title": "Ideas for a faster checkout",
+      "description": "Rough ideas from the checkout retro, to talk through before anything is decided.",
+      "level": "whiteboard",
+      "shapes": [
+        { "id": "title", "kind": "text", "text": "Ideas for a faster checkout", "at": [0, -170], "size": "large" },
+        { "id": "underline", "kind": "pen", "at": [8, -118], "points": [[0, 4], [90, 0], [200, 5], [330, 1], [390, 4]], "color": "blue" },
+        { "id": "slow", "kind": "rectangle", "text": "Checkout takes 3 s at lunchtime", "at": [0, 0, 200, 90], "fill": "red" },
+        { "id": "cache", "kind": "rectangle", "text": "Cache the product pages", "at": [320, -70, 220, 80], "fill": "yellow" },
+        { "id": "background", "kind": "rectangle", "text": "Take payment in the background", "at": [320, 90, 220, 80], "fill": "blue", "dashed": true },
+        { "id": "where", "kind": "diamond", "text": "Redis, or in memory?", "at": [660, -100, 200, 120] },
+        { "id": "orders-db", "kind": "ellipse", "text": "Orders DB", "at": [720, 90, 180, 80], "color": "blue" },
+        { "id": "measure", "kind": "text", "text": "Measure it first!", "at": [0, 190], "color": "red" }
+      ],
+      "arrows": [
+        { "id": "idea-1", "from": "slow", "to": "cache", "text": "idea 1" },
+        { "id": "idea-2", "from": "slow", "to": "background", "text": "idea 2" },
+        { "id": "which", "from": "cache", "to": "where", "heads": "none", "dashed": true },
+        { "id": "saves", "from": "background", "to": "orders-db", "text": "saves it first" },
+        { "id": "look", "from": [80, 186], "to": "slow", "color": "red" }
+      ],
+      "stickies": {
+        "nothing-decided": { "text": "Nothing here is decided yet. Once it is, the change goes in the model, and on the container view.", "at": [700, 230] }
+      }
     },
     "landscape": {
       "title": "System landscape",

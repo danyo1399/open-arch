@@ -78,7 +78,8 @@ With a view id: its description and notes, and the boxes and arrows the view dra
 a sequence view, its steps in order, for a state view, its states and transitions, for a
 deployment view, its nodes and what runs in them, its connections and the arrows it draws, for
 an event view, its lanes, and its cards in order with the cards each comes from, or for a
-wireframe view, its screens in order, each with its widgets and the screens they lead to.
+wireframe view, its screens in order, each with its widgets and the screens they lead to, or
+for a whiteboard view, its shapes from the back to the front, and its arrows.
 A class's members, a relationship's kind when it isn't an association, a container's
 libraries and the containers a library is built into are shown too.
 `,
@@ -120,6 +121,7 @@ remove-step, add-state, update-state, remove-state, add-transition, update-trans
 remove-transition, add-node, update-node, remove-node, add-connection, update-connection,
 remove-connection, add-lane, update-lane, remove-lane, add-card, update-card, remove-card,
 add-screen, update-screen, remove-screen, add-widget, update-widget, remove-widget,
+add-shape, update-shape, remove-shape, add-arrow, update-arrow, remove-arrow,
 update-workspace.
 In updates, null removes a field.
 `,
@@ -226,7 +228,7 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event|wireframe> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event|wireframe|whiteboard> [options]
 
 A class view shows a component's or library's classes, with their members, as a UML class
 diagram.
@@ -246,13 +248,17 @@ A wireframe view sketches an app's screens: what's on each, and which screen a b
 on one leads to. Add its screens with add-screen and what's on them with add-widget. Its
 scope, if any, is the system or container whose screens they are. It takes no include or
 exclude.
+A whiteboard view is a freehand sketch, to share an idea: shapes, text, arrows and lines drawn
+with a pen, each where it's put, none of them part of the model. Add its shapes with add-shape
+and its arrows with add-arrow. It takes no scope, include or exclude.
   --scope <id>           A system for context and container views, a container or library
                          for component views, a component or library for class views, for
                          state views, if any, the element of any kind they're the states of,
                          and for wireframe views, if any, the system or container whose
                          screens they are
-  --title <title>        Default: from the scope and level, or for a sequence, deployment or
-                         event view, or a state or wireframe view without a scope, from the id
+  --title <title>        Default: from the scope and level, or for a sequence, deployment,
+                         event or whiteboard view, or a state or wireframe view without a
+                         scope, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
@@ -561,6 +567,74 @@ An empty value removes a field.
     { kind: s, text: s, to: s, "new-id": s, screen: s, in: s, description: s, position: s },
   ),
   "remove-widget": writer(`Usage: open-arch remove-widget <view> <id>\n\nRemoves a widget, with the widgets inside it.\n`, {}),
+  "add-shape": writer(
+    `Usage: open-arch add-shape <view> <id> --kind <kind> [--text <text>] [--at <x,y[,width,height]>]
+                          [--points <x,y x,y ...>] [--size <size>] [--color <color>] [--fill <fill>]
+                          [--dashed] [--position <n>]
+
+Adds a shape to a whiteboard view. Each shape is drawn where it's put, over the shapes added
+before it. The id must be unique among the view's shapes.
+  --kind <kind>          rectangle, ellipse or diamond: an outline, with its text inside
+                         text: just its text, with no outline
+                         pen: a line drawn freehand, through its --points
+  --text <text>          What it says. Lines of their own, like --text $'Cache\\nthe menus'
+                         in bash. Not on a pen
+  --at <x,y>             Its top-left corner (default: under the shapes there are). Add its
+                         width and height, --at x,y,width,height, to size it: without them, a
+                         rectangle, ellipse or diamond is 160 by 80, and text is as big as
+                         what it says. A pen's size comes from its points
+  --points <x,y ...>     A pen's points, from its corner, split by spaces: --points "0,0 12,6 30,2"
+  --size <size>          How big its text is: small, medium (the default), large or huge
+  --color <color>        Its outline's and text's colour, or a pen's: black (the default),
+                         grey, red, orange, green, blue or purple
+  --fill <fill>          What it's filled with: white, grey, red, orange, yellow, green, blue
+                         or purple (default: none, so it's see-through). Not on a pen
+  --dashed               A dashed outline, or a dashed pen line. Not on text
+  --position <n>         Its place from the back: 1 is drawn first, under the rest (default:
+                         in front of the rest)
+`,
+    { kind: s, text: s, at: s, points: s, size: s, color: s, fill: s, dashed: b, position: s },
+  ),
+  "update-shape": writer(
+    `Usage: open-arch update-shape <view> <id> [--kind <kind>] [--text <text>] [--new-id <id>] [--at <x,y[,width,height]>]
+                             [--points <x,y x,y ...>] [--size <size>] [--color <color>] [--fill <fill>]
+                             [--dashed | --solid] [--position <n>]
+
+--kind is rectangle, ellipse, diamond or text; a pen's line stays a pen's line.
+--at x,y moves it and keeps its size; --at x,y,width,height moves it and gives it that size.
+--new-id changes its ID, and the arrows to and from it follow it.
+--position moves it to that place from the back: 1 is drawn first, under the rest.
+An empty value removes a field: --fill "" makes it see-through, and --size "" and --color ""
+put them back to medium and black.
+`,
+    { kind: s, text: s, "new-id": s, at: s, points: s, size: s, color: s, fill: s, dashed: b, solid: b, position: s },
+  ),
+  "remove-shape": writer(`Usage: open-arch remove-shape <view> <id>\n\nRemoves a shape, and the arrows to and from it.\n`, {}),
+  "add-arrow": writer(
+    `Usage: open-arch add-arrow <view> <id> --from <shape | x,y> --to <shape | x,y> [--text <text>]
+                          [--heads <heads>] [--color <color>] [--dashed]
+
+Adds an arrow, or a line, to a whiteboard view. Each end is a shape, which the arrow is drawn
+to the edge of and follows as it moves, or a point on the whiteboard. The id must be unique
+among the view's arrows.
+  --from, --to           A shape's ID, or a point, x,y
+  --text <text>          What it says, drawn in the middle of it
+  --heads <heads>        end (the default): an arrow; both: an arrow both ways; none: a line
+  --color <color>        black (the default), grey, red, orange, green, blue or purple
+  --dashed               A dashed line
+`,
+    { from: s, to: s, text: s, heads: s, color: s, dashed: b },
+  ),
+  "update-arrow": writer(
+    `Usage: open-arch update-arrow <view> <id> [--from <shape | x,y>] [--to <shape | x,y>] [--text <text>] [--new-id <id>]
+                             [--heads <heads>] [--color <color>] [--dashed | --solid]
+
+--heads is end, both or none.
+An empty value removes a field: --heads "" and --color "" put them back to end and black.
+`,
+    { from: s, to: s, text: s, "new-id": s, heads: s, color: s, dashed: b, solid: b },
+  ),
+  "remove-arrow": writer(`Usage: open-arch remove-arrow <view> <id>\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -595,6 +669,8 @@ Change (each change is checked first; nothing is saved if it would break the mod
   add-card <view> <id>            update-card <view> <id>         remove-card <view> <id>
   add-screen <view> <id>          update-screen <view> <id>       remove-screen <view> <id>
   add-widget <view> <id>          update-widget <view> <id>       remove-widget <view> <id>
+  add-shape <view> <id>           update-shape <view> <id>        remove-shape <view> <id>
+  add-arrow <view> <id>           update-arrow <view> <id>        remove-arrow <view> <id>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

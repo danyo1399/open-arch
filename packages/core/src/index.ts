@@ -14,6 +14,8 @@ export {
   cardArrows,
   allWidgets,
   screenArrows,
+  shapeName,
+  arrowName,
   stickyAnchor,
   stickyTargetText,
   STICKY_TARGET_LEVELS,

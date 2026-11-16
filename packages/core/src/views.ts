@@ -7,6 +7,7 @@
  * An event view shows its cards in order, each in its lane, and the arrows between them.
  * A wireframe view shows its screens in order, each with its widgets, and arrows from the
  * widgets that lead to other screens.
+ * A whiteboard view shows its shapes and arrows, each where it's put.
  */
 import type { Workspace } from "./workspace.js";
 import { builtInto, childrenOf, compareElements, containerOf, inFrame, kindList, libraryOf, lineage, topLevel } from "./model.js";
@@ -14,12 +15,15 @@ import { suggest } from "./suggest.js";
 import {
   ELEMENT_KINDS,
   RELATIONSHIP_KINDS,
+  SHAPE_KIND_LABELS,
   type ArchElement,
+  type Arrow,
   type Connection,
   type DeploymentNode,
   type Diagnostic,
   type ElementKind,
   type RelationshipKind,
+  type Shape,
   type Step,
   type StickyTarget,
   type StickyTargetData,
@@ -137,6 +141,7 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   event: [],
   // Optional: the app whose screens the view shows.
   wireframe: ["system", "container"],
+  whiteboard: [],
 };
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
@@ -152,7 +157,9 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
           ? "Deployment views show their nodes and what runs in them, so they don't take a `scope`."
           : view.level === "event"
             ? "Event views show their lanes and cards, so they don't take a `scope`."
-            : "Landscape views show every person and system, so they don't take a `scope`.";
+            : view.level === "whiteboard"
+              ? "Whiteboard views show their shapes and arrows, not the model, so they don't take a `scope`."
+              : "Landscape views show every person and system, so they don't take a `scope`.";
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
   }
   if (view.scope === undefined) {
@@ -255,6 +262,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
       case "deployment":
       case "event":
       case "wireframe":
+      case "whiteboard":
         return id;
     }
   };
@@ -267,6 +275,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   if (view.level === "deployment") return computeDeployment(ws, view);
   if (view.level === "event") return computeEvents(ws, view);
   if (view.level === "wireframe") return computeWireframe(ws, view);
+  if (view.level === "whiteboard") return computeWhiteboard(view);
   const diagnostics: Diagnostic[] = [];
   const rep = representative(ws, view);
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
@@ -883,6 +892,60 @@ function computeWireframe(ws: Workspace, view: ViewDef): ComputedView {
   }
   const boundary = view.scope ? ws.elements.get(view.scope) : undefined;
   return { view, boundary, nodes: [], edges: [], steps: [], diagnostics };
+}
+
+/**
+ * What lists call something on a whiteboard without text: its kind, then its ID, unless all the
+ * ID says is its kind: "Ellipse", "Ellipse 2", "Pen scribble".
+ */
+function unnamed(kind: string, id: string): string {
+  const base = kind.toLowerCase();
+  if (id === base) return kind;
+  const numbered = new RegExp(`^${base}-(\\d+)$`).exec(id);
+  return numbered ? `${kind} ${numbered[1]}` : `${kind} ${id}`;
+}
+
+/** A whiteboard shape as lists name it: the first line of its text, or else its kind and ID. */
+export function shapeName(shape: Pick<Shape, "id" | "kind" | "text">): string {
+  return shape.text?.split(/\r?\n/).find((l) => l.trim())?.trim() ?? unnamed(SHAPE_KIND_LABELS[shape.kind], shape.id);
+}
+
+/** A whiteboard arrow as lists name it: the first line of its text, or else "Arrow" or "Line", and its ID. */
+export function arrowName(arrow: Pick<Arrow, "id" | "heads" | "text">): string {
+  return arrow.text?.split(/\r?\n/).find((l) => l.trim())?.trim() ?? unnamed(arrow.heads === "none" ? "Line" : "Arrow", arrow.id);
+}
+
+/**
+ * A whiteboard view: it draws its shapes and arrows, not the model, so it has no boxes. Its
+ * problems are arrows to a shape it doesn't have, or from a shape to itself.
+ */
+function computeWhiteboard(view: ViewDef): ComputedView {
+  const diagnostics: Diagnostic[] = [];
+  const shapes = view.shapes.map((s) => s.id);
+  for (const arrow of view.arrows) {
+    for (const end of ["from", "to"] as const) {
+      const id = arrow[end];
+      if (typeof id !== "string" || shapes.includes(id)) continue;
+      const match = suggest(id, shapes);
+      diagnostics.push({
+        severity: "error",
+        rule: "arrow-end-unknown",
+        message: `Arrow "${arrow.id}" ${end === "from" ? "starts at" : "points to"} "${id}", which isn't a shape of this view.`,
+        path: `${arrow.path}.${end}`,
+        fix: match ? `Did you mean "${match}"?` : "Name one of its shapes, or give a point, [x, y].",
+      });
+    }
+    if (typeof arrow.from === "string" && arrow.from === arrow.to && shapes.includes(arrow.from)) {
+      diagnostics.push({
+        severity: "warning",
+        rule: "arrow-to-itself",
+        message: `Arrow "${arrow.id}" goes from shape "${arrow.from}" to itself, so it isn't drawn.`,
+        path: `${arrow.path}.to`,
+        fix: "Point `to` at another shape, or at a point.",
+      });
+    }
+  }
+  return { view, nodes: [], edges: [], steps: [], diagnostics };
 }
 
 function joinLabels(values: (string | undefined)[], separator: string): string | undefined {

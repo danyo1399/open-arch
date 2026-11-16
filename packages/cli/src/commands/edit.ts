@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { applyOperations, buildWorkspace, OpError, parseOperations, type NewElements, type Operation, type RelationshipKind, type StickyTargetData, type TagChanges, type Tags } from "@open-arch/core";
+import { applyOperations, buildWorkspace, OpError, parseOperations, type ArrowEnd, type NewElements, type Operation, type Position, type RelationshipKind, type StickyTargetData, type TagChanges, type Tags } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { formatDiagnostic } from "./check.js";
@@ -151,6 +151,37 @@ function point(v: Values[string]): [number, number] | null | undefined {
   return parts as [number, number];
 }
 
+/** A shape's `--at 0,0`, or with its width and height, `--at 0,0,160,80`. */
+function box(v: Values[string]): Position | undefined {
+  if (typeof v !== "string") return undefined;
+  const parts = v.split(",").map((n) => Number(n.trim()));
+  if ((parts.length !== 2 && parts.length !== 4) || !parts.every(Number.isFinite) || v.trim() === "") {
+    throw new CliError(`--at needs x,y, or x,y,width,height, e.g. --at 400,120 or --at 400,120,160,80, not "${v}".`, 2);
+  }
+  return parts as Position;
+}
+
+/** A pen's `--points "0,0 12,6 30,2"`: points from its corner, split by spaces. */
+function points(v: Values[string]): [number, number][] | undefined {
+  if (typeof v !== "string") return undefined;
+  const out = v
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p.split(",").map((n) => Number(n.trim())));
+  if (out.length === 0 || !out.every((p) => p.length === 2 && p.every(Number.isFinite))) throw new CliError(`--points needs points split by spaces, each x,y, e.g. --points "0,0 12,6 30,2", not "${v}".`, 2);
+  return out as [number, number][];
+}
+
+/** An arrow's `--from` or `--to`: a shape's ID, or a point, x,y. IDs have no commas, so one with a comma is a point. */
+function arrowEnd(v: Values[string], name: string): ArrowEnd | undefined {
+  if (typeof v !== "string") return undefined;
+  if (!v.includes(",")) return v.trim();
+  const parts = v.split(",").map((n) => Number(n.trim()));
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) throw new CliError(`${name} needs a shape's ID or a point, x,y, e.g. ${name} 400,120, not "${v}".`, 2);
+  return parts as [number, number];
+}
+
 /** What a sticky note is on: `--element <id>`, or `--from <id> --to <id>` and maybe `--kind`. `--detach`, in an update, takes it off. */
 function stickyOn(v: Values): StickyTargetData | null | undefined {
   const [element, from, to, kind] = [text(v.element), text(v.from), text(v.to), text(v.kind)];
@@ -260,7 +291,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment, event or wireframe.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment, event, wireframe or whiteboard.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",
@@ -555,6 +586,79 @@ export const BUILDERS: Record<string, Builder> = {
   "remove-widget": (_io, _v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
     return [{ op: "remove-widget", view: view!, id: id! }];
+  },
+  "add-shape": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    const kind = text(v.kind);
+    if (!kind) throw new CliError(`Pass --kind: rectangle, ellipse, diamond, text or pen.\n\n${usage}`, 2);
+    return [
+      {
+        op: "add-shape",
+        view: view!,
+        id: id!,
+        kind: kind as never,
+        text: text(v.text),
+        at: box(v.at),
+        points: points(v.points),
+        size: text(v.size) as never,
+        color: text(v.color) as never,
+        fill: text(v.fill) as never,
+        dashed: v.dashed === true || undefined,
+        position: stepNumber(v.position, "--position", "shape"),
+      },
+    ];
+  },
+  "update-shape": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "update-shape",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        kind: text(v.kind) as never,
+        text: clearable(v.text),
+        at: box(v.at),
+        points: points(v.points),
+        size: clearable(v.size) as never,
+        color: clearable(v.color) as never,
+        fill: clearable(v.fill) as never,
+        dashed: either(v, "dashed", "solid"),
+        position: stepNumber(v.position, "--position", "shape"),
+      },
+    ];
+  },
+  "remove-shape": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-shape", view: view!, id: id! }];
+  },
+  "add-arrow": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    const from = arrowEnd(v.from, "--from");
+    const to = arrowEnd(v.to, "--to");
+    if (from === undefined || to === undefined) throw new CliError(`Pass --from and --to: a shape's ID, or a point, x,y.\n\n${usage}`, 2);
+    return [{ op: "add-arrow", view: view!, id: id!, from, to, text: text(v.text), heads: text(v.heads) as never, color: text(v.color) as never, dashed: v.dashed === true || undefined }];
+  },
+  "update-arrow": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "update-arrow",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        from: arrowEnd(v.from, "--from"),
+        to: arrowEnd(v.to, "--to"),
+        text: clearable(v.text),
+        heads: clearable(v.heads) as never,
+        color: clearable(v.color) as never,
+        dashed: either(v, "dashed", "solid"),
+      },
+    ];
+  },
+  "remove-arrow": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-arrow", view: view!, id: id! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

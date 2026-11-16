@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 11 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 12 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -391,6 +391,62 @@ Screens:
     expect(cli(dir, "apply", "--help").out).toContain("add-screen, update-screen, remove-screen, add-widget, update-widget, remove-widget");
   });
 
+  it("adds a whiteboard view, its shapes and arrows, and shows them from the back to the front", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "ideas", "--level", "whiteboard").out).toContain("added view ideas");
+    expect(cli(dir, "add-shape", "ideas", "cache", "--kind", "rectangle", "--text", "Cache\nthe menus", "--at", "0,0,180,90", "--fill", "yellow").out).toContain("added rectangle cache to view ideas");
+    expect(cli(dir, "add-shape", "ideas", "db", "--kind", "ellipse", "--text", "Orders DB", "--color", "blue", "--dashed").code).toBe(0);
+    expect(cli(dir, "add-shape", "ideas", "title", "--kind", "text", "--text", "Faster checkout", "--at", "0,-100", "--size", "large", "--position", "1").out).toContain(
+      "added text title to view ideas, as shape 1 from the back",
+    );
+    expect(cli(dir, "add-shape", "ideas", "scribble", "--kind", "pen", "--points", "0,0 12,6  30,2", "--at", "300,200", "--color", "red").code).toBe(0);
+    expect(cli(dir, "add-arrow", "ideas", "reads", "--from", "cache", "--to", "db", "--text", "reads").out).toContain("added arrow reads to view ideas");
+    expect(cli(dir, "add-arrow", "ideas", "look", "--from", "500, 260", "--to", "scribble", "--heads", "none", "--dashed").out).toContain("added line look to view ideas");
+    expect(JSON.parse(read(dir)).views.ideas.shapes[2]).toEqual({ id: "db", kind: "ellipse", text: "Orders DB", at: [0, 130], color: "blue", dashed: true });
+    expect(cli(dir, "show", "ideas").out).toBe(`ideas: Ideas
+  level:        whiteboard view
+
+Shapes, from the back to the front:
+  1.  title     text       at 0, -100         "Faster checkout"  (large text)
+  2.  cache     rectangle  at 0, 0, 180 x 90  "Cache / the menus"  (yellow fill)
+  3.  db        ellipse    at 0, 130          "Orders DB"  (blue, dashed)
+  4.  scribble  pen        at 300, 200        3 points  (red)
+
+Arrows:
+  reads  cache -> db            "reads"
+  look   500, 260 --- scribble  (dashed)
+`);
+    const json = JSON.parse(cli(dir, "show", "ideas", "--json").out);
+    expect(json.shapes[3]).toEqual({ id: "scribble", position: 4, kind: "pen", at: [300, 200], points: [[0, 0], [12, 6], [30, 2]], color: "red" });
+    expect(json.arrows[1]).toEqual({ id: "look", from: [500, 260], to: "scribble", heads: "none", color: "black", dashed: true });
+    expect(read(dir, "docs/views/ideas.md")).toContain("| Rectangle | Cache / the menus |");
+
+    expect(cli(dir, "update-shape", "ideas", "db", "--at", "300,0", "--solid", "--color", "", "--new-id", "orders").out).toContain("renamed shape db to orders in view ideas");
+    expect(cli(dir, "update-shape", "ideas", "cache", "--fill", "", "--size", "huge", "--kind", "diamond", "--position", "4").out).toContain("updated shape cache in view ideas, and moved it to 4 from the back");
+    expect(cli(dir, "update-shape", "ideas", "scribble", "--points", "0,0 5,5").code).toBe(0);
+    expect(cli(dir, "update-arrow", "ideas", "look", "--from", "cache", "--heads", "", "--solid", "--text", "this").code).toBe(0);
+    expect(cli(dir, "update-arrow", "ideas", "reads", "--text", "", "--heads", "both", "--color", "green", "--new-id", "talks").out).toContain("renamed arrow reads to talks in view ideas");
+    const view = JSON.parse(read(dir)).views.ideas;
+    expect(view.shapes.map((s: { id: string }) => s.id)).toEqual(["title", "orders", "scribble", "cache"]);
+    expect(view.shapes[1]).toEqual({ id: "orders", kind: "ellipse", text: "Orders DB", at: [300, 0] });
+    expect(view.shapes[3]).toEqual({ id: "cache", kind: "diamond", text: "Cache\nthe menus", at: [0, 0, 180, 90], size: "huge" });
+    expect(view.arrows).toEqual([
+      { id: "talks", from: "cache", to: "orders", heads: "both", color: "green" },
+      { id: "look", from: "cache", to: "scribble", text: "this" },
+    ]);
+    expect(cli(dir, "remove-arrow", "ideas", "look").out).toContain("removed arrow look from view ideas");
+    expect(cli(dir, "remove-shape", "ideas", "cache").out).toContain("removed shape cache from view ideas and 1 arrow to or from it");
+    expect(cli(dir, "add-shape", "ideas", "x").err).toContain("Pass --kind: rectangle, ellipse, diamond, text or pen.");
+    expect(cli(dir, "add-shape", "ideas", "x", "--kind", "rectangle", "--at", "1,2,3").err).toContain('--at needs x,y, or x,y,width,height, e.g. --at 400,120 or --at 400,120,160,80, not "1,2,3".');
+    expect(cli(dir, "add-shape", "ideas", "x", "--kind", "pen", "--points", "0,0 1").err).toContain('--points needs points split by spaces, each x,y, e.g. --points "0,0 12,6 30,2", not "0,0 1".');
+    expect(cli(dir, "add-shape", "ideas", "x", "--kind", "pen").err).toContain("A pen needs points");
+    expect(cli(dir, "add-arrow", "ideas", "x", "--from", "title").err).toContain("Pass --from and --to: a shape's ID, or a point, x,y.");
+    expect(cli(dir, "add-arrow", "ideas", "x", "--from", "title", "--to", "1,2,3").err).toContain('--to needs a shape\'s ID or a point, x,y, e.g. --to 400,120, not "1,2,3".');
+    expect(cli(dir, "update-shape", "ideas", "title", "--dashed", "--solid").err).toContain("Pass --dashed or --solid, not both.");
+    expect(cli(dir, "add-shape", "place-order", "x", "--kind", "text").err).toContain('View "place-order" is a sequence view. Only whiteboard views have shapes and arrows.');
+    expect(cli(dir, "check").code).toBe(0);
+  });
+
   it("applies a batch of screens and widgets from JSON, all or nothing", () => {
     const dir = example();
     const ops = [
@@ -590,22 +646,22 @@ Screens:
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 13', '"openarch": 1')
+      .replace('"openarch": 14', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 13, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 14, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])("reads a version %i file, and writes it back as version 13", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])("reads a version %i file, and writes it back as version 14", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 13', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 14', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 13,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 14,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -692,7 +748,7 @@ describe("init", () => {
   it("export leaves the docs of another workspace in the same folder alone", () => {
     const project = tempDir();
     for (const [name, title] of [["a.openarch", "A"], ["b.openarch", "B"]]) {
-      writeFileSync(join(project, name), JSON.stringify({ openarch: 13, name: title, export: { docs: "." }, elements: {}, views: {} }));
+      writeFileSync(join(project, name), JSON.stringify({ openarch: 14, name: title, export: { docs: "." }, elements: {}, views: {} }));
     }
     expect(cli(project, "export", "--file", "a.openarch").code).toBe(0);
     const result = cli(project, "export", "--file", "b.openarch");
@@ -744,7 +800,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
     expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 13, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 14, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

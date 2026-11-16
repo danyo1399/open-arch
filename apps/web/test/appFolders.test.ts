@@ -8,7 +8,7 @@ import type { FolderList, StoredFolder } from "../src/folders.js";
 import { button, click, mount, type } from "./dom.js";
 import { FakeFolder } from "./fakeFolder.js";
 
-const workspace = JSON.stringify({ openarch: 13, name: "Repo", elements: {}, views: {} });
+const workspace = JSON.stringify({ openarch: 14, name: "Repo", elements: {}, views: {} });
 
 /** The folders opened, with one: repo/a.openarch, as f1. */
 function foldersWith(root: FakeFolder) {
@@ -93,7 +93,7 @@ describe("reloading the page with a workspace in a folder open", () => {
 });
 
 describe("the designer with a workspace in a folder", () => {
-  const withDocs = JSON.stringify({ openarch: 13, name: "Repo", export: { docs: "docs" }, elements: {}, views: {} });
+  const withDocs = JSON.stringify({ openarch: 14, name: "Repo", export: { docs: "docs" }, elements: {}, views: {} });
 
   /** Opens repo/a.openarch, as reloading the page with it open does. */
   async function open(root: FakeFolder) {

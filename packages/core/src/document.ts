@@ -10,12 +10,19 @@ import {
   ELEMENT_SHAPES,
   FORMAT_VERSION,
   ID_PATTERN,
+  ARROW_HEADS,
   RELATIONSHIP_KINDS,
   SCREEN_DEVICES,
+  SHAPE_COLORS,
+  SHAPE_FILLS,
+  SHAPE_KINDS,
   STICKY_COLORS,
+  TEXT_SIZES,
   VIEW_LEVELS,
   WIDGET_HOLDERS,
   WIDGET_KINDS,
+  type ArrowData,
+  type ArrowEnd,
   type CardData,
   type CardKind,
   type ConnectionData,
@@ -30,6 +37,7 @@ import {
   type RelationshipKind,
   type ScreenData,
   type ScreenDevice,
+  type ShapeData,
   type StateData,
   type StepData,
   type StickyData,
@@ -81,10 +89,10 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "libraries", "tags", "notes", "members", "uses"];
 const RELATIONSHIP_KEYS = ["to", "kind", "bidirectional", "description", "technology", "tags", "notes"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "nodes", "connections", "lanes", "cards", "screens", "stickies", "layout"];
+const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "nodes", "connections", "lanes", "cards", "screens", "shapes", "arrows", "stickies", "layout"];
 /** Views that draw something other than boxes picked from the model. */
-type OwnLevel = "sequence" | "state" | "deployment" | "event" | "wireframe";
-/** Fields only sequence, state, deployment, event and wireframe views take, and those they don't, with why. */
+type OwnLevel = "sequence" | "state" | "deployment" | "event" | "wireframe" | "whiteboard";
+/** Fields only sequence, state, deployment, event, wireframe and whiteboard views take, and those they don't, with why. */
 const ONLY_ON: Record<string, OwnLevel> = {
   steps: "sequence",
   initial: "state",
@@ -95,6 +103,8 @@ const ONLY_ON: Record<string, OwnLevel> = {
   lanes: "event",
   cards: "event",
   screens: "wireframe",
+  shapes: "whiteboard",
+  arrows: "whiteboard",
 };
 const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   sequence: { fields: ["include", "exclude", "layout"], why: "they show the elements in their steps, in the order they first appear" },
@@ -102,8 +112,9 @@ const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   deployment: { fields: ["scope", "include", "exclude", "layout"], why: "they show their nodes and what runs in them, laid out automatically" },
   event: { fields: ["scope", "include", "exclude", "layout"], why: "they show their cards in order, each in its lane" },
   wireframe: { fields: ["include", "exclude", "layout"], why: "they show their screens in order, each drawn from its widgets" },
+  whiteboard: { fields: ["scope", "include", "exclude", "layout"], why: "they show their shapes and arrows, each where it's put" },
 };
-const LEVEL_NAME: Record<OwnLevel, string> = { sequence: "Sequence", state: "State", deployment: "Deployment", event: "Event", wireframe: "Wireframe" };
+const LEVEL_NAME: Record<OwnLevel, string> = { sequence: "Sequence", state: "State", deployment: "Deployment", event: "Event", wireframe: "Wireframe", whiteboard: "Whiteboard" };
 const STATE_KEYS = ["name", "description", "final", "at"];
 const TRANSITION_KEYS = ["from", "to", "event", "guard", "action"];
 const NODE_KEYS = ["name", "parent", "description", "technology", "infrastructure", "instances", "shape", "runs"];
@@ -112,6 +123,8 @@ const LANE_KEYS = ["id", "name", "description"];
 const CARD_KEYS = ["id", "kind", "name", "description", "lane", "from"];
 const SCREEN_KEYS = ["id", "name", "description", "device", "widgets"];
 const WIDGET_KEYS = ["id", "kind", "text", "description", "to", "widgets"];
+const SHAPE_KEYS = ["id", "kind", "text", "at", "points", "size", "color", "fill", "dashed"];
+const ARROW_KEYS = ["id", "from", "to", "text", "heads", "color", "dashed"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "on", "color", "at"];
 const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
@@ -225,6 +238,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 11) out = { ...out, openarch: 12 };
   // Version 13 added wireframe views, so a version 12 file means the same in it.
   if (out.openarch === 12) out = { ...out, openarch: 13 };
+  // Version 14 added whiteboard views, so a version 13 file means the same in it.
+  if (out.openarch === 13) out = { ...out, openarch: 14 };
   return out;
 }
 
@@ -375,8 +390,9 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   const deployment = view.level === "deployment";
   const events = view.level === "event";
   const wireframe = view.level === "wireframe";
+  const whiteboard = view.level === "whiteboard";
   // Boxes come from include and exclude, and are placed by layout, only on the other views.
-  const boxes = !sequence && !statesView && !deployment && !events && !wireframe;
+  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard;
   const own = boxes ? undefined : (view.level as OwnLevel);
   for (const key of Object.keys(value)) {
     const only = ONLY_ON[key];
@@ -388,7 +404,7 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   }
   const description = str(value.description, `${path}.description`, report);
   if (description !== undefined) view.description = description;
-  const scope = deployment || events ? undefined : str(value.scope, `${path}.scope`, report);
+  const scope = deployment || events || whiteboard ? undefined : str(value.scope, `${path}.scope`, report);
   if (scope !== undefined) view.scope = scope;
   const include = boxes ? strList(value.include, `${path}.include`, report) : undefined;
   if (include) view.include = include;
@@ -490,6 +506,33 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
         const screen = readScreen(item, `${path}.screens[${i}]`, report, screenIds, widgetIds);
         if (screen) view.screens!.push(screen);
       });
+    }
+  }
+  if (whiteboard) {
+    // A shape or arrow with the ID of one before it is left out: every reference to it would mean the first.
+    if (value.shapes !== undefined) {
+      if (!Array.isArray(value.shapes)) report(`${path}.shapes`, "field-type", "Must be a list of shapes.");
+      else {
+        view.shapes = [];
+        value.shapes.forEach((item, i) => {
+          const shape = readShape(item, `${path}.shapes[${i}]`, report);
+          if (!shape) return;
+          if (view.shapes!.some((s) => s.id === shape.id)) report(`${path}.shapes[${i}].id`, "id-duplicate", `"${shape.id}" is the ID of two shapes of this view.`, "Give one of them another ID.");
+          else view.shapes!.push(shape);
+        });
+      }
+    }
+    if (value.arrows !== undefined) {
+      if (!Array.isArray(value.arrows)) report(`${path}.arrows`, "field-type", "Must be a list of arrows.");
+      else {
+        view.arrows = [];
+        value.arrows.forEach((item, i) => {
+          const arrow = readArrow(item, `${path}.arrows[${i}]`, report);
+          if (!arrow) return;
+          if (view.arrows!.some((a) => a.id === arrow.id)) report(`${path}.arrows[${i}].id`, "id-duplicate", `"${arrow.id}" is the ID of two arrows of this view.`, "Give one of them another ID.");
+          else view.arrows!.push(arrow);
+        });
+      }
     }
   }
   if (value.stickies !== undefined) {
@@ -770,6 +813,125 @@ function readWidget(value: unknown, path: string, report: Report, widgetIds: Set
   return widget;
 }
 
+const isPoint = (value: unknown): value is [number, number] => Array.isArray(value) && value.length === 2 && value.every((n) => typeof n === "number" && Number.isFinite(n));
+
+/** A shape's `at`: [x, y], or [x, y, width, height] with a width and height above 0. A pen's is only [x, y]. */
+function readShapeAt(value: unknown, path: string, report: Report, pen: boolean): ShapeData["at"] | undefined {
+  if (isPoint(value)) return value;
+  const numbers = Array.isArray(value) && value.every((n) => typeof n === "number" && Number.isFinite(n));
+  if (numbers && value.length === 4 && !pen) {
+    if (value[2] > 0 && value[3] > 0) return value as [number, number, number, number];
+    report(path, "field-type", "Its width and height must be more than 0.");
+    return undefined;
+  }
+  report(path, "field-type", pen ? "Must be a position, [x, y]: how big a pen's line is comes from its points." : "Must be a position, [x, y], or a position and a size, [x, y, width, height].");
+  return undefined;
+}
+
+function readShape(value: unknown, path: string, report: Report): ShapeData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A shape must be an object like { "id": "idea", "kind": "rectangle", "text": "An idea", "at": [0, 0] }.');
+    return undefined;
+  }
+  unknownKeys(value, SHAPE_KEYS, path, report);
+  const id = str(value.id, `${path}.id`, report);
+  if (!id) {
+    report(`${path}.id`, "field-required", "`id` is required: an ID unique among the view's shapes.");
+    return undefined;
+  }
+  if (!readId(id, `${path}.id`, report)) return undefined;
+  if (!(SHAPE_KINDS as readonly unknown[]).includes(value.kind)) {
+    report(`${path}.kind`, value.kind === undefined ? "field-required" : "shape-kind-invalid", `\`kind\` must be one of: ${SHAPE_KINDS.join(", ")}.`);
+    return undefined;
+  }
+  const kind = value.kind as ShapeData["kind"];
+  const pen = kind === "pen";
+  if (value.at === undefined) {
+    report(`${path}.at`, "field-required", "`at` is required: where the shape is, [x, y], or [x, y, width, height].");
+    return undefined;
+  }
+  const at = readShapeAt(value.at, `${path}.at`, report, pen);
+  if (!at) return undefined;
+  const shape: ShapeData = { id, kind, at };
+  // A pen draws only a line, and text has no outline to dash.
+  for (const key of pen ? ["text", "size", "fill"] : kind === "text" ? ["dashed"] : []) {
+    if (value[key] !== undefined) report(`${path}.${key}`, "field-not-allowed", pen ? `A pen draws only a line, so it takes no \`${key}\`.` : "Text has no outline, so it can't be dashed.", `Remove \`${key}\`.`);
+  }
+  if (pen) {
+    if (value.points === undefined) report(`${path}.points`, "field-required", "A pen needs `points`: the points its line goes through, [[x, y], ...].");
+    else if (!Array.isArray(value.points) || value.points.length < 2 || !value.points.every(isPoint)) report(`${path}.points`, "field-type", "Must be a list of two or more points, [[x, y], ...].");
+    else shape.points = value.points as [number, number][];
+    if (!shape.points) return undefined;
+  } else {
+    if (value.points !== undefined) report(`${path}.points`, "field-not-allowed", "Only pens have points.", "Remove `points`.");
+    const text = str(value.text, `${path}.text`, report);
+    if (text !== undefined) shape.text = text;
+    if (value.size !== undefined) {
+      if ((TEXT_SIZES as readonly unknown[]).includes(value.size)) {
+        if (value.size !== "medium") shape.size = value.size as ShapeData["size"];
+      } else report(`${path}.size`, "size-invalid", `\`size\` must be one of: ${TEXT_SIZES.join(", ")}.`);
+    }
+    if (value.fill !== undefined) {
+      if ((SHAPE_FILLS as readonly unknown[]).includes(value.fill)) shape.fill = value.fill as ShapeData["fill"];
+      else report(`${path}.fill`, "fill-invalid", `\`fill\` must be one of: ${SHAPE_FILLS.join(", ")}.`);
+    }
+  }
+  readLook(value, shape, path, report, kind !== "text");
+  return shape;
+}
+
+/** A shape's or arrow's colour, and whether it's dashed, when it can be. */
+function readLook(value: Record<string, unknown>, into: { color?: ShapeData["color"]; dashed?: boolean }, path: string, report: Report, dashes: boolean): void {
+  if (value.color !== undefined) {
+    if ((SHAPE_COLORS as readonly unknown[]).includes(value.color)) {
+      if (value.color !== "black") into.color = value.color as ShapeData["color"];
+    } else report(`${path}.color`, "color-invalid", `\`color\` must be one of: ${SHAPE_COLORS.join(", ")}.`);
+  }
+  if (dashes && value.dashed !== undefined) {
+    if (typeof value.dashed !== "boolean") report(`${path}.dashed`, "field-type", "Must be true or false.");
+    else if (value.dashed) into.dashed = true;
+  }
+}
+
+/** An arrow's end: a shape's ID, or a point. */
+function readArrowEnd(value: unknown, path: string, report: Report, which: "from" | "to"): ArrowEnd | undefined {
+  if (value === undefined || value === "") {
+    report(path, "field-required", `\`${which}\` is required: the ID of the shape it ${which === "from" ? "starts at" : "points to"}, or a point, [x, y].`);
+    return undefined;
+  }
+  if (typeof value === "string") return value;
+  if (isPoint(value)) return value;
+  report(path, "field-type", "Must be the ID of a shape, or a point, [x, y].");
+  return undefined;
+}
+
+function readArrow(value: unknown, path: string, report: Report): ArrowData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'An arrow must be an object like { "id": "idea-to-plan", "from": "idea", "to": "plan" }.');
+    return undefined;
+  }
+  unknownKeys(value, ARROW_KEYS, path, report);
+  const id = str(value.id, `${path}.id`, report);
+  if (!id) {
+    report(`${path}.id`, "field-required", "`id` is required: an ID unique among the view's arrows.");
+    return undefined;
+  }
+  if (!readId(id, `${path}.id`, report)) return undefined;
+  const from = readArrowEnd(value.from, `${path}.from`, report, "from");
+  const to = readArrowEnd(value.to, `${path}.to`, report, "to");
+  if (from === undefined || to === undefined) return undefined;
+  const arrow: ArrowData = { id, from, to };
+  const text = str(value.text, `${path}.text`, report);
+  if (text !== undefined) arrow.text = text;
+  if (value.heads !== undefined) {
+    if ((ARROW_HEADS as readonly unknown[]).includes(value.heads)) {
+      if (value.heads !== "end") arrow.heads = value.heads as ArrowData["heads"];
+    } else report(`${path}.heads`, "heads-invalid", `\`heads\` must be one of: ${ARROW_HEADS.join(", ")}.`);
+  }
+  readLook(value, arrow, path, report, true);
+  return arrow;
+}
+
 /** `own`: the view's level, when it draws something other than boxes picked from the model, whose notes can't be on anything. */
 function readSticky(id: string, value: unknown, path: string, report: Report, own: OwnLevel | undefined): StickyData | undefined {
   if (!readId(id, path, report)) return undefined;
@@ -974,7 +1136,8 @@ function viewText(v: ViewData, indent: string): string {
   const deployment = v.level === "deployment";
   const events = v.level === "event";
   const wireframe = v.level === "wireframe";
-  const boxes = !sequence && !statesView && !deployment && !events && !wireframe;
+  const whiteboard = v.level === "whiteboard";
+  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard;
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
   if (boxes) entries.push(["include", inline(v.include ?? ["*"])]);
   if (boxes && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
@@ -1019,6 +1182,26 @@ function viewText(v: ViewData, indent: string): string {
     entries.push(["cards", list((v.cards ?? []).map(card))]);
   }
   if (wireframe) entries.push(["screens", listText((v.screens ?? []).map((s) => screenText(s, `${indent}    `)), indent)]);
+  if (whiteboard) {
+    const round = (point: number[]) => point.map((n) => Math.round(n));
+    const look = (x: { color?: string; dashed?: boolean }) => ({ color: x.color && x.color !== "black" ? x.color : undefined, dashed: x.dashed || undefined });
+    const shape = (s: ShapeData) =>
+      inline({
+        id: s.id,
+        kind: s.kind,
+        text: s.text || undefined,
+        at: round(s.at),
+        points: s.points?.map(round),
+        size: s.size && s.size !== "medium" ? s.size : undefined,
+        color: look(s).color,
+        fill: s.fill,
+        dashed: look(s).dashed,
+      });
+    const end = (e: ArrowEnd) => (typeof e === "string" ? e : round(e));
+    const arrow = (a: ArrowData) => inline({ id: a.id, from: end(a.from), to: end(a.to), text: a.text || undefined, heads: a.heads && a.heads !== "end" ? a.heads : undefined, ...look(a) });
+    entries.push(["shapes", listText((v.shapes ?? []).map(shape), indent)]);
+    entries.push(["arrows", listText((v.arrows ?? []).map(arrow), indent)]);
+  }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();
     const on = (t: StickyTargetData) => ("element" in t ? { element: t.element } : { from: t.from, to: t.to, kind: t.kind && t.kind !== "association" ? t.kind : undefined });

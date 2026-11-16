@@ -21,6 +21,7 @@ import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
+import { WhiteboardDiagram } from "./canvas/WhiteboardDiagram.js";
 import { WireframeDiagram } from "./canvas/WireframeDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
@@ -35,6 +36,8 @@ import {
   eventSelectionGone,
   wireframeDeleteOps,
   wireframeSelectionGone,
+  whiteboardDeleteOps,
+  whiteboardSelectionLeft,
   findArrow,
   followRenames,
   LEVEL_NAMES,
@@ -220,6 +223,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "instance" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.node && n.runs.includes(selection.element))) setSelection(null);
     if (ws && eventSelectionGone(ws.views.get(viewId ?? ""), selection)) setSelection(null);
     if (ws && wireframeSelectionGone(ws.views.get(viewId ?? ""), selection)) setSelection(null);
+    // Shapes, arrows and notes that leave a whiteboard leave the selection.
+    const left = ws ? whiteboardSelectionLeft(ws.views.get(viewId ?? ""), selection) : selection;
+    if (left !== selection) setSelection(left);
   }, [ws, selection, viewId]);
 
   // Warn before closing the tab with changes that live only in memory.
@@ -344,8 +350,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     }
     // A lane, a card and an arrow between two cards are only this view's too. A lane's cards stay, in no lane.
     if (view) {
-      // So are a screen, with what's on it, and a widget, with what's inside it.
-      const ops = [...eventDeleteOps(view, selection), ...wireframeDeleteOps(view, selection)];
+      // So are a screen, with what's on it, and a widget, with what's inside it, and a whiteboard's shapes, with their arrows, and its arrows and notes.
+      const ops = [...eventDeleteOps(view, selection), ...wireframeDeleteOps(view, selection), ...whiteboardDeleteOps(view, selection)];
       if (ops.length) void edit(ops).then(() => select(null));
     }
     if (selection?.kind === "arrow" && ws) {
@@ -703,6 +709,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           computed ? (
             <ReactFlowProvider key={view.id}>
               <EventDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
+            </ReactFlowProvider>
+          ) : (
+            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+          )
+        ) : view?.level === "whiteboard" ? (
+          computed ? (
+            <ReactFlowProvider key={view.id}>
+              <WhiteboardDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

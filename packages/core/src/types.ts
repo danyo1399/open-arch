@@ -13,9 +13,10 @@ export type ElementKind = (typeof ELEMENT_KINDS)[number];
  * An event view draws what happens in a business process, as event storming does: commands,
  * events and the other notes, in order along a timeline, in swimlanes. A wireframe view draws an
  * app's screens, as rough sketches of what's on each, and how a button or link on one leads to
- * another.
+ * another. A whiteboard view is a freehand sketch, to share an idea: shapes, text, arrows and
+ * lines drawn with a pen, each where it's put, none of them part of the model.
  */
-export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event", "wireframe"] as const;
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event", "wireframe", "whiteboard"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -150,13 +151,44 @@ export type ScreenDevice = (typeof SCREEN_DEVICES)[number];
 /** Each device, as the designer and the docs name it. */
 export const SCREEN_DEVICE_LABELS: Record<ScreenDevice, string> = { desktop: "Desktop", tablet: "Tablet", phone: "Phone" };
 
+/**
+ * What a shape on a whiteboard view is:
+ * - rectangle, ellipse and diamond: an outline, with its text inside
+ * - text: just its text, with no outline
+ * - pen: a line drawn freehand, through its points
+ */
+export const SHAPE_KINDS = ["rectangle", "ellipse", "diamond", "text", "pen"] as const;
+export type ShapeKind = (typeof SHAPE_KINDS)[number];
+
+/** Each kind of shape, as the designer and the docs name it. */
+export const SHAPE_KIND_LABELS: Record<ShapeKind, string> = { rectangle: "Rectangle", ellipse: "Ellipse", diamond: "Diamond", text: "Text", pen: "Pen" };
+
+/** How big a rectangle, ellipse or diamond is when its `at` gives no width and height. */
+export const SHAPE_SIZE: readonly [number, number] = [160, 80];
+
+/** The colour of a whiteboard shape's outline and text, or of an arrow. Black is the default, and is white in dark mode. */
+export const SHAPE_COLORS = ["black", "grey", "red", "orange", "green", "blue", "purple"] as const;
+export type ShapeColor = (typeof SHAPE_COLORS)[number];
+
+/** What a whiteboard shape is filled with: a pale tint of the colour, or white, which hides what's behind it. Without one, it's see-through. */
+export const SHAPE_FILLS = ["white", "grey", "red", "orange", "yellow", "green", "blue", "purple"] as const;
+export type ShapeFill = (typeof SHAPE_FILLS)[number];
+
+/** How big a whiteboard shape's text is. Medium is the default. */
+export const TEXT_SIZES = ["small", "medium", "large", "huge"] as const;
+export type TextSize = (typeof TEXT_SIZES)[number];
+
+/** Where a whiteboard arrow has heads: at its end (the default), at both ends, or none, which makes it a line. */
+export const ARROW_HEADS = ["end", "both", "none"] as const;
+export type ArrowHeads = (typeof ARROW_HEADS)[number];
+
 /** Name/value pairs. A tag can have an empty value, which makes it a plain label. */
 export type Tags = Record<string, string>;
 
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 13;
+export const FORMAT_VERSION = 14;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -246,6 +278,56 @@ export interface ViewData {
   cards?: CardData[];
   /** Wireframe views only: the screens, in order, left to right. */
   screens?: ScreenData[];
+  /** Whiteboard views only: the shapes, from the back to the front: each is drawn over those before it. */
+  shapes?: ShapeData[];
+  /** Whiteboard views only: the arrows and lines, drawn over the shapes. */
+  arrows?: ArrowData[];
+}
+
+/** One shape on a whiteboard view: a rectangle, an ellipse, a diamond, text, or a line drawn with the pen. */
+export interface ShapeData {
+  /** Unique among the view's shapes. */
+  id: string;
+  kind: ShapeKind;
+  /** What it says. Not on pens. */
+  text?: string;
+  /**
+   * Its top-left corner, and its width and height: [x, y, width, height]. Without them, a
+   * rectangle, ellipse or diamond is 160 by 80, and text is as big as what it says. A pen's is
+   * [x, y]: how big it is comes from its points.
+   */
+  at: Position;
+  /** Pens only: the points it goes through, from its corner, `at`: [[x, y], ...]. Two or more. */
+  points?: [number, number][];
+  /** How big its text is. Default: medium. Not on pens. */
+  size?: TextSize;
+  /** Its outline's and text's colour, or a pen's. Default: black. */
+  color?: ShapeColor;
+  /** Default: none, so it's see-through. Not on pens. */
+  fill?: ShapeFill;
+  /** True for a dashed outline, or a dashed pen line. Not on text. */
+  dashed?: boolean;
+}
+
+/**
+ * An end of a whiteboard arrow: the ID of a shape, which the arrow is drawn to the edge of and
+ * follows as it moves, or a point on the whiteboard, [x, y].
+ */
+export type ArrowEnd = string | [number, number];
+
+/** An arrow, or a line, on a whiteboard view. */
+export interface ArrowData {
+  /** Unique among the view's arrows. */
+  id: string;
+  from: ArrowEnd;
+  to: ArrowEnd;
+  /** What it says, drawn in the middle of it. */
+  text?: string;
+  /** Default: end. "none" makes it a line. */
+  heads?: ArrowHeads;
+  /** Default: black. */
+  color?: ShapeColor;
+  dashed?: boolean;
 }
 
 /** One screen of a wireframe view, like "Cart": a page of a website, or of an app. */
@@ -458,6 +540,39 @@ export interface ViewDef {
   cards: Card[];
   /** Wireframe views only, in order, left to right; empty on other views. */
   screens: Screen[];
+  /** Whiteboard views only, from the back to the front; empty on other views. */
+  shapes: Shape[];
+  /** Whiteboard views only, in the file's order; empty on other views. */
+  arrows: Arrow[];
+}
+
+export interface Shape {
+  id: string;
+  /** Where it lives in the document, e.g. `views.ideas.shapes[0]`. */
+  path: string;
+  /** Its place from the back: 1 is drawn first, under the rest. */
+  number: number;
+  kind: ShapeKind;
+  text?: string;
+  at: Position;
+  /** Pens only; empty on other shapes. */
+  points: [number, number][];
+  size: TextSize;
+  color: ShapeColor;
+  fill?: ShapeFill;
+  dashed: boolean;
+}
+
+export interface Arrow {
+  id: string;
+  /** Where it lives in the document, e.g. `views.ideas.arrows[0]`. */
+  path: string;
+  from: ArrowEnd;
+  to: ArrowEnd;
+  text?: string;
+  heads: ArrowHeads;
+  color: ShapeColor;
+  dashed: boolean;
 }
 
 export interface Screen {

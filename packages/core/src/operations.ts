@@ -8,16 +8,25 @@ import { checkWorkspace } from "./check.js";
 import { isInside, kindList, PARENT_KINDS } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
+  ARROW_HEADS,
   CARD_KINDS,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
   ID_PATTERN,
   RELATIONSHIP_KINDS,
   SCREEN_DEVICES,
+  SHAPE_COLORS,
+  SHAPE_FILLS,
+  SHAPE_KINDS,
+  SHAPE_SIZE,
   STICKY_COLORS,
+  TEXT_SIZES,
   VIEW_LEVELS,
   WIDGET_HOLDERS,
   WIDGET_KINDS,
+  type ArrowData,
+  type ArrowEnd,
+  type ArrowHeads,
   type CardData,
   type CardKind,
   type ConnectionData,
@@ -33,12 +42,17 @@ import {
   type RelationshipKind,
   type ScreenData,
   type ScreenDevice,
+  type ShapeColor,
+  type ShapeData,
+  type ShapeFill,
+  type ShapeKind,
   type StateData,
   type StepData,
   type StickyColor,
   type StickyData,
   type StickyTargetData,
   type Tags,
+  type TextSize,
   type ViewData,
   type ViewLevel,
   type WidgetData,
@@ -207,6 +221,46 @@ export type Operation =
       position?: number;
     }
   | { op: "remove-widget"; view: string; id: string }
+  /**
+   * `at` is its top-left corner, [x, y], or that and its width and height, [x, y, width, height];
+   * without it, it goes under the shapes there are. `points` are a pen's, from its corner.
+   * `position` is its place from the back: 1 is drawn first, under the rest.
+   */
+  | {
+      op: "add-shape";
+      view: string;
+      id: string;
+      kind: ShapeKind;
+      text?: string;
+      at?: Position;
+      points?: [number, number][];
+      size?: TextSize;
+      color?: ShapeColor;
+      fill?: ShapeFill;
+      dashed?: boolean;
+      position?: number;
+    }
+  | {
+      op: "update-shape";
+      view: string;
+      id: string;
+      newId?: string;
+      kind?: ShapeKind;
+      text?: string | null;
+      /** [x, y] moves it and keeps its size; [x, y, width, height] moves it and gives it that size. */
+      at?: Position;
+      points?: [number, number][];
+      size?: TextSize | null;
+      color?: ShapeColor | null;
+      fill?: ShapeFill | null;
+      dashed?: boolean;
+      position?: number;
+    }
+  | { op: "remove-shape"; view: string; id: string }
+  /** Each end is the ID of a shape of the view, or a point, [x, y]. */
+  | { op: "add-arrow"; view: string; id: string; from: ArrowEnd; to: ArrowEnd; text?: string; heads?: ArrowHeads; color?: ShapeColor; dashed?: boolean }
+  | { op: "update-arrow"; view: string; id: string; newId?: string; from?: ArrowEnd; to?: ArrowEnd; text?: string | null; heads?: ArrowHeads | null; color?: ShapeColor | null; dashed?: boolean }
+  | { op: "remove-arrow"; view: string; id: string }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -239,7 +293,10 @@ type FieldType =
   | "point"
   | "nullable-point"
   | "target"
-  | "nullable-target";
+  | "nullable-target"
+  | "box"
+  | "points"
+  | "end";
 
 const SHAPES: Record<OperationName, { required: string[]; fields: Record<string, FieldType> }> = {
   "add-element": {
@@ -403,6 +460,37 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
     },
   },
   "remove-widget": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-shape": {
+    required: ["view", "id", "kind"],
+    fields: { view: "string", id: "string", kind: "string", text: "string", at: "box", points: "points", size: "string", color: "string", fill: "string", dashed: "boolean", position: "number" },
+  },
+  "update-shape": {
+    required: ["view", "id"],
+    fields: {
+      view: "string",
+      id: "string",
+      newId: "string",
+      kind: "string",
+      text: "nullable-string",
+      at: "box",
+      points: "points",
+      size: "nullable-string",
+      color: "nullable-string",
+      fill: "nullable-string",
+      dashed: "boolean",
+      position: "number",
+    },
+  },
+  "remove-shape": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-arrow": {
+    required: ["view", "id", "from", "to"],
+    fields: { view: "string", id: "string", from: "end", to: "end", text: "string", heads: "string", color: "string", dashed: "boolean" },
+  },
+  "update-arrow": {
+    required: ["view", "id"],
+    fields: { view: "string", id: "string", newId: "string", from: "end", to: "end", text: "nullable-string", heads: "nullable-string", color: "nullable-string", dashed: "boolean" },
+  },
+  "remove-arrow": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
@@ -455,6 +543,12 @@ function fits(type: FieldType, value: unknown): boolean {
       return isTarget(value);
     case "nullable-target":
       return value === null || isTarget(value);
+    case "box":
+      return Array.isArray(value) && (value.length === 2 || value.length === 4) && value.every((n) => typeof n === "number" && Number.isFinite(n));
+    case "points":
+      return Array.isArray(value) && value.every(isPoint);
+    case "end":
+      return typeof value === "string" || isPoint(value);
   }
 }
 
@@ -475,6 +569,9 @@ const TYPE_TEXT: Record<FieldType, string> = {
   "nullable-point": "a position, [x, y], or null to let the designer place it",
   target: 'an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association',
   "nullable-target": 'an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association, or null to take the note off it',
+  box: "a position, [x, y], or a position and a size, [x, y, width, height]",
+  points: "a list of points, [[x, y], ...]",
+  end: "the ID of a shape, or a point, [x, y]",
 };
 
 /** Check operations received as JSON: an operation object or a list of them. */
@@ -669,6 +766,22 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       return updateWidget(doc, op);
     case "remove-widget":
       return removeWidget(doc, op.view, op.id);
+    case "add-shape":
+      return addShape(doc, op);
+    case "update-shape":
+      return updateShape(doc, op);
+    case "remove-shape":
+      return removeShape(doc, op.view, op.id);
+    case "add-arrow":
+      return addArrow(doc, op);
+    case "update-arrow":
+      return updateArrow(doc, op);
+    case "remove-arrow": {
+      const view = requireWhiteboard(doc, op.view);
+      const arrow = requireArrow(view, op.view, op.id);
+      view.arrows!.splice(view.arrows!.indexOf(arrow), 1);
+      return `removed arrow ${op.id} from view ${op.view}`;
+    }
     case "update-workspace":
       return updateWorkspace(doc, op);
   }
@@ -933,6 +1046,8 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     lanes: [],
     cards: [],
     screens: [],
+    shapes: [],
+    arrows: [],
   };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
@@ -943,21 +1058,23 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   if (statesView && (op.include || op.exclude)) throw new OpError(STATE_BOXES);
   const events = op.level === "event";
   const wireframe = op.level === "wireframe";
+  const whiteboard = op.level === "whiteboard";
   if (deployment && (op.include || op.exclude)) throw new OpError(DEPLOYMENT_BOXES);
   if (events && (op.include || op.exclude)) throw new OpError(EVENT_CARDS);
   if (wireframe && (op.include || op.exclude)) throw new OpError(WIREFRAME_SCREENS);
+  if (whiteboard && (op.include || op.exclude)) throw new OpError(WHITEBOARD_SHAPES);
   checkIds(doc, op.include, "include");
   checkIds(doc, op.exclude, "exclude");
   const scope = op.scope ? doc.elements[op.scope] : undefined;
   const title =
     op.title?.trim() ||
-    (sequence || deployment || events ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView || wireframe ? titleFromId(op.id) : "System landscape");
+    (sequence || deployment || events || whiteboard ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView || wireframe ? titleFromId(op.id) : "System landscape");
   doc.views[op.id] = clean<ViewData>({
     title,
     description: op.description?.trim(),
     level: op.level,
     scope: op.scope,
-    include: sequence || statesView || deployment || events || wireframe ? undefined : op.include ? [...op.include] : ["*"],
+    include: sequence || statesView || deployment || events || wireframe || whiteboard ? undefined : op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
     notes: op.notes?.trim(),
     steps: sequence ? [] : undefined,
@@ -968,6 +1085,8 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     lanes: events ? [] : undefined,
     cards: events ? [] : undefined,
     screens: wireframe ? [] : undefined,
+    shapes: whiteboard ? [] : undefined,
+    arrows: whiteboard ? [] : undefined,
   });
   return `added view ${op.id}`;
 }
@@ -984,6 +1103,7 @@ export const LEVEL_TITLE: Record<ViewLevel, string> = {
   deployment: "deployment",
   event: "events",
   wireframe: "wireframes",
+  whiteboard: "whiteboard",
 };
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
@@ -1012,6 +1132,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   if (view.level === "deployment" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(DEPLOYMENT_BOXES);
   if (view.level === "event" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(EVENT_CARDS);
   if (view.level === "wireframe" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(WIREFRAME_SCREENS);
+  if (view.level === "whiteboard" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(WHITEBOARD_SHAPES);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -1063,6 +1184,7 @@ function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "deployment") throw new OpError(DEPLOYMENT_BOXES);
   if (view.level === "event") throw new OpError(EVENT_CARDS);
   if (view.level === "wireframe") throw new OpError(WIREFRAME_SCREENS);
+  if (view.level === "whiteboard") throw new OpError(WHITEBOARD_SHAPES);
   requireElement(doc, id);
   if (shows(doc, viewId, id)) return `${id} is already in view ${viewId}`;
   if (view.exclude?.includes(id)) {
@@ -1083,6 +1205,7 @@ function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "deployment") throw new OpError(DEPLOYMENT_BOXES);
   if (view.level === "event") throw new OpError(EVENT_CARDS);
   if (view.level === "wireframe") throw new OpError(WIREFRAME_SCREENS);
+  if (view.level === "whiteboard") throw new OpError(WHITEBOARD_SHAPES);
   requireElement(doc, id);
   if (!shows(doc, viewId, id)) throw new OpError(`"${id}" isn't a box in view "${viewId}".`);
   if (view.include?.includes(id)) view.include = view.include.filter((x) => x !== id);
@@ -1097,6 +1220,7 @@ function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<stri
   if (view.level === "deployment") throw new OpError("A deployment view is laid out from its nodes, so it has no box positions.");
   if (view.level === "event") throw new OpError("An event view is laid out from its lanes and the order of its cards, so it has no box positions. Move a card with update-card.");
   if (view.level === "wireframe") throw new OpError("A wireframe view is laid out from its screens and their widgets, so it has no box positions. Move a widget with update-widget.");
+  if (view.level === "whiteboard") throw new OpError("A whiteboard view has no boxes. Move a shape with update-shape --at.");
   const layout: Record<string, Position> = { ...view.layout };
   for (const [id, pos] of Object.entries(positions)) {
     if (pos === null) {
@@ -2030,6 +2154,246 @@ function requireScreen(view: ViewData, viewId: string, id: string): ScreenData {
     throw new OpError(`View "${viewId}" has no screen "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its screens: ${ids.join(", ")}.` : " Add one with add-screen."}`);
   }
   return screen;
+}
+
+/** Why a whiteboard view can't be given elements to show or hide. */
+const WHITEBOARD_SHAPES = "A whiteboard view draws its shapes and arrows, not elements, so it takes no include or exclude list. Add a shape with add-shape, and an arrow with add-arrow.";
+const SHAPE_ID_EXAMPLE = 'IDs are lowercase kebab-case, like "big-idea".';
+
+/** About how tall a line of text is, at each size, for placing a shape under one whose height is its text's. */
+const LINE_HEIGHT: Record<TextSize, number> = { small: 20, medium: 28, large: 40, huge: 60 };
+
+/** Where a shape added without `at` goes: under the lowest of the shapes there are, lined up with the leftmost. */
+function belowShapes(shapes: ShapeData[]): [number, number] {
+  if (shapes.length === 0) return [0, 0];
+  const bottom = (s: ShapeData) => {
+    if (s.at.length === 4) return s.at[1] + s.at[3];
+    if (s.kind === "pen") return s.at[1] + Math.max(...(s.points ?? []).map((p) => p[1]));
+    if (s.kind === "text") return s.at[1] + LINE_HEIGHT[s.size ?? "medium"] * Math.max(1, (s.text ?? "").split("\n").length);
+    return s.at[1] + SHAPE_SIZE[1];
+  };
+  return [Math.min(...shapes.map((s) => s.at[0])), Math.max(...shapes.map(bottom)) + 40];
+}
+
+function checkShapeAt(at: Position, kind: ShapeKind): void {
+  if (at.length === 4 && kind === "pen") throw new OpError("A pen's at is [x, y]: how big its line is comes from its points.");
+  if (at.length === 4 && !(at[2] > 0 && at[3] > 0)) throw new OpError("A shape's width and height must be more than 0.");
+}
+
+function checkPoints(points: [number, number][]): void {
+  if (points.length < 2) throw new OpError("A pen's line needs two points or more.");
+}
+
+/** Refuses what a kind of shape doesn't take: text, a text size or a fill on a pen, and a dashed outline on text. */
+function checkShapeFields(kind: ShapeKind, fields: { text?: unknown; size?: unknown; fill?: unknown; dashed?: unknown; points?: unknown }): void {
+  if (kind === "pen") {
+    for (const key of ["text", "size", "fill"] as const) if (fields[key] !== undefined && fields[key] !== null) throw new OpError(`A pen draws only a line, so it takes no ${key}.`);
+  } else if (fields.points !== undefined) throw new OpError("Only pens have points.");
+  if (kind === "text" && fields.dashed === true) throw new OpError("Text has no outline, so it can't be dashed.");
+}
+
+function checkOneOf(value: string | undefined | null, list: readonly string[], what: string): void {
+  if (value === undefined || value === null || list.includes(value)) return;
+  const near = suggest(value, list);
+  throw new OpError(`Unknown ${what} "${value}".${near ? ` Did you mean "${near}"?` : ""} Use one of: ${list.join(", ")}.`);
+}
+
+function addShape(doc: OpenArchDocument, op: Extract<Operation, { op: "add-shape" }>): string {
+  const view = requireWhiteboard(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. ${SHAPE_ID_EXAMPLE}`);
+  const shapes = (view.shapes ??= []);
+  if (shapes.some((s) => s.id === op.id)) throw new OpError(`View "${op.view}" already has a shape "${op.id}".`);
+  checkOneOf(op.kind, SHAPE_KINDS, "kind of shape");
+  checkShapeFields(op.kind, op);
+  checkOneOf(op.size, TEXT_SIZES, "text size");
+  checkOneOf(op.color, SHAPE_COLORS, "color");
+  checkOneOf(op.fill, SHAPE_FILLS, "fill");
+  if (op.kind === "pen") {
+    if (!op.points) throw new OpError("A pen needs points: the points its line goes through, from its corner.");
+    checkPoints(op.points);
+  }
+  const at = (op.at ?? belowShapes(shapes)).map((n) => Math.round(n)) as Position;
+  checkShapeAt(at, op.kind);
+  const shape = clean<ShapeData>({
+    id: op.id,
+    kind: op.kind,
+    text: op.kind === "pen" ? undefined : op.text,
+    at,
+    points: op.points?.map((p) => p.map((n) => Math.round(n)) as [number, number]),
+    size: op.size === "medium" ? undefined : op.size,
+    color: op.color === "black" ? undefined : op.color,
+    fill: op.fill,
+    dashed: op.dashed || undefined,
+  });
+  const place = insertAt(shapes, shape, op.position, op.view, "shape");
+  return `added ${op.kind} ${op.id} to view ${op.view}${place < shapes.length ? `, as shape ${place} from the back` : ""}`;
+}
+
+function updateShape(doc: OpenArchDocument, op: Extract<Operation, { op: "update-shape" }>): string {
+  const view = requireWhiteboard(doc, op.view);
+  const shape = requireShape(view, op.view, op.id);
+  const fields = ["newId", "kind", "text", "at", "points", "size", "color", "fill", "dashed", "position"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on shape "${op.id}": ${fields.join(", ")}.`);
+  const kind = op.kind ?? shape.kind;
+  checkOneOf(op.kind, SHAPE_KINDS, "kind of shape");
+  if (op.kind !== undefined && (op.kind === "pen") !== (shape.kind === "pen")) {
+    throw new OpError(shape.kind === "pen" ? "A pen's line can't become another kind of shape. Remove it, and add the shape you want." : "A shape can't become a pen's line. Remove it, and draw the line with the pen.");
+  }
+  checkShapeFields(kind, op);
+  checkOneOf(op.size, TEXT_SIZES, "text size");
+  checkOneOf(op.color, SHAPE_COLORS, "color");
+  checkOneOf(op.fill, SHAPE_FILLS, "fill");
+  shape.kind = kind;
+  // Text has no outline to dash.
+  if (kind === "text") delete shape.dashed;
+  if (op.text !== undefined) {
+    if (op.text === null || op.text === "") delete shape.text;
+    else shape.text = op.text;
+  }
+  if (op.at !== undefined) {
+    checkShapeAt(op.at, kind);
+    const [x, y] = op.at.map((n) => Math.round(n));
+    // A position on its own keeps the shape's size.
+    shape.at = op.at.length === 4 ? [x!, y!, Math.round(op.at[2]), Math.round(op.at[3])] : shape.at.length === 4 ? [x!, y!, shape.at[2], shape.at[3]] : [x!, y!];
+  }
+  if (op.points !== undefined) {
+    checkPoints(op.points);
+    shape.points = op.points.map((p) => p.map((n) => Math.round(n)) as [number, number]);
+  }
+  if (op.size !== undefined) {
+    if (op.size === null || op.size === "medium") delete shape.size;
+    else shape.size = op.size;
+  }
+  if (op.color !== undefined) {
+    if (op.color === null || op.color === "black") delete shape.color;
+    else shape.color = op.color;
+  }
+  if (op.fill !== undefined) {
+    if (op.fill === null) delete shape.fill;
+    else shape.fill = op.fill;
+  }
+  if (op.dashed !== undefined) {
+    if (op.dashed) shape.dashed = true;
+    else delete shape.dashed;
+  }
+  const shapes = view.shapes!;
+  const moved = moveTo(shapes, shapes.indexOf(shape), op.position, op.view, "shape");
+  const where = moved ? `, and moved it to ${op.position} from the back` : "";
+  if (op.newId === undefined || op.newId === op.id) {
+    // Asked only for the place, or the ID, it has already: say so, as nothing changed.
+    if (fields.every((f) => f === "position" || f === "newId" || op[f] === undefined)) {
+      return moved ? `moved shape ${op.id} to ${op.position} from the back in view ${op.view}` : `shape ${op.id} is already ${op.position === undefined ? `"${op.id}"` : `shape ${op.position} from the back`} in view ${op.view}`;
+    }
+    return `updated shape ${op.id} in view ${op.view}${where}`;
+  }
+  // A new ID keeps the shape where it is, and the arrows to and from it follow it.
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. ${SHAPE_ID_EXAMPLE}`);
+  if (shapes.some((s) => s.id === op.newId)) throw new OpError(`View "${op.view}" already has a shape "${op.newId}".`);
+  shape.id = op.newId;
+  for (const a of view.arrows ?? []) {
+    if (a.from === op.id) a.from = op.newId;
+    if (a.to === op.id) a.to = op.newId;
+  }
+  return `renamed shape ${op.id} to ${op.newId} in view ${op.view}${where}`;
+}
+
+/** Removes a shape, and the arrows to and from it. */
+function removeShape(doc: OpenArchDocument, viewId: string, id: string): string {
+  const view = requireWhiteboard(doc, viewId);
+  const shape = requireShape(view, viewId, id);
+  view.shapes!.splice(view.shapes!.indexOf(shape), 1);
+  const before = view.arrows?.length ?? 0;
+  if (view.arrows) view.arrows = view.arrows.filter((a) => a.from !== id && a.to !== id);
+  const gone = before - (view.arrows?.length ?? 0);
+  return `removed shape ${id} from view ${viewId}${gone ? ` and ${count(gone, "arrow")} to or from it` : ""}`;
+}
+
+/** An arrow's end, rounded if it's a point. Refuses a shape the view doesn't have. */
+function arrowEnd(view: ViewData, viewId: string, end: ArrowEnd): ArrowEnd {
+  if (typeof end !== "string") return end.map((n) => Math.round(n)) as [number, number];
+  requireShape(view, viewId, end);
+  return end;
+}
+
+function checkArrowEnds(from: ArrowEnd, to: ArrowEnd): void {
+  if (typeof from === "string" && from === to) throw new OpError("An arrow can't go from a shape to itself.");
+}
+
+function addArrow(doc: OpenArchDocument, op: Extract<Operation, { op: "add-arrow" }>): string {
+  const view = requireWhiteboard(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. ${SHAPE_ID_EXAMPLE}`);
+  const arrows = (view.arrows ??= []);
+  if (arrows.some((a) => a.id === op.id)) throw new OpError(`View "${op.view}" already has an arrow "${op.id}".`);
+  checkOneOf(op.heads, ARROW_HEADS, "heads");
+  checkOneOf(op.color, SHAPE_COLORS, "color");
+  const from = arrowEnd(view, op.view, op.from);
+  const to = arrowEnd(view, op.view, op.to);
+  checkArrowEnds(from, to);
+  arrows.push(
+    clean<ArrowData>({ id: op.id, from, to, text: op.text, heads: op.heads === "end" ? undefined : op.heads, color: op.color === "black" ? undefined : op.color, dashed: op.dashed || undefined }),
+  );
+  return `added ${op.heads === "none" ? "line" : "arrow"} ${op.id} to view ${op.view}`;
+}
+
+function updateArrow(doc: OpenArchDocument, op: Extract<Operation, { op: "update-arrow" }>): string {
+  const view = requireWhiteboard(doc, op.view);
+  const arrow = requireArrow(view, op.view, op.id);
+  const fields = ["newId", "from", "to", "text", "heads", "color", "dashed"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on arrow "${op.id}": ${fields.join(", ")}.`);
+  checkOneOf(op.heads, ARROW_HEADS, "heads");
+  checkOneOf(op.color, SHAPE_COLORS, "color");
+  const from = op.from === undefined ? arrow.from : arrowEnd(view, op.view, op.from);
+  const to = op.to === undefined ? arrow.to : arrowEnd(view, op.view, op.to);
+  checkArrowEnds(from, to);
+  arrow.from = from;
+  arrow.to = to;
+  if (op.text !== undefined) {
+    if (op.text === null || op.text === "") delete arrow.text;
+    else arrow.text = op.text;
+  }
+  if (op.heads !== undefined) {
+    if (op.heads === null || op.heads === "end") delete arrow.heads;
+    else arrow.heads = op.heads;
+  }
+  if (op.color !== undefined) {
+    if (op.color === null || op.color === "black") delete arrow.color;
+    else arrow.color = op.color;
+  }
+  if (op.dashed !== undefined) {
+    if (op.dashed) arrow.dashed = true;
+    else delete arrow.dashed;
+  }
+  if (op.newId === undefined || op.newId === op.id) return `updated arrow ${op.id} in view ${op.view}`;
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. ${SHAPE_ID_EXAMPLE}`);
+  if (view.arrows!.some((a) => a.id === op.newId)) throw new OpError(`View "${op.view}" already has an arrow "${op.newId}".`);
+  arrow.id = op.newId;
+  return `renamed arrow ${op.id} to ${op.newId} in view ${op.view}`;
+}
+
+function requireWhiteboard(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "whiteboard") throw new OpError(`View "${id}" is a ${view.level} view. Only whiteboard views have shapes and arrows.`);
+  return view;
+}
+
+function requireShape(view: ViewData, viewId: string, id: string): ShapeData {
+  const shape = view.shapes?.find((s) => s.id === id);
+  if (!shape) {
+    const ids = (view.shapes ?? []).map((s) => s.id);
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no shape "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its shapes: ${ids.join(", ")}.` : " Add one with add-shape."}`);
+  }
+  return shape;
+}
+
+function requireArrow(view: ViewData, viewId: string, id: string): ArrowData {
+  const arrow = view.arrows?.find((a) => a.id === id);
+  if (!arrow) {
+    const ids = (view.arrows ?? []).map((a) => a.id);
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no arrow "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its arrows: ${ids.join(", ")}.` : " Add one with add-arrow."}`);
+  }
+  return arrow;
 }
 
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {

@@ -3,7 +3,25 @@
  * markdown viewers show a diagram without open-arch.
  */
 import { inFrame, kindLabel } from "./model.js";
-import { CARD_KIND_LABELS, SCREEN_DEVICE_LABELS, WIDGET_HOLDERS, WIDGET_KIND_LABELS, type ArchElement, type CardKind, type DeploymentNode, type ElementShape, type RelationshipKind, type Transition, type Widget } from "./types.js";
+import {
+  CARD_KIND_LABELS,
+  SCREEN_DEVICE_LABELS,
+  SHAPE_KIND_LABELS,
+  WIDGET_HOLDERS,
+  WIDGET_KIND_LABELS,
+  type ArchElement,
+  type Arrow,
+  type CardKind,
+  type DeploymentNode,
+  type ElementShape,
+  type RelationshipKind,
+  type Shape,
+  type ShapeColor,
+  type ShapeFill,
+  type Transition,
+  type ViewDef,
+  type Widget,
+} from "./types.js";
 import { allWidgets, cardArrows, screenArrows, type ComputedView } from "./views.js";
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
@@ -90,6 +108,7 @@ export function renderMermaid(cv: ComputedView): string {
   if (cv.deployment) return renderDeployment(cv);
   if (cv.view.level === "event") return renderEvents(cv);
   if (cv.view.level === "wireframe") return renderWireframe(cv);
+  if (cv.view.level === "whiteboard") return renderWhiteboard(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = cv.nodes.filter((n) => inFrame(boundary, n));
@@ -492,6 +511,56 @@ function renderWireframe(cv: ComputedView): string {
   }
   for (const screen of v.screens) lines.push(`  style ${screenId(screen.id)} fill:#ffffff,stroke:#444444`);
   for (const w of holders) lines.push(`  style ${mermaidId(w.id)} ${w.kind === "row" ? "fill:none,stroke:none" : "fill:none,stroke:#8a94a6"}`);
+  return lines.join("\n");
+}
+
+/** A whiteboard's colours, as the designer draws them in light mode. */
+const INK: Record<ShapeColor, string> = { black: "#1e1e1e", grey: "#868e96", red: "#e03131", orange: "#e8590c", green: "#2f9e44", blue: "#1971c2", purple: "#9c36b5" };
+const TINT: Record<ShapeFill, string> = { white: "#ffffff", grey: "#e9ecef", red: "#ffc9c9", orange: "#ffd8a8", yellow: "#fff3bf", green: "#b2f2bb", blue: "#a5d8ff", purple: "#eebefa" };
+
+/** A whiteboard's shapes in reading order: top to bottom, then left to right. */
+export function shapesInReadingOrder(shapes: Shape[]): Shape[] {
+  return [...shapes].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.number - b.number);
+}
+
+/** The arrows Mermaid can draw on a whiteboard: those between two shapes of the view, neither of them a pen's line, nor the same. */
+export function drawnArrows(view: ViewDef): Arrow[] {
+  const shapes = new Map(view.shapes.map((s) => [s.id, s]));
+  const drawable = (end: Arrow["from"]) => typeof end === "string" && shapes.has(end) && shapes.get(end)!.kind !== "pen";
+  return view.arrows.filter((a) => drawable(a.from) && drawable(a.to) && a.from !== a.to);
+}
+
+/**
+ * A whiteboard view as a Mermaid flowchart: its rectangles, ellipses, diamonds and text, in the
+ * nearest of Mermaid's shapes and in their colours, with the arrows between them. Mermaid lays
+ * them out itself, so they aren't where they are on the whiteboard, and it can't draw the pen's
+ * lines, or arrows with an end at a point, so they're left out.
+ */
+function renderWhiteboard(cv: ComputedView): string {
+  const v = cv.view;
+  const lines = ["flowchart TB"];
+  const shapes = shapesInReadingOrder(v.shapes.filter((s) => s.kind !== "pen"));
+  if (shapes.length === 0) {
+    lines.push("  %% This view has no shapes Mermaid can draw yet.");
+    return lines.join("\n");
+  }
+  const styles: string[] = [];
+  for (const s of shapes) {
+    const id = mermaidId(s.id);
+    const text = (s.text ?? "").split(/\r?\n/).map((l) => escape(l.trim())).join("<br/>").replace(/^(<br\/>)+|(<br\/>)+$/g, "");
+    const label = `"${text ? (s.size === "large" || s.size === "huge" ? `<b>${text}</b>` : text) : " "}"`;
+    lines.push(`  ${s.kind === "ellipse" ? `${id}([${label}])` : s.kind === "diamond" ? `${id}{${label}}` : `${id}[${label}]`}`);
+    const stroke = s.kind === "text" ? "none" : INK[s.color];
+    styles.push(`  style ${id} fill:${s.fill ? TINT[s.fill] : "none"},stroke:${stroke},color:${INK[s.color]}${s.dashed && s.kind !== "text" ? ",stroke-dasharray:5 5" : ""}`);
+  }
+  const links: string[] = [];
+  drawnArrows(v).forEach((a, i) => {
+    const line = a.heads === "both" ? (a.dashed ? "<-.->" : "<-->") : a.heads === "none" ? (a.dashed ? "-.-" : "---") : a.dashed ? "-.->" : "-->";
+    const text = a.text ? `|"${a.text.split(/\r?\n/).map((l) => escape(l.trim())).filter(Boolean).join("<br/>")}"|` : "";
+    lines.push(`  ${mermaidId(a.from as string)} ${line}${text} ${mermaidId(a.to as string)}`);
+    if (a.color !== "black") links.push(`  linkStyle ${i} stroke:${INK[a.color]}`);
+  });
+  lines.push(...styles, ...links);
   return lines.join("\n");
 }
 

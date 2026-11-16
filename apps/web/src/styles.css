@@ -30,6 +30,23 @@
   --sticky-blue: #cfe5ff;
   --sticky-green: #d3f2c6;
   --sticky-text: #2b2718;
+  /* A whiteboard's inks, which its outlines, text, arrows and pen lines are drawn with, and the
+     tints its shapes are filled with (see WhiteboardDiagram.tsx). Black is white in dark mode. */
+  --ink-black: #1e1e1e;
+  --ink-grey: #868e96;
+  --ink-red: #e03131;
+  --ink-orange: #e8590c;
+  --ink-green: #2f9e44;
+  --ink-blue: #1971c2;
+  --ink-purple: #9c36b5;
+  --tint-white: #ffffff;
+  --tint-grey: #e9ecef;
+  --tint-red: #ffc9c9;
+  --tint-orange: #ffd8a8;
+  --tint-yellow: #fff3bf;
+  --tint-green: #b2f2bb;
+  --tint-blue: #a5d8ff;
+  --tint-purple: #eebefa;
 }
 
 :root {
@@ -66,6 +83,22 @@
     --sticky-pink: #e8b4c2;
     --sticky-blue: #a9c9ec;
     --sticky-green: #b3dca3;
+    --ink-black: #e9ecef;
+    --ink-grey: #adb5bd;
+    --ink-red: #ff8787;
+    --ink-orange: #ffa94d;
+    --ink-green: #8ce99a;
+    --ink-blue: #74c0fc;
+    --ink-purple: #e599f7;
+    /* White hides what's behind it, as it does on a white board. */
+    --tint-white: #101317;
+    --tint-grey: #343a40;
+    --tint-red: #5c2427;
+    --tint-orange: #5a3510;
+    --tint-yellow: #4d4419;
+    --tint-green: #1f4529;
+    --tint-blue: #183a57;
+    --tint-purple: #45224f;
   }
 }
 
@@ -2659,4 +2692,364 @@ button.active {
 /* The buttons that turn snapping on and off, with the zoom buttons: an accent colour while it's on. */
 .react-flow__controls-button.snap-button[aria-pressed="true"] {
   color: var(--accent);
+}
+
+/* --- Whiteboard views ---------------------------------------------------- */
+
+/* Which ink and tint each shape and arrow is drawn in, and how big its text is (see WhiteboardDiagram.tsx). */
+
+.wb-ink-black {
+  --wb-ink: var(--ink-black);
+}
+.wb-ink-grey {
+  --wb-ink: var(--ink-grey);
+}
+.wb-ink-red {
+  --wb-ink: var(--ink-red);
+}
+.wb-ink-orange {
+  --wb-ink: var(--ink-orange);
+}
+.wb-ink-green {
+  --wb-ink: var(--ink-green);
+}
+.wb-ink-blue {
+  --wb-ink: var(--ink-blue);
+}
+.wb-ink-purple {
+  --wb-ink: var(--ink-purple);
+}
+.wb-fill-white {
+  --wb-fill: var(--tint-white);
+}
+.wb-fill-grey {
+  --wb-fill: var(--tint-grey);
+}
+.wb-fill-red {
+  --wb-fill: var(--tint-red);
+}
+.wb-fill-orange {
+  --wb-fill: var(--tint-orange);
+}
+.wb-fill-yellow {
+  --wb-fill: var(--tint-yellow);
+}
+.wb-fill-green {
+  --wb-fill: var(--tint-green);
+}
+.wb-fill-blue {
+  --wb-fill: var(--tint-blue);
+}
+.wb-fill-purple {
+  --wb-fill: var(--tint-purple);
+}
+.wb-size-small {
+  --wb-size: 16px;
+}
+.wb-size-medium {
+  --wb-size: 20px;
+}
+.wb-size-large {
+  --wb-size: 28px;
+}
+.wb-size-huge {
+  --wb-size: 40px;
+}
+
+/* Handwriting, as on a whiteboard. */
+.wb-shape,
+.wb-label,
+.wb-text-draft {
+  font-family: "Architects Daughter", "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+  color: var(--wb-ink, var(--ink-black));
+}
+.wb-shape {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+}
+/* A selected shape has the grips to resize it round it; a pen's line, which can't be resized, a ring. */
+.wb-shape-pen.selected {
+  outline-color: var(--accent);
+}
+.wb-shape.editing {
+  outline: 2px dashed var(--accent);
+}
+.wb-sketch {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.whiteboard .wb-stroke {
+  fill: none;
+  stroke: var(--wb-ink, var(--ink-black));
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wb-fill {
+  fill: var(--wb-fill);
+  stroke: none;
+}
+.whiteboard .wb-shape.dashed .wb-stroke,
+.whiteboard .wb-arrow.dashed .wb-line,
+.wb-shape.dashed .wb-pen-line {
+  stroke-dasharray: 8 9;
+}
+.wb-pen-line {
+  fill: none;
+  stroke: var(--wb-ink, var(--ink-black));
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wb-text {
+  position: relative;
+  max-width: 100%;
+  padding: 8px;
+  font-size: var(--wb-size, 20px);
+  line-height: 1.25;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* An ellipse's and a diamond's text keeps inside their curves. */
+.wb-shape-ellipse .wb-text {
+  padding: 8px 14%;
+}
+.wb-shape-diamond .wb-text {
+  padding: 8px 24%;
+}
+/* Text on its own reads from the left, on one line each unless it's been given a width. */
+.wb-shape-text {
+  place-items: start;
+  background: var(--wb-fill, transparent);
+}
+.wb-shape-text .wb-text {
+  text-align: left;
+}
+.wb-shape-text:not(.sized) .wb-text {
+  white-space: pre;
+}
+.wb-editor {
+  width: 100%;
+  min-width: 2em;
+  margin: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--wb-size, 20px);
+  resize: none;
+  overflow: hidden;
+}
+.wb-shape-text:not(.sized) .wb-editor,
+.wb-text-draft .wb-editor {
+  width: auto;
+  min-width: 240px;
+  field-sizing: content;
+  white-space: pre;
+}
+.wb-text-draft {
+  position: absolute;
+  left: 0;
+  top: 0;
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.wb-text-draft .wb-text {
+  text-align: left;
+}
+/* An arrow's text sits on it, with the board's colour behind it so the line doesn't cross it. */
+.wb-label {
+  position: absolute;
+  pointer-events: all;
+  cursor: pointer;
+  max-width: 260px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--canvas);
+  font-size: 18px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.wb-label.selected {
+  outline: 1px solid var(--accent);
+}
+.wb-label-editor {
+  min-width: 120px;
+  margin: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
+}
+/* A selected arrow is lit up along its length. */
+.whiteboard .wb-arrow.selected .react-flow__edge-interaction {
+  stroke: var(--accent);
+  stroke-opacity: 0.25;
+}
+/* The grips on an arrow's ends: only there to grab on the arrow selected. */
+.react-flow__node-end {
+  pointer-events: none;
+}
+.react-flow__node-end.shown {
+  pointer-events: all;
+  cursor: grab;
+}
+.wb-end {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+.wb-end::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  opacity: 0;
+}
+.react-flow__node-end.shown .wb-end::after {
+  opacity: 1;
+}
+.wb-preview {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+  opacity: 0.7;
+}
+.whiteboard.drawing .react-flow__pane,
+.whiteboard.drawing .react-flow__node {
+  cursor: crosshair;
+}
+/* The tools, along the bottom of the board. React Flow's panel there has the class "center", which
+   the start page's centred layout has too: this keeps it the size of its buttons. */
+.react-flow__panel.wb-tools {
+  height: auto;
+  display: flex;
+  place-content: normal;
+  text-align: initial;
+  gap: 2px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.wb-tools button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+}
+.wb-tools button:hover {
+  background: var(--hover);
+}
+.wb-tools button.active {
+  background: var(--active);
+  color: var(--accent);
+}
+.wb-tools svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@media (max-width: 480px) {
+  .wb-tools button {
+    width: 32px;
+    height: 32px;
+  }
+}
+/* The colours to pick from in a shape's or arrow's details. */
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+.swatches .swatch.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.swatches button.swatch-none {
+  background: linear-gradient(to top right, transparent calc(50% - 1px), var(--danger) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)), var(--panel);
+}
+.swatches button.swatch-ink-black {
+  background: var(--ink-black);
+}
+.swatches button.swatch-ink-grey {
+  background: var(--ink-grey);
+}
+.swatches button.swatch-ink-red {
+  background: var(--ink-red);
+}
+.swatches button.swatch-ink-orange {
+  background: var(--ink-orange);
+}
+.swatches button.swatch-ink-green {
+  background: var(--ink-green);
+}
+.swatches button.swatch-ink-blue {
+  background: var(--ink-blue);
+}
+.swatches button.swatch-ink-purple {
+  background: var(--ink-purple);
+}
+.swatches button.swatch-fill-white {
+  background: var(--tint-white);
+}
+.swatches button.swatch-fill-grey {
+  background: var(--tint-grey);
+}
+.swatches button.swatch-fill-red {
+  background: var(--tint-red);
+}
+.swatches button.swatch-fill-orange {
+  background: var(--tint-orange);
+}
+.swatches button.swatch-fill-yellow {
+  background: var(--tint-yellow);
+}
+.swatches button.swatch-fill-green {
+  background: var(--tint-green);
+}
+.swatches button.swatch-fill-blue {
+  background: var(--tint-blue);
+}
+.swatches button.swatch-fill-purple {
+  background: var(--tint-purple);
 }

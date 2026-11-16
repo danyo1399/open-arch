@@ -84,6 +84,10 @@ export type Selection =
   /** A wireframe view's screen, and a widget on one. */
   | { kind: "screen"; id: string }
   | { kind: "widget"; id: string }
+  /** A whiteboard view's shape, its arrow, and two or more of its shapes, arrows and sticky notes, which move together. */
+  | { kind: "shape"; id: string }
+  | { kind: "boardArrow"; id: string }
+  | { kind: "board"; shapes: string[]; arrows: string[]; stickies: string[] }
   | { kind: "several"; elements: string[]; stickies: string[] }
   | { kind: "workspace" }
   | null;

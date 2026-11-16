@@ -1,5 +1,7 @@
 import {
   allWidgets,
+  ARROW_HEADS,
+  arrowName,
   CARD_KIND_LABELS,
   CARD_KINDS,
   describeElement,
@@ -12,15 +14,22 @@ import {
   RUNNABLE_KINDS,
   SCREEN_DEVICE_LABELS,
   SCREEN_DEVICES,
+  SHAPE_COLORS,
+  SHAPE_FILLS,
+  SHAPE_KIND_LABELS,
   SHAPE_LABELS,
+  shapeName,
   STICKY_COLORS,
   stickyAnchor,
   STICKY_TARGET_LEVELS,
+  TEXT_SIZES,
   transitionLabel,
   WIDGET_HOLDERS,
   WIDGET_KIND_LABELS,
   WIDGET_KINDS,
   type ArchElement,
+  type Arrow,
+  type ArrowHeads,
   type Card,
   type CardKind,
   type ComputedView,
@@ -33,11 +42,16 @@ import {
   type RelationshipKind,
   type Screen,
   type ScreenDevice,
+  type Shape,
+  type ShapeColor,
+  type ShapeFill,
+  type ShapeKind,
   type State,
   type Transition,
   type Step,
   type Sticky,
   type StickyTargetData,
+  type TextSize,
   type ViewDef,
   type ViewLevel,
   type Widget,
@@ -65,6 +79,7 @@ import {
   uniqueStateId,
   viewAction,
   viewLevelsOf,
+  whiteboardDeleteOps,
 } from "../model.js";
 import { SKILL_TARGETS } from "../skill.js";
 import { docsProblem, type Edit } from "../state.js";
@@ -136,6 +151,9 @@ export function Properties(props: PropertiesProps) {
   else if (shown.kind === "cardArrow") body = <CardArrowProperties {...props} view={shown.view} from={shown.from} to={shown.to} />;
   else if (shown.kind === "screen") body = <ScreenProperties {...props} view={shown.view} screen={shown.screen} />;
   else if (shown.kind === "widget") body = <WidgetProperties {...props} view={shown.view} widget={shown.widget} />;
+  else if (shown.kind === "shape") body = <ShapeProperties {...props} view={shown.view} shape={shown.shape} />;
+  else if (shown.kind === "boardArrow") body = <BoardArrowProperties {...props} view={shown.view} arrow={shown.arrow} />;
+  else if (shown.kind === "board") body = <BoardProperties {...props} view={shown.view} shapes={shown.shapes} arrows={shown.arrows} stickies={shown.stickies} />;
   else if (shown.kind === "several") body = <SeveralProperties {...props} elements={shown.elements} stickies={shown.stickies} />;
   else if (shown.kind === "view") body = <ViewProperties {...props} view={shown.view} />;
   else body = <WorkspaceProperties {...props} />;
@@ -1342,6 +1360,232 @@ function WidgetProperties({ view, widget, isNew, edit, onSelect }: PropertiesPro
   );
 }
 
+const capitalised = (text: string) => text[0]!.toUpperCase() + text.slice(1);
+
+/** A row of colours to pick one from, and maybe none. `look` is the class each swatch is drawn with: an ink's or a fill's. */
+function Swatches<T extends string>({ label, value, options, look, none, onChange }: { label: string; value: T | undefined; options: readonly T[]; look: "ink" | "fill"; none?: string; onChange(value: T | undefined): void }) {
+  return (
+    <div className="field">
+      <span className="field-label">{label}</span>
+      <div className="swatches" role="group" aria-label={label}>
+        {none && <button className={`swatch swatch-none${value === undefined ? " active" : ""}`} aria-pressed={value === undefined} aria-label={none} title={none} onClick={() => onChange(undefined)} />}
+        {options.map((o) => (
+          <button key={o} className={`swatch swatch-${look}-${o}${value === o ? " active" : ""}`} aria-pressed={value === o} aria-label={capitalised(o)} title={capitalised(o)} onClick={() => onChange(o)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Each way an arrow can have heads, as the panel lists them. */
+const HEADS_TEXT: Record<ArrowHeads, string> = { end: "Arrow: one way", both: "Arrow: both ways", none: "Line: no heads" };
+
+/** A shape's ID, or an arrow's, as the panel changes it: a new one that's free among both. */
+function boardIdFor(view: ViewDef, id: string) {
+  const others = [...view.shapes.map((s) => s.id), ...view.arrows.map((a) => a.id)];
+  return (text: string) => {
+    const base = idFromName(text);
+    return !base || base === id ? undefined : uniqueAmong(others, base, id);
+  };
+}
+
+function ShapeProperties({ view, shape, edit, onSelect }: PropertiesProps & { view: ViewDef; shape: Shape }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-shape" }>, "op" | "view" | "id">) => void edit([{ op: "update-shape", view: view.id, id: shape.id, ...fields }]);
+  const pen = shape.kind === "pen";
+  const freeId = boardIdFor(view, shape.id);
+  const changeId = (text: string) => {
+    const newId = freeId(text);
+    if (newId) void edit([{ op: "update-shape", view: view.id, id: shape.id, newId }]).then((ok) => ok && onSelect({ kind: "shape", id: newId }));
+  };
+  const count = view.shapes.length;
+  const arrows = view.arrows.filter((a) => a.from === shape.id || a.to === shape.id);
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">{pen ? "Pen line" : SHAPE_KIND_LABELS[shape.kind]}</span>
+        <span className="muted small">
+          {shape.number} of {count} from the back
+        </span>
+      </header>
+      {!pen && <Field label="Text" value={shape.text ?? ""} multiline placeholder="What it says. Or double-click the shape to write in it" onCommit={(text) => set({ text: text || null })} />}
+      {!pen && (
+        <label className="field">
+          <span className="field-label">Shape</span>
+          <select value={shape.kind} onChange={(e) => set({ kind: e.target.value as ShapeKind })}>
+            {(["rectangle", "ellipse", "diamond", "text"] as const).map((k) => (
+              <option key={k} value={k}>
+                {SHAPE_KIND_LABELS[k]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <Swatches label={pen ? "Colour" : "Colour of its outline and text"} value={shape.color} options={SHAPE_COLORS} look="ink" onChange={(color) => set({ color: color ?? null })} />
+      {!pen && <Swatches label="Fill" value={shape.fill} options={SHAPE_FILLS} look="fill" none="None: see-through" onChange={(fill: ShapeFill | undefined) => set({ fill: fill ?? null })} />}
+      {!pen && (
+        <label className="field">
+          <span className="field-label">Text size</span>
+          <select value={shape.size} onChange={(e) => set({ size: e.target.value as TextSize })}>
+            {TEXT_SIZES.map((s) => (
+              <option key={s} value={s}>
+                {capitalised(s)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {shape.kind !== "text" && (
+        <label className="check">
+          <input type="checkbox" checked={shape.dashed} onChange={(e) => set({ dashed: e.target.checked })} />
+          Dashed
+        </label>
+      )}
+      <Field label="ID" value={shape.id} onCommit={changeId} hint="Arrows to and from it follow it." />
+      {arrows.length > 0 && (
+        <>
+          <h3>Arrows</h3>
+          <ul className="plain">
+            {arrows.map((a) => (
+              <li key={a.id}>
+                <button className="link one-line" onClick={() => onSelect({ kind: "boardArrow", id: a.id })}>
+                  {arrowName(a)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="actions">
+        <button disabled={shape.number === count} onClick={() => set({ position: count })}>
+          Bring to front
+        </button>
+        <button disabled={shape.number === 1} onClick={() => set({ position: 1 })}>
+          Send to back
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-shape", view: view.id, id: shape.id }]).then(() => onSelect(null))}>
+          Delete
+        </button>
+      </div>
+      {arrows.length > 0 && <p className="muted small">Deleting it deletes the arrows to and from it.</p>}
+    </>
+  );
+}
+
+function BoardArrowProperties({ view, arrow, edit, onSelect }: PropertiesProps & { view: ViewDef; arrow: Arrow }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-arrow" }>, "op" | "view" | "id">) => void edit([{ op: "update-arrow", view: view.id, id: arrow.id, ...fields }]);
+  const freeId = boardIdFor(view, arrow.id);
+  const changeId = (text: string) => {
+    const newId = freeId(text);
+    if (newId) void edit([{ op: "update-arrow", view: view.id, id: arrow.id, newId }]).then((ok) => ok && onSelect({ kind: "boardArrow", id: newId }));
+  };
+  const end = (e: Arrow["from"]) => {
+    const shape = typeof e === "string" ? view.shapes.find((s) => s.id === e) : undefined;
+    if (!shape) return <span className="muted">a point on the board</span>;
+    return (
+      <button className="link one-line" onClick={() => onSelect({ kind: "shape", id: shape.id })}>
+        {shapeName(shape)}
+      </button>
+    );
+  };
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">{arrow.heads === "none" ? "Line" : "Arrow"}</span>
+      </header>
+      <Field label="Text" value={arrow.text ?? ""} multiline placeholder="What it says, in the middle of it. Or double-click it to write" onCommit={(text) => set({ text: text || null })} />
+      <label className="field">
+        <span className="field-label">Heads</span>
+        <select value={arrow.heads} onChange={(e) => set({ heads: e.target.value as ArrowHeads })}>
+          {ARROW_HEADS.map((h) => (
+            <option key={h} value={h}>
+              {HEADS_TEXT[h]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Swatches label="Colour" value={arrow.color} options={SHAPE_COLORS} look="ink" onChange={(color: ShapeColor | undefined) => set({ color: color ?? null })} />
+      <label className="check">
+        <input type="checkbox" checked={arrow.dashed} onChange={(e) => set({ dashed: e.target.checked })} />
+        Dashed
+      </label>
+      <dl className="facts">
+        <dt>From</dt>
+        <dd>{end(arrow.from)}</dd>
+        <dt>To</dt>
+        <dd>{end(arrow.to)}</dd>
+      </dl>
+      <p className="muted small">Drag either end onto a shape, which it then follows, or off it onto the board.</p>
+      <Field label="ID" value={arrow.id} onCommit={changeId} />
+      <div className="actions">
+        <button className="danger" onClick={() => void edit([{ op: "remove-arrow", view: view.id, id: arrow.id }]).then(() => onSelect(null))}>
+          Delete
+        </button>
+      </div>
+    </>
+  );
+}
+
+function BoardProperties({ view, shapes, arrows, stickies, edit, onSelect }: PropertiesProps & { view: ViewDef; shapes: Shape[]; arrows: Arrow[]; stickies: Sticky[] }) {
+  const count = (n: number, one: string, many: string) => (n ? [`${n} ${n === 1 ? one : many}`] : []);
+  const label = [...count(shapes.length, "shape", "shapes"), ...count(arrows.length, "arrow", "arrows"), ...count(stickies.length, "note", "notes")].join(", ");
+  const selection: Selection = { kind: "board", shapes: shapes.map((s) => s.id), arrows: arrows.map((a) => a.id), stickies: stickies.map((s) => s.id) };
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">{label}</span>
+      </header>
+      <p className="muted small">Drag any of them to move them all together. Ctrl-click (⌘-click on a Mac) or Shift-click one to add it or take it out.</p>
+      {shapes.length > 0 && (
+        <>
+          <h3>Shapes</h3>
+          <ul className="plain">
+            {shapes.map((s) => (
+              <li key={s.id}>
+                <button className="link one-line" onClick={() => onSelect({ kind: "shape", id: s.id })}>
+                  {shapeName(s)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {arrows.length > 0 && (
+        <>
+          <h3>Arrows</h3>
+          <ul className="plain">
+            {arrows.map((a) => (
+              <li key={a.id}>
+                <button className="link one-line" onClick={() => onSelect({ kind: "boardArrow", id: a.id })}>
+                  {arrowName(a)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {stickies.length > 0 && (
+        <>
+          <h3>Sticky notes</h3>
+          <ul className="plain">
+            {stickies.map((s) => (
+              <li key={s.id}>
+                <button className="link one-line" onClick={() => onSelect({ kind: "sticky", id: s.id })} title={s.text}>
+                  {s.text.trim().split("\n")[0]}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="actions">
+        <button className="danger" onClick={() => void edit(whiteboardDeleteOps(view, selection)).then((ok) => ok && onSelect(null))}>
+          Delete them
+        </button>
+      </div>
+    </>
+  );
+}
+
 function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
   return (
     <>
@@ -1414,8 +1658,22 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
         onExpand={(text) => onEditNotes({ kind: "view", id: view.id }, text)}
       />
-      {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && view.level !== "event" && view.level !== "wireframe" && <NewElementsField view={view} edit={edit} />}
-      {view.level === "wireframe" ? (
+      {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && view.level !== "event" && view.level !== "wireframe" && view.level !== "whiteboard" && <NewElementsField view={view} edit={edit} />}
+      {view.level === "whiteboard" ? (
+        <>
+          <dl className="facts">
+            <dt>Level</dt>
+            <dd>whiteboard</dd>
+            <dt>Shapes</dt>
+            <dd>{view.shapes.length}</dd>
+            <dt>Arrows</dt>
+            <dd>{view.arrows.length}</dd>
+          </dl>
+          <p className="muted small">
+            A whiteboard is a freehand sketch, to share an idea. Pick a tool at the bottom of the diagram, or press its key, and drag to draw a rectangle, an ellipse, a diamond, an arrow, a line or with the pen; click to type text. Double-click a shape or an arrow to write in it, or the board to type there. None of it is part of the model.
+          </p>
+        </>
+      ) : view.level === "wireframe" ? (
         <>
           <dl className="facts">
             <dt>Level</dt>

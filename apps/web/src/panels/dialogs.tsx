@@ -182,6 +182,7 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   deployment: "Deployment: where containers run, like Production",
   event: "Event: commands and events in order, in swimlanes, as in event storming",
   wireframe: "Wireframe: an app's screens, and how one leads to another",
+  whiteboard: "Whiteboard: a freehand sketch of an idea, to share it",
 };
 
 export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
@@ -195,8 +196,8 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
   const [scope, setScope] = useState<string>("");
   const scopeId = optional ? scopes.find((s) => s.id === scope)?.id : scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
-  // A sequence, a deployment view, an event view, and a state or wireframe view of nothing in particular, have no scope to name them after, so they need a title.
-  const defaultTitle = level === "sequence" || level === "deployment" || level === "event" || (optional && !scopeName) ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
+  // A sequence, a deployment, event or whiteboard view, and a state or wireframe view of nothing in particular, have no scope to name them after, so they need a title.
+  const defaultTitle = level === "sequence" || level === "deployment" || level === "event" || level === "whiteboard" || (optional && !scopeName) ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
   const [title, setTitle] = useState("");
   const finalTitle = title.trim() || defaultTitle;
   const canCreate = !!finalTitle && (!scopeKind || !!scopeId);
@@ -261,13 +262,18 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       <label className="field">
         <span className="field-label">Title</span>
-        <input value={title} placeholder={defaultTitle ?? (level === "deployment" ? "e.g. Production" : level === "wireframe" ? "e.g. Checkout" : "e.g. Placing an order")} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+        <input value={title} placeholder={defaultTitle ?? (level === "deployment" ? "e.g. Production" : level === "wireframe" ? "e.g. Checkout" : level === "whiteboard" ? "e.g. Ideas for faster checkout" : "e.g. Placing an order")} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
       {level === "class" && <p className="muted small">A class view draws the component's or library's classes as a UML class diagram, with their attributes and methods, and how they relate.</p>}
       {level === "state" && <p className="muted small">A state view shows the states something can be in, like an order that's placed, paid or delivered, and the transitions between them.</p>}
       {level === "wireframe" && (
         <p className="muted small">
           A wireframe view sketches an app's screens: the headings, buttons and boxes to type in on each, and which screen a button or link leads to. Choose the system or container whose screens they are, if you like.
+        </p>
+      )}
+      {level === "whiteboard" && (
+        <p className="muted small">
+          Give it a title, such as the idea it's about. A whiteboard is a freehand sketch, to share an idea: boxes, text, arrows and lines drawn with a pen, each where you put it. None of it is part of the model.
         </p>
       )}
       {level === "deployment" && (

@@ -120,6 +120,10 @@ export function show(io: Io, opts: ShowOptions): number {
       print(wireframeJson(cv), wireframeText(ws, cv));
       return 0;
     }
+    if (view.level === "whiteboard") {
+      print(whiteboardJson(cv), whiteboardText(cv));
+      return 0;
+    }
     const json = {
       id: view.id,
       title: view.title,
@@ -446,6 +450,66 @@ function wireframeText(ws: Workspace, cv: ComputedView): string {
           ...(s.widgets.length ? table(rows(s.widgets, "       ")) : ["       (nothing on it yet)"]),
         ])
       : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function whiteboardJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    notes: view.notes,
+    shapes: view.shapes.map((s) => ({
+      id: s.id,
+      position: s.number,
+      kind: s.kind,
+      text: s.text,
+      at: s.at,
+      points: s.kind === "pen" ? s.points : undefined,
+      size: s.kind === "pen" ? undefined : s.size,
+      color: s.color,
+      fill: s.fill,
+      dashed: s.dashed || undefined,
+    })),
+    arrows: view.arrows.map((a) => ({ id: a.id, from: a.from, to: a.to, text: a.text, heads: a.heads, color: a.color, dashed: a.dashed || undefined })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function whiteboardText(cv: ComputedView): string {
+  const view = cv.view;
+  const where = (at: readonly number[]) => (at.length === 4 ? `at ${at[0]}, ${at[1]}, ${at[2]} x ${at[3]}` : `at ${at[0]}, ${at[1]}`);
+  const quoted = (text: string | undefined) => (text ? JSON.stringify(text.split(/\r?\n/).join(" / ")) : "");
+  /** How it looks, when it isn't how it looks by default. */
+  const look = (x: { color: string; dashed: boolean; size?: string; fill?: string }) =>
+    [x.size && x.size !== "medium" ? `${x.size} text` : "", x.color !== "black" ? x.color : "", x.fill ? `${x.fill} fill` : "", x.dashed ? "dashed" : ""].filter(Boolean).join(", ");
+  const shapes = view.shapes.map((s) => {
+    const detail = s.kind === "pen" ? `${s.points.length} points` : quoted(s.text);
+    const style = look(s.kind === "pen" ? { ...s, size: undefined } : s);
+    return [`  ${s.number}.`, s.id, s.kind, where(s.at), [detail, style ? `(${style})` : ""].filter(Boolean).join("  ")];
+  });
+  const end = (e: (typeof view.arrows)[number]["from"]) => (typeof e === "string" ? e : `${e[0]}, ${e[1]}`);
+  const arrows = view.arrows.map((a) => {
+    const style = look(a);
+    return [`  ${a.id}`, `${end(a.from)} ${a.heads === "both" ? "<->" : a.heads === "none" ? "---" : "->"} ${end(a.to)}`, [quoted(a.text), style ? `(${style})` : ""].filter(Boolean).join("  ")];
+  });
+  const lines = [
+    `${view.id}: ${view.title}`,
+    "  level:        whiteboard view",
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Shapes, from the back to the front:",
+    ...(shapes.length ? table(shapes) : ["  (none)"]),
+    "",
+    "Arrows:",
+    ...(arrows.length ? table(arrows) : ["  (none)"]),
     ...(view.stickies.length
       ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
       : []),
