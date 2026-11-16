@@ -79,6 +79,54 @@ const states: OpenArchDocument = {
   },
 };
 
+/** Views laid out automatically, each with a note: there, only the note snaps. */
+const deployment: OpenArchDocument = {
+  openarch: 13,
+  name: "Shop",
+  elements: { shop: { kind: "system", name: "Shop" }, web: { kind: "container", name: "Web", parent: "shop" } },
+  views: {
+    production: {
+      title: "Production",
+      level: "deployment",
+      nodes: { server: { name: "Server", runs: ["web"] }, lb: { name: "Load balancer", infrastructure: true } },
+      stickies: { note: { text: "Look here", at: [600, 600] } },
+    },
+  },
+};
+const events: OpenArchDocument = {
+  openarch: 13,
+  name: "Shop",
+  elements: {},
+  views: {
+    order: {
+      title: "Order",
+      level: "event",
+      lanes: [{ id: "shop", name: "Shop" }],
+      cards: [
+        { id: "place", kind: "command", name: "Place order", lane: "shop" },
+        { id: "placed", kind: "event", name: "Order placed", lane: "shop", from: ["place"] },
+      ],
+      stickies: { note: { text: "Look here", at: [600, 600] } },
+    },
+  },
+};
+const screens: OpenArchDocument = {
+  openarch: 13,
+  name: "Shop",
+  elements: {},
+  views: {
+    checkout: {
+      title: "Checkout",
+      level: "wireframe",
+      screens: [
+        { id: "cart", name: "Cart", widgets: [{ id: "title", kind: "heading", text: "Your cart" }, { id: "pay", kind: "button", text: "Pay", to: "done" }] },
+        { id: "done", name: "Done" },
+      ],
+      stickies: { note: { text: "Look here", at: [600, 900] } },
+    },
+  },
+};
+
 /** The whole designer, open on the model's only view, with its boxes measured. */
 async function designer(model = doc) {
   const host = mount(createElement(Designer, { host: new MemoryHost("shop.openarch", serializeDocument(model)), onClose() {}, onHostChange() {} }));
@@ -190,6 +238,59 @@ describe("snapping a box as it's dragged", () => {
     moving = await d.drag("sticky:note", { x: 3, y: 300 });
     await moving.drop();
     expect(d.at("sticky:note")).toEqual([0, 300]);
+  });
+
+  // Laid out automatically, each box here is 200 by 100, as the stand-in ResizeObserver says.
+  it("lines up a note with the boxes on a deployment view, and keeps it there", async () => {
+    const d = await designer(deployment);
+    // The load balancer's box is at 12, 59.
+    expect(d.at("lb")).toEqual([12, 59]);
+    const moving = await d.drag("sticky:note", { x: 15, y: 400 });
+    expect(d.guides().length).toBeGreaterThan(0);
+    await moving.drop();
+    expect(d.at("sticky:note")).toEqual([12, 400]);
+  });
+
+  it("lines up a note with the cards on an event view, but not with the lanes, and leaves the cards to go where they're let go", async () => {
+    const d = await designer(events);
+    // The lane's row is at 0, 0, and the cards at 175, 26 and 375, 26.
+    expect([d.at("lane:shop"), d.at("place"), d.at("placed")]).toEqual([[0, 0], [175, 26], [375, 26]]);
+    let moving = await d.drag("sticky:note", { x: 378, y: 600 });
+    await moving.drop();
+    expect(d.at("sticky:note")).toEqual([375, 600]);
+
+    // 2 below the top of the lane's row, which isn't something to line up with.
+    moving = await d.drag("sticky:note", { x: 800, y: 2 });
+    expect(d.guides()).toEqual([]);
+    await moving.drop();
+    expect(d.at("sticky:note")).toEqual([800, 2]);
+
+    // A card 3 right of the other's left edge is drawn where it's dragged.
+    moving = await d.drag("placed", { x: 178, y: 300 });
+    expect(d.at("placed")).toEqual([178, 300]);
+    expect(d.guides()).toEqual([]);
+    await moving.drop();
+  });
+
+  it("lines up a note with the screens on a wireframe view, but not with the widgets, and leaves the screens to go where they're let go", async () => {
+    const d = await designer(screens);
+    // The screens are at 0, 0 and 680, 0, and the Cart's widgets start at 14 across.
+    expect([d.at("screen:cart"), d.at("screen:done"), d.at("widget:title")]).toEqual([[0, 0], [680, 0], [14, 46]]);
+    let moving = await d.drag("sticky:note", { x: 683, y: 900 });
+    await moving.drop();
+    expect(d.at("sticky:note")).toEqual([680, 900]);
+
+    // 2 right of the widgets' left edges.
+    moving = await d.drag("sticky:note", { x: 16, y: 900 });
+    expect(d.guides()).toEqual([]);
+    await moving.drop();
+    expect(d.at("sticky:note")).toEqual([16, 900]);
+
+    // A screen 3 right of the other's right edge is drawn where it's dragged.
+    moving = await d.drag("screen:done", { x: 203, y: 400 });
+    expect(d.at("screen:done")).toEqual([203, 400]);
+    expect(d.guides()).toEqual([]);
+    await moving.drop();
   });
 
   it("opens with the setting it was left with", async () => {

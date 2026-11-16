@@ -25,6 +25,14 @@ export interface SnapSettings {
 /** Until it's changed, what's dragged lines up with the other boxes, and not with the grid. */
 export const SNAP_DEFAULTS: SnapSettings = { guides: true, grid: false };
 
+/** The snap setting as it's stored, with what isn't stored as it is until it's changed. */
+function snapIn(stored: Partial<SnapSettings> | undefined): SnapSettings {
+  return {
+    guides: typeof stored?.guides === "boolean" ? stored.guides : SNAP_DEFAULTS.guides,
+    grid: typeof stored?.grid === "boolean" ? stored.grid : SNAP_DEFAULTS.grid,
+  };
+}
+
 /** Where a workspace's pins are kept. `workspace` is its host's key. */
 const pinsKey = (workspace: string) => `pinned-views/${workspace}`;
 /** Where the link a workspace was shared as is kept, with the token that changes it. */
@@ -125,12 +133,12 @@ export class Settings {
   }
 
   async snap(): Promise<SnapSettings> {
-    const stored = await this.get<Partial<SnapSettings>>(SNAP);
-    return { guides: typeof stored?.guides === "boolean" ? stored.guides : SNAP_DEFAULTS.guides, grid: typeof stored?.grid === "boolean" ? stored.grid : SNAP_DEFAULTS.grid };
+    return snapIn(await this.get<Partial<SnapSettings>>(SNAP));
   }
 
-  async setSnap(snap: SnapSettings): Promise<void> {
-    await this.update<SnapSettings>(SNAP, () => ({ guides: snap.guides, grid: snap.grid }));
+  /** Changes what's dragged snaps to, keeping a change made in another tab to the rest. Returns the setting as it's stored now. */
+  async setSnap(change: Partial<SnapSettings>): Promise<SnapSettings> {
+    return snapIn(await this.update<Partial<SnapSettings>>(SNAP, (stored) => ({ ...snapIn(stored), ...change })));
   }
 
   /** The link a workspace was shared as, from this browser or this computer. */
@@ -219,8 +227,8 @@ export function useViewSettings(workspace: string, settings: Settings = userSett
 
 export interface SnapSetting {
   snap: SnapSettings;
-  /** Rejects if the setting couldn't be stored. It still changes for as long as the designer is open. */
-  setSnap(snap: SnapSettings): Promise<void>;
+  /** Turns lining up or the grid on or off. Rejects if the setting couldn't be stored. It still changes for as long as the designer is open. */
+  setSnap(change: Partial<SnapSettings>): Promise<void>;
 }
 
 /** What boxes and sticky notes snap to as they're dragged, on every view. */
@@ -242,10 +250,11 @@ export function useSnapSettings(settings: Settings = userSettings): SnapSetting 
   }, [settings]);
 
   const setSnap = useCallback(
-    (next: SnapSettings) => {
+    async (change: Partial<SnapSettings>) => {
       changed.current = true;
-      setShown(next);
-      return settings.setSnap(next);
+      setShown((s) => ({ ...s, ...change }));
+      // What's stored has any change made in another tab too.
+      setShown(await settings.setSnap(change));
     },
     [settings],
   );

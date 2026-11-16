@@ -74,7 +74,16 @@ describe("snap settings", () => {
     await settings.setSnap({ guides: false, grid: true });
     expect(await settings.snap()).toEqual({ guides: false, grid: true });
     expect(await new Settings(name).snap()).toEqual({ guides: false, grid: true });
-    await settings.setSnap({ guides: true, grid: true });
+    expect(await settings.setSnap({ guides: true })).toEqual({ guides: true, grid: true });
     expect(await settings.snap()).toEqual({ guides: true, grid: true });
+  });
+
+  it("doesn't lose a change made in another tab", async () => {
+    const name = fresh();
+    const tab = new Settings(name);
+    const other = new Settings(name);
+    await tab.setSnap({ grid: true });
+    expect(await other.setSnap({ guides: false })).toEqual({ guides: false, grid: true });
+    expect(await tab.snap()).toEqual({ guides: false, grid: true });
   });
 });

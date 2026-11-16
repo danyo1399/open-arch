@@ -384,7 +384,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   };
 
   const attempt = (task: () => Promise<void>) => void task().catch((e: unknown) => state.notify({ kind: "error", text: problemText(e) }));
-  const snap: SnapControl = { settings: snapSettings.snap, set: (next) => attempt(() => snapSettings.setSnap(next)) };
+  const snap: SnapControl = { settings: snapSettings.snap, set: (change) => attempt(() => snapSettings.setSnap(change)) };
 
   /**
    * An example, or a workspace deleted in another tab, only lives in this tab until it's saved:

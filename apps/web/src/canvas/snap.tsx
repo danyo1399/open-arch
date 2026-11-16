@@ -115,7 +115,7 @@ export function snapMove(moving: readonly Rect[], others: readonly Rect[], { gui
 /** The setting, as each diagram's buttons show and change it. */
 export interface SnapControl {
   settings: SnapSettings;
-  set(settings: SnapSettings): void;
+  set(change: Partial<SnapSettings>): void;
 }
 
 /** The snap the nodes being dragged were last drawn with, and where React Flow put each of them for it. */
@@ -148,6 +148,8 @@ export function useSnap<N extends Node>(settings: SnapSettings, { snaps, isTarge
   /** Whether Alt is held, to drag freely. */
   const free = useRef(false);
   const last = useRef<LastSnap | null>(null);
+  /** The snap the nodes were let go with, until `dropped` saves where they are. */
+  const drop = useRef<LastSnap | null>(null);
 
   useEffect(() => {
     // Each key and pointer event says whether Alt is held. These hear of the pointer moving
@@ -171,17 +173,21 @@ export function useSnap<N extends Node>(settings: SnapSettings, { snaps, isTarge
     (changes: NodeChange<N>[]): NodeChange<N>[] => {
       const moves = changes.filter((c): c is NodePositionChange => c.type === "position" && !!c.position);
       if (moves.length === 0) return changes;
-      /** A change that moves a node, moved by the last snap instead. */
-      const snapped = (c: NodeChange<N>): NodeChange<N> => {
+      /** A change that moves a node, moved by this snap instead. */
+      const snapped = (snap: LastSnap | null) => (c: NodeChange<N>): NodeChange<N> => {
         if (c.type !== "position" || !c.position) return c;
-        const to = shifted(last.current, c.id, c.position);
+        const to = shifted(snap, c.id, c.position);
         return to ? { ...c, position: to } : c;
       };
-      // Dropped, as last drawn. Arrow keys move selected nodes too, without dragging them, and those don't snap.
+      // Let go, where they were last drawn. Arrow keys move selected nodes too, without dragging
+      // them: those don't snap, and the snap is gone by then.
       if (!moves.some((c) => c.dragging)) {
+        drop.current = last.current;
+        last.current = null;
         setGuides([]);
-        return changes.map(snapped);
+        return changes.map(snapped(drop.current));
       }
+      drop.current = null;
       last.current = null;
       const nodes = new Map(rf.getNodes().map((n) => [n.id, n]));
       const dragged = moves.map((c) => nodes.get(c.id));
@@ -203,14 +209,15 @@ export function useSnap<N extends Node>(settings: SnapSettings, { snaps, isTarge
       const snap = snapMove(moving, others, { ...settings, reach: SNAP_REACH / rf.getZoom() });
       last.current = { dx: snap.dx, dy: snap.dy, from: new Map(moves.map((c) => [c.id, c.position!])) };
       setGuides((g) => (sameGuides(g, snap.guides) ? g : snap.guides));
-      return changes.map(snapped);
+      return changes.map(snapped(last.current));
     },
     [rf, settings, snaps, isTarget],
   );
 
   /** The nodes React Flow dropped, where they were drawn: snapped as they were when they were let go. */
   const dropped = useCallback((nodes: N[]): N[] => {
-    const at = nodes.map((n) => shifted(last.current, n.id, n.position));
+    const at = nodes.map((n) => shifted(drop.current, n.id, n.position));
+    drop.current = null;
     last.current = null;
     setGuides([]);
     // All of them or none, so they keep their places among each other.
@@ -235,7 +242,7 @@ export function SnapGuides({ guides }: { guides: readonly Guide[] }) {
 }
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-const FREELY = `Hold ${isMac ? "⌥" : "Alt"} while dragging to place it freely.`;
+const FREELY = `Start dragging, then hold ${isMac ? "⌥" : "Alt"} to place it freely.`;
 
 /** The buttons, with the zoom buttons, that turn lining up with other boxes and snapping to the grid on and off. */
 export function SnapButtons({ snap }: { snap: SnapControl }) {
@@ -244,7 +251,7 @@ export function SnapButtons({ snap }: { snap: SnapControl }) {
     <>
       <ControlButton
         className="snap-button"
-        onClick={() => set({ ...settings, guides: !settings.guides })}
+        onClick={() => set({ guides: !settings.guides })}
         aria-pressed={settings.guides}
         aria-label="Line up with other boxes"
         title={`Line up with other boxes as you drag, with a guide where they line up. ${FREELY}`}
@@ -257,7 +264,7 @@ export function SnapButtons({ snap }: { snap: SnapControl }) {
       </ControlButton>
       <ControlButton
         className="snap-button"
-        onClick={() => set({ ...settings, grid: !settings.grid })}
+        onClick={() => set({ grid: !settings.grid })}
         aria-pressed={settings.grid}
         aria-label="Snap to the grid"
         title={`Snap to the grid of dots as you drag. ${FREELY}`}
