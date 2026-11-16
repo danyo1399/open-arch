@@ -23,6 +23,7 @@ import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
 import { WireframeDiagram } from "./canvas/WireframeDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
+import type { SnapControl } from "./canvas/snap.js";
 import { canOpenFolders, exportToFolder, FolderHost, folderList, pickFolder } from "./folders.js";
 import { BrowserHost, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
@@ -67,7 +68,7 @@ import { MARKDOWN_FILE, PDF_FILE, PNG_FILE, providers, saveFile, SVG_FILE, type 
 import { diagramImage, nextPaint, type ImageFormat } from "./image.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
-import { userSettings, useViewSettings } from "./settings.js";
+import { userSettings, useSnapSettings, useViewSettings } from "./settings.js";
 import { PUBLIC_DESIGNER, shareClient } from "./share.js";
 import { saveProblem, useWorkspace, type Edit } from "./state.js";
 
@@ -155,6 +156,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [renamesSeen, setRenamesSeen] = useState(0);
   /** How the Views list is sorted, and the views pinned to its top: this person's, not the file's. */
   const viewSettings = useViewSettings(host.key);
+  /** What boxes and notes snap to as they're dragged, on every view: this person's too. */
+  const snapSettings = useSnapSettings();
   // What's open follows a rename in the same render as the rename lands. A render in between
   // would show something else in its place (the view's details for a renamed element), and a
   // button being pressed there would go with it.
@@ -381,6 +384,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   };
 
   const attempt = (task: () => Promise<void>) => void task().catch((e: unknown) => state.notify({ kind: "error", text: problemText(e) }));
+  const snap: SnapControl = { settings: snapSettings.snap, set: (next) => attempt(() => snapSettings.setSnap(next)) };
 
   /**
    * An example, or a workspace deleted in another tab, only lives in this tab until it's saved:
@@ -682,7 +686,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ) : view?.level === "state" ? (
           computed ? (
             <ReactFlowProvider key={view.id}>
-              <StateDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} />
+              <StateDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
@@ -690,7 +694,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ) : view?.level === "deployment" ? (
           computed ? (
             <ReactFlowProvider key={view.id}>
-              <DeploymentDiagram ws={ws} computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} />
+              <DeploymentDiagram ws={ws} computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
@@ -698,7 +702,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ) : view?.level === "event" ? (
           computed ? (
             <ReactFlowProvider key={view.id}>
-              <EventDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} />
+              <EventDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
@@ -706,7 +710,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ) : view?.level === "wireframe" ? (
           computed ? (
             <ReactFlowProvider key={view.id}>
-              <WireframeDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} />
+              <WireframeDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
@@ -726,6 +730,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
               renames={shownRenames}
               exportItems={computed ? exportItems(computed) : []}
               editSticky={isNew && selection?.kind === "sticky" ? selection.id : null}
+              snap={snap}
             />
           </ReactFlowProvider>
         ) : (

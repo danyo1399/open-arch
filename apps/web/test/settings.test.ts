@@ -65,3 +65,16 @@ describe("view settings", () => {
     expect(await settings.pins("memory/shop.openarch")).toEqual(["landscape"]);
   });
 });
+
+describe("snap settings", () => {
+  it("lines up with other boxes, and not the grid, until changed, and keeps the change", async () => {
+    const name = fresh();
+    const settings = new Settings(name);
+    expect(await settings.snap()).toEqual({ guides: true, grid: false });
+    await settings.setSnap({ guides: false, grid: true });
+    expect(await settings.snap()).toEqual({ guides: false, grid: true });
+    expect(await new Settings(name).snap()).toEqual({ guides: false, grid: true });
+    await settings.setSnap({ guides: true, grid: true });
+    expect(await settings.snap()).toEqual({ guides: true, grid: true });
+  });
+});

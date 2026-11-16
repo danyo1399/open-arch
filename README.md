@@ -94,6 +94,8 @@ The start page lists the folders you opened, to open again, and **Forget** takes
 
 With a mouse, drag across the diagram's background to select the boxes and sticky notes inside, or Ctrl-click them (⌘-click on a Mac) to add one or take it out. Drag any of them to move them all together; Undo takes the move back in one step. The scroll wheel pans, as do Space and drag and the middle button, and Ctrl-scroll (⌘-scroll on a Mac) or a pinch zooms. On a touch screen, drag to pan and pinch to zoom.
 
+As you drag boxes and sticky notes, they line up with the ones around them, edge to edge or middle to middle, and a line shows where they line up. The two buttons under the zoom buttons choose what they snap to: **Line up with other boxes**, on until you turn it off, and **Snap to the grid**, which puts them on the dots behind the diagram when they don't line up with anything. Hold Alt (⌥ on a Mac) while dragging to put one exactly where you let go. These are your settings, kept in the browser or the desktop app, not in the file. On a view laid out automatically, such as a deployment or event view, only sticky notes snap.
+
 Drag from the dot under a box to another box to add a relationship. To move one, select its arrow and drag the dot at either end to another box: the relationship keeps its description, technology, tags and notes. An arrow that stands for several relationships moves them all. When two elements call each other, select the relationship and tick **Goes both ways**: its arrow gets a head at each end, and stands for every relationship between the two boxes.
 
 ### Notes

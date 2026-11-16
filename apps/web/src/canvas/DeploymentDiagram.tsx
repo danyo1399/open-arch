@@ -38,6 +38,7 @@ import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
 import { holdsAnything, layOutDeployment, placeDeploymentLabels, type DeploymentLayout } from "./deploymentLayout.js";
 import { StickyNode, type StickyFlowNode } from "./nodes.js";
 import { labelLines, measureLabelSizes, pathThrough } from "./RoutedEdge.js";
+import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 
 /** A node that holds something, drawn as a frame round it. `depth` is how many nodes it's inside. */
 type FrameData = { node: DeploymentNode; width: number; height: number; selected: boolean; depth: number };
@@ -59,6 +60,9 @@ const labelNodeId = (id: string) => `label:${id}`;
 /** How a view's diagram is fitted to the canvas, as Canvas does. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
 const TOUCH = "(any-pointer: coarse)";
+/** The diagram is laid out automatically, so only notes move. They snap as they're dragged, and line up with the nodes, the boxes and each other. */
+const notesSnap = (n: FlowNode) => n.type === "sticky";
+const linesUpWith = (n: FlowNode) => n.type !== "deploymentLabel";
 /** Frames go under the arrows, the deepest on top, so a click on a frame inside another selects it. */
 const frameZ = (depth: number) => -100 + depth;
 
@@ -205,9 +209,11 @@ interface DeploymentDiagramProps {
   onError(text: string): void;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
+  /** What sticky notes snap to as they're dragged, and its buttons. */
+  snap: SnapControl;
 }
 
-export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit, onError, exportItems }: DeploymentDiagramProps) {
+export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit, onError, exportItems, snap }: DeploymentDiagramProps) {
   const view = cv.view;
   const d = cv.deployment!;
   const rf = useReactFlow<FlowNode, DeploymentEdge>();
@@ -348,14 +354,16 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
     });
   }, [drawnLayout, d, selection, selectArrow, labelAt]);
 
-  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
+  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith });
+  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(snapChanges(changes), nds)), [snapChanges]);
 
   const onNodeDragStop = useCallback(
-    (_: unknown, _node: FlowNode, dragged: FlowNode[]) => {
+    (_: unknown, _node: FlowNode, letGo: FlowNode[]) => {
+      const dragged = dropped(letGo);
       const ops = dragged.flatMap((n): Operation[] => (n.type === "sticky" ? [{ op: "update-sticky", view: view.id, id: n.data.sticky.id, at: [Math.round(n.position.x), Math.round(n.position.y)] }] : []));
       if (ops.length) void edit(ops);
     },
-    [edit, view.id],
+    [edit, view.id, dropped],
   );
 
   const onConnect = useCallback(
@@ -452,8 +460,11 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
         colorMode="system"
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })} />
+        <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+        <SnapGuides guides={guides} />
+        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
+          <SnapButtons snap={snap} />
+        </Controls>
         <Panel position="top-left" className="toolbar">
           <div className="toolbar-title">
             <strong>{view.title}</strong>

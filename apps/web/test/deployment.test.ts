@@ -9,6 +9,7 @@ import { boxHeight, elkDeployment, holdsAnything, layOutDeployment, placeDeploym
 import { findUsages, followRenames, renamedSelection, shownInProperties, uniqueNodeId, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
+import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
 import { button, checkbox, choose, click, mount, select, type } from "./dom.js";
 
@@ -162,7 +163,7 @@ describe("the deployment diagram", () => {
       createElement(
         ReactFlowProvider,
         null,
-        createElement(DeploymentDiagram, { ws, computed, selection: null, onSelect() {}, edit: async () => true, onError() {}, exportItems: [] }),
+        createElement(DeploymentDiagram, { ws, computed, selection: null, onSelect() {}, edit: async () => true, onError() {}, exportItems: [], snap: { settings: SNAP_DEFAULTS, set() {} } }),
       ),
     );
     // ELK lays it out a moment later.

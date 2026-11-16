@@ -38,6 +38,7 @@ import { dropOps, eventLayout, EVT } from "./eventLayout.js";
 import { StickyNode, type StickyFlowNode } from "./nodes.js";
 import { pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
+import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 
 /** A row: a lane, or the row for the cards in no lane, which has none. */
 type LaneNodeData = { lane?: Lane; width: number; height: number; selected: boolean };
@@ -56,6 +57,9 @@ const arrowId = (a: CardArrow) => `${a.from}->${a.to}`;
 /** How a view's diagram is fitted to the canvas, as Canvas does. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
 const TOUCH = "(any-pointer: coarse)";
+/** Cards go where they're let go in the timeline, so only notes snap as they're dragged. They line up with the cards and each other. */
+const notesSnap = (n: FlowNode) => n.type === "sticky";
+const linesUpWith = (n: FlowNode) => n.type !== "lane";
 
 /** A lane: its name at the left of its row. The row for cards in no lane says so, when there are lanes too. */
 function LaneNode({ data }: NodeProps<LaneFlowNode>) {
@@ -131,9 +135,11 @@ interface EventDiagramProps {
   edit(edit: Edit): Promise<boolean>;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
+  /** What sticky notes snap to as they're dragged, and its buttons. */
+  snap: SnapControl;
 }
 
-export function EventDiagram({ computed: cv, selection, onSelect, edit, exportItems }: EventDiagramProps) {
+export function EventDiagram({ computed: cv, selection, onSelect, edit, exportItems, snap }: EventDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, CardArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -226,10 +232,12 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, exportIt
     [arrows, routes, selection],
   );
 
-  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
+  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith });
+  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(snapChanges(changes), nds)), [snapChanges]);
 
   const onNodeDragStop = useCallback(
-    (_: unknown, _node: FlowNode, dragged: FlowNode[]) => {
+    (_: unknown, _node: FlowNode, letGo: FlowNode[]) => {
+      const dragged = dropped(letGo);
       const ops = dragged.flatMap((n): Operation[] => {
         if (n.type === "sticky") return [{ op: "update-sticky", view: view.id, id: n.data.sticky.id, at: [Math.round(n.position.x), Math.round(n.position.y)] }];
         if (n.type !== "card") return [];
@@ -239,7 +247,7 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, exportIt
       if (ops.length) void edit(ops).then((ok) => ok || setPutBack((n) => n + 1));
       else setPutBack((n) => n + 1);
     },
-    [edit, view, layout],
+    [edit, view, layout, dropped],
   );
 
   const onConnect = useCallback(
@@ -329,8 +337,11 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, exportIt
         colorMode="system"
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })} />
+        <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+        <SnapGuides guides={guides} />
+        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
+          <SnapButtons snap={snap} />
+        </Controls>
         <Panel position="top-left" className="toolbar">
           <div className="toolbar-title">
             <strong>{view.title}</strong>

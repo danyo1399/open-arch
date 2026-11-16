@@ -37,6 +37,7 @@ import { fitBelowToolbar, SELECTED_LIFT, STICKY_Z, type Selection } from "./Canv
 import { StickyNode, type StickyFlowNode } from "./nodes.js";
 import type { Box } from "./routing.js";
 import { pathThrough } from "./RoutedEdge.js";
+import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import { arrowId, arrowRoutes, screenDropOps, textLines, WF, widgetDropOps, wireframeLayout } from "./wireframeLayout.js";
 
 type ScreenNodeData = { screen: Screen; width: number; height: number };
@@ -55,6 +56,9 @@ const stickyNodeId = (id: string) => `sticky:${id}`;
 /** How a view's diagram is fitted to the canvas, as Canvas does. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
 const TOUCH = "(any-pointer: coarse)";
+/** Screens and widgets go where they're let go among the others, so only notes snap as they're dragged. They line up with the screens and each other. */
+const notesSnap = (n: FlowNode) => n.type === "sticky";
+const linesUpWith = (n: FlowNode) => n.type !== "widget";
 /**
  * Arrows are drawn over the screens, so an arrow is seen to leave the widget it comes from, but
  * under a widget or screen being dragged, which React Flow lifts by SELECTED_LIFT.
@@ -254,9 +258,11 @@ interface WireframeDiagramProps {
   edit(edit: Edit): Promise<boolean>;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
+  /** What sticky notes snap to as they're dragged, and its buttons. */
+  snap: SnapControl;
 }
 
-export function WireframeDiagram({ computed: cv, selection, onSelect, edit, exportItems }: WireframeDiagramProps) {
+export function WireframeDiagram({ computed: cv, selection, onSelect, edit, exportItems, snap }: WireframeDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, LeadsEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -361,10 +367,12 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, expo
     [arrows, layout, routes, selection],
   );
 
-  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
+  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith });
+  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(snapChanges(changes), nds)), [snapChanges]);
 
   const onNodeDragStop = useCallback(
-    (_: unknown, _node: FlowNode, dragged: FlowNode[]) => {
+    (_: unknown, _node: FlowNode, letGo: FlowNode[]) => {
+      const dragged = dropped(letGo);
       const ops = dragged.flatMap((n): Operation[] => {
         if (n.type === "sticky") return [{ op: "update-sticky", view: view.id, id: n.data.sticky.id, at: [Math.round(n.position.x), Math.round(n.position.y)] }];
         if (n.type === "screen") return screenDropOps(view, layout, n.data.screen, { x: n.position.x + n.data.width / 2, y: n.position.y + n.data.height / 2 });
@@ -376,7 +384,7 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, expo
       if (ops.length) void edit(ops).then((ok) => ok || setPutBack((n) => n + 1));
       else setPutBack((n) => n + 1);
     },
-    [edit, view, layout, parentBox],
+    [edit, view, layout, parentBox, dropped],
   );
 
   const onConnect = useCallback(
@@ -467,8 +475,11 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, expo
         colorMode="system"
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })} />
+        <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+        <SnapGuides guides={guides} />
+        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
+          <SnapButtons snap={snap} />
+        </Controls>
         <Panel position="top-left" className="toolbar">
           <div className="toolbar-title">
             <strong>{view.title}</strong>

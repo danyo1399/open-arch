@@ -37,6 +37,7 @@ import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
 import { FrameNode, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
+import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import { loopsRise, selfLoop, STATE_W, stateHeight } from "./stateLayout.js";
 
 type StateNodeData = { state: State; initial: boolean };
@@ -61,6 +62,8 @@ const transitionId = (t: Transition) => `transition:${t.number}`;
 /** How a view's diagram is fitted to the canvas, as Canvas does. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
 const TOUCH = "(any-pointer: coarse)";
+/** States and notes snap as they're dragged, and line up with each other. The frame grows round the states, so it's neither. */
+const snapsHere = (n: FlowNode) => n.type !== "frame";
 
 /** One state: its name and description, with a start dot when it's where the view starts, and an end when it can end. */
 function StateNode({ id, data, selected }: NodeProps<StateFlowNode>) {
@@ -128,6 +131,8 @@ interface StateDiagramProps {
   onError(text: string): void;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
+  /** What states and notes snap to as they're dragged, and its buttons. */
+  snap: SnapControl;
 }
 
 /** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
@@ -137,7 +142,7 @@ function newStickyId(stickies: Sticky[]): string {
   for (let i = 2; ; i++) if (!taken.has(`note-${i}`)) return `note-${i}`;
 }
 
-export function StateDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems }: StateDiagramProps) {
+export function StateDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap }: StateDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, TransitionEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -314,13 +319,20 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     return nodesRef.current.flatMap((n) => (n.type === "state" && !n.data.state.at ? [{ op: "update-state" as const, view: view.id, id: n.id, at: [Math.round(n.position.x), Math.round(n.position.y)] as [number, number] }] : []));
   }, [view.id]);
 
-  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => {
-    for (const c of changes) if (c.type === "dimensions" && c.id === FRAME_ID && c.dimensions) frameMeasured.current = c.dimensions;
-    setNodes((nds) => applyNodeChanges(changes.filter((c) => !("id" in c) || c.id !== FRAME_ID), nds));
-  }, []);
+  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
+
+  const onNodesChange = useCallback(
+    (made: NodeChange<FlowNode>[]) => {
+      const changes = snapChanges(made);
+      for (const c of changes) if (c.type === "dimensions" && c.id === FRAME_ID && c.dimensions) frameMeasured.current = c.dimensions;
+      setNodes((nds) => applyNodeChanges(changes.filter((c) => !("id" in c) || c.id !== FRAME_ID), nds));
+    },
+    [snapChanges],
+  );
 
   const onNodeDragStop = useCallback(
-    (_: unknown, _node: FlowNode, dragged: FlowNode[]) => {
+    (_: unknown, _node: FlowNode, letGo: FlowNode[]) => {
+      const dragged = dropped(letGo);
       const at = (n: FlowNode): [number, number] => [Math.round(n.position.x), Math.round(n.position.y)];
       const moved = new Set(dragged.map((n) => n.id));
       const ops: Operation[] = [
@@ -331,7 +343,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
       ];
       if (ops.length) void edit(ops);
     },
-    [edit, view.id, fixPlaced],
+    [edit, view.id, fixPlaced, dropped],
   );
 
   const onConnect = useCallback(
@@ -424,8 +436,11 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
         colorMode="system"
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })} />
+        <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+        <SnapGuides guides={guides} />
+        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
+          <SnapButtons snap={snap} />
+        </Controls>
         <Panel position="top-left" className="toolbar">
           <div className="toolbar-title">
             <strong>{view.title}</strong>

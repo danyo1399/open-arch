@@ -15,6 +15,8 @@
   --edge: #5b6577;
   --label-bg: rgba(255, 255, 255, 0.94);
   --frame: #8a94a6;
+  /* Where what's being dragged lines up: unlike anything drawn on a diagram, so it shows on any box. */
+  --guide: #e0307a;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 12px rgba(16, 24, 40, 0.08);
   --person: #08427b;
   --system: #1168bd;
@@ -57,6 +59,7 @@
     --edge: #a3acbb;
     --label-bg: rgba(26, 30, 37, 0.94);
     --frame: #6b7385;
+    --guide: #f0609a;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.35);
     /* A little deeper, so the notes don't glare on the dark canvas. */
     --sticky-yellow: #eadb7c;
@@ -2637,4 +2640,23 @@ button.active {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+/* Where what's being dragged lines up with another box or note (see snap.tsx): a thin line, as thin at any zoom. */
+.snap-guides {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.snap-guides line {
+  stroke: var(--guide);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+/* The buttons that turn snapping on and off, with the zoom buttons: an accent colour while it's on. */
+.react-flow__controls-button.snap-button[aria-pressed="true"] {
+  color: var(--accent);
 }

@@ -1,12 +1,12 @@
 /**
  * The designer's settings for the person using it: how the Views list is sorted,
  * which views they pinned to the top of it in each workspace, the link of each
- * workspace they shared, and whether they turned down the web app's offer to
- * install it. They're kept in
+ * workspace they shared, whether they turned down the web app's offer to
+ * install it, and what boxes and notes snap to as they drag them. They're kept in
  * IndexedDB, in the desktop app too, not in the .openarch file, so everyone who
  * opens a workspace has their own.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { committed, done } from "./library.js";
 import { renamedId, type Rename, type ViewOrder } from "./model.js";
 import { problemText } from "./problems.js";
@@ -15,6 +15,16 @@ import type { Share } from "./share.js";
 const STORE = "settings";
 const VIEW_ORDER = "view-order";
 const INSTALL_PROMPT = "install-prompt";
+const SNAP = "snap";
+/** What boxes and sticky notes snap to as they're dragged: the other boxes' edges and middles, the grid of dots, both or neither. */
+export interface SnapSettings {
+  guides: boolean;
+  grid: boolean;
+}
+
+/** Until it's changed, what's dragged lines up with the other boxes, and not with the grid. */
+export const SNAP_DEFAULTS: SnapSettings = { guides: true, grid: false };
+
 /** Where a workspace's pins are kept. `workspace` is its host's key. */
 const pinsKey = (workspace: string) => `pinned-views/${workspace}`;
 /** Where the link a workspace was shared as is kept, with the token that changes it. */
@@ -114,6 +124,15 @@ export class Settings {
     await this.update<string>(INSTALL_PROMPT, () => "dismissed");
   }
 
+  async snap(): Promise<SnapSettings> {
+    const stored = await this.get<Partial<SnapSettings>>(SNAP);
+    return { guides: typeof stored?.guides === "boolean" ? stored.guides : SNAP_DEFAULTS.guides, grid: typeof stored?.grid === "boolean" ? stored.grid : SNAP_DEFAULTS.grid };
+  }
+
+  async setSnap(snap: SnapSettings): Promise<void> {
+    await this.update<SnapSettings>(SNAP, () => ({ guides: snap.guides, grid: snap.grid }));
+  }
+
   /** The link a workspace was shared as, from this browser or this computer. */
   async share(workspace: string): Promise<Share | undefined> {
     return this.get<Share>(shareKey(workspace));
@@ -196,4 +215,40 @@ export function useViewSettings(workspace: string, settings: Settings = userSett
   );
 
   return { loaded: loaded === workspace, order, pins, setOrder, setPinned, followRenames };
+}
+
+export interface SnapSetting {
+  snap: SnapSettings;
+  /** Rejects if the setting couldn't be stored. It still changes for as long as the designer is open. */
+  setSnap(snap: SnapSettings): Promise<void>;
+}
+
+/** What boxes and sticky notes snap to as they're dragged, on every view. */
+export function useSnapSettings(settings: Settings = userSettings): SnapSetting {
+  const [snap, setShown] = useState<SnapSettings>(SNAP_DEFAULTS);
+  /** Whether it was changed here, so reading what was stored doesn't undo a change made before it's read. */
+  const changed = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    settings
+      .snap()
+      .then((s) => !cancelled && !changed.current && setShown(s))
+      // Without stored settings, it snaps as it does until it's changed.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [settings]);
+
+  const setSnap = useCallback(
+    (next: SnapSettings) => {
+      changed.current = true;
+      setShown(next);
+      return settings.setSnap(next);
+    },
+    [settings],
+  );
+
+  return { snap, setSnap };
 }

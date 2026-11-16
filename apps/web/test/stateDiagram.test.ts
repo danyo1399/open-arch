@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
 import { StateDiagram } from "../src/canvas/StateDiagram.js";
+import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
 import { mount } from "./dom.js";
 
@@ -44,6 +45,7 @@ async function diagram(model: OpenArchDocument = shop) {
         },
         onError() {},
         exportItems: [],
+        snap: { settings: SNAP_DEFAULTS, set() {} },
       }),
     ),
   );

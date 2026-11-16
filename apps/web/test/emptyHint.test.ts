@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { Canvas } from "../src/canvas/Canvas.js";
+import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
 import { button, click, mount } from "./dom.js";
 
@@ -37,6 +38,7 @@ describe("the hint on an empty view", () => {
           onError() {},
           renames: [],
           exportItems: [],
+          snap: { settings: SNAP_DEFAULTS, set() {} },
         }),
       ),
     );

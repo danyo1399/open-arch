@@ -59,6 +59,7 @@ import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STI
 import { classHeight, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
+import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import { besideArrow, besideBox, besideFrame, distanceToRoute, midpoint, stickyLine, type LineEnd, type Rect } from "./stickyLines.js";
 
 /** What's selected. `several` is two or more boxes and sticky notes on the open view, which move together. */
@@ -130,6 +131,8 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
 /** Held while clicking a box or note, these add it to the selection or take it out: Ctrl (⌘ on a Mac), or Shift. */
 const MULTI_KEYS = isMac ? ["Meta", "Shift"] : ["Control", "Shift"];
 const addsToSelection = (e: MouseEvent) => e.shiftKey || (isMac ? e.metaKey : e.ctrlKey);
+/** Boxes and notes snap as they're dragged, and line up with each other. The frame grows round the boxes inside it, so it's neither. */
+const snapsHere = (n: FlowNode) => n.type !== "frame";
 
 interface CanvasProps {
   ws: Workspace;
@@ -150,6 +153,8 @@ interface CanvasProps {
   exportItems: MenuItem[];
   /** A note just added from a menu or the details, to edit in place. */
   editSticky?: string | null;
+  /** What boxes and notes snap to as they're dragged, and its buttons. */
+  snap: SnapControl;
 }
 
 /**
@@ -437,7 +442,7 @@ export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<strin
   return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky, snap }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -806,8 +811,11 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   /** What the selection box being drawn has picked so far, by node ID. */
   const boxed = useRef<Set<string> | null>(null);
 
+  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
+
   const onNodesChange = useCallback(
-    (changes: NodeChange<FlowNode>[]) => {
+    (made: NodeChange<FlowNode>[]) => {
+      const changes = snapChanges(made);
       const picking = boxed.current;
       if (picking) for (const c of changes) if (c.type === "select") picking[c.selected ? "add" : "delete"](c.id);
       // Boxes being measured: fit the frame around them on the next frame, not inside
@@ -816,7 +824,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       setNodes((nds) => (measuring ? applyNodeChanges(changes, nds) : withFrame(applyNodeChanges(changes, nds), cv?.boundary)));
       if (measuring) requestAnimationFrame(() => setNodes((nds) => withFrame(nds, cv?.boundary)));
     },
-    [cv],
+    [cv, snapChanges],
   );
 
   /** The boxes and notes these nodes draw. */
@@ -850,14 +858,15 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   };
 
   const onNodeDragStop = useCallback(
-    (_: unknown, _node: FlowNode, dragged: FlowNode[]) => {
+    (_: unknown, _node: FlowNode, letGo: FlowNode[]) => {
+      const dragged = dropped(letGo);
       const at = (n: FlowNode): [number, number] => [Math.round(n.position.x), Math.round(n.position.y)];
       const movedBoxes = dragged.filter((n): n is ElementFlowNode => n.type === "element");
       const movedNotes = dragged.filter((n): n is StickyFlowNode => n.type === "sticky");
       const layout = movedBoxes.length ? { ...currentLayout(), ...Object.fromEntries(movedBoxes.map((n) => [elementOfNode(n), at(n)])) } : null;
       void edit(moveOps(view.id, layout, Object.fromEntries(movedNotes.map((n) => [n.data.sticky.id, at(n)]))));
     },
-    [currentLayout, edit, view.id, elementOfNode],
+    [currentLayout, edit, view.id, elementOfNode, dropped],
   );
 
   // Pressing a box saves a name being typed in the details, and the rename that follows can land
@@ -985,7 +994,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         colorMode="system"
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+        <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+        <SnapGuides guides={guides} />
         {stickyLines.length > 0 && (
           <ViewportPortal>
             <svg className="sticky-lines" aria-hidden="true">
@@ -1018,7 +1028,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         )}
         {/* The fit button fits the view with its own options, then calls onFitView. React Flow fits
             once, with the last options it was asked for, so these are the ones it uses. */}
-        <Controls showInteractive={false} onFitView={() => fitDiagram(FIT_BUTTON)} />
+        <Controls showInteractive={false} onFitView={() => fitDiagram(FIT_BUTTON)}>
+          <SnapButtons snap={snap} />
+        </Controls>
         <Panel position="top-left" className="toolbar">
           <div className="toolbar-title">
             <strong>{view.title}</strong>
