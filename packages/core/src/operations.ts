@@ -2159,6 +2159,8 @@ function requireScreen(view: ViewData, viewId: string, id: string): ScreenData {
 /** Why a whiteboard view can't be given elements to show or hide. */
 const WHITEBOARD_SHAPES = "A whiteboard view draws its shapes and arrows, not elements, so it takes no include or exclude list. Add a shape with add-shape, and an arrow with add-arrow.";
 const SHAPE_ID_EXAMPLE = 'IDs are lowercase kebab-case, like "big-idea".';
+/** Why text can't be empty: text with nothing to say is nothing on the board. */
+const EMPTY_TEXT = "Text needs something to say: give it text. Without any, it draws nothing on the board.";
 
 /** About how tall a line of text is, at each size, for placing a shape under one whose height is its text's. */
 const LINE_HEIGHT: Record<TextSize, number> = { small: 20, medium: 28, large: 40, huge: 60 };
@@ -2212,6 +2214,7 @@ function addShape(doc: OpenArchDocument, op: Extract<Operation, { op: "add-shape
     if (!op.points) throw new OpError("A pen needs points: the points its line goes through, from its corner.");
     checkPoints(op.points);
   }
+  if (op.kind === "text" && !op.text?.trim()) throw new OpError(EMPTY_TEXT);
   const at = (op.at ?? belowShapes(shapes)).map((n) => Math.round(n)) as Position;
   checkShapeAt(at, op.kind);
   const shape = clean<ShapeData>({
@@ -2276,6 +2279,7 @@ function updateShape(doc: OpenArchDocument, op: Extract<Operation, { op: "update
     if (op.dashed) shape.dashed = true;
     else delete shape.dashed;
   }
+  if (shape.kind === "text" && !shape.text?.trim()) throw new OpError(`${EMPTY_TEXT} To take it off the board, remove it with remove-shape.`);
   const shapes = view.shapes!;
   const moved = moveTo(shapes, shapes.indexOf(shape), op.position, op.view, "shape");
   const where = moved ? `, and moved it to ${op.position} from the back` : "";

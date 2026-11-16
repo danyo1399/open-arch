@@ -105,6 +105,15 @@ describe("the designer, on a whiteboard view", () => {
     await d.settle();
     expect(d.shapes()).toEqual(["cache", "db", "scribble"]);
     expect(d.shape("cache").querySelector(".wb-text")).toBeNull();
+    // With nothing written in it, it can't become text alone, which would draw nothing.
+    const kinds = [...d.host.querySelectorAll<HTMLLabelElement>(".properties label.field")].find((l) => l.querySelector(".field-label")?.textContent === "Shape")!;
+    expect([...kinds.querySelectorAll("option")].map((o) => [o.textContent, o.disabled])).toEqual([
+      ["Rectangle", false],
+      ["Ellipse", false],
+      ["Diamond", false],
+      ["Text", true],
+    ]);
+    expect(kinds.textContent).toContain("Give it text to make it text alone.");
   });
 
   it("shows a pen's line with only what a line has: its colour and dashes", async () => {

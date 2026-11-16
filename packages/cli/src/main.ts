@@ -578,7 +578,7 @@ before it. The id must be unique among the view's shapes.
                          text: just its text, with no outline
                          pen: a line drawn freehand, through its --points
   --text <text>          What it says. Lines of their own, like --text $'Cache\\nthe menus'
-                         in bash. Not on a pen
+                         in bash. Text needs it; a pen takes none
   --at <x,y>             Its top-left corner (default: under the shapes there are). Add its
                          width and height, --at x,y,width,height, to size it: without them, a
                          rectangle, ellipse or diamond is 160 by 80, and text is as big as
@@ -600,7 +600,8 @@ before it. The id must be unique among the view's shapes.
                              [--points <x,y x,y ...>] [--size <size>] [--color <color>] [--fill <fill>]
                              [--dashed | --solid] [--position <n>]
 
---kind is rectangle, ellipse, diamond or text; a pen's line stays a pen's line.
+--kind is rectangle, ellipse, diamond or text; a pen's line stays a pen's line, and text
+needs text: --text "" on it is refused, so remove it with remove-shape instead.
 --at x,y moves it and keeps its size; --at x,y,width,height moves it and gives it that size.
 --new-id changes its ID, and the arrows to and from it follow it.
 --position moves it to that place from the back: 1 is drawn first, under the rest.

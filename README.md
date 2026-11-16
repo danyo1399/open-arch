@@ -170,11 +170,11 @@ Pick a tool from the bar along the bottom of the board, or press its key:
 
 Escape picks the selection tool again. **+ Add** adds a rectangle, an ellipse, a diamond, text or a sticky note in the middle of the board.
 
-With the selection tool, drag a shape to move it, and drag a corner or an edge of a selected shape to resize it. Double-click a shape, or press Enter, to write in it, and double-click an arrow to write on it: Ctrl+Enter (⌘Enter on a Mac) or a click away saves it, and Esc leaves it as it was. Text left with nothing in it is deleted. Drag from the dot under a shape to another shape to draw an arrow between them, or anywhere else for one that points there. Select an arrow and drag either end onto a shape, or off it. Drag across the board to select what's inside, arrows too when both their ends are, and move them together.
+With the selection tool, drag a shape to move it, and drag a corner or an edge of a selected shape to resize it. Double-click a shape, or press Enter, to write in it, and double-click an arrow to write on it: Ctrl+Enter (⌘Enter on a Mac) or a click away saves it, and Esc leaves it as it was. Text left with nothing in it is deleted, and a shape with nothing written in it can't be made text alone. Drag from the dot under a shape to another shape to draw an arrow between them, or anywhere else for one that points there. Select an arrow and drag either end onto a shape, or off it. Drag across the board to select what's inside, arrows too when both their ends are, and move them together.
 
 Select a shape to change its text, its kind, its colour and fill, how big its text is and whether its outline is dashed, or to bring it to the front or send it to the back. Select an arrow to change its text, its heads (one way, both ways, or none, for a line), its colour and whether it's dashed. Delete deletes what's selected, and a shape takes the arrows to and from it with it.
 
-The docs draw a whiteboard in Mermaid as near as it can: its boxes and text, in their colours, and the arrows between them, though Mermaid lays them out itself. It can't draw the pen's lines, or arrows with an end at a point, so the page says when it leaves those out. **Export** saves a picture of the whiteboard as it's drawn.
+The docs draw a whiteboard in Mermaid as near as it can: its boxes and text, in their colours, and the arrows between them, though Mermaid lays them out itself. It can't draw the pen's lines, or arrows with an end at a point or on a pen's line, so the page says when it leaves those out. **Export** saves a picture of the whiteboard as it's drawn.
 
 ### Exporting one view
 

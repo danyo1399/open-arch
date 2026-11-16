@@ -1416,11 +1416,13 @@ function ShapeProperties({ view, shape, edit, onSelect }: PropertiesProps & { vi
           <span className="field-label">Shape</span>
           <select value={shape.kind} onChange={(e) => set({ kind: e.target.value as ShapeKind })}>
             {(["rectangle", "ellipse", "diamond", "text"] as const).map((k) => (
-              <option key={k} value={k}>
+              // Text with nothing to say would be nothing on the board.
+              <option key={k} value={k} disabled={k === "text" && shape.kind !== "text" && !shape.text?.trim()}>
                 {SHAPE_KIND_LABELS[k]}
               </option>
             ))}
           </select>
+          {shape.kind !== "text" && !shape.text?.trim() && <span className="field-hint">Give it text to make it text alone.</span>}
         </label>
       )}
       <Swatches label={pen ? "Colour" : "Colour of its outline and text"} value={shape.color} options={SHAPE_COLORS} look="ink" onChange={(color) => set({ color: color ?? null })} />

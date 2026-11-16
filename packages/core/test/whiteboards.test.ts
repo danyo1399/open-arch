@@ -189,6 +189,15 @@ describe("whiteboard views", () => {
     ]);
   });
 
+  it("warn about text with nothing to say, which draws nothing", () => {
+    const doc = ideas();
+    doc.views.ideas!.shapes!.push({ id: "blank", kind: "text", at: [0, 0] }, { id: "spaces", kind: "text", text: "  ", at: [0, 0] });
+    expect(checkWorkspace(buildWorkspace(doc)).map((d) => [d.severity, d.rule, d.path, d.message])).toEqual([
+      ["warning", "shape-text-empty", "views.ideas.shapes[5].text", 'Text "blank" has nothing to say, so it draws nothing on the board.'],
+      ["warning", "shape-text-empty", "views.ideas.shapes[6].text", 'Text "spaces" has nothing to say, so it draws nothing on the board.'],
+    ]);
+  });
+
   it("know each shape's place from the back, and fill in the defaults", () => {
     const view = buildWorkspace(ideas()).views.get("ideas")!;
     expect(view.shapes.map((s) => [s.id, s.number, s.size, s.color, s.fill, s.dashed, s.points.length])).toEqual([
@@ -311,7 +320,7 @@ describe("whiteboard views", () => {
     const result = applyOperations(doc, [{ op: "add-shape", view: "ideas", id: "back", kind: "rectangle", position: 1 }]);
     expect(result.summary).toEqual(["added rectangle back to view ideas, as shape 1 from the back"]);
     expect(result.doc.views.ideas!.shapes![0]!.id).toBe("back");
-    expect(applyOperations(doc, [{ op: "add-shape", view: "ideas", id: "x", kind: "text" }]).summary).toEqual(["added text x to view ideas"]);
+    expect(applyOperations(doc, [{ op: "add-shape", view: "ideas", id: "x", kind: "text", text: "X" }]).summary).toEqual(["added text x to view ideas"]);
   });
 
   it("change, move, resize, reorder, rename and remove shapes, and the arrows to them follow or go", () => {
@@ -319,8 +328,10 @@ describe("whiteboard views", () => {
     expect(result.summary).toEqual(["updated shape cache in view ideas"]);
     // A position on its own keeps the size.
     expect(result.doc.views.ideas!.shapes![1]).toEqual({ id: "cache", kind: "diamond", text: "Cache it", at: [10, 20, 180, 90], size: "small", color: "green", dashed: true });
-    result = applyOperations(result.doc, [{ op: "update-shape", view: "ideas", id: "cache", at: [5, 6, 70, 80], text: null, size: null, color: null, dashed: false, kind: "text" }]);
-    expect(result.doc.views.ideas!.shapes![1]).toEqual({ id: "cache", kind: "text", at: [5, 6, 70, 80] });
+    result = applyOperations(result.doc, [{ op: "update-shape", view: "ideas", id: "cache", at: [5, 6, 70, 80], text: "Cached", size: null, color: null, dashed: false, kind: "text" }]);
+    expect(result.doc.views.ideas!.shapes![1]).toEqual({ id: "cache", kind: "text", text: "Cached", at: [5, 6, 70, 80] });
+    // Shapes with an outline draw something without text; text doesn't.
+    expect(apply(ideas(), { op: "update-shape", view: "ideas", id: "cache", text: null }).views.ideas!.shapes![1]).toEqual({ id: "cache", kind: "rectangle", at: [0, 0, 180, 90], fill: "yellow" });
     // Text has no outline, so a shape that becomes text loses its dashes.
     expect(apply(ideas(), { op: "update-shape", view: "ideas", id: "db", kind: "text" }).views.ideas!.shapes![2]).toEqual({ id: "db", kind: "text", text: "Orders DB", at: [300, 0], color: "blue" });
     expect(apply(ideas(), { op: "update-shape", view: "ideas", id: "scribble", points: [[0, 0], [4.4, 5.6]], at: [1, 2], dashed: true }).views.ideas!.shapes![4]).toEqual({
@@ -388,7 +399,14 @@ describe("whiteboard views", () => {
     expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "pen", points: [[0, 0], [1, 1]], text: "Hi" })).toBe("A pen draws only a line, so it takes no text.");
     expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "pen", points: [[0, 0], [1, 1]], fill: "red" })).toBe("A pen draws only a line, so it takes no fill.");
     expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "rectangle", points: [[0, 0], [1, 1]] })).toBe("Only pens have points.");
-    expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "text", dashed: true })).toBe("Text has no outline, so it can't be dashed.");
+    expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "text", text: "Hi", dashed: true })).toBe("Text has no outline, so it can't be dashed.");
+    // Text with nothing to say draws nothing, however it's made.
+    const empty = "Text needs something to say: give it text. Without any, it draws nothing on the board.";
+    expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "text" })).toBe(empty);
+    expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "text", text: " \n " })).toBe(empty);
+    expect(fails(doc, { op: "update-shape", view: "ideas", id: "title", text: null })).toBe(`${empty} To take it off the board, remove it with remove-shape.`);
+    expect(fails(doc, { op: "update-shape", view: "ideas", id: "title", text: "  " })).toBe(`${empty} To take it off the board, remove it with remove-shape.`);
+    expect(fails(doc, { op: "update-shape", view: "ideas", id: "which", kind: "text", text: null })).toBe(`${empty} To take it off the board, remove it with remove-shape.`);
     expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "rectangle", at: [0, 0, 0, 10] })).toBe("A shape's width and height must be more than 0.");
     expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "rectangle", size: "tiny" as never })).toBe("Unknown text size \"tiny\". Use one of: small, medium, large, huge.");
     expect(fails(doc, { op: "add-shape", view: "ideas", id: "x", kind: "rectangle", color: "yellow" as never })).toBe("Unknown color \"yellow\". Use one of: black, grey, red, orange, green, blue, purple.");

@@ -917,11 +917,22 @@ export function arrowName(arrow: Pick<Arrow, "id" | "heads" | "text">): string {
 
 /**
  * A whiteboard view: it draws its shapes and arrows, not the model, so it has no boxes. Its
- * problems are arrows to a shape it doesn't have, or from a shape to itself.
+ * problems are text with nothing to say, which draws nothing, and arrows to a shape it doesn't
+ * have, or from a shape to itself.
  */
 function computeWhiteboard(view: ViewDef): ComputedView {
   const diagnostics: Diagnostic[] = [];
   const shapes = view.shapes.map((s) => s.id);
+  for (const shape of view.shapes) {
+    if (shape.kind !== "text" || shape.text?.trim()) continue;
+    diagnostics.push({
+      severity: "warning",
+      rule: "shape-text-empty",
+      message: `Text "${shape.id}" has nothing to say, so it draws nothing on the board.`,
+      path: `${shape.path}.text`,
+      fix: "Give it text, or remove it.",
+    });
+  }
   for (const arrow of view.arrows) {
     for (const end of ["from", "to"] as const) {
       const id = arrow[end];
