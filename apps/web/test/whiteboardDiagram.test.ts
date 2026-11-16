@@ -240,6 +240,25 @@ describe("WhiteboardDiagram", () => {
     expect(dots().map((d) => d[2])).toEqual([false, false, false, true]);
   });
 
+  it("shows no dots for where the pointer was once it's pressed to draw, or the board zooms, until it moves again", async () => {
+    const { host } = await diagram();
+    const pane = host.querySelector(".react-flow__pane")!;
+    const dots = () => host.querySelectorAll(".wb-sides circle").length;
+    const at = (clientX: number, clientY: number) => ({ bubbles: true, button: 0, pointerId: 1, clientX, clientY });
+    await click(tool(host, "Arrow"));
+    await act(async () => void pane.dispatchEvent(new PointerEvent("pointermove", at(175, 44))));
+    expect(dots()).toBe(4);
+    // A click, which draws nothing.
+    await act(async () => void pane.dispatchEvent(new PointerEvent("pointerdown", at(175, 44))));
+    await act(async () => void window.dispatchEvent(new PointerEvent("pointerup", at(175, 44))));
+    expect(dots()).toBe(0);
+    await act(async () => void pane.dispatchEvent(new PointerEvent("pointermove", at(176, 44))));
+    expect(dots()).toBe(4);
+    await click(host.querySelector(".react-flow__controls-zoomin")!);
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 400)));
+    expect(dots()).toBe(0);
+  });
+
   it("types text where the text tool is clicked, and makes a text shape of it, or nothing if it's left empty", async () => {
     const { host, edits } = await diagram();
     await click(tool(host, "Text"));

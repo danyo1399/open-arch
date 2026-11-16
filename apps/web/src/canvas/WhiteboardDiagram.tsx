@@ -897,7 +897,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
             else select({ kind: "boardArrow", id: edge.data.arrow.id });
           }}
           onEdgeDoubleClick={(_, edge) => edge.data && setEditing({ kind: "arrow", id: edge.data.arrow.id })}
-        onMove={clearHover}
+          onMove={clearHover}
           onPaneClick={() => !drew.current && select(null)}
           onSelectionStart={() => {
             boxed.current = new Set();
