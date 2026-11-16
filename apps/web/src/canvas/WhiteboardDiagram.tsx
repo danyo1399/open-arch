@@ -8,7 +8,7 @@
  * resize it, double-click it to write in it, and drag from the dot under it to another shape to
  * draw an arrow. Double-click the background to type text there.
  */
-import { endShape, SHAPE_KIND_LABELS, SHAPE_SIZE, type Arrow, type ArrowEnd, type ComputedView, type Operation, type Shape, type ShapeKind, type Sticky, type ViewDef } from "@open-arch/core";
+import { endShape, endSide, SHAPE_KIND_LABELS, SHAPE_SIZE, type Arrow, type ArrowEnd, type ComputedView, type Operation, type Shape, type ShapeKind, type Sticky, type ViewDef } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -24,6 +24,7 @@ import {
   applyNodeChanges,
   useConnection,
   useReactFlow,
+  type ConnectionLineComponentProps,
   type Edge,
   type EdgeProps,
   type FinalConnectionState,
@@ -32,7 +33,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@fontsource/architects-daughter/400.css";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { boardItemsOf, newStickyId, selectBoard, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
@@ -44,6 +45,7 @@ import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap
 import {
   arrowEnds,
   arrowSketch,
+  contains,
   middle,
   penPath,
   seedOf,
@@ -278,6 +280,26 @@ function ArrowLine({ id, data, selected }: EdgeProps<ArrowFlowEdge>) {
   );
 }
 
+/** The shapes as drawn now, for the line drawn while an arrow is dragged from a shape's dot. */
+const BoardShapes = createContext<{ shapes: readonly PlacedShape[]; placed: ReadonlyMap<string, PlacedShape> }>({ shapes: [], placed: new Map() });
+
+/**
+ * The arrow being dragged from a shape's dot, straight to where it goes if it's let go now: the
+ * side of a shape, as the dots show, the shape, or the pointer. React Flow's own line would go to
+ * the shape's handle instead.
+ */
+function ConnectingLine({ fromNode, pointer, toNode, connectionStatus }: ConnectionLineComponentProps) {
+  const { shapes, placed } = useContext(BoardShapes);
+  const rf = useReactFlow();
+  const { x, y, zoom } = rf.getViewport();
+  // React Flow gives where the pointer is from the board's corner, on the screen.
+  const p = { x: (pointer.x - x) / zoom, y: (pointer.y - y) / zoom };
+  const onto = dropEnd(shapes, p, SIDE_REACH / zoom, fromNode.id, connectionStatus === "valid" ? toNode?.id : undefined);
+  const ends = arrowEnds({ from: fromNode.id, to: onto ?? [p.x, p.y] }, placed);
+  if (!ends) return null;
+  return <path className="wb-connecting" d={`M ${ends.from.x} ${ends.from.y} L ${ends.to.x} ${ends.to.y}`} />;
+}
+
 const nodeTypes = { shape: ShapeNode, sticky: StickyNode, end: EndNode };
 const edgeTypes = { arrow: ArrowLine };
 
@@ -323,6 +345,8 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
   const [grip, setGrip] = useState<string | null>(null);
   /** Where the pointer is on the board while the arrow or line tool is picked, to show the sides of the shape under it. */
   const [hover, setHover] = useState<Point | null>(null);
+  /** The shape and side the dots show for `hover`, so moving the pointer draws them again only when that changes. */
+  const hoverKey = useRef("");
   const [nodes, setNodes] = useState<(ShapeFlowNode | StickyFlowNode)[]>([]);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
@@ -433,6 +457,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     return out;
   }, [nodes]);
   const inOrder = useMemo(() => view.shapes.flatMap((s) => placed.get(s.id) ?? []), [view, placed]);
+  const boardShapes = useMemo(() => ({ shapes: inOrder, placed }), [inOrder, placed]);
   const inOrderRef = useRef(inOrder);
   inOrderRef.current = inOrder;
 
@@ -493,6 +518,15 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     [view, lines, selectedArrow, selection, zArrows],
   );
   const drawn = useMemo<FlowNode[]>(() => [...nodes, ...endNodes], [nodes, endNodes]);
+  const drawingArrow = !!drawing && (drawing.tool === "arrow" || drawing.tool === "line");
+  /** The shape an arrow being drawn starts on, which its other end can't go onto too. */
+  const drawingFrom = useMemo(() => {
+    if (!drawing || (drawing.tool !== "arrow" && drawing.tool !== "line")) return undefined;
+    const start = endAt(inOrder, drawing.start, SIDE_REACH / rf.getZoom());
+    return start === undefined ? undefined : endShape(start);
+    // Only where it starts matters, not where the pointer is now.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawing?.start, drawing?.tool, inOrder, rf]);
   /** The shape at the other end of the arrow whose grip is dragged, which that end can't go onto too. */
   const gripOther = useMemo(() => {
     for (const a of view.arrows) for (const [end, other] of [["from", "to"], ["to", "from"]] as const) if (grip === endNodeId(a.id, end)) return endShape(a[other]);
@@ -596,7 +630,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       const touch = "changedTouches" in event ? event.changedTouches[0] : undefined;
       const client = touch ?? (event as MouseEvent);
       const at = rf.screenToFlowPosition({ x: client.clientX, y: client.clientY });
-      const onto = endAt(inOrder, at, SIDE_REACH / rf.getZoom(), state.fromNode.id);
+      const onto = dropEnd(inOrder, at, SIDE_REACH / rf.getZoom(), state.fromNode.id, state.isValid ? state.toNode?.id : undefined);
       if (onto) addArrow(state.fromNode.id, onto);
       else if (!inBox(placed.get(state.fromNode.id)!.box, at)) addArrow(state.fromNode.id, [Math.round(at.x), Math.round(at.y)]);
     },
@@ -705,7 +739,16 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       setDrawing(current);
     };
     const move = (e: PointerEvent) => {
-      if (!current && (tool === "arrow" || tool === "line")) setHover(e.target instanceof Element && el.contains(e.target) ? flow(e) : null);
+      if (!current && (tool === "arrow" || tool === "line")) {
+        // Drawn again only when the dots would show another shape, or another side of it.
+        const at = e.target instanceof Element && el.contains(e.target) ? flow(e) : null;
+        const end = at && endAt(inOrderRef.current, at, SIDE_REACH / rf.getZoom());
+        const key = end ? `${endShape(end)} ${endSide(end) ?? ""}` : "";
+        if (key !== hoverKey.current) {
+          hoverKey.current = key;
+          setHover(end ? at : null);
+        }
+      }
       if (!current || e.pointerId !== current.pointer) return;
       const at = flow(e);
       current = { ...current, now: at, points: current.tool === "pen" ? [...current.points, at] : current.points };
@@ -738,6 +781,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       window.removeEventListener("pointercancel", cancel);
       setDrawing(null);
       setHover(null);
+      hoverKey.current = "";
     };
   }, [tool, rf]);
 
@@ -817,123 +861,126 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
         setDraft(textCorner(rf.screenToFlowPosition({ x: e.clientX, y: e.clientY })));
       }}
     >
-      <ReactFlow<FlowNode, ArrowFlowEdge>
-        nodes={drawn}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodesChange={onNodesChange}
-        onNodeDragStop={onNodeDragStop}
-        onConnectEnd={onConnectEnd}
-        isValidConnection={(c) => c.source !== c.target && placed.has(c.source) && placed.has(c.target)}
-        onNodeClick={(event, node) => {
-          const picked = pickedBy(node);
-          if (drew.current || !selecting || !picked) return;
-          if (addsToSelection(event)) toggle(picked.which, picked.id);
-          else select(picked.selection);
-        }}
-        // Dragging swallows the click, so select what's dragged when the drag starts, unless it's
-        // already selected, with others it moves with.
-        onNodeDragStart={(_, node, dragging) => {
-          if (node.type === "end" && dragging.length === 1) setGrip(node.id);
-          const picked = pickedBy(node);
-          if (picked && !items[picked.which].includes(picked.id)) select(picked.selection);
-        }}
-        onEdgeClick={(event, edge) => {
-          if (drew.current || !selecting || !edge.data) return;
-          if (addsToSelection(event)) toggle("arrows", edge.data.arrow.id);
-          else select({ kind: "boardArrow", id: edge.data.arrow.id });
-        }}
-        onEdgeDoubleClick={(_, edge) => edge.data && setEditing({ kind: "arrow", id: edge.data.arrow.id })}
-        onPaneClick={() => !drew.current && select(null)}
-        onSelectionStart={() => {
-          boxed.current = new Set();
-        }}
-        onSelectionEnd={() => {
-          const ids = boxed.current;
-          boxed.current = null;
-          if (ids) select(boxedSelection(view, ids));
-        }}
-        nodeClickDistance={4}
-        paneClickDistance={4}
-        // With a mouse, dragging the background selects what's inside, as on other views; the
-        // wheel pans, and Ctrl (⌘ on a Mac) with the wheel, or a pinch, zooms. A drawing tool draws instead.
-        selectionOnDrag={selecting}
-        panOnDrag={selecting ? [1] : false}
-        panOnScroll
-        nodesDraggable={selecting}
-        nodesConnectable={selecting}
-        elementsSelectable={selecting}
-        zoomOnDoubleClick={false}
-        // A selected shape stays where it is among the others, in front of some and behind some.
-        elevateNodesOnSelect={false}
-        connectionMode={ConnectionMode.Loose}
-        connectionLineContainerStyle={{ zIndex: DRAWING_Z }}
-        deleteKeyCode={null}
-        selectionKeyCode={null}
-        multiSelectionKeyCode={MULTI_KEYS}
-        minZoom={0.1}
-        colorMode="system"
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
-        <SnapGuides guides={guides} />
-        {preview && (
-          <ViewportPortal>
-            <svg className="wb-preview" style={{ zIndex: DRAWING_Z }} aria-hidden="true">
-              {preview}
-            </svg>
-          </ViewportPortal>
-        )}
-        <SideDots at={drawing && (drawing.tool === "arrow" || drawing.tool === "line") ? drawing.now : grip ? (ends.get(grip) ?? null) : hover} shapes={inOrder} except={gripOther} />
-        {draft && (
-          <ViewportPortal>
-            <div className="wb-text-draft" style={{ transform: `translate(${draft.x}px, ${draft.y}px)`, zIndex: DRAWING_Z }}>
-              <TextEditor text="" className="wb-text wb-editor" label="New text" onDone={finishDraft} />
-            </div>
-          </ViewportPortal>
-        )}
-        <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
-          <SnapButtons snap={snap} />
-        </Controls>
-        <Panel position="top-left" className="toolbar">
-          <div className="toolbar-title">
-            <strong>{view.title}</strong>
-            <span>whiteboard view</span>
-            {view.description && (
-              <span className="toolbar-description" title={view.description}>
-                {view.description}
-              </span>
-            )}
-          </div>
-          <MenuButton
-            className="primary"
-            items={[
-              { label: "Rectangle", onSelect: () => addInMiddle("rectangle") },
-              { label: "Ellipse", onSelect: () => addInMiddle("ellipse") },
-              { label: "Diamond", onSelect: () => addInMiddle("diamond") },
-              { label: "Text", onSelect: () => setDraft(textCorner(middleOfCanvas())) },
-              { label: "Sticky note", divider: true, onSelect: addSticky },
-            ]}
-          >
-            + Add
-          </MenuButton>
-          {exportItems.length > 0 && (
-            <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
-              Export
-            </MenuButton>
-          )}
-        </Panel>
-        <Panel position="bottom-center" className="wb-tools" aria-label="Drawing tools">
-          {TOOLS.map((t) => (
-            <button key={t.tool} className={tool === t.tool ? "active" : undefined} aria-pressed={tool === t.tool} aria-label={t.label} title={`${t.label} (${t.key})`} onClick={() => setTool(t.tool)}>
-              <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-                {t.icon}
+      <BoardShapes.Provider value={boardShapes}>
+        <ReactFlow<FlowNode, ArrowFlowEdge>
+          nodes={drawn}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={onNodesChange}
+          onNodeDragStop={onNodeDragStop}
+          onConnectEnd={onConnectEnd}
+          isValidConnection={(c) => c.source !== c.target && placed.has(c.source) && placed.has(c.target)}
+          onNodeClick={(event, node) => {
+            const picked = pickedBy(node);
+            if (drew.current || !selecting || !picked) return;
+            if (addsToSelection(event)) toggle(picked.which, picked.id);
+            else select(picked.selection);
+          }}
+          // Dragging swallows the click, so select what's dragged when the drag starts, unless it's
+          // already selected, with others it moves with.
+          onNodeDragStart={(_, node, dragging) => {
+            if (node.type === "end" && dragging.length === 1) setGrip(node.id);
+            const picked = pickedBy(node);
+            if (picked && !items[picked.which].includes(picked.id)) select(picked.selection);
+          }}
+          onEdgeClick={(event, edge) => {
+            if (drew.current || !selecting || !edge.data) return;
+            if (addsToSelection(event)) toggle("arrows", edge.data.arrow.id);
+            else select({ kind: "boardArrow", id: edge.data.arrow.id });
+          }}
+          onEdgeDoubleClick={(_, edge) => edge.data && setEditing({ kind: "arrow", id: edge.data.arrow.id })}
+          onPaneClick={() => !drew.current && select(null)}
+          onSelectionStart={() => {
+            boxed.current = new Set();
+          }}
+          onSelectionEnd={() => {
+            const ids = boxed.current;
+            boxed.current = null;
+            if (ids) select(boxedSelection(view, ids));
+          }}
+          nodeClickDistance={4}
+          paneClickDistance={4}
+          // With a mouse, dragging the background selects what's inside, as on other views; the
+          // wheel pans, and Ctrl (⌘ on a Mac) with the wheel, or a pinch, zooms. A drawing tool draws instead.
+          selectionOnDrag={selecting}
+          panOnDrag={selecting ? [1] : false}
+          panOnScroll
+          nodesDraggable={selecting}
+          nodesConnectable={selecting}
+          elementsSelectable={selecting}
+          zoomOnDoubleClick={false}
+          // A selected shape stays where it is among the others, in front of some and behind some.
+          elevateNodesOnSelect={false}
+          connectionMode={ConnectionMode.Loose}
+          connectionLineContainerStyle={{ zIndex: DRAWING_Z }}
+          connectionLineComponent={ConnectingLine}
+          deleteKeyCode={null}
+          selectionKeyCode={null}
+          multiSelectionKeyCode={MULTI_KEYS}
+          minZoom={0.1}
+          colorMode="system"
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+          <SnapGuides guides={guides} />
+          {preview && (
+            <ViewportPortal>
+              <svg className="wb-preview" style={{ zIndex: DRAWING_Z }} aria-hidden="true">
+                {preview}
               </svg>
-            </button>
-          ))}
-        </Panel>
-      </ReactFlow>
+            </ViewportPortal>
+          )}
+          <SideDots at={drawingArrow ? drawing!.now : grip ? (ends.get(grip) ?? null) : hover} shapes={inOrder} except={drawingArrow ? drawingFrom : gripOther} />
+          {draft && (
+            <ViewportPortal>
+              <div className="wb-text-draft" style={{ transform: `translate(${draft.x}px, ${draft.y}px)`, zIndex: DRAWING_Z }}>
+                <TextEditor text="" className="wb-text wb-editor" label="New text" onDone={finishDraft} />
+              </div>
+            </ViewportPortal>
+          )}
+          <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
+            <SnapButtons snap={snap} />
+          </Controls>
+          <Panel position="top-left" className="toolbar">
+            <div className="toolbar-title">
+              <strong>{view.title}</strong>
+              <span>whiteboard view</span>
+              {view.description && (
+                <span className="toolbar-description" title={view.description}>
+                  {view.description}
+                </span>
+              )}
+            </div>
+            <MenuButton
+              className="primary"
+              items={[
+                { label: "Rectangle", onSelect: () => addInMiddle("rectangle") },
+                { label: "Ellipse", onSelect: () => addInMiddle("ellipse") },
+                { label: "Diamond", onSelect: () => addInMiddle("diamond") },
+                { label: "Text", onSelect: () => setDraft(textCorner(middleOfCanvas())) },
+                { label: "Sticky note", divider: true, onSelect: addSticky },
+              ]}
+            >
+              + Add
+            </MenuButton>
+            {exportItems.length > 0 && (
+              <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
+                Export
+              </MenuButton>
+            )}
+          </Panel>
+          <Panel position="bottom-center" className="wb-tools" aria-label="Drawing tools">
+            {TOOLS.map((t) => (
+              <button key={t.tool} className={tool === t.tool ? "active" : undefined} aria-pressed={tool === t.tool} aria-label={t.label} title={`${t.label} (${t.key})`} onClick={() => setTool(t.tool)}>
+                <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+                  {t.icon}
+                </svg>
+              </button>
+            ))}
+          </Panel>
+        </ReactFlow>
+      </BoardShapes.Provider>
       {empty && !drawing && !draft && (
         <div className="empty-hint">
           This whiteboard is empty. Pick a tool at the bottom and drag to draw, or double-click to type.
@@ -947,8 +994,9 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
 export type Moved = { kind: "shape"; id: string; position: Point } | { kind: "sticky"; id: string; position: Point } | { kind: "end"; arrow: string; end: "from" | "to"; point: Point };
 
 /**
- * The end an arrow gets at a point: the side of a shape whose point it's within `reach` of, the
- * shape it's inside, or none. `shapes` are from the back to the front, and the one in front wins.
+ * The end an arrow gets at a point: on the side of a shape whose point it's within `reach` of, or
+ * on the shape it's inside, or none. `shapes` are from the back to the front, and the one in front
+ * wins: a point inside a shape goes onto it, or a side of it, not onto a side of one behind it.
  * `except` is the shape at the arrow's other end, which this one can't be on too.
  */
 export function endAt(shapes: readonly PlacedShape[], p: Point, reach: number, except?: string): ArrowEnd | undefined {
@@ -957,8 +1005,21 @@ export function endAt(shapes: readonly PlacedShape[], p: Point, reach: number, e
     if (s.id === except) continue;
     const side = sideNear(s.box, p, reach);
     if (side) return { shape: s.id, side };
+    if (contains(s.kind, s.box, p)) return s.id;
   }
-  return shapeAt(shapes, p, except);
+  return undefined;
+}
+
+/**
+ * Where an arrow's end let go at a point goes: as endAt says, or onto `onto`, the shape React Flow
+ * joins an arrow dragged from a shape's dot to when it's dropped anywhere on that shape's box, on
+ * the side of it the point is near, if any. The side dots show the same.
+ */
+export function dropEnd(shapes: readonly PlacedShape[], p: Point, reach: number, except?: string, onto?: string): ArrowEnd | undefined {
+  const shape = onto === undefined ? undefined : shapes.find((s) => s.id === onto && s.id !== except);
+  if (!shape) return endAt(shapes, p, reach, except);
+  const side = sideNear(shape.box, p, reach);
+  return side ? { shape: shape.id, side } : shape.id;
 }
 
 /**
@@ -1041,14 +1102,17 @@ export function drawnArrowEnds(start: Point, now: Point, shapes: readonly Placed
 function SideDots({ at, shapes, except }: { at: Point | null; shapes: readonly PlacedShape[]; except?: string }) {
   const connection = useConnection();
   const rf = useReactFlow();
-  const p = at ?? (connection.inProgress ? connection.to : null);
-  const from = connection.inProgress ? connection.fromNode.id : except;
+  const { x, y, zoom } = rf.getViewport();
+  // React Flow gives where the pointer is from the board's corner, on the screen.
+  const pointer = connection.inProgress ? { x: (connection.pointer.x - x) / zoom, y: (connection.pointer.y - y) / zoom } : null;
+  const p = at ?? pointer;
   if (!p) return null;
-  const reach = SIDE_REACH / rf.getZoom();
-  const end = endAt(shapes, p, reach, from);
+  const end = connection.inProgress
+    ? dropEnd(shapes, p, SIDE_REACH / zoom, connection.fromNode.id, connection.isValid ? connection.toNode?.id : undefined)
+    : endAt(shapes, p, SIDE_REACH / zoom, except);
   const shape = end === undefined ? undefined : shapes.find((s) => s.id === endShape(end));
   if (!shape) return null;
-  const near = typeof end === "object" && !Array.isArray(end) ? end.side : undefined;
+  const near = endSide(end!);
   return (
     <ViewportPortal>
       <svg className="wb-sides" style={{ zIndex: DRAWING_Z }} aria-hidden="true">

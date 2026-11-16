@@ -635,10 +635,10 @@ among the view's arrows.
                              [--to-side <side>] [--text <text>] [--new-id <id>] [--heads <heads>]
                              [--color <color>] [--dashed | --solid]
 
---from and --to move an end, which on another shape faces the other end, unless --from-side or
---to-side says the side of it the end stays on: top, right, bottom or left. Either puts the end
-on that side of its shape without moving it to another, and --from-side "" or --to-side "" lets
-it face the other end again.
+--from and --to move an end. On another shape, it faces the other end, unless --from-side or
+--to-side says the side of it the end stays on: top, right, bottom or left. Naming the shape it's
+on already keeps its side. --from-side or --to-side alone puts the end on that side of the shape
+it's on, and --from-side "" or --to-side "" lets it face the other end again.
 --heads is end, both or none.
 An empty value removes a field: --heads "" and --color "" put them back to end and black.
 `,

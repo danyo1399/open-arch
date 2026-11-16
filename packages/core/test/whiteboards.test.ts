@@ -466,6 +466,10 @@ describe("whiteboard views", () => {
       { id: "yes", from: { shape: "cache", side: "top" }, to: { shape: "db", side: "left" } },
       { id: "no", from: "decision", to: [5, 5] },
     ]);
+    // Naming the shape an end is on already keeps its side; naming another doesn't.
+    expect(apply(result.doc, { op: "update-arrow", view: "ideas", id: "yes", to: "db", from: "cache" }).views.ideas!.arrows![3]).toEqual({ id: "yes", from: { shape: "cache", side: "top" }, to: { shape: "db", side: "left" } });
+    expect(apply(result.doc, { op: "update-arrow", view: "ideas", id: "yes", to: "decision" }).views.ideas!.arrows![3]).toEqual({ id: "yes", from: { shape: "cache", side: "top" }, to: "decision" });
+    expect(apply(result.doc, { op: "update-arrow", view: "ideas", id: "yes", to: { shape: "db", side: "top" } }).views.ideas!.arrows![3]!.to).toEqual({ shape: "db", side: "top" });
     // Removing a shape removes the arrows on its sides too.
     expect(applyOperations(result.doc, [{ op: "remove-shape", view: "ideas", id: "db" }]).summary).toEqual(["removed shape db from view ideas and 2 arrows to or from it"]);
     expect(fails(result.doc, { op: "add-arrow", view: "ideas", id: "x", from: [0, 0], fromSide: "top", to: "db" })).toBe("The arrow's start is at a point, which has no sides. Put it on a shape first.");

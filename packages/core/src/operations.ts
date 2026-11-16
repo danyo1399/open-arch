@@ -271,7 +271,7 @@ export type Operation =
       view: string;
       id: string;
       newId?: string;
-      /** A new end, which on another shape faces the other end unless it's given a side. */
+      /** A new end, which on another shape faces the other end unless it's given a side. Naming the shape it's on already keeps its side. */
       from?: ArrowEnd;
       to?: ArrowEnd;
       /** The side of its shape the end stays on, this one or a new one; null lets it face the other end again. */
@@ -2404,8 +2404,10 @@ function updateArrow(doc: OpenArchDocument, op: Extract<Operation, { op: "update
   if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on arrow "${op.id}": ${fields.join(", ")}.`);
   checkOneOf(op.heads, ARROW_HEADS, "heads");
   checkOneOf(op.color, SHAPE_COLORS, "color");
-  const from = onSide(op.from === undefined ? arrow.from : arrowEnd(view, op.view, op.from), op.fromSide, "start");
-  const to = onSide(op.to === undefined ? arrow.to : arrowEnd(view, op.view, op.to), op.toSide, "end");
+  // An end given the shape it's on already, without a side, keeps its side; on another shape, it faces the other end.
+  const moved = (now: ArrowEnd, next: ArrowEnd | undefined) => (next === undefined || (typeof next === "string" && next === endShape(now)) ? now : arrowEnd(view, op.view, next));
+  const from = onSide(moved(arrow.from, op.from), op.fromSide, "start");
+  const to = onSide(moved(arrow.to, op.to), op.toSide, "end");
   checkArrowEnds(from, to);
   arrow.from = from;
   arrow.to = to;

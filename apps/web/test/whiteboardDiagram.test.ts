@@ -4,7 +4,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { act, createElement, useMemo, useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
-import { boxedSelection, drawnArrowEnds, drawnBox, endAt, moveOps, WhiteboardDiagram } from "../src/canvas/WhiteboardDiagram.js";
+import { boxedSelection, drawnArrowEnds, drawnBox, dropEnd, endAt, moveOps, WhiteboardDiagram } from "../src/canvas/WhiteboardDiagram.js";
 import type { PlacedShape } from "../src/canvas/whiteboard.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
@@ -216,6 +216,30 @@ describe("WhiteboardDiagram", () => {
     expect(edits).toEqual([[{ op: "add-shape", view: "ideas", id: "pen", kind: "pen", at: [10, 10], points: [[0, 0], [10, 10], [50, 0]] }]]);
   });
 
+  it("shows the sides of the shape an arrow would go onto, with the one it would go on bigger, but not of the shape it starts on", async () => {
+    const { host } = await diagram();
+    const pane = host.querySelector(".react-flow__pane")!;
+    const dots = () => [...host.querySelectorAll(".wb-sides circle")].map((c) => [c.getAttribute("cx"), c.getAttribute("cy"), c.classList.contains("near")]);
+    const at = (clientX: number, clientY: number) => ({ bubbles: true, button: 0, pointerId: 1, clientX, clientY });
+    await click(tool(host, "Arrow"));
+    // Pointing at the rectangle, near its right side's middle, before anything's drawn.
+    await act(async () => void pane.dispatchEvent(new PointerEvent("pointermove", at(175, 44))));
+    expect(dots()).toEqual([
+      ["90", "0", false],
+      ["180", "45", true],
+      ["90", "90", false],
+      ["0", "45", false],
+    ]);
+    await act(async () => void pane.dispatchEvent(new PointerEvent("pointermove", at(900, 900))));
+    expect(dots()).toEqual([]);
+    // Drawing from the rectangle, its own sides don't show, and the ellipse's do.
+    await act(async () => void pane.dispatchEvent(new PointerEvent("pointerdown", at(20, 20))));
+    await act(async () => void window.dispatchEvent(new PointerEvent("pointermove", at(178, 46))));
+    expect(dots()).toEqual([]);
+    await act(async () => void window.dispatchEvent(new PointerEvent("pointermove", at(302, 38))));
+    expect(dots().map((d) => d[2])).toEqual([false, false, false, true]);
+  });
+
   it("types text where the text tool is clicked, and makes a text shape of it, or nothing if it's left empty", async () => {
     const { host, edits } = await diagram();
     await click(tool(host, "Text"));
@@ -324,9 +348,25 @@ describe("drawing and moving on a whiteboard", () => {
     // Not onto a side of the shape at its other end; with no reach, onto the shape, facing the other end.
     expect(moveOps(view(), [end("reads", "to", 90, 80)], placed, 16)).toEqual([{ op: "update-arrow", view: "ideas", id: "reads", to: [90, 80] }]);
     expect(moveOps(view(), [end("look", "from", 90, 80)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: "cache" }]);
-    // The shape in front wins.
-    expect(endAt([...placed, { id: "front", kind: "rectangle", box: { x: 80, y: 60, w: 50, h: 50 } }], { x: 90, y: 88 }, 16)).toEqual({ shape: "front", side: "left" });
+    // The shape in front wins, with a side of it, or itself, over a side of a shape behind it.
+    const front = [...placed, { id: "front", kind: "rectangle" as const, box: { x: 80, y: 60, w: 50, h: 50 } }];
+    expect(endAt(front, { x: 90, y: 88 }, 16)).toEqual({ shape: "front", side: "left" });
+    // Near the rectangle's bottom, behind, but inside the shape in front.
+    expect(endAt(front, { x: 95, y: 95 }, 16)).toBe("front");
+    expect(endAt(placed, { x: 95, y: 95 }, 16)).toEqual({ shape: "cache", side: "bottom" });
     expect(endAt(placed, { x: 900, y: 900 }, 16)).toBeUndefined();
+    // An ellipse is the shape inside its outline, not in its box's corners.
+    expect(endAt(placed, { x: 305, y: 3 }, 16)).toBeUndefined();
+  });
+
+  it("joins an arrow dragged from a shape's dot to the shape React Flow drops it on, anywhere on its box, on a side near the pointer", () => {
+    // In the corner of the ellipse's box, outside its outline, as React Flow counts a drop anywhere on its box.
+    expect(dropEnd(placed, { x: 305, y: 3 }, 16, "cache", "db")).toBe("db");
+    expect(dropEnd(placed, { x: 302, y: 38 }, 16, "cache", "db")).toEqual({ shape: "db", side: "left" });
+    // Not onto the shape it's dragged from; with nothing to drop on, as endAt says.
+    expect(dropEnd(placed, { x: 20, y: 20 }, 16, "cache", "cache")).toBeUndefined();
+    expect(dropEnd(placed, { x: 302, y: 38 }, 16, "cache")).toEqual({ shape: "db", side: "left" });
+    expect(dropEnd(placed, { x: 305, y: 3 }, 16, "cache")).toBeUndefined();
   });
 
   it("draws an arrow from a side of a shape to a side of another, when it's pressed and let go near their points", () => {

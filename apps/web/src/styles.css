@@ -2958,6 +2958,13 @@ button.active {
 .wb-sides circle.near {
   fill: var(--accent);
 }
+/* An arrow being dragged from a shape's dot, to where it goes if it's let go. */
+.whiteboard .wb-connecting {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 6;
+}
 /* The side of its shape an arrow's end is on, under the shape's name in the arrow's details. */
 .facts .side-select {
   display: block;
