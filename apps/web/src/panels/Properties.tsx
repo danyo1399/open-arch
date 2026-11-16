@@ -1,11 +1,14 @@
 import {
   allWidgets,
   ARROW_HEADS,
+  ARROW_SIDES,
   arrowName,
   CARD_KIND_LABELS,
   CARD_KINDS,
   describeElement,
   ELEMENT_SHAPES,
+  endShape,
+  endSide,
   kindLabel,
   nodeKindLabel,
   PARENT_KINDS,
@@ -30,6 +33,7 @@ import {
   type ArchElement,
   type Arrow,
   type ArrowHeads,
+  type ArrowSide,
   type Card,
   type CardKind,
   type ComputedView,
@@ -1401,7 +1405,7 @@ function ShapeProperties({ view, shape, edit, onSelect }: PropertiesProps & { vi
   // Text with nothing to say would be nothing on the board, so it goes, as it does when it's emptied on the board.
   const changeText = (text: string) => (shape.kind === "text" && !text.trim() ? remove() : set({ text: text || null }));
   const count = view.shapes.length;
-  const arrows = view.arrows.filter((a) => a.from === shape.id || a.to === shape.id);
+  const arrows = view.arrows.filter((a) => endShape(a.from) === shape.id || endShape(a.to) === shape.id);
   return (
     <>
       <header className="props-header">
@@ -1484,13 +1488,26 @@ function BoardArrowProperties({ view, arrow, edit, onSelect }: PropertiesProps &
     const newId = freeId(text);
     if (newId) void edit([{ op: "update-arrow", view: view.id, id: arrow.id, newId }]).then((ok) => ok && onSelect({ kind: "boardArrow", id: newId }));
   };
-  const end = (e: Arrow["from"]) => {
-    const shape = typeof e === "string" ? view.shapes.find((s) => s.id === e) : undefined;
+  /** An end: the shape it's on, and the side of it it stays on, which can be changed, or its point. */
+  const end = (e: Arrow["from"], which: "from" | "to") => {
+    const id = endShape(e);
+    const shape = id === undefined ? undefined : view.shapes.find((s) => s.id === id);
     if (!shape) return <span className="muted">a point on the board</span>;
+    const label = `Side of ${shapeName(shape)} the arrow's ${which === "from" ? "start" : "end"} is on`;
     return (
-      <button className="link one-line" onClick={() => onSelect({ kind: "shape", id: shape.id })}>
-        {shapeName(shape)}
-      </button>
+      <>
+        <button className="link one-line" onClick={() => onSelect({ kind: "shape", id: shape.id })}>
+          {shapeName(shape)}
+        </button>
+        <select className="side-select" aria-label={label} title={label} value={endSide(e) ?? ""} onChange={(ev) => set({ [which === "from" ? "fromSide" : "toSide"]: (ev.target.value || null) as ArrowSide | null })}>
+          <option value="">Any side, facing the other end</option>
+          {ARROW_SIDES.map((side) => (
+            <option key={side} value={side}>
+              {capitalised(side)}
+            </option>
+          ))}
+        </select>
+      </>
     );
   };
   return (
@@ -1516,11 +1533,11 @@ function BoardArrowProperties({ view, arrow, edit, onSelect }: PropertiesProps &
       </label>
       <dl className="facts">
         <dt>From</dt>
-        <dd>{end(arrow.from)}</dd>
+        <dd>{end(arrow.from, "from")}</dd>
         <dt>To</dt>
-        <dd>{end(arrow.to)}</dd>
+        <dd>{end(arrow.to, "to")}</dd>
       </dl>
-      <p className="muted small">Drag either end onto a shape, which it then follows, or off it onto the board.</p>
+      <p className="muted small">Drag either end onto a shape, which it then follows, or off it onto the board. Let it go on one of the dots at a shape's sides, like a diamond's tips, and it stays on that side, wherever the other end is.</p>
       <Field label="ID" value={arrow.id} onCommit={changeId} />
       <div className="actions">
         <button className="danger" onClick={() => void edit([{ op: "remove-arrow", view: view.id, id: arrow.id }]).then(() => onSelect(null))}>

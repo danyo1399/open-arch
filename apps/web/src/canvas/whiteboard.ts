@@ -3,7 +3,7 @@
  * edge of a shape, the paths rough.js sketches for a shape or an arrow, and a pen's line, smoothed
  * and with points that barely change it left out. None of it needs a page, so it's tested alone.
  */
-import { SHAPE_SIZE, type ArrowEnd, type ArrowHeads, type Position, type Shape, type ShapeKind, type TextSize } from "@open-arch/core";
+import { ARROW_SIDES, endShape, endSide, SHAPE_SIZE, type ArrowEnd, type ArrowHeads, type ArrowSide, type Position, type Shape, type ShapeKind, type TextSize } from "@open-arch/core";
 // The package's own entry, which Node loads as CommonJS and Vite as a module: its bin/ files are modules Node can't load.
 import rough from "roughjs";
 import type { Options } from "roughjs/bin/core";
@@ -92,6 +92,33 @@ export function edgePoint(kind: ShapeKind, box: Rect, toward: Point, gap = ARROW
   return { x: c.x + dx * out, y: c.y + dy * out };
 }
 
+/** How near, on the screen, an arrow's end has to be let go to a side's point to stay on that side. */
+export const SIDE_REACH = 16;
+
+/**
+ * Where an arrow's end on a side of a shape is: the middle of that edge of its box, which is a
+ * diamond's or an ellipse's tip too, `gap` out from it.
+ */
+export function sidePoint(box: Rect, side: ArrowSide, gap = ARROW_GAP): Point {
+  const c = centre(box);
+  if (side === "top") return { x: c.x, y: box.y - gap };
+  if (side === "bottom") return { x: c.x, y: box.y + box.h + gap };
+  if (side === "left") return { x: box.x - gap, y: c.y };
+  return { x: box.x + box.w + gap, y: c.y };
+}
+
+/** The side of a shape whose point is nearest to `p`, if it's within `reach` of it. */
+export function sideNear(box: Rect, p: Point, reach: number): ArrowSide | undefined {
+  let best: ArrowSide | undefined;
+  let nearest = reach;
+  for (const side of ARROW_SIDES) {
+    const at = sidePoint(box, side, 0);
+    const d = Math.hypot(at.x - p.x, at.y - p.y);
+    if (d <= nearest) [best, nearest] = [side, d];
+  }
+  return best;
+}
+
 /** Whether a point is inside a shape: inside its outline, or for text and a pen's line, inside its box. */
 export function contains(kind: ShapeKind, box: Rect, p: Point): boolean {
   const c = centre(box);
@@ -117,9 +144,10 @@ export function shapeAt(shapes: readonly PlacedShape[], p: Point, except?: strin
 }
 
 /**
- * Where an arrow's two ends are drawn: a point where it says, or where a line between the two
- * ends leaves the shape there. `moved` puts an end at a point instead, as while it's dragged.
- * Null when an end is a shape that isn't drawn, or both are the same shape.
+ * Where an arrow's two ends are drawn: a point where it says, the point of the side of its shape
+ * it stays on, or where a line between the two ends leaves the shape there. `moved` puts an end
+ * at a point instead, as while it's dragged. Null when an end is a shape that isn't drawn, or
+ * both are the same shape.
  */
 export function arrowEnds(
   arrow: { from: ArrowEnd; to: ArrowEnd },
@@ -130,9 +158,11 @@ export function arrowEnds(
     const at = moved[which];
     if (at) return { point: at };
     const e = arrow[which];
-    if (typeof e !== "string") return { point: { x: e[0], y: e[1] } };
-    const shape = shapes.get(e);
-    return shape && { shape };
+    if (Array.isArray(e)) return { point: { x: e[0], y: e[1] } };
+    const shape = shapes.get(endShape(e)!);
+    const side = endSide(e);
+    // An end on a side stays at its point, wherever the other end is.
+    return shape && (side ? { shape, point: sidePoint(shape.box, side) } : { shape });
   };
   const [from, to] = [end("from"), end("to")];
   if (!from || !to) return null;

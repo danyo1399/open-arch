@@ -9,6 +9,7 @@ import { isInside, kindList, PARENT_KINDS } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
   ARROW_HEADS,
+  ARROW_SIDES,
   CARD_KINDS,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
@@ -24,9 +25,12 @@ import {
   VIEW_LEVELS,
   WIDGET_HOLDERS,
   WIDGET_KINDS,
+  endShape,
+  endSide,
   type ArrowData,
   type ArrowEnd,
   type ArrowHeads,
+  type ArrowSide,
   type CardData,
   type CardKind,
   type ConnectionData,
@@ -257,9 +261,27 @@ export type Operation =
       position?: number;
     }
   | { op: "remove-shape"; view: string; id: string }
-  /** Each end is the ID of a shape of the view, or a point, [x, y]. */
-  | { op: "add-arrow"; view: string; id: string; from: ArrowEnd; to: ArrowEnd; text?: string; heads?: ArrowHeads; color?: ShapeColor; dashed?: boolean }
-  | { op: "update-arrow"; view: string; id: string; newId?: string; from?: ArrowEnd; to?: ArrowEnd; text?: string | null; heads?: ArrowHeads | null; color?: ShapeColor | null; dashed?: boolean }
+  /**
+   * Each end is the ID of a shape of the view, a shape and the side of it the end stays on, or a
+   * point, [x, y]. `fromSide` and `toSide` put an end that's on a shape on that side of it.
+   */
+  | { op: "add-arrow"; view: string; id: string; from: ArrowEnd; to: ArrowEnd; fromSide?: ArrowSide; toSide?: ArrowSide; text?: string; heads?: ArrowHeads; color?: ShapeColor; dashed?: boolean }
+  | {
+      op: "update-arrow";
+      view: string;
+      id: string;
+      newId?: string;
+      /** A new end, which on another shape faces the other end unless it's given a side. */
+      from?: ArrowEnd;
+      to?: ArrowEnd;
+      /** The side of its shape the end stays on, this one or a new one; null lets it face the other end again. */
+      fromSide?: ArrowSide | null;
+      toSide?: ArrowSide | null;
+      text?: string | null;
+      heads?: ArrowHeads | null;
+      color?: ShapeColor | null;
+      dashed?: boolean;
+    }
   | { op: "remove-arrow"; view: string; id: string }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
@@ -484,11 +506,23 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "remove-shape": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "add-arrow": {
     required: ["view", "id", "from", "to"],
-    fields: { view: "string", id: "string", from: "end", to: "end", text: "string", heads: "string", color: "string", dashed: "boolean" },
+    fields: { view: "string", id: "string", from: "end", to: "end", fromSide: "string", toSide: "string", text: "string", heads: "string", color: "string", dashed: "boolean" },
   },
   "update-arrow": {
     required: ["view", "id"],
-    fields: { view: "string", id: "string", newId: "string", from: "end", to: "end", text: "nullable-string", heads: "nullable-string", color: "nullable-string", dashed: "boolean" },
+    fields: {
+      view: "string",
+      id: "string",
+      newId: "string",
+      from: "end",
+      to: "end",
+      fromSide: "nullable-string",
+      toSide: "nullable-string",
+      text: "nullable-string",
+      heads: "nullable-string",
+      color: "nullable-string",
+      dashed: "boolean",
+    },
   },
   "remove-arrow": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
@@ -548,7 +582,7 @@ function fits(type: FieldType, value: unknown): boolean {
     case "points":
       return Array.isArray(value) && value.every(isPoint);
     case "end":
-      return typeof value === "string" || isPoint(value);
+      return typeof value === "string" || isPoint(value) || (isRecord(value) && Object.keys(value).every((k) => k === "shape" || k === "side") && typeof value.shape === "string" && typeof value.side === "string");
   }
 }
 
@@ -571,7 +605,7 @@ const TYPE_TEXT: Record<FieldType, string> = {
   "nullable-target": 'an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association, or null to take the note off it',
   box: "a position, [x, y], or a position and a size, [x, y, width, height]",
   points: "a list of points, [[x, y], ...]",
-  end: "the ID of a shape, or a point, [x, y]",
+  end: 'the ID of a shape, a shape and a side of it, like { "shape": "decision", "side": "right" }, or a point, [x, y]',
 };
 
 /** Check operations received as JSON: an operation object or a list of them. */
@@ -2296,8 +2330,8 @@ function updateShape(doc: OpenArchDocument, op: Extract<Operation, { op: "update
   if (shapes.some((s) => s.id === op.newId)) throw new OpError(`View "${op.view}" already has a shape "${op.newId}".`);
   shape.id = op.newId;
   for (const a of view.arrows ?? []) {
-    if (a.from === op.id) a.from = op.newId;
-    if (a.to === op.id) a.to = op.newId;
+    a.from = renamedEnd(a.from, op.id, op.newId);
+    a.to = renamedEnd(a.to, op.id, op.newId);
   }
   return `renamed shape ${op.id} to ${op.newId} in view ${op.view}${where}`;
 }
@@ -2308,20 +2342,43 @@ function removeShape(doc: OpenArchDocument, viewId: string, id: string): string 
   const shape = requireShape(view, viewId, id);
   view.shapes!.splice(view.shapes!.indexOf(shape), 1);
   const before = view.arrows?.length ?? 0;
-  if (view.arrows) view.arrows = view.arrows.filter((a) => a.from !== id && a.to !== id);
+  if (view.arrows) view.arrows = view.arrows.filter((a) => endShape(a.from) !== id && endShape(a.to) !== id);
   const gone = before - (view.arrows?.length ?? 0);
   return `removed shape ${id} from view ${viewId}${gone ? ` and ${count(gone, "arrow")} to or from it` : ""}`;
 }
 
-/** An arrow's end, rounded if it's a point. Refuses a shape the view doesn't have. */
+/** An end on a renamed shape, on the shape's new ID, keeping its side. */
+function renamedEnd(end: ArrowEnd, from: string, to: string): ArrowEnd {
+  if (endShape(end) !== from) return end;
+  const side = endSide(end);
+  return side ? { shape: to, side } : to;
+}
+
+/** An arrow's end, rounded if it's a point. Refuses a shape the view doesn't have, and a side that isn't one. */
 function arrowEnd(view: ViewData, viewId: string, end: ArrowEnd): ArrowEnd {
-  if (typeof end !== "string") return end.map((n) => Math.round(n)) as [number, number];
-  requireShape(view, viewId, end);
-  return end;
+  if (Array.isArray(end)) return end.map((n) => Math.round(n)) as [number, number];
+  const shape = endShape(end)!;
+  requireShape(view, viewId, shape);
+  const side = endSide(end);
+  if (side === undefined) return shape;
+  checkOneOf(side, ARROW_SIDES, "side");
+  return { shape, side };
+}
+
+/** An end put on a side of the shape it's on, or, for null, facing the other end. Refuses one at a point, which has no sides. */
+function onSide(end: ArrowEnd, side: ArrowSide | null | undefined, which: "start" | "end"): ArrowEnd {
+  if (side === undefined) return end;
+  const shape = endShape(end);
+  if (!shape) {
+    if (side === null) return end;
+    throw new OpError(`The arrow's ${which} is at a point, which has no sides. Put it on a shape first.`);
+  }
+  checkOneOf(side, ARROW_SIDES, "side");
+  return side === null ? shape : { shape, side };
 }
 
 function checkArrowEnds(from: ArrowEnd, to: ArrowEnd): void {
-  if (typeof from === "string" && from === to) throw new OpError("An arrow can't go from a shape to itself.");
+  if (endShape(from) !== undefined && endShape(from) === endShape(to)) throw new OpError("An arrow can't go from a shape to itself.");
 }
 
 function addArrow(doc: OpenArchDocument, op: Extract<Operation, { op: "add-arrow" }>): string {
@@ -2331,8 +2388,8 @@ function addArrow(doc: OpenArchDocument, op: Extract<Operation, { op: "add-arrow
   if (arrows.some((a) => a.id === op.id)) throw new OpError(`View "${op.view}" already has an arrow "${op.id}".`);
   checkOneOf(op.heads, ARROW_HEADS, "heads");
   checkOneOf(op.color, SHAPE_COLORS, "color");
-  const from = arrowEnd(view, op.view, op.from);
-  const to = arrowEnd(view, op.view, op.to);
+  const from = onSide(arrowEnd(view, op.view, op.from), op.fromSide, "start");
+  const to = onSide(arrowEnd(view, op.view, op.to), op.toSide, "end");
   checkArrowEnds(from, to);
   arrows.push(
     clean<ArrowData>({ id: op.id, from, to, text: op.text, heads: op.heads === "end" ? undefined : op.heads, color: op.color === "black" ? undefined : op.color, dashed: op.dashed || undefined }),
@@ -2343,12 +2400,12 @@ function addArrow(doc: OpenArchDocument, op: Extract<Operation, { op: "add-arrow
 function updateArrow(doc: OpenArchDocument, op: Extract<Operation, { op: "update-arrow" }>): string {
   const view = requireWhiteboard(doc, op.view);
   const arrow = requireArrow(view, op.view, op.id);
-  const fields = ["newId", "from", "to", "text", "heads", "color", "dashed"] as const;
+  const fields = ["newId", "from", "to", "fromSide", "toSide", "text", "heads", "color", "dashed"] as const;
   if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on arrow "${op.id}": ${fields.join(", ")}.`);
   checkOneOf(op.heads, ARROW_HEADS, "heads");
   checkOneOf(op.color, SHAPE_COLORS, "color");
-  const from = op.from === undefined ? arrow.from : arrowEnd(view, op.view, op.from);
-  const to = op.to === undefined ? arrow.to : arrowEnd(view, op.view, op.to);
+  const from = onSide(op.from === undefined ? arrow.from : arrowEnd(view, op.view, op.from), op.fromSide, "start");
+  const to = onSide(op.to === undefined ? arrow.to : arrowEnd(view, op.view, op.to), op.toSide, "end");
   checkArrowEnds(from, to);
   arrow.from = from;
   arrow.to = to;

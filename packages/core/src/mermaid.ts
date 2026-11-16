@@ -5,6 +5,7 @@
 import { inFrame, kindLabel } from "./model.js";
 import {
   CARD_KIND_LABELS,
+  endShape,
   SCREEN_DEVICE_LABELS,
   SHAPE_KIND_LABELS,
   WIDGET_HOLDERS,
@@ -523,11 +524,18 @@ export function shapesInReadingOrder(shapes: Shape[]): Shape[] {
   return [...shapes].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.number - b.number);
 }
 
-/** The arrows Mermaid can draw on a whiteboard: those between two shapes of the view, neither of them a pen's line, nor the same. */
+/**
+ * The arrows Mermaid can draw on a whiteboard: those between two shapes of the view, neither of
+ * them a pen's line, nor the same. Mermaid has no sides to join, so it ignores the side of a
+ * shape an end stays on, and draws the arrow from shape to shape.
+ */
 export function drawnArrows(view: ViewDef): Arrow[] {
   const shapes = new Map(view.shapes.map((s) => [s.id, s]));
-  const drawable = (end: Arrow["from"]) => typeof end === "string" && shapes.has(end) && shapes.get(end)!.kind !== "pen";
-  return view.arrows.filter((a) => drawable(a.from) && drawable(a.to) && a.from !== a.to);
+  const drawable = (end: Arrow["from"]) => {
+    const id = endShape(end);
+    return id !== undefined && shapes.has(id) && shapes.get(id)!.kind !== "pen";
+  };
+  return view.arrows.filter((a) => drawable(a.from) && drawable(a.to) && endShape(a.from) !== endShape(a.to));
 }
 
 /**
@@ -557,7 +565,7 @@ function renderWhiteboard(cv: ComputedView): string {
   drawnArrows(v).forEach((a, i) => {
     const line = a.heads === "both" ? (a.dashed ? "<-.->" : "<-->") : a.heads === "none" ? (a.dashed ? "-.-" : "---") : a.dashed ? "-.->" : "-->";
     const text = a.text ? `|"${a.text.split(/\r?\n/).map((l) => escape(l.trim())).filter(Boolean).join("<br/>")}"|` : "";
-    lines.push(`  ${mermaidId(a.from as string)} ${line}${text} ${mermaidId(a.to as string)}`);
+    lines.push(`  ${mermaidId(endShape(a.from)!)} ${line}${text} ${mermaidId(endShape(a.to)!)}`);
     if (a.color !== "black") links.push(`  linkStyle ${i} stroke:${INK[a.color]}`);
   });
   lines.push(...styles, ...links);

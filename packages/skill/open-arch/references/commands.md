@@ -77,8 +77,8 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-shape <view> <id>` | Whiteboard views only. `--kind <rectangle\|ellipse\|diamond\|text\|pen>` (required), `--text` (needed on text; not on a pen), `--at <x,y>` or `--at <x,y,width,height>` (its top-left corner, and its size; default: under the shapes there are, 160 by 80, or as big as its text), `--points <"x,y x,y ...">` (a pen's points from its corner, two or more; required for a pen), `--size <small\|medium\|large\|huge>` (its text; default: medium), `--color <black\|grey\|red\|orange\|green\|blue\|purple>` (default: black), `--fill <white\|grey\|red\|orange\|yellow\|green\|blue\|purple>` (default: none; not on a pen), `--dashed` (not on text), `--position <n>` (its place from the back: 1 is drawn first; default: in front of the rest) |
 | `update-shape <view> <id>` | `--kind` (a pen stays a pen, and nothing else becomes one), `--text` (text can't be left without any: remove it instead), `--new-id <id>` (the arrows to and from it follow it), `--at` (`x,y` moves it and keeps its size), `--points`, `--size`, `--color`, `--fill` (`--fill ""` makes it see-through), `--dashed` / `--solid`, `--position <n>` (moves it to that place from the back) |
 | `remove-shape <view> <id>` | Also removes the arrows to and from it |
-| `add-arrow <view> <id>` | Whiteboard views only. `--from <shape\|x,y>` and `--to <shape\|x,y>` (required: a shape, which the arrow follows, or a point), `--text`, `--heads <end\|both\|none>` (default: end; none is a line), `--color`, `--dashed` |
-| `update-arrow <view> <id>` | `--from`, `--to`, `--text`, `--new-id <id>`, `--heads` (`--heads ""` is end again), `--color`, `--dashed` / `--solid` |
+| `add-arrow <view> <id>` | Whiteboard views only. `--from <shape\|x,y>` and `--to <shape\|x,y>` (required: a shape, which the arrow follows, or a point), `--from-side <top\|right\|bottom\|left>` and `--to-side` (the side of its shape the end stays on, wherever the other end is, like a diamond's tip; default: it faces the other end), `--text`, `--heads <end\|both\|none>` (default: end; none is a line), `--color`, `--dashed` |
+| `update-arrow <view> <id>` | `--from`, `--to` (on another shape, an end faces the other end unless it's given a side too), `--from-side`, `--to-side` (put the end on that side of its shape; `""` lets it face the other end again), `--text`, `--new-id <id>`, `--heads` (`--heads ""` is end again), `--color`, `--dashed` / `--solid` |
 | `remove-arrow <view> <id>` | |
 | `update-workspace` | `--name`, `--description`, `--docs <folder>` (`--docs ""` stops generating docs) |
 | `apply [file\|-]` | A JSON list of operations, all or nothing (see below) |
@@ -149,8 +149,8 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `add-shape` | **view**, **id**, **kind**, text, at (`[x, y]` or `[x, y, width, height]`), points (a pen's, `[[x, y], ...]`), size, color, fill, dashed, position (its place from the back: 1 is the first; default: in front of the rest) |
 | `update-shape` | **view**, **id**, newId, kind, text, at (`[x, y]` keeps its size), points, size, color, fill (`null` makes it see-through), dashed, position (the place to move it to) |
 | `remove-shape` | **view**, **id** |
-| `add-arrow` | **view**, **id**, **from**, **to** (each a shape's ID or a point, `[x, y]`), text, heads (default: `"end"`), color, dashed |
-| `update-arrow` | **view**, **id**, newId, from, to, text, heads, color, dashed |
+| `add-arrow` | **view**, **id**, **from**, **to** (each a shape's ID, a shape and a side of it, `{ "shape": "paid", "side": "right" }`, or a point, `[x, y]`), fromSide, toSide (the side of its shape an end stays on), text, heads (default: `"end"`), color, dashed |
+| `update-arrow` | **view**, **id**, newId, from, to, fromSide, toSide (`null` lets the end face the other end again), text, heads, color, dashed |
 | `remove-arrow` | **view**, **id** |
 | `update-workspace` | name, description, docs |
 

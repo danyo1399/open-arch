@@ -7,7 +7,7 @@ import { MemoryHost } from "../src/hosts.js";
 import { button, choose, click, key, mount } from "./dom.js";
 
 const doc: OpenArchDocument = {
-  openarch: 14,
+  openarch: 15,
   name: "Shop",
   elements: {},
   views: {
@@ -19,7 +19,7 @@ const doc: OpenArchDocument = {
         { id: "db", kind: "ellipse", text: "Orders DB", at: [300, 0] },
         { id: "scribble", kind: "pen", at: [0, 200], points: [[0, 0], [20, 10]] },
       ],
-      arrows: [{ id: "reads", from: "cache", to: "db", text: "reads" }],
+      arrows: [{ id: "reads", from: "cache", to: { shape: "db", side: "left" }, text: "reads" }],
     },
   },
 };
@@ -114,6 +114,24 @@ describe("the designer, on a whiteboard view", () => {
       ["Text", true],
     ]);
     expect(kinds.textContent).toContain("Give it text to make it text alone.");
+  });
+
+  it("shows the side of its shape each end of an arrow is on, and changes it", async () => {
+    const d = await designer();
+    // React Flow draws no arrows here, so the arrow is picked from the shape's details.
+    await click(d.shape("db"));
+    await click(button(d.host, "reads"));
+    expect(d.details()).toBe("Arrow");
+    const sides = () => [...d.host.querySelectorAll<HTMLSelectElement>(".properties .side-select")];
+    expect(sides().map((s) => [s.getAttribute("aria-label"), s.value])).toEqual([
+      ["Side of Cache the menus the arrow's start is on", ""],
+      ["Side of Orders DB the arrow's end is on", "left"],
+    ]);
+    expect([...sides()[0]!.options].map((o) => o.textContent)).toEqual(["Any side, facing the other end", "Top", "Right", "Bottom", "Left"]);
+    await choose(sides()[0]!, "right");
+    await choose(sides()[1]!, "");
+    await d.settle();
+    expect(sides().map((s) => s.value)).toEqual(["right", ""]);
   });
 
   it("shows a pen's line with only what a line has: its colour and dashes", async () => {

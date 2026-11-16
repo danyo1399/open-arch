@@ -9,6 +9,8 @@ import { computeAllViews, describeElement, modelTree, type TreeNode } from "./qu
 import { shapeName } from "./views.js";
 import {
   CARD_KIND_LABELS,
+  endShape,
+  endSide,
   SCREEN_DEVICE_LABELS,
   SHAPE_KIND_LABELS,
   SHAPE_LABELS,
@@ -237,10 +239,13 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     }
     if (v.level === "whiteboard") {
       const shapes = shapesInReadingOrder(v.shapes);
+      /** An arrow's end as the table names it: its shape, and the side of it the end stays on, or its point. */
       const end = (e: Arrow["from"]) => {
-        if (typeof e !== "string") return `the point (${e[0]}, ${e[1]})`;
-        const s = v.shapes.find((x) => x.id === e);
-        return cell(s ? shapeName(s) : e);
+        if (Array.isArray(e)) return `the point (${e[0]}, ${e[1]})`;
+        const id = endShape(e)!;
+        const s = v.shapes.find((x) => x.id === id);
+        const side = endSide(e);
+        return `${cell(s ? shapeName(s) : id)}${side ? ` (its ${side})` : ""}`;
       };
       lines.push("", "## Shapes", "");
       if (shapes.length) {
@@ -253,7 +258,10 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
       }
       const pens = v.shapes.filter((s) => s.kind === "pen").length;
       // Arrows to a shape that isn't there, or from one to itself, are left out too, but check says so.
-      const offShape = (e: Arrow["from"]) => typeof e !== "string" || v.shapes.find((s) => s.id === e)?.kind === "pen";
+      const offShape = (e: Arrow["from"]) => {
+        const id = endShape(e);
+        return id === undefined || v.shapes.find((s) => s.id === id)?.kind === "pen";
+      };
       const loose = v.arrows.filter((a) => offShape(a.from) || offShape(a.to)).length;
       if (pens || loose) {
         const left = [pens ? `the ${pens === 1 ? "line" : `${pens} lines`} drawn with the pen` : "", loose ? `${loose === 1 ? "the arrow" : `${loose} arrows`} with an end at a point or on a pen's line` : ""].filter(Boolean);

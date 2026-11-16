@@ -612,28 +612,37 @@ put them back to medium and black.
   ),
   "remove-shape": writer(`Usage: open-arch remove-shape <view> <id>\n\nRemoves a shape, and the arrows to and from it.\n`, {}),
   "add-arrow": writer(
-    `Usage: open-arch add-arrow <view> <id> --from <shape | x,y> --to <shape | x,y> [--text <text>]
-                          [--heads <heads>] [--color <color>] [--dashed]
+    `Usage: open-arch add-arrow <view> <id> --from <shape | x,y> --to <shape | x,y> [--from-side <side>]
+                          [--to-side <side>] [--text <text>] [--heads <heads>] [--color <color>] [--dashed]
 
 Adds an arrow, or a line, to a whiteboard view. Each end is a shape, which the arrow is drawn
 to the edge of and follows as it moves, or a point on the whiteboard. The id must be unique
 among the view's arrows.
   --from, --to           A shape's ID, or a point, x,y
+  --from-side <side>     The side of its shape the start stays on, wherever the other end is:
+  --to-side <side>       top, right, bottom or left, the middle of that edge, as a diamond's
+                         tips are, for a decision's yes and no. Without one, the end faces the
+                         other end, and moves round the shape's edge as they move
   --text <text>          What it says, drawn in the middle of it
   --heads <heads>        end (the default): an arrow; both: an arrow both ways; none: a line
   --color <color>        black (the default), grey, red, orange, green, blue or purple
   --dashed               A dashed line
 `,
-    { from: s, to: s, text: s, heads: s, color: s, dashed: b },
+    { from: s, to: s, "from-side": s, "to-side": s, text: s, heads: s, color: s, dashed: b },
   ),
   "update-arrow": writer(
-    `Usage: open-arch update-arrow <view> <id> [--from <shape | x,y>] [--to <shape | x,y>] [--text <text>] [--new-id <id>]
-                             [--heads <heads>] [--color <color>] [--dashed | --solid]
+    `Usage: open-arch update-arrow <view> <id> [--from <shape | x,y>] [--to <shape | x,y>] [--from-side <side>]
+                             [--to-side <side>] [--text <text>] [--new-id <id>] [--heads <heads>]
+                             [--color <color>] [--dashed | --solid]
 
+--from and --to move an end, which on another shape faces the other end, unless --from-side or
+--to-side says the side of it the end stays on: top, right, bottom or left. Either puts the end
+on that side of its shape without moving it to another, and --from-side "" or --to-side "" lets
+it face the other end again.
 --heads is end, both or none.
 An empty value removes a field: --heads "" and --color "" put them back to end and black.
 `,
-    { from: s, to: s, text: s, "new-id": s, heads: s, color: s, dashed: b, solid: b },
+    { from: s, to: s, "from-side": s, "to-side": s, text: s, "new-id": s, heads: s, color: s, dashed: b, solid: b },
   ),
   "remove-arrow": writer(`Usage: open-arch remove-arrow <view> <id>\n`, {}),
   "update-workspace": writer(

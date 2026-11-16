@@ -107,6 +107,47 @@ describe("whiteboard views", () => {
     expect(parsed.doc).toEqual(old);
   });
 
+  it("have arrows whose ends can stay on a side of their shape, new in version 15, which reads a version 14 file as it is", () => {
+    const doc = ideas();
+    doc.views.ideas!.arrows!.push({ id: "yes", from: { shape: "which", side: "right" }, to: { shape: "db", side: "bottom" } });
+    const text = serializeDocument(doc);
+    expect(text).toContain(`        { "id": "yes", "from": { "shape": "which", "side": "right" }, "to": { "shape": "db", "side": "bottom" } }`);
+    const parsed = parseDocument(text);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.doc.views.ideas!.arrows![3]).toEqual({ id: "yes", from: { shape: "which", side: "right" }, to: { shape: "db", side: "bottom" } });
+    expect(rules(doc)).toEqual([]);
+    expect(parseDocument(JSON.stringify({ ...ideas(), openarch: 14 })).doc).toEqual(ideas());
+    const bad = parseDocument(
+      JSON.stringify({
+        ...shop(),
+        views: {
+          w: {
+            title: "W",
+            level: "whiteboard",
+            shapes: [{ id: "a", kind: "rectangle", at: [0, 0] }],
+            arrows: [
+              { id: "x", from: { shape: "a", side: "middle" }, to: [0, 0] },
+              { id: "y", from: { shape: "a" }, to: [0, 0] },
+              { id: "z", from: { side: "top" }, to: [0, 0] },
+              { id: "w", from: { shape: "a", side: "top", gap: 2 }, to: [0, 0] },
+              { id: "v", from: 5, to: [0, 0] },
+            ],
+          },
+        },
+      }),
+    );
+    expect(bad.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual([
+      "side-invalid views.w.arrows[0].from.side",
+      "field-required views.w.arrows[1].from.side",
+      "field-required views.w.arrows[2].from.shape",
+      "field-unknown views.w.arrows[3].from.gap",
+      "field-type views.w.arrows[4].from",
+    ]);
+    // An end on a side of a shape the view doesn't have is an error, as any end on one is.
+    doc.views.ideas!.arrows!.push({ id: "lost", from: { shape: "gone", side: "top" }, to: "db" });
+    expect(rules(doc)).toEqual(["arrow-end-unknown"]);
+  });
+
   it("refuse fields of other views, and report malformed shapes and arrows", () => {
     const doc = {
       ...shop(),
@@ -398,6 +439,52 @@ describe("whiteboard views", () => {
     expect(result.doc.views.ideas!.arrows!.map((a) => a.id)).toEqual(["link"]);
   });
 
+  it("put arrows' ends on a side of their shapes, keep the side as the shape is renamed, and let it face the other end again", () => {
+    let result = applyOperations(ideas(), [
+      { op: "add-arrow", view: "ideas", id: "yes", from: "which", fromSide: "right", to: "db" },
+      { op: "add-arrow", view: "ideas", id: "no", from: { shape: "which", side: "bottom" }, to: { shape: "title", side: "top" } },
+    ]);
+    expect(result.doc.views.ideas!.arrows!.slice(3)).toEqual([
+      { id: "yes", from: { shape: "which", side: "right" }, to: "db" },
+      { id: "no", from: { shape: "which", side: "bottom" }, to: { shape: "title", side: "top" } },
+    ]);
+    result = applyOperations(result.doc, [
+      { op: "update-arrow", view: "ideas", id: "yes", toSide: "left" },
+      { op: "update-arrow", view: "ideas", id: "no", fromSide: null, to: "cache" },
+      { op: "update-shape", view: "ideas", id: "which", newId: "decision" },
+    ]);
+    expect(result.doc.views.ideas!.arrows!.slice(3)).toEqual([
+      { id: "yes", from: { shape: "decision", side: "right" }, to: { shape: "db", side: "left" } },
+      { id: "no", from: "decision", to: "cache" },
+    ]);
+    // A side on another shape, and off one: the end goes to a point, with no side.
+    result = applyOperations(result.doc, [
+      { op: "update-arrow", view: "ideas", id: "yes", from: "cache", fromSide: "top" },
+      { op: "update-arrow", view: "ideas", id: "no", to: [5, 5], toSide: null },
+    ]);
+    expect(result.doc.views.ideas!.arrows!.slice(3)).toEqual([
+      { id: "yes", from: { shape: "cache", side: "top" }, to: { shape: "db", side: "left" } },
+      { id: "no", from: "decision", to: [5, 5] },
+    ]);
+    // Removing a shape removes the arrows on its sides too.
+    expect(applyOperations(result.doc, [{ op: "remove-shape", view: "ideas", id: "db" }]).summary).toEqual(["removed shape db from view ideas and 2 arrows to or from it"]);
+    expect(fails(result.doc, { op: "add-arrow", view: "ideas", id: "x", from: [0, 0], fromSide: "top", to: "db" })).toBe("The arrow's start is at a point, which has no sides. Put it on a shape first.");
+    expect(fails(result.doc, { op: "update-arrow", view: "ideas", id: "no", toSide: "top" })).toBe("The arrow's end is at a point, which has no sides. Put it on a shape first.");
+    expect(fails(result.doc, { op: "add-arrow", view: "ideas", id: "x", from: "db", fromSide: "middle" as never, to: "cache" })).toBe('Unknown side "middle". Use one of: top, right, bottom, left.');
+    expect(fails(result.doc, { op: "add-arrow", view: "ideas", id: "x", from: { shape: "db", side: "top" }, to: { shape: "db", side: "bottom" } })).toBe("An arrow can't go from a shape to itself.");
+    expect(fails(result.doc, { op: "add-arrow", view: "ideas", id: "x", from: { shape: "dbb", side: "top" }, to: "cache" })).toBe('View "ideas" has no shape "dbb". Did you mean "db"?');
+  });
+
+  it("name the side of its shape an arrow's end stays on in the docs, and draw it from shape to shape in Mermaid", () => {
+    const doc = ideas();
+    doc.views.ideas!.arrows = [{ id: "yes", from: { shape: "which", side: "right" }, to: "db", text: "yes" }];
+    const ws = buildWorkspace(doc);
+    expect(renderMermaid(computeView(ws, ws.views.get("ideas")!))).toContain('  which -->|"yes"| db\n');
+    const page = exportDocs(ws, "shop.openarch").find((f) => f.path === "views/ideas.md")!.content;
+    expect(page).toContain("| Arrow | Redis (its right) | Orders DB | yes |");
+    expect(page).not.toContain("with an end at a point");
+  });
+
   it("refuse what doesn't fit", () => {
     const doc = ideas();
     expect(fails(doc, { op: "add-shape", view: "ideas", id: "cache", kind: "rectangle" })).toBe('View "ideas" already has a shape "cache".');
@@ -437,7 +524,7 @@ describe("whiteboard views", () => {
     expect(fails(doc, { op: "add-arrow", view: "ideas", id: "x", from: "cache", to: "cache" })).toBe("An arrow can't go from a shape to itself.");
     expect(fails(doc, { op: "add-arrow", view: "ideas", id: "x", from: "cahce", to: "db" })).toBe('View "ideas" has no shape "cahce". Did you mean "cache"?');
     expect(fails(doc, { op: "add-arrow", view: "ideas", id: "x", from: "cache", to: "db", heads: "start" as never })).toBe('Unknown heads "start". Use one of: end, both, none.');
-    expect(fails(doc, { op: "update-arrow", view: "ideas", id: "reads" })).toBe('Say what to change on arrow "reads": newId, from, to, text, heads, color, dashed.');
+    expect(fails(doc, { op: "update-arrow", view: "ideas", id: "reads" })).toBe('Say what to change on arrow "reads": newId, from, to, fromSide, toSide, text, heads, color, dashed.');
     expect(fails(doc, { op: "update-arrow", view: "ideas", id: "reads", to: "cache" })).toBe("An arrow can't go from a shape to itself.");
     expect(fails(doc, { op: "update-arrow", view: "ideas", id: "reads", newId: "look" })).toBe('View "ideas" already has an arrow "look".');
     expect(fails(doc, { op: "remove-arrow", view: "ideas", id: "raeds" })).toBe('View "ideas" has no arrow "raeds". Did you mean "reads"?');
@@ -455,7 +542,10 @@ describe("whiteboard views", () => {
     expect(() => parseOperations({ op: "add-shape", view: "v", id: "a" })).toThrow('add-shape needs "kind".');
     expect(() => parseOperations({ op: "add-shape", view: "v", id: "a", kind: "rectangle", at: [1, 2, 3] })).toThrow('add-shape: "at" must be a position, [x, y], or a position and a size, [x, y, width, height].');
     expect(() => parseOperations({ op: "add-shape", view: "v", id: "a", kind: "pen", points: [1, 2] })).toThrow('add-shape: "points" must be a list of points, [[x, y], ...].');
-    expect(() => parseOperations({ op: "add-arrow", view: "v", id: "a", from: 1, to: "b" })).toThrow('add-arrow: "from" must be the ID of a shape, or a point, [x, y].');
+    expect(() => parseOperations({ op: "add-arrow", view: "v", id: "a", from: 1, to: "b" })).toThrow('add-arrow: "from" must be the ID of a shape, a shape and a side of it, like { "shape": "decision", "side": "right" }, or a point, [x, y].');
+    expect(parseOperations({ op: "add-arrow", view: "v", id: "a", from: { shape: "q", side: "right" }, to: "b", toSide: "top" })).toHaveLength(1);
+    expect(() => parseOperations({ op: "add-arrow", view: "v", id: "a", from: { shape: "q", tip: "right" }, to: "b" })).toThrow(/^add-arrow: "from" must be/);
+    expect(parseOperations({ op: "update-arrow", view: "v", id: "a", fromSide: null })).toEqual([{ op: "update-arrow", view: "v", id: "a", fromSide: null }]);
     expect(() => parseOperations({ op: "add-arrow", view: "v", id: "a", from: "b" })).toThrow('add-arrow needs "to".');
   });
 

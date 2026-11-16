@@ -5,12 +5,13 @@
  */
 import { KIND_RANK, tagEntries } from "./model.js";
 import {
+  ARROW_HEADS,
+  ARROW_SIDES,
   CARD_KINDS,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
   FORMAT_VERSION,
   ID_PATTERN,
-  ARROW_HEADS,
   RELATIONSHIP_KINDS,
   SCREEN_DEVICES,
   SHAPE_COLORS,
@@ -23,6 +24,7 @@ import {
   WIDGET_KINDS,
   type ArrowData,
   type ArrowEnd,
+  type ArrowSide,
   type CardData,
   type CardKind,
   type ConnectionData,
@@ -125,6 +127,7 @@ const SCREEN_KEYS = ["id", "name", "description", "device", "widgets"];
 const WIDGET_KEYS = ["id", "kind", "text", "description", "to", "widgets"];
 const SHAPE_KEYS = ["id", "kind", "text", "at", "points", "size", "color", "fill", "dashed"];
 const ARROW_KEYS = ["id", "from", "to", "text", "heads", "color", "dashed"];
+const ARROW_END_KEYS = ["shape", "side"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "on", "color", "at"];
 const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
@@ -240,6 +243,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 12) out = { ...out, openarch: 13 };
   // Version 14 added whiteboard views, so a version 13 file means the same in it.
   if (out.openarch === 13) out = { ...out, openarch: 14 };
+  // Version 15 let a whiteboard arrow's end stay on a side of its shape, so a version 14 file means the same in it.
+  if (out.openarch === 14) out = { ...out, openarch: 15 };
   return out;
 }
 
@@ -893,7 +898,7 @@ function readLook(value: Record<string, unknown>, into: { color?: ShapeData["col
   }
 }
 
-/** An arrow's end: a shape's ID, or a point. */
+/** An arrow's end: a shape's ID, a shape and the side of it the end stays on, or a point. */
 function readArrowEnd(value: unknown, path: string, report: Report, which: "from" | "to"): ArrowEnd | undefined {
   if (value === undefined || value === "") {
     report(path, "field-required", `\`${which}\` is required: the ID of the shape it ${which === "from" ? "starts at" : "points to"}, or a point, [x, y].`);
@@ -901,8 +906,21 @@ function readArrowEnd(value: unknown, path: string, report: Report, which: "from
   }
   if (typeof value === "string") return value;
   if (isPoint(value)) return value;
-  report(path, "field-type", "Must be the ID of a shape, or a point, [x, y].");
-  return undefined;
+  if (!isObject(value)) {
+    report(path, "field-type", 'Must be the ID of a shape, a shape and a side of it, like { "shape": "decision", "side": "right" }, or a point, [x, y].');
+    return undefined;
+  }
+  unknownKeys(value, ARROW_END_KEYS, path, report);
+  const shape = str(value.shape, `${path}.shape`, report);
+  if (!shape) {
+    if (value.shape === undefined || shape === "") report(`${path}.shape`, "field-required", "`shape` is required: the ID of the shape the end is on.");
+    return undefined;
+  }
+  if (!(ARROW_SIDES as readonly unknown[]).includes(value.side)) {
+    report(`${path}.side`, value.side === undefined ? "field-required" : "side-invalid", `\`side\` must be one of: ${ARROW_SIDES.join(", ")}.`);
+    return undefined;
+  }
+  return { shape, side: value.side as ArrowSide };
 }
 
 function readArrow(value: unknown, path: string, report: Report): ArrowData | undefined {
@@ -1197,7 +1215,7 @@ function viewText(v: ViewData, indent: string): string {
         fill: s.fill,
         dashed: look(s).dashed,
       });
-    const end = (e: ArrowEnd) => (typeof e === "string" ? e : round(e));
+    const end = (e: ArrowEnd) => (typeof e === "string" ? e : Array.isArray(e) ? round(e) : { shape: e.shape, side: e.side });
     const arrow = (a: ArrowData) => inline({ id: a.id, from: end(a.from), to: end(a.to), text: a.text || undefined, heads: a.heads && a.heads !== "end" ? a.heads : undefined, ...look(a) });
     entries.push(["shapes", listText((v.shapes ?? []).map(shape), indent)]);
     entries.push(["arrows", listText((v.arrows ?? []).map(arrow), indent)]);

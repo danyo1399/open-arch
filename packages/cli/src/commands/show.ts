@@ -2,6 +2,8 @@ import {
   CARD_KIND_LABELS,
   computeView,
   describeElement,
+  endShape,
+  endSide,
   nodeKindLabel,
   modelTree,
   scopeProblems,
@@ -494,7 +496,8 @@ function whiteboardText(cv: ComputedView): string {
     const style = look(s.kind === "pen" ? { ...s, size: undefined } : s);
     return [`  ${s.number}.`, s.id, s.kind, where(s.at), [detail, style ? `(${style})` : ""].filter(Boolean).join("  ")];
   });
-  const end = (e: (typeof view.arrows)[number]["from"]) => (typeof e === "string" ? e : `${e[0]}, ${e[1]}`);
+  /** An end: its shape, with the side of it it stays on, or its point. */
+  const end = (e: (typeof view.arrows)[number]["from"]) => (Array.isArray(e) ? `${e[0]}, ${e[1]}` : endSide(e) ? `${endShape(e)} (${endSide(e)})` : endShape(e)!);
   const arrows = view.arrows.map((a) => {
     const style = look(a);
     return [`  ${a.id}`, `${end(a.from)} ${a.heads === "both" ? "<->" : a.heads === "none" ? "---" : "->"} ${end(a.to)}`, [quoted(a.text), style ? `(${style})` : ""].filter(Boolean).join("  ")];

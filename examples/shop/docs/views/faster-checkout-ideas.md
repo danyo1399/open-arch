@@ -51,7 +51,7 @@ flowchart TB
 |---|---|---|---|
 | Arrow | Checkout takes 3 s at lunchtime | Cache the product pages | idea 1 |
 | Arrow | Checkout takes 3 s at lunchtime | Take payment in the background | idea 2 |
-| Line | Cache the product pages | Redis, or in memory? |  |
+| Line | Cache the product pages | Redis, or in memory? (its left) |  |
 | Arrow | Take payment in the background | Orders DB | saves it first |
 | Arrow | the point (80, 186) | Checkout takes 3 s at lunchtime |  |
 

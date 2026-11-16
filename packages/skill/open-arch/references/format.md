@@ -1,4 +1,4 @@
-# The open-arch workspace (format version 14)
+# The open-arch workspace (format version 15)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
@@ -77,14 +77,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `14` |
+| `openarch` | Format version, always `15` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs (`.` for the file's own folder) |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 13 files too, and write them back as version 14. Version 13 is the same, but without whiteboard views. Version 12 is version 13 without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 14 files too, and write them back as version 15. Version 14 is the same, but a whiteboard arrow's end can't stay on a side of its shape. Version 13 is version 14 without whiteboard views. Version 12 is version 13 without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view, as are the IDs of a state view's states, a deployment view's nodes, an event view's lanes and its cards, a wireframe view's screens, and a whiteboard view's shapes and its arrows. A wireframe view's widgets have IDs unique among all its widgets, on every screen.
 
@@ -410,7 +410,8 @@ A `whiteboard` view is a freehand sketch, to share an idea before it's decided: 
   ],
   "arrows": [
     { "id": "reads", "from": "cache", "to": "db", "text": "reads" },
-    { "id": "look", "from": [500, 260], "to": "scribble", "heads": "none" }
+    { "id": "look", "from": [500, 260], "to": "scribble", "heads": "none" },
+    { "id": "yes", "from": { "shape": "db", "side": "bottom" }, "to": { "shape": "cache", "side": "right" }, "text": "yes" }
   ]
 }
 ```
@@ -430,7 +431,7 @@ A `whiteboard` view is a freehand sketch, to share an idea before it's decided: 
 | Arrow field | Meaning |
 |---|---|
 | `id` | Unique among the view's arrows |
-| `from`, `to` | Each the ID of a shape of the view, which the arrow is drawn to the edge of and follows as it moves, or a point, `[x, y]` |
+| `from`, `to` | Each the ID of a shape of the view, which the arrow is drawn to the edge of, facing the other end, and follows as it moves; a shape and the side of it the end stays on, wherever the other end is, `{ "shape": "<id>", "side": "top" }`, with `top`, `right`, `bottom` or `left`, the middle of that edge of its box, which is a diamond's or an ellipse's tip; or a point, `[x, y]` |
 | `text` | What it says, drawn in the middle of it |
 | `heads` | `end` (the default), `both`, or `none`, which makes it a line |
 | `color` | As a shape's |
@@ -454,7 +455,7 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, each starting with what it's on, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections. An event view has a Mermaid flowchart from left to right, with a frame for each lane and each card in its kind's colour, and tables of its lanes and cards. Mermaid has no swimlanes, so the frames aren't always one above the other as the designer draws them, and a card that comes from a later card can be drawn out of its place along the timeline. A lane with no cards is a box with its name. A whiteboard view has a Mermaid flowchart of its rectangles, ellipses, diamonds and text, in their colours, and the arrows between them, and tables of its shapes, top to bottom, and its arrows. Mermaid lays them out itself, so they aren't where they are on the whiteboard, and it can't draw lines drawn with the pen, or arrows with an end at a point or a pen's line: the page says when it leaves those out. A wireframe view has a Mermaid flowchart from left to right, with a frame for each screen and its widgets top to bottom inside it, each drawn as near as Mermaid can to how it looks, and a table of each screen's widgets, numbered within the rows and panels they're in. Mermaid can't draw an arrow from a widget without turning its screen on its side, so its arrows go from screen to screen, with the text of the widgets that lead there on them, and where the arrows go round in a circle, Mermaid decides the order of the screens.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, each starting with what it's on, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections. An event view has a Mermaid flowchart from left to right, with a frame for each lane and each card in its kind's colour, and tables of its lanes and cards. Mermaid has no swimlanes, so the frames aren't always one above the other as the designer draws them, and a card that comes from a later card can be drawn out of its place along the timeline. A lane with no cards is a box with its name. A whiteboard view has a Mermaid flowchart of its rectangles, ellipses, diamonds and text, in their colours, and the arrows between them, and tables of its shapes, top to bottom, and its arrows. Mermaid lays them out itself, so they aren't where they are on the whiteboard, and an arrow on a side of a shape joins the shape wherever Mermaid puts it, and it can't draw lines drawn with the pen, or arrows with an end at a point or a pen's line: the page says when it leaves those out. A wireframe view has a Mermaid flowchart from left to right, with a frame for each screen and its widgets top to bottom inside it, each drawn as near as Mermaid can to how it looks, and a table of each screen's widgets, numbered within the rows and panels they're in. Mermaid can't draw an arrow from a widget without turning its screen on its side, so its arrows go from screen to screen, with the text of the widgets that lead there on them, and where the arrows go round in a circle, Mermaid decides the order of the screens.
 - `elements/<id>.md`: the element's details, notes, members (for a class), libraries (for a container), the containers built with it (for a library), relationships (with their notes), contents and the views showing it, with the nodes it runs in on deployment views.
 
 Every page starts with `<!-- Generated by open-arch from <file>`. Tools only ever overwrite or delete pages with that marker naming the same file, or a file no longer beside it (say before a rename), and only look for stale ones at the folder's top and in `views/` and `elements/`, so other files in the folder are safe, and so are the docs of another workspace whose file is in the same folder as this one's. Workspaces in different folders need docs folders of their own. The folder can be `.`, the file's own folder. Don't edit generated pages: the next change rewrites them.
@@ -466,7 +467,7 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `14` (or `1` to `13`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `15` (or `1` to `14`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
 | `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment, event, wireframe or whiteboard view, `scope` on a deployment, event or whiteboard view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `lanes` or `cards` on another view than an event view, `screens` on another view than a wireframe view, `shapes` or `arrows` on another view than a whiteboard view, `widgets` on a widget that isn't a row or a panel, `text`, `size` or `fill` on a pen, `points` on a shape that isn't one, `dashed` on text, or a sticky note's `on` on a sequence, state, deployment, event, wireframe or whiteboard view, or with both `element` and `from` or `to` |
 | `field-type` | error | A field has the wrong type |
@@ -485,6 +486,7 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | `size-invalid` | error | Unknown shape text `size` |
 | `fill-invalid` | error | Unknown shape `fill` |
 | `heads-invalid` | error | Unknown arrow `heads` |
+| `side-invalid` | error | Unknown `side` of a shape an arrow's end is on |
 | `parent-required` | error | A container, component or class has no parent |
 | `parent-not-allowed` | error | A person, system or library has a parent |
 | `parent-unknown` | error | `parent` isn't an element |
@@ -543,4 +545,4 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | `sticky-target-not-drawn` | warning | A sticky note is on something the view doesn't draw, so no line joins them |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |
 
-The first twenty are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.
+The first twenty-one are problems with the file's structure. They only happen when someone edits the file by hand, and commands refuse to change a file that has them until it's fixed.

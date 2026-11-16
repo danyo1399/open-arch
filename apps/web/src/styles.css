@@ -2939,6 +2939,31 @@ button.active {
   pointer-events: none;
   opacity: 0.7;
 }
+/* The sides of the shape under the pointer while an arrow's end is placed: one let go on a dot stays on that side. */
+.wb-sides {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.wb-sides circle {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.wb-sides circle.near {
+  fill: var(--accent);
+}
+/* The side of its shape an arrow's end is on, under the shape's name in the arrow's details. */
+.facts .side-select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
 .whiteboard.drawing .react-flow__pane,
 .whiteboard.drawing .react-flow__node {
   cursor: crosshair;

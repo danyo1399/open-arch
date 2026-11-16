@@ -178,6 +178,10 @@ export type ShapeFill = (typeof SHAPE_FILLS)[number];
 export const TEXT_SIZES = ["small", "medium", "large", "huge"] as const;
 export type TextSize = (typeof TEXT_SIZES)[number];
 
+/** A side of a whiteboard shape, which an arrow's end can stay on: the middle of that edge of its box, as a diamond's tips are. */
+export const ARROW_SIDES = ["top", "right", "bottom", "left"] as const;
+export type ArrowSide = (typeof ARROW_SIDES)[number];
+
 /** Where a whiteboard arrow has heads: at its end (the default), at both ends, or none, which makes it a line. */
 export const ARROW_HEADS = ["end", "both", "none"] as const;
 export type ArrowHeads = (typeof ARROW_HEADS)[number];
@@ -188,7 +192,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 14;
+export const FORMAT_VERSION = 15;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -310,10 +314,21 @@ export interface ShapeData {
 }
 
 /**
- * An end of a whiteboard arrow: the ID of a shape, which the arrow is drawn to the edge of and
- * follows as it moves, or a point on the whiteboard, [x, y].
+ * An end of a whiteboard arrow: the ID of a shape, which the arrow is drawn to the edge of, facing
+ * its other end, and follows as it moves; a shape and the side of it the end stays on, wherever
+ * the other end is, like a diamond's right tip; or a point on the whiteboard, [x, y].
  */
-export type ArrowEnd = string | [number, number];
+export type ArrowEnd = string | { shape: string; side: ArrowSide } | [number, number];
+
+/** The ID of the shape an arrow's end is on, or nothing for an end at a point. */
+export function endShape(end: ArrowEnd): string | undefined {
+  return typeof end === "string" ? end : Array.isArray(end) ? undefined : end.shape;
+}
+
+/** The side of its shape an arrow's end stays on, if it says. */
+export function endSide(end: ArrowEnd): ArrowSide | undefined {
+  return typeof end === "object" && !Array.isArray(end) ? end.side : undefined;
+}
 
 /** An arrow, or a line, on a whiteboard view. */
 export interface ArrowData {

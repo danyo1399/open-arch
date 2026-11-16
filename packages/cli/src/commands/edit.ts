@@ -637,7 +637,21 @@ export const BUILDERS: Record<string, Builder> = {
     const from = arrowEnd(v.from, "--from");
     const to = arrowEnd(v.to, "--to");
     if (from === undefined || to === undefined) throw new CliError(`Pass --from and --to: a shape's ID, or a point, x,y.\n\n${usage}`, 2);
-    return [{ op: "add-arrow", view: view!, id: id!, from, to, text: text(v.text), heads: text(v.heads) as never, color: text(v.color) as never, dashed: v.dashed === true || undefined }];
+    return [
+      {
+        op: "add-arrow",
+        view: view!,
+        id: id!,
+        from,
+        to,
+        fromSide: text(v["from-side"]) as never,
+        toSide: text(v["to-side"]) as never,
+        text: text(v.text),
+        heads: text(v.heads) as never,
+        color: text(v.color) as never,
+        dashed: v.dashed === true || undefined,
+      },
+    ];
   },
   "update-arrow": (_io, v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
@@ -649,6 +663,8 @@ export const BUILDERS: Record<string, Builder> = {
         newId: text(v["new-id"]),
         from: arrowEnd(v.from, "--from"),
         to: arrowEnd(v.to, "--to"),
+        fromSide: clearable(v["from-side"]) as never,
+        toSide: clearable(v["to-side"]) as never,
         text: clearable(v.text),
         heads: clearable(v.heads) as never,
         color: clearable(v.color) as never,

@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { arrowEnds, arrowSketch, contains, edgePoint, penBox, penPath, seedOf, shapeAt, shapeBox, shapeSketch, simplifyLine, textSize, type PlacedShape } from "../src/canvas/whiteboard.js";
+import {
+  arrowEnds,
+  arrowSketch,
+  contains,
+  edgePoint,
+  penBox,
+  penPath,
+  seedOf,
+  shapeAt,
+  shapeBox,
+  shapeSketch,
+  sideNear,
+  sidePoint,
+  simplifyLine,
+  textSize,
+  type PlacedShape,
+} from "../src/canvas/whiteboard.js";
 
 const box = { x: 0, y: 0, w: 200, h: 100 };
 
@@ -58,6 +74,29 @@ describe("whiteboard geometry", () => {
     expect(arrowEnds({ from: "a", to: "b" }, shapes, { to: { x: 100, y: 500 } })).toEqual({ from: { x: 100, y: 105 }, to: { x: 100, y: 500 } });
     expect(arrowEnds({ from: "a", to: "a" }, shapes)).toBeNull();
     expect(arrowEnds({ from: "a", to: "gone" }, shapes)).toBeNull();
+  });
+
+  it("puts an end on a side of a shape at the middle of that edge, a diamond's tip, a little out from it, wherever the other end is", () => {
+    expect(sidePoint(box, "top")).toEqual({ x: 100, y: -5 });
+    expect(sidePoint(box, "right", 0)).toEqual({ x: 200, y: 50 });
+    expect(sidePoint(box, "bottom", 0)).toEqual({ x: 100, y: 100 });
+    expect(sidePoint(box, "left", 2)).toEqual({ x: -2, y: 50 });
+    // The nearest side's point within reach, from inside the shape or outside it.
+    expect(sideNear(box, { x: 195, y: 45 }, 16)).toBe("right");
+    expect(sideNear(box, { x: 210, y: 55 }, 16)).toBe("right");
+    expect(sideNear(box, { x: 100, y: 50 }, 16)).toBeUndefined();
+    expect(sideNear(box, { x: 100, y: 80 }, 16)).toBeUndefined();
+    const shapes = new Map<string, PlacedShape>([
+      ["q", { id: "q", kind: "diamond", box }],
+      ["yes", { id: "yes", kind: "rectangle", box: { x: 400, y: 300, w: 200, h: 100 } }],
+    ]);
+    expect(arrowEnds({ from: { shape: "q", side: "right" }, to: { shape: "yes", side: "left" } }, shapes)).toEqual({ from: { x: 205, y: 50 }, to: { x: 395, y: 350 } });
+    // The end that faces the other end faces the side's point.
+    const faced = arrowEnds({ from: { shape: "q", side: "bottom" }, to: "yes" }, shapes)!;
+    expect(faced.from).toEqual({ x: 100, y: 105 });
+    expect(faced.to).toEqual(edgePoint("rectangle", { x: 400, y: 300, w: 200, h: 100 }, { x: 100, y: 105 }));
+    // A side of a shape that isn't drawn draws nothing.
+    expect(arrowEnds({ from: { shape: "gone", side: "top" }, to: "yes" }, shapes)).toBeNull();
   });
 
   it("sketches the same wobble for the same seed, a fill when it's filled, and an arrow's heads", () => {

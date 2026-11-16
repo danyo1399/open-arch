@@ -8,7 +8,7 @@
  * resize it, double-click it to write in it, and drag from the dot under it to another shape to
  * draw an arrow. Double-click the background to type text there.
  */
-import { SHAPE_KIND_LABELS, SHAPE_SIZE, type Arrow, type ArrowEnd, type ComputedView, type Operation, type Shape, type ShapeKind, type Sticky, type ViewDef } from "@open-arch/core";
+import { endShape, SHAPE_KIND_LABELS, SHAPE_SIZE, type Arrow, type ArrowEnd, type ComputedView, type Operation, type Shape, type ShapeKind, type Sticky, type ViewDef } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -24,7 +24,6 @@ import {
   applyNodeChanges,
   useConnection,
   useReactFlow,
-  type Connection,
   type Edge,
   type EdgeProps,
   type FinalConnectionState,
@@ -51,6 +50,9 @@ import {
   shapeAt,
   shapeBox,
   shapeSketch,
+  SIDE_REACH,
+  sideNear,
+  sidePoint,
   simplifyLine,
   LINE_HEIGHT,
   TEXT_PAD,
@@ -279,14 +281,13 @@ function ArrowLine({ id, data, selected }: EdgeProps<ArrowFlowEdge>) {
 const nodeTypes = { shape: ShapeNode, sticky: StickyNode, end: EndNode };
 const edgeTypes = { arrow: ArrowLine };
 
-/** What's being drawn: where the drag started and is now, the pen's points, and the shape an arrow starts at. */
+/** What's being drawn: where the drag started and is now, and the pen's points. */
 interface Drawing {
   tool: Tool;
   pointer: number;
   start: Point;
   now: Point;
   points: Point[];
-  from?: string;
 }
 
 interface WhiteboardDiagramProps {
@@ -318,6 +319,10 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
   const [editing, setEditing] = useState<{ kind: "shape" | "sticky" | "arrow"; id: string } | null>(null);
   /** Where arrows' ends are while they're dragged, until the move is saved. */
   const [ends, setEnds] = useState<ReadonlyMap<string, Point>>(new Map());
+  /** The grip of an arrow's end being dragged on its own, which goes onto what it's let go on. */
+  const [grip, setGrip] = useState<string | null>(null);
+  /** Where the pointer is on the board while the arrow or line tool is picked, to show the sides of the shape under it. */
+  const [hover, setHover] = useState<Point | null>(null);
   const [nodes, setNodes] = useState<(ShapeFlowNode | StickyFlowNode)[]>([]);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
@@ -431,16 +436,29 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
   const inOrderRef = useRef(inOrder);
   inOrderRef.current = inOrder;
 
-  /** Where each arrow's ends are drawn now: dragged ends where they're dragged, the rest from their shapes. */
+  /**
+   * Where each arrow's ends are drawn now: dragged ends where they're dragged, the rest from their
+   * shapes. A grip dragged on its own is drawn on what it goes onto if it's let go there.
+   */
   const lines = useMemo(() => {
     const out = new Map<string, { from: Point; to: Point }>();
     for (const a of view.arrows) {
       const moved = { from: ends.get(endNodeId(a.id, "from")), to: ends.get(endNodeId(a.id, "to")) };
-      const at = arrowEnds(a, placed, moved);
+      let arrow: { from: ArrowEnd; to: ArrowEnd } = a;
+      for (const end of ["from", "to"] as const) {
+        const at = moved[end];
+        if (!at || grip !== endNodeId(a.id, end)) continue;
+        const onto = endAt(inOrder, at, SIDE_REACH / rf.getZoom(), endShape(a[end === "from" ? "to" : "from"]));
+        if (onto) {
+          arrow = { ...arrow, [end]: onto };
+          moved[end] = undefined;
+        }
+      }
+      const at = arrowEnds(arrow, placed, moved);
       if (at) out.set(a.id, at);
     }
     return out;
-  }, [view, placed, ends]);
+  }, [view, placed, ends, grip, inOrder, rf]);
 
   const zArrows = view.shapes.length + 1;
   /** Grips on arrows' ends: on each end at a point, and on both ends of the arrow selected. */
@@ -450,7 +468,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
         const at = lines.get(a.id);
         if (!at) return [];
         return (["from", "to"] as const).flatMap((end): EndFlowNode[] => {
-          const point = typeof a[end] !== "string";
+          const point = Array.isArray(a[end]);
           if (!point && selectedArrow !== a.id) return [];
           return [
             {
@@ -475,6 +493,11 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     [view, lines, selectedArrow, selection, zArrows],
   );
   const drawn = useMemo<FlowNode[]>(() => [...nodes, ...endNodes], [nodes, endNodes]);
+  /** The shape at the other end of the arrow whose grip is dragged, which that end can't go onto too. */
+  const gripOther = useMemo(() => {
+    for (const a of view.arrows) for (const [end, other] of [["from", "to"], ["to", "from"]] as const) if (grip === endNodeId(a.id, end)) return endShape(a[other]);
+    return undefined;
+  }, [view, grip]);
 
   const finishArrow = useCallback(
     (arrow: Arrow, text: string | null) => {
@@ -490,7 +513,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       view.arrows.flatMap((a): ArrowFlowEdge[] => {
         const at = lines.get(a.id);
         if (!at) return [];
-        const nodeOf = (end: "from" | "to") => (typeof a[end] === "string" ? (a[end] as string) : endNodeId(a.id, end));
+        const nodeOf = (end: "from" | "to") => endShape(a[end]) ?? endNodeId(a.id, end);
         return [
           {
             id: `arrow:${a.id}`,
@@ -542,7 +565,8 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
         const { arrow, end } = (n as EndFlowNode).data;
         return { kind: "end", arrow, end, point: { x: n.position.x + GRIP / 2, y: n.position.y + GRIP / 2 } };
       });
-      const ops = moveOps(view, moves, inOrder);
+      setGrip(null);
+      const ops = moveOps(view, moves, inOrder, SIDE_REACH / rf.getZoom());
       // A move that isn't saved is undone: everything goes back where the file has it.
       const undo = () => {
         setEnds(new Map());
@@ -551,12 +575,12 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       if (ops.length) void edit(ops).then((ok) => !ok && undo());
       else undo();
     },
-    [edit, view, dropped, inOrder],
+    [edit, view, dropped, inOrder, rf],
   );
 
   /** Draws an arrow from a shape to another, or to a point. */
   const addArrow = useCallback(
-    (from: string | [number, number], to: string | [number, number], line = false) => {
+    (from: ArrowEnd, to: ArrowEnd, line = false) => {
       void addNew(line ? "line" : "arrow", (id) => ({ op: "add-arrow", view: view.id, id, from, to, heads: line ? "none" : undefined })).then((id) => id && select({ kind: "boardArrow", id }));
     },
     // addNew reads the view, which is in the list.
@@ -564,15 +588,15 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     [edit, view, select],
   );
 
-  const onConnect = useCallback((c: Connection) => placed.has(c.source) && placed.has(c.target) && c.source !== c.target && addArrow(c.source, c.target), [placed, addArrow]);
-  // Dropped anywhere but on a shape, the arrow goes from its shape to where it's dropped.
+  // An arrow dragged from a shape's dot goes to the side of a shape it's dropped near, the shape
+  // it's dropped on, or else to where it's dropped. React Flow says which shape, but not where on it.
   const onConnectEnd = useCallback(
     (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
-      if (state.isValid || !state.fromNode || !placed.has(state.fromNode.id)) return;
+      if (!state.fromNode || !placed.has(state.fromNode.id)) return;
       const touch = "changedTouches" in event ? event.changedTouches[0] : undefined;
       const client = touch ?? (event as MouseEvent);
       const at = rf.screenToFlowPosition({ x: client.clientX, y: client.clientY });
-      const onto = shapeAt(inOrder, at, state.fromNode.id);
+      const onto = endAt(inOrder, at, SIDE_REACH / rf.getZoom(), state.fromNode.id);
       if (onto) addArrow(state.fromNode.id, onto);
       else if (!inBox(placed.get(state.fromNode.id)!.box, at)) addArrow(state.fromNode.id, [Math.round(at.x), Math.round(at.y)]);
     },
@@ -626,7 +650,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       addShape(d.tool as ShapeKind, drawnBox(d.start, d.now, zoom));
       setTool("select");
     } else if (d.tool === "arrow" || d.tool === "line") {
-      const ends = drawnArrowEnds(d.start, d.now, d.from, inOrder, zoom);
+      const ends = drawnArrowEnds(d.start, d.now, inOrder, zoom);
       if (!ends) return;
       addArrow(ends.from, ends.to, d.tool === "line");
       setTool("select");
@@ -677,10 +701,11 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
         // A pointer the page no longer knows of, as a test's, draws all the same.
       }
       const at = flow(e);
-      current = { tool, pointer: e.pointerId, start: at, now: at, points: [at], from: tool === "arrow" || tool === "line" ? shapeAt(inOrderRef.current, at) : undefined };
+      current = { tool, pointer: e.pointerId, start: at, now: at, points: [at] };
       setDrawing(current);
     };
     const move = (e: PointerEvent) => {
+      if (!current && (tool === "arrow" || tool === "line")) setHover(e.target instanceof Element && el.contains(e.target) ? flow(e) : null);
       if (!current || e.pointerId !== current.pointer) return;
       const at = flow(e);
       current = { ...current, now: at, points: current.tool === "pen" ? [...current.points, at] : current.points };
@@ -712,6 +737,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", cancel);
       setDrawing(null);
+      setHover(null);
     };
   }, [tool, rf]);
 
@@ -769,7 +795,8 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       );
     }
     if (d.tool === "arrow" || d.tool === "line") {
-      const ends = arrowEnds({ from: d.from ?? [d.start.x, d.start.y], to: [d.now.x, d.now.y] }, placed);
+      const drawn = drawnArrowEnds(d.start, d.now, inOrder, rf.getZoom());
+      const ends = drawn && arrowEnds(drawn, placed);
       if (!ends) return null;
       const sketch = arrowSketch(ends.from, ends.to, d.tool === "line" ? "none" : "end", 1);
       return [...sketch.line, ...sketch.heads].map((p, i) => <path key={i} className="wb-stroke" d={p} />);
@@ -797,7 +824,6 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeDragStop={onNodeDragStop}
-        onConnect={onConnect}
         onConnectEnd={onConnectEnd}
         isValidConnection={(c) => c.source !== c.target && placed.has(c.source) && placed.has(c.target)}
         onNodeClick={(event, node) => {
@@ -808,7 +834,8 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
         }}
         // Dragging swallows the click, so select what's dragged when the drag starts, unless it's
         // already selected, with others it moves with.
-        onNodeDragStart={(_, node) => {
+        onNodeDragStart={(_, node, dragging) => {
+          if (node.type === "end" && dragging.length === 1) setGrip(node.id);
           const picked = pickedBy(node);
           if (picked && !items[picked.which].includes(picked.id)) select(picked.selection);
         }}
@@ -858,6 +885,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
             </svg>
           </ViewportPortal>
         )}
+        <SideDots at={drawing && (drawing.tool === "arrow" || drawing.tool === "line") ? drawing.now : grip ? (ends.get(grip) ?? null) : hover} shapes={inOrder} except={gripOther} />
         {draft && (
           <ViewportPortal>
             <div className="wb-text-draft" style={{ transform: `translate(${draft.x}px, ${draft.y}px)`, zIndex: DRAWING_Z }}>
@@ -919,11 +947,27 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
 export type Moved = { kind: "shape"; id: string; position: Point } | { kind: "sticky"; id: string; position: Point } | { kind: "end"; arrow: string; end: "from" | "to"; point: Point };
 
 /**
- * The edits that save where shapes, notes and arrows' ends were dragged to. A grip dragged on its
- * own goes onto the shape it's let go on, other than the one at the arrow's other end, or stays at
- * the point; dragged with others, it stays at its point. `shapes` are from the back to the front.
+ * The end an arrow gets at a point: the side of a shape whose point it's within `reach` of, the
+ * shape it's inside, or none. `shapes` are from the back to the front, and the one in front wins.
+ * `except` is the shape at the arrow's other end, which this one can't be on too.
  */
-export function moveOps(view: ViewDef, moves: readonly Moved[], shapes: readonly PlacedShape[]): Operation[] {
+export function endAt(shapes: readonly PlacedShape[], p: Point, reach: number, except?: string): ArrowEnd | undefined {
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const s = shapes[i]!;
+    if (s.id === except) continue;
+    const side = sideNear(s.box, p, reach);
+    if (side) return { shape: s.id, side };
+  }
+  return shapeAt(shapes, p, except);
+}
+
+/**
+ * The edits that save where shapes, notes and arrows' ends were dragged to. A grip dragged on its
+ * own goes onto the side of a shape it's let go near, within `reach`, or onto the shape it's let go
+ * on, other than the one at the arrow's other end, or stays at the point; dragged with others, it
+ * stays at its point. `shapes` are from the back to the front.
+ */
+export function moveOps(view: ViewDef, moves: readonly Moved[], shapes: readonly PlacedShape[], reach = 0): Operation[] {
   const ops: Operation[] = [];
   const ends = new Map<string, Partial<Record<"from" | "to", ArrowEnd>>>();
   const alone = moves.length === 1 && moves[0]!.kind === "end";
@@ -940,8 +984,8 @@ export function moveOps(view: ViewDef, moves: readonly Moved[], shapes: readonly
     } else {
       const arrow = view.arrows.find((a) => a.id === m.arrow);
       if (!arrow) continue;
-      const other = arrow[m.end === "from" ? "to" : "from"];
-      const onto = alone ? shapeAt(shapes, m.point, typeof other === "string" ? other : undefined) : undefined;
+      const other = endShape(arrow[m.end === "from" ? "to" : "from"]);
+      const onto = alone ? endAt(shapes, m.point, reach, other) : undefined;
       ends.set(arrow.id, { ...ends.get(arrow.id), [m.end]: onto ?? [Math.round(m.point.x), Math.round(m.point.y)] });
     }
   }
@@ -954,7 +998,7 @@ export function moveOps(view: ViewDef, moves: readonly Moved[], shapes: readonly
  * arrows all of whose ends are inside too, their shapes or the grips at their points.
  */
 export function boxedSelection(view: ViewDef, ids: ReadonlySet<string>): Selection {
-  const inside = (a: Arrow, end: "from" | "to") => ids.has(typeof a[end] === "string" ? (a[end] as string) : endNodeId(a.id, end));
+  const inside = (a: Arrow, end: "from" | "to") => ids.has(endShape(a[end]) ?? endNodeId(a.id, end));
   return selectBoard({
     shapes: view.shapes.filter((s) => ids.has(s.id)).map((s) => s.id),
     arrows: view.arrows.filter((a) => inside(a, "from") && inside(a, "to")).map((a) => a.id),
@@ -974,16 +1018,47 @@ export function drawnBox(start: Point, now: Point, zoom: number): [number, numbe
 }
 
 /**
- * The ends of an arrow drawn from one point to another: the shape it started on, `from`, or the
- * point, and the shape it's let go on, other than that one, or the point. Null for a click, a drag
- * of a few pixels on the screen at this zoom, that isn't from one shape to another.
+ * The ends of an arrow drawn from one point to another, each the end it gets there (see endAt):
+ * the side of a shape it's near, the shape it's on, or else the point. They're never on one
+ * shape. Null for a click, a drag of a few pixels on the screen at this zoom, that isn't from
+ * one shape to another.
  */
-export function drawnArrowEnds(start: Point, now: Point, from: string | undefined, shapes: readonly PlacedShape[], zoom: number): { from: ArrowEnd; to: ArrowEnd } | null {
-  const to = shapeAt(shapes, now, from);
+export function drawnArrowEnds(start: Point, now: Point, shapes: readonly PlacedShape[], zoom: number): { from: ArrowEnd; to: ArrowEnd } | null {
+  const reach = SIDE_REACH / zoom;
+  const from = endAt(shapes, start, reach);
+  const to = endAt(shapes, now, reach, from === undefined ? undefined : endShape(from));
   const far = Math.hypot(now.x - start.x, now.y - start.y) * zoom >= DRAG_MIN;
   if (!far && !(from && to)) return null;
   const point = (p: Point): [number, number] => [Math.round(p.x), Math.round(p.y)];
   return { from: from ?? point(start), to: to ?? point(now) };
+}
+
+/**
+ * Dots at the sides of the shape under the pointer, or near it, while an arrow is drawn or an end
+ * of one dragged: an end let go on one stays on that side of the shape. The one it would go onto
+ * is bigger. While an arrow is dragged from a shape's dot, React Flow says where the pointer is.
+ */
+function SideDots({ at, shapes, except }: { at: Point | null; shapes: readonly PlacedShape[]; except?: string }) {
+  const connection = useConnection();
+  const rf = useReactFlow();
+  const p = at ?? (connection.inProgress ? connection.to : null);
+  const from = connection.inProgress ? connection.fromNode.id : except;
+  if (!p) return null;
+  const reach = SIDE_REACH / rf.getZoom();
+  const end = endAt(shapes, p, reach, from);
+  const shape = end === undefined ? undefined : shapes.find((s) => s.id === endShape(end));
+  if (!shape) return null;
+  const near = typeof end === "object" && !Array.isArray(end) ? end.side : undefined;
+  return (
+    <ViewportPortal>
+      <svg className="wb-sides" style={{ zIndex: DRAWING_Z }} aria-hidden="true">
+        {(["top", "right", "bottom", "left"] as const).map((side) => {
+          const dot = sidePoint(shape.box, side, 0);
+          return <circle key={side} className={side === near ? "near" : undefined} cx={dot.x} cy={dot.y} r={(side === near ? 7 : 5) / rf.getZoom()} />;
+        })}
+      </svg>
+    </ViewportPortal>
+  );
 }
 
 /** What clicking a node selects: a shape or a sticky note. An arrow's grip selects nothing. */

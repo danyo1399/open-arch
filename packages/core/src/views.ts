@@ -16,6 +16,7 @@ import {
   ELEMENT_KINDS,
   RELATIONSHIP_KINDS,
   SHAPE_KIND_LABELS,
+  endShape,
   type ArchElement,
   type Arrow,
   type Connection,
@@ -935,8 +936,8 @@ function computeWhiteboard(view: ViewDef): ComputedView {
   }
   for (const arrow of view.arrows) {
     for (const end of ["from", "to"] as const) {
-      const id = arrow[end];
-      if (typeof id !== "string" || shapes.includes(id)) continue;
+      const id = endShape(arrow[end]);
+      if (id === undefined || shapes.includes(id)) continue;
       const match = suggest(id, shapes);
       diagnostics.push({
         severity: "error",
@@ -946,11 +947,12 @@ function computeWhiteboard(view: ViewDef): ComputedView {
         fix: match ? `Did you mean "${match}"?` : "Name one of its shapes, or give a point, [x, y].",
       });
     }
-    if (typeof arrow.from === "string" && arrow.from === arrow.to && shapes.includes(arrow.from)) {
+    const from = endShape(arrow.from);
+    if (from !== undefined && from === endShape(arrow.to) && shapes.includes(from)) {
       diagnostics.push({
         severity: "warning",
         rule: "arrow-to-itself",
-        message: `Arrow "${arrow.id}" goes from shape "${arrow.from}" to itself, so it isn't drawn.`,
+        message: `Arrow "${arrow.id}" goes from shape "${from}" to itself, so it isn't drawn.`,
         path: `${arrow.path}.to`,
         fix: "Point `to` at another shape, or at a point.",
       });

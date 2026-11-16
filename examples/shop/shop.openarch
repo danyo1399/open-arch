@@ -1,5 +1,5 @@
 {
-  "openarch": 14,
+  "openarch": 15,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -297,7 +297,7 @@
       "arrows": [
         { "id": "idea-1", "from": "slow", "to": "cache", "text": "idea 1" },
         { "id": "idea-2", "from": "slow", "to": "background", "text": "idea 2" },
-        { "id": "which", "from": "cache", "to": "where", "heads": "none", "dashed": true },
+        { "id": "which", "from": "cache", "to": { "shape": "where", "side": "left" }, "heads": "none", "dashed": true },
         { "id": "saves", "from": "background", "to": "orders-db", "text": "saves it first" },
         { "id": "look", "from": [80, 186], "to": "slow", "color": "red" }
       ],

@@ -4,14 +4,14 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { act, createElement, useMemo, useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
-import { boxedSelection, drawnArrowEnds, drawnBox, moveOps, WhiteboardDiagram } from "../src/canvas/WhiteboardDiagram.js";
+import { boxedSelection, drawnArrowEnds, drawnBox, endAt, moveOps, WhiteboardDiagram } from "../src/canvas/WhiteboardDiagram.js";
 import type { PlacedShape } from "../src/canvas/whiteboard.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
 import { button, click, key, mount } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 14,
+  openarch: 15,
   name: "Shop",
   elements: {},
   views: {
@@ -316,6 +316,26 @@ describe("drawing and moving on a whiteboard", () => {
     expect(moveOps(view(), [end("look", "from", 1, 2), end("look", "to", 3, 4)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: [1, 2], to: [3, 4] }]);
   });
 
+  it("puts an arrow's end dragged on its own onto the side of a shape it's let go near, which takes it over the shape it's in", () => {
+    const end = (arrow: string, which: "from" | "to", x: number, y: number) => ({ kind: "end" as const, arrow, end: which, point: { x, y } });
+    // Near the ellipse's left tip, outside it, and near the rectangle's bottom, inside it.
+    expect(moveOps(view(), [end("look", "from", 292, 42)], placed, 16)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: { shape: "db", side: "left" } }]);
+    expect(moveOps(view(), [end("look", "from", 90, 80)], placed, 16)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: { shape: "cache", side: "bottom" } }]);
+    // Not onto a side of the shape at its other end; with no reach, onto the shape, facing the other end.
+    expect(moveOps(view(), [end("reads", "to", 90, 80)], placed, 16)).toEqual([{ op: "update-arrow", view: "ideas", id: "reads", to: [90, 80] }]);
+    expect(moveOps(view(), [end("look", "from", 90, 80)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: "cache" }]);
+    // The shape in front wins.
+    expect(endAt([...placed, { id: "front", kind: "rectangle", box: { x: 80, y: 60, w: 50, h: 50 } }], { x: 90, y: 88 }, 16)).toEqual({ shape: "front", side: "left" });
+    expect(endAt(placed, { x: 900, y: 900 }, 16)).toBeUndefined();
+  });
+
+  it("draws an arrow from a side of a shape to a side of another, when it's pressed and let go near their points", () => {
+    expect(drawnArrowEnds({ x: 178, y: 46 }, { x: 302, y: 38 }, placed, 1)).toEqual({ from: { shape: "cache", side: "right" }, to: { shape: "db", side: "left" } });
+    // At half size, the reach is twice as far on the board.
+    expect(drawnArrowEnds({ x: 160, y: 46 }, { x: 600, y: 300 }, placed, 0.5)).toEqual({ from: { shape: "cache", side: "right" }, to: [600, 300] });
+    expect(drawnArrowEnds({ x: 160, y: 46 }, { x: 600, y: 300 }, placed, 1)).toEqual({ from: "cache", to: [600, 300] });
+  });
+
   it("selects what a drag across the board has inside it, and the arrows all of whose ends are", () => {
     expect(boxedSelection(view(), new Set(["cache", "db", "sticky:note"]))).toEqual({ kind: "board", shapes: ["cache", "db"], arrows: ["reads"], stickies: ["note"] });
     // An arrow from a point is in it when the grip at its point is.
@@ -333,12 +353,12 @@ describe("drawing and moving on a whiteboard", () => {
   });
 
   it("draws an arrow from a shape or a point to another shape or a point, but not a click on nothing", () => {
-    expect(drawnArrowEnds({ x: 20, y: 20 }, { x: 350, y: 40 }, "cache", placed, 1)).toEqual({ from: "cache", to: "db" });
-    expect(drawnArrowEnds({ x: 20, y: 20 }, { x: 600, y: 300 }, "cache", placed, 1)).toEqual({ from: "cache", to: [600, 300] });
-    expect(drawnArrowEnds({ x: 600.4, y: 300 }, { x: 20, y: 20 }, undefined, placed, 1)).toEqual({ from: [600, 300], to: "cache" });
+    expect(drawnArrowEnds({ x: 20, y: 20 }, { x: 350, y: 30 }, placed, 1)).toEqual({ from: "cache", to: "db" });
+    expect(drawnArrowEnds({ x: 20, y: 20 }, { x: 600, y: 300 }, placed, 1)).toEqual({ from: "cache", to: [600, 300] });
+    expect(drawnArrowEnds({ x: 600.4, y: 300 }, { x: 20, y: 20 }, placed, 1)).toEqual({ from: [600, 300], to: "cache" });
     // Not back to the shape it starts on.
-    expect(drawnArrowEnds({ x: 20, y: 20 }, { x: 60, y: 60 }, "cache", placed, 1)).toEqual({ from: "cache", to: [60, 60] });
-    expect(drawnArrowEnds({ x: 600, y: 300 }, { x: 601, y: 301 }, undefined, placed, 1)).toBeNull();
-    expect(drawnArrowEnds({ x: 20, y: 20 }, { x: 21, y: 21 }, "cache", placed, 1)).toBeNull();
+    expect(drawnArrowEnds({ x: 20, y: 20 }, { x: 60, y: 60 }, placed, 1)).toEqual({ from: "cache", to: [60, 60] });
+    expect(drawnArrowEnds({ x: 600, y: 300 }, { x: 601, y: 301 }, placed, 1)).toBeNull();
+    expect(drawnArrowEnds({ x: 20, y: 20 }, { x: 21, y: 21 }, placed, 1)).toBeNull();
   });
 });
