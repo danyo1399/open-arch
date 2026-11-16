@@ -189,13 +189,23 @@ describe("whiteboard views", () => {
     ]);
   });
 
-  it("warn about text with nothing to say, which draws nothing", () => {
+  it("warn about text with nothing to say, which draws nothing, and still move and restyle it", () => {
     const doc = ideas();
     doc.views.ideas!.shapes!.push({ id: "blank", kind: "text", at: [0, 0] }, { id: "spaces", kind: "text", text: "  ", at: [0, 0] });
     expect(checkWorkspace(buildWorkspace(doc)).map((d) => [d.severity, d.rule, d.path, d.message])).toEqual([
       ["warning", "shape-text-empty", "views.ideas.shapes[5].text", 'Text "blank" has nothing to say, so it draws nothing on the board.'],
       ["warning", "shape-text-empty", "views.ideas.shapes[6].text", 'Text "spaces" has nothing to say, so it draws nothing on the board.'],
     ]);
+    // Only a change to its text or kind has to give it some: moving it, with others too, restyling, renaming or reordering it doesn't.
+    const moved = apply(
+      doc,
+      { op: "update-shape", view: "ideas", id: "blank", at: [10, 20], color: "red", fill: "yellow", size: "large", position: 1, newId: "empty" },
+      { op: "update-shape", view: "ideas", id: "cache", at: [5, 5] },
+    );
+    expect(moved.views.ideas!.shapes![0]).toEqual({ id: "empty", kind: "text", at: [10, 20], size: "large", color: "red", fill: "yellow" });
+    expect(fails(doc, { op: "update-shape", view: "ideas", id: "blank", text: " " })).toMatch(/^Text needs something to say/);
+    expect(fails(doc, { op: "update-shape", view: "ideas", id: "blank", kind: "text" })).toMatch(/^Text needs something to say/);
+    expect(apply(doc, { op: "update-shape", view: "ideas", id: "blank", text: "Now it says something" }).views.ideas!.shapes![5]!.text).toBe("Now it says something");
   });
 
   it("know each shape's place from the back, and fill in the defaults", () => {

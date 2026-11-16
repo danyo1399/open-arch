@@ -2279,7 +2279,8 @@ function updateShape(doc: OpenArchDocument, op: Extract<Operation, { op: "update
     if (op.dashed) shape.dashed = true;
     else delete shape.dashed;
   }
-  if (shape.kind === "text" && !shape.text?.trim()) throw new OpError(`${EMPTY_TEXT} To take it off the board, remove it with remove-shape.`);
+  // Only when this changes its text or kind: text a file edited by hand left empty, which check warns of, can still be moved and restyled.
+  if ((op.text !== undefined || op.kind !== undefined) && shape.kind === "text" && !shape.text?.trim()) throw new OpError(`${EMPTY_TEXT} To take it off the board, remove it with remove-shape.`);
   const shapes = view.shapes!;
   const moved = moveTo(shapes, shapes.indexOf(shape), op.position, op.view, "shape");
   const where = moved ? `, and moved it to ${op.position} from the back` : "";
