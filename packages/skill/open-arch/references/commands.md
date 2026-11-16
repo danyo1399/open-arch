@@ -150,7 +150,7 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `update-shape` | **view**, **id**, newId, kind, text, at (`[x, y]` keeps its size), points, size, color, fill (`null` makes it see-through), dashed, position (the place to move it to) |
 | `remove-shape` | **view**, **id** |
 | `add-arrow` | **view**, **id**, **from**, **to** (each a shape's ID, a shape and a side of it, `{ "shape": "paid", "side": "right" }`, or a point, `[x, y]`), fromSide, toSide (the side of its shape an end stays on), text, heads (default: `"end"`), color, dashed |
-| `update-arrow` | **view**, **id**, newId, from, to, fromSide, toSide (`null` lets the end face the other end again), text, heads, color, dashed |
+| `update-arrow` | **view**, **id**, newId, from, to (on another shape, an end faces the other end unless it's given a side; naming the shape it's on already keeps its side), fromSide, toSide (`null` lets the end face the other end again), text, heads, color, dashed |
 | `remove-arrow` | **view**, **id** |
 | `update-workspace` | name, description, docs |
 

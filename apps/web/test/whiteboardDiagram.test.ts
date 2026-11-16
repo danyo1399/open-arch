@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { act, createElement, useMemo, useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -329,7 +329,7 @@ describe("drawing and moving on a whiteboard", () => {
 
   it("puts an arrow's end dragged on its own onto the shape it's let go on, but not the one at its other end, or at the point", () => {
     const end = (arrow: string, which: "from" | "to", x: number, y: number) => ({ kind: "end" as const, arrow, end: which, point: { x, y } });
-    expect(moveOps(view(), [end("look", "from", 20, 20)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: "cache" }]);
+    expect(moveOps(view(), [end("look", "from", 20, 20)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: "cache", fromSide: null }]);
     expect(moveOps(view(), [end("reads", "to", 20, 20)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "reads", to: [20, 20] }]);
     expect(moveOps(view(), [end("reads", "to", 700.4, 20.6)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "reads", to: [700, 21] }]);
     // Dragged with others, the ends of an arrow stay at their points, in one edit of it.
@@ -347,7 +347,15 @@ describe("drawing and moving on a whiteboard", () => {
     expect(moveOps(view(), [end("look", "from", 90, 80)], placed, 16)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: { shape: "cache", side: "bottom" } }]);
     // Not onto a side of the shape at its other end; with no reach, onto the shape, facing the other end.
     expect(moveOps(view(), [end("reads", "to", 90, 80)], placed, 16)).toEqual([{ op: "update-arrow", view: "ideas", id: "reads", to: [90, 80] }]);
-    expect(moveOps(view(), [end("look", "from", 90, 80)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: "cache" }]);
+    expect(moveOps(view(), [end("look", "from", 90, 80)], placed)).toEqual([{ op: "update-arrow", view: "ideas", id: "look", from: "cache", fromSide: null }]);
+    // Let go in the middle of the shape it's on a side of, it faces the other end, as it's shown to while it's dragged.
+    const sided = structuredClone(shop);
+    sided.views.ideas!.arrows![0]!.from = { shape: "cache", side: "right" };
+    const ops = moveOps(view(sided), [end("reads", "from", 90, 45)], placed, 16);
+    expect(ops).toEqual([{ op: "update-arrow", view: "ideas", id: "reads", from: "cache", fromSide: null }]);
+    expect(applyOperations(sided, ops).doc.views.ideas!.arrows![0]!.from).toBe("cache");
+    // Let go on another of its dots, it goes onto that side.
+    expect(applyOperations(sided, moveOps(view(sided), [end("reads", "from", 90, 88)], placed, 16)).doc.views.ideas!.arrows![0]!.from).toEqual({ shape: "cache", side: "bottom" });
     // The shape in front wins, with a side of it, or itself, over a side of a shape behind it.
     const front = [...placed, { id: "front", kind: "rectangle" as const, box: { x: 80, y: 60, w: 50, h: 50 } }];
     expect(endAt(front, { x: 90, y: 88 }, 16)).toEqual({ shape: "front", side: "left" });

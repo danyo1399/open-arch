@@ -347,6 +347,12 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
   const [hover, setHover] = useState<Point | null>(null);
   /** The shape and side the dots show for `hover`, so moving the pointer draws them again only when that changes. */
   const hoverKey = useRef("");
+  /** No dots for where the pointer was: it's pressed to draw, or the board moved or zoomed under it, until it moves again. */
+  const clearHover = useCallback(() => {
+    if (!hoverKey.current) return;
+    hoverKey.current = "";
+    setHover(null);
+  }, []);
   const [nodes, setNodes] = useState<(ShapeFlowNode | StickyFlowNode)[]>([]);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
@@ -728,6 +734,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
       }
       e.preventDefault();
       e.stopPropagation();
+      clearHover();
       // Its moves come here even off the board, and its letting go off the window too.
       try {
         el.setPointerCapture(e.pointerId);
@@ -890,6 +897,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
             else select({ kind: "boardArrow", id: edge.data.arrow.id });
           }}
           onEdgeDoubleClick={(_, edge) => edge.data && setEditing({ kind: "arrow", id: edge.data.arrow.id })}
+        onMove={clearHover}
           onPaneClick={() => !drew.current && select(null)}
           onSelectionStart={() => {
             boxed.current = new Set();
@@ -1025,12 +1033,12 @@ export function dropEnd(shapes: readonly PlacedShape[], p: Point, reach: number,
 /**
  * The edits that save where shapes, notes and arrows' ends were dragged to. A grip dragged on its
  * own goes onto the side of a shape it's let go near, within `reach`, or onto the shape it's let go
- * on, other than the one at the arrow's other end, or stays at the point; dragged with others, it
- * stays at its point. `shapes` are from the back to the front.
+ * on, other than the one at the arrow's other end, facing the other end, or stays at the point;
+ * dragged with others, it stays at its point. `shapes` are from the back to the front.
  */
 export function moveOps(view: ViewDef, moves: readonly Moved[], shapes: readonly PlacedShape[], reach = 0): Operation[] {
   const ops: Operation[] = [];
-  const ends = new Map<string, Partial<Record<"from" | "to", ArrowEnd>>>();
+  const ends = new Map<string, Partial<Extract<Operation, { op: "update-arrow" }>>>();
   const alone = moves.length === 1 && moves[0]!.kind === "end";
   for (const m of moves) {
     if (m.kind === "sticky") {
@@ -1047,7 +1055,9 @@ export function moveOps(view: ViewDef, moves: readonly Moved[], shapes: readonly
       if (!arrow) continue;
       const other = endShape(arrow[m.end === "from" ? "to" : "from"]);
       const onto = alone ? endAt(shapes, m.point, reach, other) : undefined;
-      ends.set(arrow.id, { ...ends.get(arrow.id), [m.end]: onto ?? [Math.round(m.point.x), Math.round(m.point.y)] });
+      // On a shape away from its sides, the end faces the other end, even on the shape it was on a side of.
+      const side = typeof onto === "string" ? { [m.end === "from" ? "fromSide" : "toSide"]: null } : {};
+      ends.set(arrow.id, { ...ends.get(arrow.id), [m.end]: onto ?? [Math.round(m.point.x), Math.round(m.point.y)], ...side });
     }
   }
   for (const [id, move] of ends) ops.push({ op: "update-arrow", view: view.id, id, ...move });
