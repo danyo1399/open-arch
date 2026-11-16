@@ -64,6 +64,7 @@ function panel(selection: Selection, isNew = false) {
     onHide() {},
     onDelete() {},
     onFindUsages() {},
+    onNewView() {},
     onAddSticky() {},
     onDeleteView() {},
     onEditNotes() {},

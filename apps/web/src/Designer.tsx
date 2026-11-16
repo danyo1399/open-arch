@@ -12,6 +12,7 @@ import {
   type RelationshipKind,
   type StickyTargetData,
   type ViewDef,
+  type ViewLevel,
   type Workspace,
 } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -35,7 +36,9 @@ import {
   wireframeSelectionGone,
   findArrow,
   followRenames,
+  LEVEL_NAMES,
   newStickyId,
+  newViewOf,
   notesName,
   notesOf,
   notesOp,
@@ -49,6 +52,7 @@ import {
   shownInProperties,
   stickyTargetFor,
   viewAction,
+  viewLevelsOf,
   viewList,
   type NotesOwner,
   type Rename,
@@ -297,6 +301,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     });
   };
 
+  /** A new view of this level of an element, such as a component view of a container, opened. */
+  const newViewFor = (id: string, level: ViewLevel) => {
+    const element = ws?.elements.get(id);
+    if (!ws || !element) return;
+    const op = newViewOf(ws, element, level);
+    void edit([op]).then((ok) => ok && showView(op.id));
+  };
+
   const showInView = (id: string) => view && void edit([{ op: "show-in-view", view: view.id, id }]);
   const hideFromView = (id: string) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null));
 
@@ -526,11 +538,13 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const elementMenu = (id: string): MenuItem[] => {
     const action = viewAction(ws, view, computed, id);
     const on = stickyTargetFor(ws, computed, { kind: "element", id });
+    const element = ws.elements.get(id);
     return [
       { label: "Find usages", onSelect: () => findUsages(id) },
       ...(action === "show" ? [{ label: "Show in this view", onSelect: () => showInView(id) }] : []),
       ...(action === "hide" ? [{ label: "Hide from this view", onSelect: () => hideFromView(id) }] : []),
       ...(on ? [{ label: "Add sticky note", onSelect: () => addStickyOn(on) }] : []),
+      ...(element ? [{ label: "New view", items: viewLevelsOf(element).map((level) => ({ label: LEVEL_NAMES[level], onSelect: () => newViewFor(id, level) })) }] : []),
       { label: "Delete from model…", danger: true, onSelect: () => setDialog({ kind: "delete", id: current(id) }) },
     ];
   };
@@ -753,6 +767,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onDelete={(id) => setDialog({ kind: "delete", id: current(id) })}
         onFindUsages={findUsages}
         onAddSticky={addStickyOn}
+        onNewView={newViewFor}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
         // The editor opens at once, over everything, so nothing else is edited while it's open. A
         // relationship's look is taken once the edits made before Expand have landed, such as its

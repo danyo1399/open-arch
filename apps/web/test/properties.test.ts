@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, computeView, type OpenArchDocument, type Operation, type StickyTargetData } from "@open-arch/core";
+import { buildWorkspace, computeView, type OpenArchDocument, type Operation, type StickyTargetData, type ViewLevel } from "@open-arch/core";
 import { act, createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -19,13 +19,14 @@ const doc: OpenArchDocument = {
   views: { landscape: { title: "Landscape", description: "Everything.", level: "landscape", notes: "Drawn for **new starters**." } },
 };
 
-/** The details panel for a view of this model, showing what's selected. It keeps the edits it sends, what it selects, the notes it adds, and the notes it opens in the bigger editor. */
+/** The details panel for a view of this model, showing what's selected. It keeps the edits it sends, what it selects, the notes it adds, the views it makes, and the notes it opens in the bigger editor. */
 function panel(model: OpenArchDocument, viewId: string, selection: Selection, options: { syncsDocs?: boolean } = {}) {
   const ws = buildWorkspace(model);
   const view = ws.views.get(viewId)!;
   const edits: Operation[][] = [];
   const selected: Selection[] = [];
   const added: StickyTargetData[] = [];
+  const made: { id: string; level: ViewLevel }[] = [];
   const expanded: { owner: NotesOwner; text: string }[] = [];
   const element = createElement(Properties, {
     ws,
@@ -45,11 +46,12 @@ function panel(model: OpenArchDocument, viewId: string, selection: Selection, op
     onHide() {},
     onDelete() {},
     onFindUsages() {},
+    onNewView: (id: string, level: ViewLevel) => void made.push({ id, level }),
     onAddSticky: (on: StickyTargetData) => void added.push(on),
     onDeleteView() {},
     onEditNotes: (owner: NotesOwner, text: string) => void expanded.push({ owner, text }),
   });
-  return { element, edits, selected, added, expanded };
+  return { element, edits, selected, added, made, expanded };
 }
 
 /** The details panel, with the landscape view open, showing what's selected. */
@@ -105,6 +107,22 @@ describe("Properties", () => {
     expect(await expand({ kind: "element", id: "customer" }, "Shops **weekly**.")).toEqual([{ owner: { kind: "element", id: "customer" }, text: "Shops **weekly**." }]);
     expect(await expand({ kind: "arrow", from: "customer", to: "shop" })).toEqual([{ owner: { kind: "relationship", from: "customer", to: "shop", index: 0 }, text: "Pays by **card**." }]);
     expect(await expand(null)).toEqual([{ owner: { kind: "view", id: "landscape" }, text: "Drawn for **new starters**." }]);
+  });
+});
+
+describe("New view in an element's details", () => {
+  const model: OpenArchDocument = {
+    ...doc,
+    elements: { ...doc.elements, web: { kind: "container", name: "Web", parent: "shop" } },
+  };
+
+  it("lists the views that can be of the element, and makes the one picked", async () => {
+    const { element, made } = panel(model, "landscape", { kind: "element", id: "web" });
+    await click(button(mount(element), "New view"));
+    const items = [...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')];
+    expect(items.map((b) => b.textContent)).toEqual(["Component view", "State view", "Wireframe view"]);
+    await click(items[0]!);
+    expect(made).toEqual([{ id: "web", level: "component" }]);
   });
 });
 

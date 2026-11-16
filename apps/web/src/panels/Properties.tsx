@@ -39,6 +39,7 @@ import {
   type Sticky,
   type StickyTargetData,
   type ViewDef,
+  type ViewLevel,
   type Widget,
   type WidgetKind,
   type Workspace,
@@ -51,6 +52,7 @@ import {
   findArrow,
   followsName,
   idFromName,
+  LEVEL_NAMES,
   relationshipRef,
   shownInProperties,
   stickyChoices,
@@ -62,9 +64,11 @@ import {
   uniqueNodeId,
   uniqueStateId,
   viewAction,
+  viewLevelsOf,
 } from "../model.js";
 import { SKILL_TARGETS } from "../skill.js";
 import { docsProblem, type Edit } from "../state.js";
+import { MenuButton } from "./ContextMenu.js";
 import { Field, NotesField, TagsEditor } from "./fields.js";
 
 interface PropertiesProps {
@@ -82,10 +86,12 @@ interface PropertiesProps {
   fileName: string;
   edit(edit: Edit): Promise<boolean>;
   onSelect(selection: Selection): void;
-  /** These three are on an element's right-click menu too, which touch screens may have no way to open. */
+  /** These four are on an element's right-click menu too, which touch screens may have no way to open. */
   onHide(id: string): void;
   onDelete(id: string): void;
   onFindUsages(id: string): void;
+  /** Makes a view of this level of the element, such as a component view of a container, and opens it. */
+  onNewView(id: string, level: ViewLevel): void;
   /** Adds a note on a box, the frame or an arrow, beside it on the diagram. */
   onAddSticky(on: StickyTargetData): void;
   onDeleteView(id: string): void;
@@ -140,7 +146,7 @@ export function Properties(props: PropertiesProps) {
   );
 }
 
-function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
+function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onNewView, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
@@ -292,6 +298,9 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
         <button onClick={() => onFindUsages(element.id)}>Find usages</button>
         {canHide && <button onClick={() => onHide(element.id)}>Hide from this view</button>}
         {noteOn && <button onClick={() => onAddSticky(noteOn)}>Add sticky note</button>}
+        <MenuButton items={viewLevelsOf(element).map((level) => ({ label: LEVEL_NAMES[level], onSelect: () => onNewView(element.id, level) }))} title={`Make a view of ${element.name}, and open it`}>
+          New view
+        </MenuButton>
         <button className="danger" onClick={() => onDelete(element.id)}>
           Delete from model…
         </button>

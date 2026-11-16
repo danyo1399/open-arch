@@ -106,6 +106,10 @@ An element, a relationship or a view can have notes: longer documentation, in ma
 
 A note stays where you put it, and its line follows the box as it moves. One you haven't moved stays beside what it's on, until you drag from its dot, which leaves it where it is. Notes belong to the view, not the model, but what a note is on is in the model: renaming it keeps the note on it, and deleting it takes the note off. A note on something the view no longer shows, such as a hidden box, has no line, and the problems list says so. The docs show the notes under the diagram, each starting with what it's on.
 
+### A view of an element
+
+To zoom in on a box, right-click it, or its name in the Model list, and choose **New view**, then the kind of view: a container view of a system, a component view of a container, a class view of a component, and so on. The view is made and opened, named after the element, such as "Orders API components". Change its title in its details. On a touch screen, use **New view** in the element's details.
+
 ### What a view shows
 
 A new view shows everything in its scope, and elements added to the model later turn up in it on their own. To keep one view to the boxes you chose, select its background and set **New elements** to **Show only when added here**. It keeps the boxes it has now, and nothing new appears in it unless you add it on that diagram or choose **Show in this view**. Set it back to **Show here automatically** for a view that should always show everything, such as an overview. Either way, **Hide from this view** takes a box out of just that view.

@@ -9,6 +9,7 @@ import {
   followsName,
   isArrow,
   idFromName,
+  newViewOf,
   notesName,
   notesOf,
   notesOp,
@@ -27,6 +28,7 @@ import {
   undoRenames,
   uniqueId,
   viewAction,
+  viewLevelsOf,
   viewList,
 } from "../src/model.js";
 
@@ -59,6 +61,38 @@ describe("uniqueId", () => {
   it("doesn't count the element's own ID as taken", () => {
     expect(uniqueId(ws, "api", "api-2")).toBe("api-2");
     expect(uniqueId(ws, "api", "api")).toBe("api");
+  });
+});
+
+describe("a new view of an element", () => {
+  const shop = buildWorkspace({
+    openarch: 13,
+    name: "Shop",
+    elements: {
+      customer: { kind: "person", name: "Customer" },
+      shop: { kind: "system", name: "Shop" },
+      api: { kind: "container", name: "Orders API", parent: "shop" },
+      orders: { kind: "component", name: "Orders", parent: "api" },
+      order: { kind: "class", name: "Order", parent: "orders" },
+      logging: { kind: "library", name: "Logging" },
+    },
+    views: { "orders-api-components": { title: "Orders API components", level: "component", scope: "api" } },
+  });
+  const element = (id: string) => shop.elements.get(id)!;
+
+  it("can be of the levels that take that kind of element as their scope", () => {
+    expect(viewLevelsOf(element("customer"))).toEqual(["state"]);
+    expect(viewLevelsOf(element("shop"))).toEqual(["context", "container", "state", "wireframe"]);
+    expect(viewLevelsOf(element("api"))).toEqual(["component", "state", "wireframe"]);
+    expect(viewLevelsOf(element("orders"))).toEqual(["class", "state"]);
+    expect(viewLevelsOf(element("order"))).toEqual(["state"]);
+    expect(viewLevelsOf(element("logging"))).toEqual(["component", "class", "state"]);
+  });
+
+  it("is named after the element, as the New view dialog names it, with an ID no view has yet", () => {
+    expect(newViewOf(shop, element("shop"), "container")).toEqual({ op: "add-view", id: "shop-containers", level: "container", scope: "shop", title: "Shop containers" });
+    expect(newViewOf(shop, element("order"), "state")).toEqual({ op: "add-view", id: "order-states", level: "state", scope: "order", title: "Order states" });
+    expect(newViewOf(shop, element("api"), "component")).toEqual({ op: "add-view", id: "orders-api-components-2", level: "component", scope: "api", title: "Orders API components" });
   });
 });
 

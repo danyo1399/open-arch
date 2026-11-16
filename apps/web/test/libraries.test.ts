@@ -88,6 +88,7 @@ function panel(id: string) {
     onHide() {},
     onDelete() {},
     onFindUsages() {},
+    onNewView() {},
     onAddSticky() {},
     onDeleteView() {},
     onEditNotes() {},

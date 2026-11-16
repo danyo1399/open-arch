@@ -5,7 +5,9 @@ import {
   computeAllViews,
   describeElement,
   isInside,
+  LEVEL_TITLE,
   representative,
+  SCOPE_KINDS,
   stickyAnchor,
   STICKY_TARGET_LEVELS,
   VIEW_LEVELS,
@@ -28,6 +30,7 @@ import {
   type Transition,
   type ViewData,
   type ViewDef,
+  type ViewLevel,
   type Widget,
   type Workspace,
 } from "@open-arch/core";
@@ -201,6 +204,38 @@ export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; 
     affected: [...ws.elements.values()].filter((e) => !gone.has(e.id) && e.uses.some((r) => gone.has(r.to))),
     builtWith: ws.elements.get(id)?.kind === "library" ? builtInto(ws, id).filter((c) => !gone.has(c.id)) : [],
   };
+}
+
+/** The operation that adds a view, with an ID made from its title that no element or view has yet. */
+export function addViewOp(ws: Workspace, level: ViewLevel, scope: string | undefined, title: string): Extract<Operation, { op: "add-view" }> {
+  return { op: "add-view", id: uniqueId(ws, idFromName(title) || "view"), level, scope, title };
+}
+
+/** What a view of each level is called in a menu. */
+export const LEVEL_NAMES: Record<ViewLevel, string> = {
+  landscape: "Landscape view",
+  context: "Context view",
+  container: "Container view",
+  component: "Component view",
+  class: "Class view",
+  sequence: "Sequence view",
+  state: "State view",
+  deployment: "Deployment view",
+  event: "Event view",
+  wireframe: "Wireframe view",
+};
+
+/**
+ * The levels of view that can be of this element, in the New view dialog's order: a container
+ * view of a system, a component view of a container, a class view of a component, and so on.
+ */
+export function viewLevelsOf(element: ArchElement): ViewLevel[] {
+  return VIEW_LEVELS.filter((level) => SCOPE_KINDS[level].includes(element.kind));
+}
+
+/** The operation that adds a view of this level of an element, titled as the New view dialog titles it: "Orders API components". */
+export function newViewOf(ws: Workspace, element: ArchElement, level: ViewLevel): Extract<Operation, { op: "add-view" }> {
+  return addViewOp(ws, level, element.id, `${element.name} ${LEVEL_TITLE[level]}`);
 }
 
 /** Whether a view can draw this element as its own box: it does when the view would draw it as itself, as show-in-view checks. */
