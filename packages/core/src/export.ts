@@ -3,7 +3,7 @@
  * element and one per view with its Mermaid diagram. They're output only:
  * every page says so, and tools rewrite them freely.
  */
-import { drawnArrows, nodeKindLabel, renderMermaid, shapesInReadingOrder, transitionLabel } from "./mermaid.js";
+import { nodeKindLabel, renderMermaid, shapesInReadingOrder, transitionLabel } from "./mermaid.js";
 import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
 import { shapeName } from "./views.js";
@@ -252,7 +252,9 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
         for (const a of v.arrows) lines.push(`| ${a.heads === "none" ? "Line" : a.heads === "both" ? "Arrow both ways" : "Arrow"} | ${end(a.from)} | ${end(a.to)} | ${cell(a.text)} |`);
       }
       const pens = v.shapes.filter((s) => s.kind === "pen").length;
-      const loose = v.arrows.length - drawnArrows(v).length;
+      // Arrows to a shape that isn't there, or from one to itself, are left out too, but check says so.
+      const offShape = (e: Arrow["from"]) => typeof e !== "string" || v.shapes.find((s) => s.id === e)?.kind === "pen";
+      const loose = v.arrows.filter((a) => offShape(a.from) || offShape(a.to)).length;
       if (pens || loose) {
         const left = [pens ? `the ${pens === 1 ? "line" : `${pens} lines`} drawn with the pen` : "", loose ? `${loose === 1 ? "the arrow" : `${loose} arrows`} with an end at a point or on a pen's line` : ""].filter(Boolean);
         lines.push("", `The diagram above leaves out ${left.join(", and ")}, as Mermaid can't draw ${pens + loose === 1 ? "it" : "them"}. Open the view in the designer to see the whole whiteboard.`);

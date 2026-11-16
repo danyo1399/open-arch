@@ -271,6 +271,14 @@ describe("whiteboard views", () => {
         "The diagram above leaves out the line drawn with the pen, and the arrow with an end at a point or on a pen's line, as Mermaid can't draw them. Open the view in the designer to see the whole whiteboard.",
       ].join("\n"),
     );
+    // An arrow from a shape to itself isn't drawn either, but that's a problem check reports, not something Mermaid can't draw.
+    const looped = ideas();
+    looped.views.ideas!.arrows!.push({ id: "loop", from: "db", to: "db" });
+    expect(exportDocs(buildWorkspace(looped), "shop.openarch").find((f) => f.path === "views/ideas.md")!.content).toContain("the line drawn with the pen, and the arrow with an end at a point");
+    const noPen = ideas();
+    noPen.views.ideas!.shapes = noPen.views.ideas!.shapes!.filter((s) => s.kind !== "pen");
+    noPen.views.ideas!.arrows = [{ id: "reads", from: "cache", to: "db" }, { id: "loop", from: "db", to: "db" }];
+    expect(exportDocs(buildWorkspace(noPen), "shop.openarch").find((f) => f.path === "views/ideas.md")!.content).not.toContain("leaves out");
     const plain = exportDocs(buildWorkspace(base()), "shop.openarch").find((f) => f.path === "views/ideas.md")!.content;
     expect(plain).toContain("## Shapes\n\nNone yet.\n\n[All views and elements](../README.md)");
   });

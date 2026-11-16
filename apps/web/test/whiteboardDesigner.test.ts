@@ -25,8 +25,8 @@ const doc: OpenArchDocument = {
 };
 
 /** The whole designer, open on the workspace's whiteboard, once it has loaded. */
-async function designer() {
-  const host = mount(createElement(Designer, { host: new MemoryHost("shop.openarch", serializeDocument(doc)), onClose() {}, onHostChange() {} }));
+async function designer(model: OpenArchDocument = doc) {
+  const host = mount(createElement(Designer, { host: new MemoryHost("shop.openarch", serializeDocument(model)), onClose() {}, onHostChange() {} }));
   const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
   await settle();
   return {
@@ -83,6 +83,28 @@ describe("the designer, on a whiteboard view", () => {
     await d.settle();
     expect(d.shapes()).toEqual(["db", "scribble", "cache"]);
     expect(d.details()).toBe("Diamond3 of 3 from the back");
+  });
+
+  it("deletes text whose text is emptied in the details, as it does when it's emptied on the board", async () => {
+    const withText = structuredClone(doc);
+    withText.views.ideas!.shapes!.push({ id: "title", kind: "text", text: "Ideas", at: [0, -100] });
+    const d = await designer(withText);
+    await click(d.shape("title"));
+    expect(d.host.querySelector(".properties")!.textContent).toContain("Text with nothing in it is deleted.");
+    const text = [...d.host.querySelectorAll<HTMLLabelElement>(".properties label.field")].find((l) => l.querySelector(".field-label")?.textContent === "Text")!.querySelector("textarea")!;
+    text.value = " ";
+    await act(async () => void text.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    await d.settle();
+    expect(d.shapes()).toEqual(["cache", "db", "scribble"]);
+    expect(d.details()).toBe("View");
+    // Another shape keeps its outline, and only loses its text.
+    await click(d.shape("cache"));
+    const boxText = [...d.host.querySelectorAll<HTMLLabelElement>(".properties label.field")].find((l) => l.querySelector(".field-label")?.textContent === "Text")!.querySelector("textarea")!;
+    boxText.value = "";
+    await act(async () => void boxText.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    await d.settle();
+    expect(d.shapes()).toEqual(["cache", "db", "scribble"]);
+    expect(d.shape("cache").querySelector(".wb-text")).toBeNull();
   });
 
   it("shows a pen's line with only what a line has: its colour and dashes", async () => {

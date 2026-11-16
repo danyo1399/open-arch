@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
-import { act, createElement } from "react";
+import { act, createElement, useMemo, useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
 import { boxedSelection, drawnArrowEnds, drawnBox, moveOps, WhiteboardDiagram } from "../src/canvas/WhiteboardDiagram.js";
@@ -63,6 +63,38 @@ async function diagram(model: OpenArchDocument = shop, selection: Selection = nu
   // React Flow draws arrows only once it has measured the shapes, which this page can't do, so
   // arrows, and dragging shapes and arrows' ends, are checked in the browser. The edits a drag
   // sends are tested below.
+}
+
+/**
+ * The diagram, with a model the test changes as an edit landing would, and edits that wait until
+ * the test says whether they were saved, as edits wait their turn while a save is slow.
+ */
+async function waiting() {
+  let setModel!: (model: OpenArchDocument) => void;
+  const edits: { ops: Operation[]; done(ok: boolean): void }[] = [];
+  function Harness() {
+    const [model, set] = useState(shop);
+    setModel = set;
+    const computed = useMemo(() => {
+      const ws = buildWorkspace(model);
+      return computeView(ws, ws.views.get("ideas")!);
+    }, [model]);
+    return createElement(
+      ReactFlowProvider,
+      null,
+      createElement(WhiteboardDiagram, {
+        computed,
+        selection: null,
+        onSelect() {},
+        edit: (e: Edit) => new Promise<boolean>((resolve) => void edits.push({ ops: typeof e === "function" ? e(buildWorkspace(model)) : e, done: resolve })),
+        exportItems: [],
+        snap: { settings: SNAP_DEFAULTS, set() {} },
+      }),
+    );
+  }
+  const host = mount(createElement(Harness));
+  await act(async () => {});
+  return { host, edits, change: (model: OpenArchDocument) => act(async () => setModel(model)) };
 }
 
 /** Presses the pointer at a point on the page, moves it to another, and lets go, as a drag with a drawing tool. */
@@ -150,6 +182,38 @@ describe("WhiteboardDiagram", () => {
     await draw(host.querySelector('.react-flow__node[data-id="cache"]')!, [10, 10], [20, 20], [30, 30], [40, 10]);
     expect(edits).toEqual([[{ op: "add-shape", view: "ideas", id: "pen", kind: "pen", at: [10, 10], points: [[0, 0], [20, 20], [30, 0]] }]]);
     expect(pressed(host)).toBe("Pen");
+  });
+
+  it("gives each new shape an ID of its own while the ones before it wait to be saved, and frees the ID of one that's refused", async () => {
+    const { host, edits, change } = await waiting();
+    const ids = () => edits.map((e) => (e.ops[0] as { id: string }).id);
+    await click(tool(host, "Pen"));
+    const pane = host.querySelector(".react-flow__pane")!;
+    await draw(pane, [600, 600], [640, 620]);
+    await draw(pane, [600, 700], [640, 720]);
+    expect(ids()).toEqual(["pen", "pen-2"]);
+    // The first is saved, and the view has it, while the second still waits its turn.
+    const landed = structuredClone(shop);
+    landed.views.ideas!.shapes!.push({ id: "pen", kind: "pen", at: [600, 600], points: [[0, 0], [40, 20]] });
+    await act(async () => edits[0]!.done(true));
+    await change(landed);
+    await draw(pane, [600, 800], [640, 820]);
+    expect(ids()).toEqual(["pen", "pen-2", "pen-3"]);
+    // The second is refused, so its ID is free for the next.
+    await act(async () => edits[1]!.done(false));
+    await draw(pane, [600, 900], [640, 920]);
+    expect(ids()).toEqual(["pen", "pen-2", "pen-3", "pen-2"]);
+  });
+
+  it("keeps the point where a pen's line is let go, even with no move to it", async () => {
+    const { host, edits } = await diagram();
+    await click(tool(host, "Pen"));
+    const pane = host.querySelector(".react-flow__pane")!;
+    const at = (clientX: number, clientY: number) => ({ bubbles: true, button: 0, pointerId: 1, clientX, clientY });
+    await act(async () => void pane.dispatchEvent(new PointerEvent("pointerdown", at(10, 10))));
+    await act(async () => void window.dispatchEvent(new PointerEvent("pointermove", at(20, 20))));
+    await act(async () => void window.dispatchEvent(new PointerEvent("pointerup", at(60, 10))));
+    expect(edits).toEqual([[{ op: "add-shape", view: "ideas", id: "pen", kind: "pen", at: [10, 10], points: [[0, 0], [10, 10], [50, 0]] }]]);
   });
 
   it("types text where the text tool is clicked, and makes a text shape of it, or nothing if it's left empty", async () => {

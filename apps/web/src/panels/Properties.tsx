@@ -1397,6 +1397,9 @@ function ShapeProperties({ view, shape, edit, onSelect }: PropertiesProps & { vi
     const newId = freeId(text);
     if (newId) void edit([{ op: "update-shape", view: view.id, id: shape.id, newId }]).then((ok) => ok && onSelect({ kind: "shape", id: newId }));
   };
+  const remove = () => void edit([{ op: "remove-shape", view: view.id, id: shape.id }]).then((ok) => ok && onSelect(null));
+  // Text with nothing to say would be nothing on the board, so it goes, as it does when it's emptied on the board.
+  const changeText = (text: string) => (shape.kind === "text" && !text.trim() ? remove() : set({ text: text || null }));
   const count = view.shapes.length;
   const arrows = view.arrows.filter((a) => a.from === shape.id || a.to === shape.id);
   return (
@@ -1407,7 +1410,7 @@ function ShapeProperties({ view, shape, edit, onSelect }: PropertiesProps & { vi
           {shape.number} of {count} from the back
         </span>
       </header>
-      {!pen && <Field label="Text" value={shape.text ?? ""} multiline placeholder="What it says. Or double-click the shape to write in it" onCommit={(text) => set({ text: text || null })} />}
+      {!pen && <Field label="Text" value={shape.text ?? ""} multiline placeholder="What it says. Or double-click the shape to write in it" onCommit={changeText} />}
       {!pen && (
         <label className="field">
           <span className="field-label">Shape</span>
@@ -1462,11 +1465,12 @@ function ShapeProperties({ view, shape, edit, onSelect }: PropertiesProps & { vi
         <button disabled={shape.number === 1} onClick={() => set({ position: 1 })}>
           Send to back
         </button>
-        <button className="danger" onClick={() => void edit([{ op: "remove-shape", view: view.id, id: shape.id }]).then(() => onSelect(null))}>
+        <button className="danger" onClick={remove}>
           Delete
         </button>
       </div>
       {arrows.length > 0 && <p className="muted small">Deleting it deletes the arrows to and from it.</p>}
+      {shape.kind === "text" && <p className="muted small">Text with nothing in it is deleted.</p>}
     </>
   );
 }

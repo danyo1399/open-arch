@@ -321,8 +321,10 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
   const [nodes, setNodes] = useState<(ShapeFlowNode | StickyFlowNode)[]>([]);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
-  /** IDs given to shapes and arrows not yet in the view, as an edit is on its way: the next one mustn't take them too. */
+  /** IDs given to shapes and arrows not yet in the view, as their edits wait their turn to be saved: the next one mustn't take them too. */
   const issued = useRef(new Set<string>());
+  /** Changed to draw the shapes and notes where the file has them again, as after a move that couldn't be saved. */
+  const [redraw, setRedraw] = useState(0);
   /** A drag just ended in drawing something: the click that follows it isn't a click on the board. */
   const drew = useRef(false);
 
@@ -330,15 +332,22 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
   const selectedArrow = selection?.kind === "boardArrow" ? selection.id : null;
 
   useEffect(() => {
-    issued.current = new Set();
+    // An ID given out is the view's own once its edit has landed. Edits still waiting keep theirs.
+    issued.current = new Set([...issued.current].filter((id) => !view.shapes.some((s) => s.id === id) && !view.arrows.some((a) => a.id === id)));
     setEnds(new Map());
   }, [view]);
 
-  /** An ID for a new shape or arrow: its kind, or the kind and a number, that nothing has. */
-  const newId = (base: string) => {
+  /**
+   * Adds a shape or an arrow, with its kind as its ID, or its kind and a number, that nothing has,
+   * not even what an edit still on its way adds. Says its ID once it's saved, or null when it's
+   * refused, which frees the ID again.
+   */
+  const addNew = async (base: string, make: (id: string) => Operation): Promise<string | null> => {
     const id = uniqueAmong([...view.shapes.map((s) => s.id), ...view.arrows.map((a) => a.id), ...issued.current], base);
     issued.current.add(id);
-    return id;
+    const ok = await edit([make(id)]);
+    if (!ok) issued.current.delete(id);
+    return ok ? id : null;
   };
 
   const finishShape = useCallback(
@@ -406,7 +415,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     ]);
     // The items' lists are new each render; what they hold is in `selection`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, selection, editing, finishShape, finishSticky, resize, stickySize]);
+  }, [view, selection, editing, finishShape, finishSticky, resize, stickySize, redraw]);
 
   /** Each shape as drawn now, from the back to the front, measured once it has been. */
   const placed = useMemo(() => {
@@ -534,8 +543,13 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
         return { kind: "end", arrow, end, point: { x: n.position.x + GRIP / 2, y: n.position.y + GRIP / 2 } };
       });
       const ops = moveOps(view, moves, inOrder);
-      if (ops.length) void edit(ops).then((ok) => !ok && setEnds(new Map()));
-      else setEnds(new Map());
+      // A move that isn't saved is undone: everything goes back where the file has it.
+      const undo = () => {
+        setEnds(new Map());
+        setRedraw((n) => n + 1);
+      };
+      if (ops.length) void edit(ops).then((ok) => !ok && undo());
+      else undo();
     },
     [edit, view, dropped, inOrder],
   );
@@ -543,10 +557,9 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
   /** Draws an arrow from a shape to another, or to a point. */
   const addArrow = useCallback(
     (from: string | [number, number], to: string | [number, number], line = false) => {
-      const id = newId(line ? "line" : "arrow");
-      void edit([{ op: "add-arrow", view: view.id, id, from, to, heads: line ? "none" : undefined }]).then((ok) => ok && select({ kind: "boardArrow", id }));
+      void addNew(line ? "line" : "arrow", (id) => ({ op: "add-arrow", view: view.id, id, from, to, heads: line ? "none" : undefined })).then((id) => id && select({ kind: "boardArrow", id }));
     },
-    // newId reads the view, which is in the list.
+    // addNew reads the view, which is in the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [edit, view, select],
   );
@@ -574,8 +587,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
 
   /** Adds a shape, and selects it. */
   const addShape = (kind: ShapeKind, at: [number, number, number, number]) => {
-    const id = newId(kind);
-    void edit([{ op: "add-shape", view: view.id, id, kind, at }]).then((ok) => ok && select({ kind: "shape", id }));
+    void addNew(kind, (id) => ({ op: "add-shape", view: view.id, id, kind, at })).then((id) => id && select({ kind: "shape", id }));
   };
 
   /** + Add's shapes go in the middle of the canvas, where nothing else starts. */
@@ -604,8 +616,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     setDraft(null);
     setTool("select");
     if (!at || text === null || !text.trim()) return;
-    const id = newId("text");
-    void edit([{ op: "add-shape", view: view.id, id, kind: "text", text, at: [Math.round(at.x), Math.round(at.y)] }]).then((ok) => ok && select({ kind: "shape", id }));
+    void addNew("text", (id) => ({ op: "add-shape", view: view.id, id, kind: "text", text, at: [Math.round(at.x), Math.round(at.y)] })).then((id) => id && select({ kind: "shape", id }));
   };
 
   /** What a drag with a drawing tool made, once it's let go. */
@@ -622,7 +633,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     } else if (d.tool === "pen") {
       // Points nearer the line than a pixel on the screen add nothing to it.
       const line = simplifyLine(d.points, 1 / zoom);
-      void edit([{ op: "add-shape", view: view.id, id: newId("pen"), kind: "pen", at: line.at, points: line.points }]);
+      void addNew("pen", (id) => ({ op: "add-shape", view: view.id, id, kind: "pen", at: line.at, points: line.points }));
     } else if (d.tool === "text") {
       // On a shape that has text, the text tool writes in it.
       const on = view.shapes.find((s) => s.id === shapeAt(inOrder, d.start));
@@ -677,7 +688,8 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     };
     const up = (e: PointerEvent) => {
       if (!current || e.pointerId !== current.pointer) return;
-      const done = { ...current, now: flow(e) };
+      const at = flow(e);
+      const done = { ...current, now: at, points: current.tool === "pen" ? [...current.points, at] : current.points };
       current = null;
       setDrawing(null);
       drew.current = true;
