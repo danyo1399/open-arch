@@ -2,11 +2,11 @@
 import "fake-indexeddb/auto";
 import { serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { act, createElement } from "react";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
 import { panelMax } from "../src/panels/SidePanels.js";
-import { PANEL_LIMITS, userSettings } from "../src/settings.js";
+import { PANEL_LIMITS, PANELS_WAIT, userSettings } from "../src/settings.js";
 import { button, click, key, mount } from "./dom.js";
 
 /**
@@ -85,7 +85,10 @@ beforeEach(async () => {
   screen(1280, 800);
   await userSettings.setPanels({ browseCollapsed: false, detailsCollapsed: false, browseWidth: undefined, detailsWidth: undefined, detailsHeight: undefined });
 });
-afterEach(() => screen(1024, 768));
+afterEach(() => {
+  screen(1024, 768);
+  vi.restoreAllMocks();
+});
 
 const doc: OpenArchDocument = {
   openarch: 16,
@@ -319,5 +322,41 @@ describe("the side panels on smaller screens", () => {
     expect(d.host.querySelectorAll('.panel-edge, .panel-rail, [role="separator"]')).toHaveLength(0);
     await click(button(d.host, "Views & model3 elements"));
     expect(d.app().className).toBe("app narrow pane-browse");
+  });
+});
+
+describe("when the panel settings can't be kept", () => {
+  const blocked = () => new Error("This browser won't let open-arch keep your settings: blocked");
+
+  it("opens the designer with the panels open, at their usual size, if they can't be read", async () => {
+    await userSettings.setPanels({ detailsCollapsed: true, browseWidth: 400 });
+    vi.spyOn(userSettings, "panels").mockRejectedValue(blocked());
+    const d = await designer();
+    expect(d.app().className).toBe("app");
+    expect(d.style("--browse-width")).toBe("");
+    expect(d.collapse("Details")).not.toBeNull();
+  });
+
+  it("opens the designer without them if they take too long to read", async () => {
+    vi.spyOn(userSettings, "panels").mockReturnValue(new Promise(() => {}));
+    const host = mount(createElement(Designer, { host: new MemoryHost("shop.openarch", serializeDocument(doc)), onClose() {}, onHostChange() {} }));
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
+    expect(host.textContent).toBe("Loading…");
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, PANELS_WAIT)));
+    expect(host.querySelector(".app")!.className).toBe("app");
+    expect(host.querySelector('button[aria-label="Collapse Details"]')).not.toBeNull();
+  });
+
+  it("still collapses and resizes a panel, for as long as the designer is open, and says why it wasn't kept", async () => {
+    vi.spyOn(userSettings, "setPanels").mockRejectedValue(blocked());
+    const d = await designer();
+    await click(d.collapse("Details")!);
+    await d.settle();
+    expect(d.app().classList.contains("details-collapsed")).toBe(true);
+    expect(d.host.querySelector(".toast-error")!.textContent).toContain("This browser won't let open-arch keep your settings: blocked");
+    await key(d.edge("Views & model"), "ArrowRight");
+    await d.settle();
+    expect(d.style("--browse-width")).toBe("276px");
+    expect(d.app().classList.contains("details-collapsed")).toBe(true);
   });
 });

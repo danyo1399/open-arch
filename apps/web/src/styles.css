@@ -405,7 +405,8 @@ code {
 }
 /* A side panel's edge is laid over the panel, as big as it is. Only the strip along its inner
    edge, which drags it, and the button that collapses it take the pointer. Both stand over
-   the border, half on the diagram, under the diagram's menus and panels. */
+   the border, under the diagram's menus and panels. The Views & model panel's strip is mostly
+   on the diagram, clear of the panel's scrollbar. */
 .panel-edge {
   position: relative;
   z-index: 6;
@@ -425,7 +426,7 @@ code {
   cursor: col-resize;
 }
 .panel-edge-left .panel-resize {
-  right: -4px;
+  right: -6px;
 }
 .panel-edge-right .panel-resize {
   left: -4px;
@@ -444,7 +445,10 @@ code {
     width: 20px;
   }
   .panel-edge-left .panel-resize {
-    right: -10px;
+    right: -16px;
+  }
+  .panel-edge-left .panel-resize::after {
+    left: 2px;
   }
   .panel-edge-right .panel-resize {
     left: -10px;
@@ -469,6 +473,11 @@ code {
 }
 .panel-edge-bottom .panel-resize::after {
   height: 3px;
+}
+/* On the border, at the strip's left. */
+.panel-edge-left .panel-resize::after {
+  right: auto;
+  margin: 0;
 }
 .panel-resize:hover::after,
 .panel-resize:focus-visible::after,

@@ -332,9 +332,16 @@ export function useSnapSettings(settings: Settings = userSettings): SnapSetting 
   return { snap, setSnap };
 }
 
+/** How long the designer waits for the stored panel settings, in milliseconds. A browser whose storage doesn't answer still opens it. */
+export const PANELS_WAIT = 500;
+
 export interface PanelSetting {
   panels: PanelSettings;
-  /** Whether the stored settings have been read, so the panels open as they were left, not at their usual size first. */
+  /**
+   * Whether the stored settings have been read, so the panels open as they were left, not at
+   * their usual size first. If they couldn't be read, or take longer than PANELS_WAIT, it's true
+   * anyway, with the panels as they are until changed; settings read after that still apply.
+   */
   loaded: boolean;
   /** Collapses or expands the panels, or sizes them. Rejects if the setting couldn't be stored. It still changes for as long as the designer is open. */
   setPanels(change: Partial<PanelSettings>): Promise<void>;
@@ -349,14 +356,19 @@ export function usePanelSettings(settings: Settings = userSettings): PanelSettin
 
   useEffect(() => {
     let cancelled = false;
+    const waited = setTimeout(() => setLoaded(true), PANELS_WAIT);
     settings
       .panels()
       .then((p) => !cancelled && changes.current === 0 && setShown(p))
       // Without stored settings, the panels are open, at their usual size.
       .catch(() => undefined)
-      .finally(() => !cancelled && setLoaded(true));
+      .finally(() => {
+        clearTimeout(waited);
+        if (!cancelled) setLoaded(true);
+      });
     return () => {
       cancelled = true;
+      clearTimeout(waited);
     };
   }, [settings]);
 

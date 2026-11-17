@@ -21,8 +21,12 @@ export const PANEL_PROPERTY: Record<PanelSize, string> = {
 
 /** The top bar's height. */
 const TOP_BAR = 46;
-/** How wide and how tall the diagram stays, at least, as a panel is dragged bigger. */
-export const DIAGRAM_ROOM = { width: 320, height: 160 };
+/**
+ * How wide and how tall the diagram stays, at least, as a panel is dragged bigger. styles.css
+ * caps the panels' sizes with the same numbers, and the top bar's height, in .app: change them
+ * together.
+ */
+const DIAGRAM_ROOM = { width: 320, height: 160 };
 /** How far an arrow key moves an edge. */
 const STEP = 16;
 
@@ -101,16 +105,26 @@ export function PanelEdge({ place, label, size, stacked, onResize, onCollapse, f
   const largest = () => panelMax(size, stacked, appSize(app()));
 
   // After every render, and as the window changes size, which can make the panel smaller.
-  useLayoutEffect(() => {
+  const update = () => {
     const now = measure();
     const max = largest();
     setShown((s) => (s.now === now && s.max === max ? s : { now, max }));
-  });
+  };
+  const latest = useRef(update);
+  latest.current = update;
+  useLayoutEffect(update);
   useEffect(() => {
-    const resized = () => setShown({ now: measure(), max: largest() });
+    let frame = 0;
+    const resized = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => latest.current());
+    };
     window.addEventListener("resize", resized);
-    return () => window.removeEventListener("resize", resized);
-  });
+    return () => {
+      window.removeEventListener("resize", resized);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
 
   /** Stops dragging. Unless the size is to be kept, the panel goes back to the size it had. */
   const end = (keep: boolean) => {
