@@ -194,7 +194,7 @@ A flowchart shows the steps of a process: where it starts and ends, what's done,
 | Document | A page with a wavy bottom edge | A document or report that's made or read |
 | Database | A cylinder | Data that's kept |
 
-With a block selected, the new one goes under it, with a flow from it, so you can add the steps one after another. After an end, it has no flow from it, as the process stops there. Drag from the dot under a block to another to add a flow. Select a flow to give it text: on the ways out of a decision, the answer each is for, like Yes or No.
+With a block selected, the new one goes under it, with a flow from it, so you can add the steps one after another. After an end, it has no flow from it, as the process stops there. Drag from the dot under a block to another to add a flow. Select a flow to give it text: on the ways out of a decision, the answer each is for, like Yes or No. Arrows meet a decision only at the four tips of its diamond.
 
 The blocks are laid out automatically, from the first one down. Drag one to move it: then they all stay where they are, and **Lay out again**, in a block's details, lets the designer place that one again. Select a block to change its text, its kind or its description, or to add a flow from it; or a flow to change its ends, its text or its number. Deleting a block deletes the flows to and from it. The problems list warns about a flowchart without a start, a decision with fewer than two ways out, a way out of a decision that doesn't say which answer it's for, a flow out of an end or into a start, and one from a block back to itself, which isn't drawn. Blocks and flows belong to the view, not the model.
 
