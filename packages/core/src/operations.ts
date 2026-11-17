@@ -1835,6 +1835,12 @@ function addLane(doc: OpenArchDocument, op: Extract<Operation, { op: "add-lane" 
   if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. IDs are lowercase kebab-case, like "customer".`);
   const lanes = (view.lanes ??= []);
   if (lanes.some((l) => l.id === op.id)) throw new OpError(`View "${op.view}" already has a lane "${op.id}".`);
+  // A block's x in a flowchart with lanes is from the inside of its lane's left, so never less than
+  // 0. Getting its first lane, a flowchart's blocks move right as one, if need be, to keep to that.
+  if (view.level === "flowchart" && lanes.length === 0) {
+    const shift = -Math.min(0, ...(view.blocks ?? []).flatMap((b) => (b.at ? [b.at[0]] : [])));
+    if (shift) for (const b of view.blocks ?? []) if (b.at) b.at = [b.at[0] + shift, b.at[1]];
+  }
   const lane = clean<LaneData>({ id: op.id, name: op.name?.trim() || titleFromId(op.id), description: op.description?.trim() });
   const at = insertAt(lanes, lane, op.position, op.view, "lane");
   return `added lane ${op.id} to view ${op.view}${at < lanes.length ? `, as lane ${at}` : ""}`;
@@ -2559,6 +2565,7 @@ function addBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "add-block
   const kind = op.kind ?? "process";
   checkOneOf(kind, BLOCK_KINDS, "kind of block");
   if (op.lane) requireLane(view, op.view, op.lane);
+  if (op.at) checkLaneAt(view, op.at);
   const block = clean<BlockData>({
     id: op.id,
     kind: kind === "process" ? undefined : kind,
@@ -2595,7 +2602,10 @@ function updateBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "update
     block.lane = op.lane;
   }
   if (op.at === null) delete block.at;
-  else if (op.at !== undefined) block.at = [Math.round(op.at[0]), Math.round(op.at[1])];
+  else if (op.at !== undefined) {
+    checkLaneAt(view, op.at);
+    block.at = [Math.round(op.at[0]), Math.round(op.at[1])];
+  }
   const blocks = view.blocks!;
   const moved = moveTo(blocks, blocks.indexOf(block), op.position, op.view, "block");
   const where = moved ? `, and moved it to block ${op.position}` : "";
@@ -2626,6 +2636,11 @@ function removeBlock(doc: OpenArchDocument, viewId: string, id: string): string 
   if (view.flows) view.flows = view.flows.filter((f) => f.from !== id && f.to !== id);
   const gone = before - (view.flows?.length ?? 0);
   return `removed block ${id} from view ${viewId}${gone ? ` and ${count(gone, "flow")} to or from it` : ""}`;
+}
+
+/** Refuses an x less than 0 in a flowchart with lanes, where it's from the inside of the lane's left. */
+function checkLaneAt(view: ViewData, at: [number, number]): void {
+  if (view.lanes?.length && Math.round(at[0]) < 0) throw new OpError("In a flowchart with lanes, a block's x is from the inside of its lane's left, so it can't be less than 0.");
 }
 
 /** Refuses a flow from a block to itself, and one the view has already: the same ends and text. */

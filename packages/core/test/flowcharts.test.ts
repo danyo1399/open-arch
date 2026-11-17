@@ -543,6 +543,23 @@ describe("flowchart lanes", () => {
     expect(fails(shop(), { op: "add-lane", view: "landscape", id: "x" })).toBe('View "landscape" is a landscape view. Only event and flowchart views have lanes.');
   });
 
+  it("move blocks right when a flowchart gets its first lane, so none has an x less than 0, which a lane refuses", () => {
+    const doc = apply(returns(), { op: "update-block", view: "returns", id: "asked", at: [-300, 0] }, { op: "update-block", view: "returns", id: "in-time", at: [-100, 120] });
+    const laned = apply(doc, { op: "add-lane", view: "returns", id: "customer" });
+    expect(laned.views.returns!.blocks!.slice(0, 2).map((b) => b.at)).toEqual([
+      [0, 0],
+      [200, 120],
+    ]);
+    // Only the first lane moves them: they're all 0 or more after it.
+    expect(apply(laned, { op: "add-lane", view: "returns", id: "shop" }).views.returns!.blocks![1]!.at).toEqual([200, 120]);
+    // Blocks placed at 0 or more stay where they are.
+    expect(apply(returns(), { op: "add-lane", view: "returns", id: "customer" }).views.returns!.blocks![0]!.at).toEqual([0, 0]);
+    const lane = "In a flowchart with lanes, a block's x is from the inside of its lane's left, so it can't be less than 0.";
+    expect(fails(laned, { op: "update-block", view: "returns", id: "asked", at: [-1, 0] })).toBe(lane);
+    expect(fails(laned, { op: "add-block", view: "returns", id: "x", at: [-5, 0] })).toBe(lane);
+    expect(apply(laned, { op: "update-block", view: "returns", id: "asked", at: [0, 9] }).views.returns!.blocks![0]!.at).toEqual([0, 9]);
+  });
+
   it("show in Mermaid as a frame for each lane, with its blocks inside it", () => {
     const text = renderMermaid(view(laned()));
     expect(text).toContain(

@@ -476,7 +476,7 @@ A `flowchart` view draws the steps of a process, as a flowchart does: where it s
 | `text` | What it says, like "Pack the order", or for a decision a question, like "In stock?"; line breaks are kept. Required |
 | `description` | One sentence, shown under its text |
 | `lane` | The ID of the lane it's in. In a flowchart with lanes, a block in none is in a column of its own, left of them |
-| `at` | Its top-left corner, `[x, y]`. Without it, the designer lays the block out, from the first block down, and down the middle of its lane. In a flowchart with lanes, x is from the inside of its lane's left, 30 in from its edge: each lane is as wide as its blocks need, and reaches further left for a block whose x is less than 0 |
+| `at` | Its top-left corner, `[x, y]`. Without it, the designer lays the block out, from the first block down, and down the middle of its lane. In a flowchart with lanes, x is from the inside of its lane's left, 30 in from its edge, and 0 or more (less is drawn at 0): each lane is as wide as its blocks need. When a flowchart gets its first lane, its blocks move right together, if need be, so none has an x less than 0 |
 
 | Flow field | Meaning |
 |---|---|

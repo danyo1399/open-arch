@@ -676,7 +676,7 @@ blocks.
   --description <text>   One sentence, shown under its text
   --lane <lane>          The lane it's in, a column of the flowchart: add it first with add-lane
   --at <x,y>             Top-left corner (default: the designer lays it out). In a flowchart
-                         with lanes, x is from the inside of its lane's left
+                         with lanes, x is from the inside of its lane's left, and 0 or more
   --position <n>         Its place in the view's list of blocks: 1 is the first (default: last)
 `,
     { kind: s, text: s, description: s, lane: s, at: s, position: s },

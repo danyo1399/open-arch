@@ -766,7 +766,8 @@ function BlockProperties({ view, block, isNew, edit, onSelect }: PropertiesProps
       {(view.lanes.length > 0 || block.lane !== undefined) && (
         <label className="field">
           <span className="field-label">Lane</span>
-          <select value={block.lane ?? ""} onChange={(e) => set({ lane: e.target.value || null })}>
+          {/* Its place was in its old lane, where it could land on a block in the new one: it's laid out again. */}
+          <select value={block.lane ?? ""} onChange={(e) => set({ lane: e.target.value || null, at: null })}>
             <option value="">(no lane)</option>
             {block.lane !== undefined && !view.lanes.some((l) => l.id === block.lane) && <option value={block.lane}>{block.lane} (not a lane of this view)</option>}
             {view.lanes.map((l) => (

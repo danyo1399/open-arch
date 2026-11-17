@@ -92,7 +92,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
   `open-arch add-lane returns shop --name "Shop staff"`
   `open-arch update-block returns asked --lane customer`
   `open-arch add-block returns refund --text "Refund the card" --lane shop`
-  `update-block --lane ""` takes a block out of its lane; `update-lane` renames or moves a lane (`--position`), and its blocks follow a new ID; `remove-lane` leaves its blocks in no lane, laid out again. In a flowchart with lanes, a block's `--at` x is from the inside of its lane's left.
+  `update-block --lane ""` takes a block out of its lane; `update-lane` renames or moves a lane (`--position`), and its blocks follow a new ID; `remove-lane` leaves its blocks in no lane, laid out again. In a flowchart with lanes, a block's `--at` x is from the inside of its lane's left, and 0 or more.
 - **Show or hide something in one diagram:** `open-arch show-in-view <view> <id>...` / `hide-in-view <view> <id>...`.
 - **Keep elements added later out of a view:** `open-arch update-view <view> --new-elements hide`. The view keeps its boxes, and new elements stay out of it until you `show-in-view` them. `--new-elements show` lets them in again. A new view shows them; check `show <view>` before adding an element, so you know which views it lands in.
 - **Explain a diagram with a sticky note:** `open-arch add-sticky <view> <id> --text "Orders are paid before they're saved."` (`--color yellow|pink|blue|green`). Notes are for people reading that diagram, not part of the model; leave out `--at` and the designer places them beside it. Change or remove one with `update-sticky` / `remove-sticky <view> <id>`.

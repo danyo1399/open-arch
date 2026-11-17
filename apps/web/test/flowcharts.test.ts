@@ -425,11 +425,11 @@ describe("a flowchart's lanes", () => {
   it("are columns, left to right, the one for blocks in no lane first, each as wide as its blocks need", () => {
     const at = { asked: { x: 20, y: 0 }, "in-time": { x: 0, y: 120 }, refund: { x: 300, y: 300 }, refuse: { x: 0, y: 300 }, done: { x: 20, y: 450 } };
     const { columns, positions } = laneColumns(lanedView, at);
-    expect(columns.map((c) => [c.lane?.id, c.x, c.w, c.from])).toEqual([
-      [undefined, 0, LANE.minWidth, 0],
-      ["customer", 260, LANE.minWidth, 0],
+    expect(columns.map((c) => [c.lane?.id, c.x, c.w])).toEqual([
+      [undefined, 0, LANE.minWidth],
+      ["customer", 260, LANE.minWidth],
       // refund is 300 in, and 180 wide, with the room either side.
-      ["shop", 520, 300 + 180 + 2 * LANE.pad, 0],
+      ["shop", 520, 300 + 180 + 2 * LANE.pad],
     ]);
     expect(positions.asked).toEqual({ x: 260 + LANE.pad + 20, y: 0 });
     expect(positions.refund).toEqual({ x: 520 + LANE.pad + 300, y: 300 });
@@ -438,19 +438,20 @@ describe("a flowchart's lanes", () => {
     expect(laneColumns(lanedView, { asked: { x: 0, y: 0 } }).columns.map((c) => c.lane?.id)).toEqual(["customer", "shop"]);
   });
 
-  it("reach left for a block whose x is less than 0, so blocks keep where they are to each other", () => {
-    // As when blocks dragged left of where the first was get their first lane: here, the column for blocks in none.
-    const noLanes = { ...lanedView, lanes: [], blocks: lanedView.blocks.map((b) => ({ ...b, lane: undefined })) } as ViewDef;
-    const at = { asked: { x: -300, y: 0 }, "in-time": { x: 0, y: 120 }, refund: { x: -300, y: 300 } };
-    const withLane = { ...noLanes, lanes: [{ id: "customer", path: "", number: 1, name: "Customer" }] } as ViewDef;
-    const { columns, positions } = laneColumns(withLane, at);
-    expect(columns[0]).toEqual({ lane: undefined, x: 0, w: 300 + 220 + 2 * LANE.pad, from: -300 });
-    expect(positions.asked).toEqual({ x: LANE.pad, y: 0 });
-    expect(positions["in-time"]).toEqual({ x: LANE.pad + 300, y: 120 });
-    expect(positions.refund!.x).toBe(positions.asked!.x);
-    // Kept where it's drawn, a block keeps its x; let go of further left, it stays at the lane's inside.
-    expect(savedAt(columns[0]!, positions.asked!)).toEqual([-300, 0]);
-    expect(savedAt(columns[0]!, { x: -50, y: 0 })).toEqual([-300, 0]);
+  it("move just the block dragged, the leftmost of its lane too, and draw an x less than 0, which only a file edited by hand has, at 0", () => {
+    const at = { asked: { x: 0, y: 0 }, "in-time": { x: 0, y: 120 }, refund: { x: 40, y: 300 }, refuse: { x: 300, y: 300 }, done: { x: 0, y: 450 } };
+    const before = laneColumns(lanedView, at);
+    const shop = before.columns.find((c) => c.lane?.id === "shop")!;
+    // Drag in-time, at the inside of shop's left, 50 to the right.
+    const dragged: DrawnItem = { kind: "block", id: "in-time", position: { x: before.positions["in-time"]!.x + 50, y: 120 }, lane: "shop", w: 220 };
+    const [op] = moveOps(lanedView, [], [dragged], before.columns);
+    expect(op).toEqual({ op: "update-block", view: "returns", id: "in-time", at: [50, 120] });
+    const after = laneColumns(lanedView, { ...at, "in-time": { x: 50, y: 120 } });
+    expect(after.positions["in-time"]!.x).toBe(before.positions["in-time"]!.x + 50);
+    for (const id of ["asked", "refund", "refuse", "done"]) expect(after.positions[id], id).toEqual(before.positions[id]);
+    // Let go of left of the lane's inside, it stays at the inside.
+    expect(savedAt(shop, { x: shop.x - 10, y: 0 })).toEqual([0, 0]);
+    expect(laneColumns(lanedView, { ...at, refund: { x: -300, y: 300 } }).positions.refund!.x).toBe(shop.x + LANE.pad);
   });
 
   it("take a block let go of over them, by its middle, keeping its place from the lane's left", () => {
@@ -614,7 +615,8 @@ describe("a flowchart lane's details and a block's lane", () => {
     expect(lane.value).toBe("shop");
     await choose(lane, "customer");
     await choose(lane, "");
-    expect(edits).toEqual([[{ op: "update-block", view: "returns", id: "refund", lane: "customer" }], [{ op: "update-block", view: "returns", id: "refund", lane: null }]]);
+    // Its place was in its old lane, so it's laid out again in the new one.
+    expect(edits).toEqual([[{ op: "update-block", view: "returns", id: "refund", lane: "customer", at: null }], [{ op: "update-block", view: "returns", id: "refund", lane: null, at: null }]]);
     // A flowchart without lanes doesn't ask.
     expect(panel({ kind: "block", id: "refund" }).host.textContent).not.toContain("(no lane)");
   });
