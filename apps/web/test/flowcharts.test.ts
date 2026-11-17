@@ -4,9 +4,10 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
-import { addBlockOps, FlowchartDiagram } from "../src/canvas/FlowchartDiagram.js";
+import { BLOCK_KINDS } from "@open-arch/core";
+import { addBlockOps, connectOps, FlowchartDiagram, flowchartLayout, moveOps, pinOps, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
 import { blockHeight, blockWidth, onOutline, routeToOutlines, SLANT } from "../src/canvas/flowchartLayout.js";
-import { followRenames, LEVEL_NAMES, shownInProperties, viewAction } from "../src/model.js";
+import { followRenames, followsName, LEVEL_NAMES, shownInProperties, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
@@ -164,10 +165,90 @@ describe("adding a block", () => {
         { op: "add-flow", view: "returns", from: "in-time", to: "new-process" },
       ],
     });
-    expect(addBlockOps(view, "end", { kind: "block", id: "done" }, [0, 0]).ops).toEqual([{ op: "add-block", view: "returns", id: "new-end", kind: "end", text: "End", at: [0, 0], position: 6 }]);
-    expect(addBlockOps(view, "start", null, [0, 0]).ops).toEqual([{ op: "add-block", view: "returns", id: "new-start", kind: "start", text: "Start", at: [0, 0] }]);
-    const taken = buildWorkspace({ ...doc, views: { returns: { ...doc.views.returns!, blocks: [{ id: "new-document", text: "Slip" }] } } }).views.get("returns")!;
+    expect(addBlockOps(view, "end", { kind: "block", id: "done" }, [0, 0]).ops).toEqual([{ op: "add-block", view: "returns", id: "end", kind: "end", text: "End", at: [0, 0], position: 6 }]);
+    expect(addBlockOps(view, "start", null, [0, 0]).ops).toEqual([{ op: "add-block", view: "returns", id: "start", kind: "start", text: "Start", at: [0, 0] }]);
+    const taken = buildWorkspace({ ...doc, views: { returns: { ...doc.views.returns!, blocks: [{ id: "new-document", text: "Slip" }, { id: "start", text: "Begin" }] } } }).views.get("returns")!;
     expect(addBlockOps(taken, "document", null, [0, 0]).id).toBe("new-document-2");
+    expect(addBlockOps(taken, "start", null, [0, 0]).id).toBe("start-2");
+  });
+
+  it("gives each kind an ID made from its text, so the ID follows the text it's given next", () => {
+    for (const kind of BLOCK_KINDS) {
+      for (const on of [view, buildWorkspace({ ...doc, views: { returns: { ...doc.views.returns!, blocks: [{ id: "start", text: "Begin" }, { id: "end", text: "Stop" }] } } }).views.get("returns")!]) {
+        const [add] = addBlockOps(on, kind, null, [0, 0]).ops as Extract<Operation, { op: "add-block" }>[];
+        expect(followsName(add!.id, add!.text!), `${kind}: ${add!.id}`).toBe(true);
+      }
+    }
+    expect(addBlockOps(view, "input-output", null, [0, 0]).id).toBe("new-input-or-output");
+  });
+});
+
+describe("dragging on a flowchart", () => {
+  // Two blocks the designer placed, one with a position, and a note.
+  const drawn: DrawnItem[] = [
+    { kind: "block", id: "asked", position: { x: 10.4, y: 20.6 }, placed: true },
+    { kind: "block", id: "in-time", position: { x: 0, y: 120 } },
+    { kind: "block", id: "refund", position: { x: 5, y: 300 }, placed: true },
+    { kind: "sticky", id: "note", position: { x: 400, y: 0 } },
+  ];
+
+  it("keeps the blocks the designer placed where they are", () => {
+    expect(pinOps(view, drawn)).toEqual([
+      { op: "update-block", view: "returns", id: "asked", at: [10, 21] },
+      { op: "update-block", view: "returns", id: "refund", at: [5, 300] },
+    ]);
+    expect(pinOps(view, drawn, new Set(["asked"]))).toEqual([{ op: "update-block", view: "returns", id: "refund", at: [5, 300] }]);
+  });
+
+  it("moves the blocks and notes let go of, and keeps the rest of the placed blocks where they are", () => {
+    const dragged: DrawnItem[] = [
+      { kind: "block", id: "refund", position: { x: 50.2, y: 350 }, placed: true },
+      { kind: "sticky", id: "note", position: { x: 420, y: 10 } },
+    ];
+    expect(moveOps(view, drawn, dragged)).toEqual([
+      { op: "update-block", view: "returns", id: "asked", at: [10, 21] },
+      { op: "update-block", view: "returns", id: "refund", at: [50, 350] },
+      { op: "update-sticky", view: "returns", id: "note", at: [420, 10] },
+    ]);
+  });
+
+  it("adds a flow dragged from one block to another, numbered after the rest, with the placed blocks kept where they are", () => {
+    expect(connectOps(view, drawn, "refuse", "done")).toEqual({
+      ops: [
+        { op: "update-block", view: "returns", id: "asked", at: [10, 21] },
+        { op: "update-block", view: "returns", id: "refund", at: [5, 300] },
+        { op: "add-flow", view: "returns", from: "refuse", to: "done" },
+      ],
+      number: 5,
+    });
+    expect(connectOps(view, drawn, "done", "done")).toBeNull();
+    expect(connectOps(view, drawn, "done", "note")).toBeNull();
+  });
+});
+
+describe("laying out a flowchart", () => {
+  it("goes from the first block down, with a loop back up turned round, not the way on", async () => {
+    // The shop's checkout: as the blocks are listed, with a way back from a declined card.
+    const ids = ["checks-out", "total", "card", "pay", "paid", "declined", "save", "receipt", "placed"];
+    const edges = [
+      { from: "checks-out", to: "total" },
+      { from: "total", to: "card" },
+      { from: "card", to: "pay" },
+      { from: "pay", to: "paid" },
+      { from: "paid", to: "save" },
+      { from: "paid", to: "declined" },
+      { from: "declined", to: "card" },
+      { from: "save", to: "receipt" },
+      { from: "receipt", to: "placed" },
+    ];
+    const at = await flowchartLayout(
+      ids.map((id) => ({ id, inside: false, height: 60 })),
+      edges,
+    );
+    const y = (id: string) => at[id]!.y;
+    for (const [a, b] of [["checks-out", "total"], ["total", "card"], ["card", "pay"], ["pay", "paid"], ["paid", "save"], ["paid", "declined"], ["save", "receipt"], ["receipt", "placed"]] as const) {
+      expect(y(a), `${a} above ${b}`).toBeLessThan(y(b));
+    }
   });
 });
 

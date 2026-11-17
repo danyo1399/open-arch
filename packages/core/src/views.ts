@@ -978,12 +978,15 @@ function computeFlowchart(ws: Workspace, view: ViewDef): ComputedView {
   const blocks = new Map(view.blocks.map((b) => [b.id, b]));
   const ids = [...blocks.keys()];
   if (view.blocks.length && !view.blocks.some((b) => b.kind === "start")) {
+    // An ID the view doesn't have yet, so the command it suggests works.
+    let free = "start";
+    for (let i = 2; blocks.has(free); i++) free = `start-${i}`;
     diagnostics.push({
       severity: "warning",
       rule: "flowchart-start-missing",
       message: "This flowchart has no start, so it doesn't say where the process begins.",
       path: `${view.path}.blocks`,
-      fix: `Add one with \`open-arch add-block ${view.id} start --kind start\`, and a flow from it.`,
+      fix: `Add one with \`open-arch add-block ${view.id} ${free} --kind start\`, and a flow from it.`,
     });
   }
   /** The flows each block has out of it that are drawn: to another block of the view. */

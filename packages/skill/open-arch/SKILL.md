@@ -84,6 +84,8 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
   `open-arch add-flow returns asked in-time`
   `open-arch add-flow returns in-time refund --text Yes`
   `open-arch add-flow returns in-time refuse --text No`
+  `open-arch add-flow returns refund done`
+  `open-arch add-flow returns refuse done`
   A block's `--kind` is `process` (the default: a step, something that's done), `start` or `end` (where the process starts or ends), `decision` (a question with more than one way on), `input-output` (something that comes in or goes out), `subprocess` (a process drawn in full somewhere else), `document` or `database` (data that's kept). Give each flow out of a decision `--text` saying which answer it's for, like `Yes` or `No`: check warns when one doesn't, when a decision has fewer than two ways out, and when a flowchart has no start. A flow is named by its number, as `show <view>` prints it. Without `--at`, the designer lays blocks out from the first down. `update-block <view> <id>` changes or moves one (`--new-id` keeps its flows on it), and `update-flow <view> <n>` changes a flow; remove them with `remove-block` (it takes the flows to and from it) and `remove-flow`. Blocks and flows belong to the view, not the model. A flowchart takes no include or exclude.
 - **Show or hide something in one diagram:** `open-arch show-in-view <view> <id>...` / `hide-in-view <view> <id>...`.
 - **Keep elements added later out of a view:** `open-arch update-view <view> --new-elements hide`. The view keeps its boxes, and new elements stay out of it until you `show-in-view` them. `--new-elements show` lets them in again. A new view shows them; check `show <view>` before adding an element, so you know which views it lands in.

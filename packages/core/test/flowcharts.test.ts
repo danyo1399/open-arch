@@ -171,7 +171,7 @@ describe("flowchart views", () => {
       "field-not-allowed views.other.blocks",
       "field-not-allowed views.other.flows",
     ]);
-    expect(parsed.diagnostics.find((d) => d.path === "views.f.include")!.message).toBe("Flowchart views don't take `include`: they show their blocks, each placed by its own `at`.");
+    expect(parsed.diagnostics.find((d) => d.path === "views.f.include")!.message).toBe("Flowchart views don't take `include`: they show their blocks, each where its `at` puts it, or laid out from the first down.");
     expect(parsed.doc.views.f!.blocks).toEqual([
       { id: "ok", text: "OK" },
       { id: "odd", text: "Odd" },
@@ -245,6 +245,11 @@ describe("flowchart views", () => {
     ]);
     // An empty one says nothing yet.
     expect(rules(base())).toEqual([]);
+    // The command it suggests uses an ID the view doesn't have, so it works.
+    const taken = apply(base(), { op: "add-block", view: "returns", id: "start", text: "Begin" }, { op: "add-block", view: "returns", id: "start-2", text: "Again" });
+    const fix = checkWorkspace(buildWorkspace(taken)).find((d) => d.rule === "flowchart-start-missing")!.fix!;
+    expect(fix).toBe("Add one with `open-arch add-block returns start-3 --kind start`, and a flow from it.");
+    expect(rules(apply(taken, { op: "add-block", view: "returns", id: "start-3", kind: "start" }))).toEqual([]);
   });
 
   it("show in Mermaid as a flowchart, each block in its kind's shape, with the text of each flow", () => {

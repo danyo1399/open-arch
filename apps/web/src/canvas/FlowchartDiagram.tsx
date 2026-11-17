@@ -29,7 +29,7 @@ import {
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { newStickyId, uniqueAmong } from "../model.js";
+import { idFromName, newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
@@ -152,11 +152,58 @@ function newBlockText(kind: BlockKind): string {
  * list, with a flow to it from the selected one, unless that's an end, where the process stops.
  */
 export function addBlockOps(view: ComputedView["view"], kind: BlockKind, selection: Selection, at: [number, number]): { ops: Operation[]; id: string } {
-  const id = uniqueAmong(view.blocks.map((b) => b.id), `new-${kind}`);
+  const text = newBlockText(kind);
+  // Its ID is made from its text, so it follows the text it's given next.
+  const id = uniqueAmong(view.blocks.map((b) => b.id), idFromName(text));
   const after = selection?.kind === "block" ? view.blocks.find((b) => b.id === selection.id) : undefined;
-  const ops: Operation[] = [{ op: "add-block", view: view.id, id, kind, text: newBlockText(kind), at, ...(after && { position: after.number + 1 }) }];
+  const ops: Operation[] = [{ op: "add-block", view: view.id, id, kind, text, at, ...(after && { position: after.number + 1 }) }];
   if (after && after.kind !== "end") ops.push({ op: "add-flow", view: view.id, from: after.id, to: id });
   return { ops, id };
+}
+
+/** A block or a sticky note as the diagram draws it: where it is now, and for a block, whether the file gives it a position. */
+export interface DrawnItem {
+  kind: "block" | "sticky";
+  id: string;
+  position: Point;
+  /** True for a block the designer placed, as its file gives it no `at`. */
+  placed?: boolean;
+}
+
+const at = (p: Point): [number, number] => [Math.round(p.x), Math.round(p.y)];
+
+/**
+ * Positions for the blocks the designer placed, all but `except`, where they're drawn now, so
+ * they stay put once a block moves or a flow is added, which would lay them out again.
+ */
+export function pinOps(view: ComputedView["view"], drawn: DrawnItem[], except: ReadonlySet<string> = new Set()): Operation[] {
+  return drawn.flatMap((d): Operation[] => (d.kind === "block" && d.placed && !except.has(d.id) ? [{ op: "update-block", view: view.id, id: d.id, at: at(d.position) }] : []));
+}
+
+/** The edit that keeps blocks and notes where they were dragged to, with the rest of the blocks where they are. */
+export function moveOps(view: ComputedView["view"], drawn: DrawnItem[], dragged: DrawnItem[]): Operation[] {
+  const moved = new Set(dragged.filter((d) => d.kind === "block").map((d) => d.id));
+  return [
+    ...pinOps(view, drawn, moved),
+    ...dragged.map((d): Operation => (d.kind === "block" ? { op: "update-block", view: view.id, id: d.id, at: at(d.position) } : { op: "update-sticky", view: view.id, id: d.id, at: at(d.position) })),
+  ];
+}
+
+/**
+ * The edit that adds a flow dragged from one block to another, with the blocks where they are,
+ * and the number the flow gets. None from a block to itself, or to or from what isn't a block.
+ */
+export function connectOps(view: ComputedView["view"], drawn: DrawnItem[], from: string, to: string): { ops: Operation[]; number: number } | null {
+  const blocks = new Set(view.blocks.map((b) => b.id));
+  if (from === to || !blocks.has(from) || !blocks.has(to)) return null;
+  return { ops: [...pinOps(view, drawn), { op: "add-flow", view: view.id, from, to }], number: view.flows.length + 1 };
+}
+
+/** What's on the diagram, as moveOps and connectOps take it. */
+function items(nodes: FlowNode[]): DrawnItem[] {
+  return nodes.flatMap((n): DrawnItem[] =>
+    n.type === "block" ? [{ kind: "block", id: n.id, position: n.position, placed: !n.data.block.at }] : n.type === "sticky" ? [{ kind: "sticky", id: n.data.sticky.id, position: n.position }] : [],
+  );
 }
 
 interface FlowchartDiagramProps {
@@ -339,9 +386,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
   const drawn = useMemo(() => (frame ? [frame, ...nodes] : nodes), [frame, nodes]);
 
   /** Positions for the blocks placed automatically, so they stay put as others move or flows are added. */
-  const fixPlaced = useCallback((): Operation[] => {
-    return nodesRef.current.flatMap((n) => (n.type === "block" && !n.data.block.at ? [{ op: "update-block" as const, view: view.id, id: n.id, at: [Math.round(n.position.x), Math.round(n.position.y)] as [number, number] }] : []));
-  }, [view.id]);
+  const fixPlaced = useCallback((): Operation[] => pinOps(view, items(nodesRef.current)), [view]);
 
   const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
 
@@ -356,27 +401,18 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
 
   const onNodeDragStop = useCallback(
     (_: unknown, _node: FlowNode, letGo: FlowNode[]) => {
-      const dragged = dropped(letGo);
-      const at = (n: FlowNode): [number, number] => [Math.round(n.position.x), Math.round(n.position.y)];
-      const moved = new Set(dragged.map((n) => n.id));
-      const ops: Operation[] = [
-        ...fixPlaced().filter((op) => op.op === "update-block" && !moved.has(op.id)),
-        ...dragged.flatMap((n): Operation[] =>
-          n.type === "block" ? [{ op: "update-block", view: view.id, id: n.id, at: at(n) }] : n.type === "sticky" ? [{ op: "update-sticky", view: view.id, id: n.data.sticky.id, at: at(n) }] : [],
-        ),
-      ];
+      const ops = moveOps(view, items(nodesRef.current), items(dropped(letGo)));
       if (ops.length) void edit(ops);
     },
-    [edit, view.id, fixPlaced, dropped],
+    [edit, view, dropped],
   );
 
   const onConnect = useCallback(
     (c: Connection) => {
-      if (!ids.includes(c.source) || !ids.includes(c.target) || c.source === c.target) return;
-      const number = view.flows.length + 1;
-      void edit([...fixPlaced(), { op: "add-flow", view: view.id, from: c.source, to: c.target }]).then((ok) => ok && select({ kind: "flow", number }));
+      const made = connectOps(view, items(nodesRef.current), c.source, c.target);
+      if (made) void edit(made.ops).then((ok) => ok && select({ kind: "flow", number: made.number }));
     },
-    [ids, view, edit, fixPlaced, select],
+    [view, edit, select],
   );
 
   /** The middle of the canvas, on the diagram. */

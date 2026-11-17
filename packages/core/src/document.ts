@@ -144,7 +144,7 @@ const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   event: { fields: ["scope", "include", "exclude", "layout"], why: "they show their cards in order, each in its lane" },
   wireframe: { fields: ["include", "exclude", "layout"], why: "they show their screens in order, each drawn from its widgets" },
   whiteboard: { fields: ["scope", "include", "exclude", "layout"], why: "they show their shapes and arrows, each where it's put" },
-  flowchart: { fields: ["include", "exclude", "layout"], why: "they show their blocks, each placed by its own `at`" },
+  flowchart: { fields: ["include", "exclude", "layout"], why: "they show their blocks, each where its `at` puts it, or laid out from the first down" },
 };
 const LEVEL_NAME: Record<OwnLevel, string> = {
   sequence: "Sequence",
