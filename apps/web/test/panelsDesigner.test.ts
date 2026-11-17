@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
 import { panelMax } from "../src/panels/SidePanels.js";
-import { PANEL_LIMITS, PANELS_WAIT, userSettings } from "../src/settings.js";
+import { PANEL_LIMITS, PANELS_WAIT, Settings, userSettings } from "../src/settings.js";
 import { button, click, key, mount } from "./dom.js";
 
 /**
@@ -345,6 +345,39 @@ describe("when the panel settings can't be kept", () => {
     await act(() => new Promise<void>((resolve) => setTimeout(resolve, PANELS_WAIT)));
     expect(host.querySelector(".app")!.className).toBe("app");
     expect(host.querySelector('button[aria-label="Collapse Details"]')).not.toBeNull();
+  });
+
+  /** The designer, opened while the panel settings are still being read: they come when the test says. */
+  async function slowRead() {
+    let arrive!: () => void;
+    const stored = await userSettings.panels();
+    vi.spyOn(userSettings, "panels").mockReturnValue(new Promise((resolve) => (arrive = () => resolve(stored))));
+    const host = mount(createElement(Designer, { host: new MemoryHost("shop.openarch", serializeDocument(doc)), onClose() {}, onHostChange() {} }));
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, PANELS_WAIT + 50)));
+    return { host, app: () => host.querySelector<HTMLElement>(".app")!, arrive: () => act(async () => arrive()) };
+  }
+
+  it("shows the panels as they were left once their settings are read, if that takes too long to wait for", async () => {
+    await userSettings.setPanels({ detailsCollapsed: true, browseWidth: 400 });
+    const d = await slowRead();
+    expect(d.app().className).toBe("app");
+    await d.arrive();
+    expect(d.app().className).toBe("app details-collapsed");
+    expect(d.app().style.getPropertyValue("--browse-width")).toBe("400px");
+  });
+
+  it("keeps a change made before the settings are read, rather than what the read says", async () => {
+    await userSettings.setPanels({ detailsCollapsed: true });
+    const d = await slowRead();
+    await click(d.host.querySelector('button[aria-label="Collapse Views & model"]')!);
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
+    // Keeping the change brought what was stored for the other panel with it.
+    expect(d.app().className).toBe("app browse-collapsed details-collapsed");
+    // The read, from before the change, says the Views & model panel is open: it's left as it is.
+    await d.arrive();
+    expect(d.app().className).toBe("app browse-collapsed details-collapsed");
+    // As stored, read past the stand-in that's slow.
+    expect(await new Settings().panels()).toEqual({ browseCollapsed: true, detailsCollapsed: true });
   });
 
   it("still collapses and resizes a panel, for as long as the designer is open, and says why it wasn't kept", async () => {
