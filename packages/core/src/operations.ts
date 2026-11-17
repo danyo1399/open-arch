@@ -1837,13 +1837,15 @@ function addLane(doc: OpenArchDocument, op: Extract<Operation, { op: "add-lane" 
   if (lanes.some((l) => l.id === op.id)) throw new OpError(`View "${op.view}" already has a lane "${op.id}".`);
   // A block's x in a flowchart with lanes is from the inside of its lane's left, so never less than
   // 0. Getting its first lane, a flowchart's blocks move right as one, if need be, to keep to that.
+  let shift = 0;
   if (view.level === "flowchart" && lanes.length === 0) {
-    const shift = -Math.min(0, ...(view.blocks ?? []).flatMap((b) => (b.at ? [b.at[0]] : [])));
+    shift = -Math.min(0, ...(view.blocks ?? []).flatMap((b) => (b.at ? [b.at[0]] : [])));
     if (shift) for (const b of view.blocks ?? []) if (b.at) b.at = [b.at[0] + shift, b.at[1]];
   }
   const lane = clean<LaneData>({ id: op.id, name: op.name?.trim() || titleFromId(op.id), description: op.description?.trim() });
   const at = insertAt(lanes, lane, op.position, op.view, "lane");
-  return `added lane ${op.id} to view ${op.view}${at < lanes.length ? `, as lane ${at}` : ""}`;
+  const moved = shift ? `, moving its placed blocks ${shift} to the right, so none has an x less than 0` : "";
+  return `added lane ${op.id} to view ${op.view}${at < lanes.length ? `, as lane ${at}` : ""}${moved}`;
 }
 
 function updateLane(doc: OpenArchDocument, op: Extract<Operation, { op: "update-lane" }>): string {

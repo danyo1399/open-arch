@@ -453,6 +453,9 @@ the view's lanes.
   --description <text>   One sentence about the lane
   --position <n>         Its place: from the top on an event view, and from the left on a
                          flowchart. 1 is the first (default: after the last)
+In a flowchart with lanes, a block's x is from the inside of its lane's left, and 0 or more,
+so a flowchart's first lane moves its placed blocks right together, if need be, so none has an
+x less than 0.
 `,
     { name: s, description: s, position: s },
   ),
@@ -688,7 +691,8 @@ blocks.
 --kind is start, end, process, decision, input-output, subprocess, document or database.
 --lane moves it into a lane, and --lane "" out of its lane.
 --new-id changes its ID, and the flows to and from it follow it.
---at "" lets the designer lay it out again.
+--at x,y moves it. In a flowchart with lanes, x is from the inside of its lane's left, and 0 or
+more. --at "" lets the designer lay it out again.
 --position moves it to that place in the view's list of blocks: 1 is the first.
 An empty value removes a field: --kind "" makes it a process. A block needs text, so
 --text "" is refused.

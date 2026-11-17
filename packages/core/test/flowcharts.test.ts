@@ -545,7 +545,9 @@ describe("flowchart lanes", () => {
 
   it("move blocks right when a flowchart gets its first lane, so none has an x less than 0, which a lane refuses", () => {
     const doc = apply(returns(), { op: "update-block", view: "returns", id: "asked", at: [-300, 0] }, { op: "update-block", view: "returns", id: "in-time", at: [-100, 120] });
-    const laned = apply(doc, { op: "add-lane", view: "returns", id: "customer" });
+    const added = applyOperations(doc, [{ op: "add-lane", view: "returns", id: "customer" }]);
+    expect(added.summary).toEqual(["added lane customer to view returns, moving its placed blocks 300 to the right, so none has an x less than 0"]);
+    const laned = added.doc;
     expect(laned.views.returns!.blocks!.slice(0, 2).map((b) => b.at)).toEqual([
       [0, 0],
       [200, 120],
@@ -558,6 +560,13 @@ describe("flowchart lanes", () => {
     expect(fails(laned, { op: "update-block", view: "returns", id: "asked", at: [-1, 0] })).toBe(lane);
     expect(fails(laned, { op: "add-block", view: "returns", id: "x", at: [-5, 0] })).toBe(lane);
     expect(apply(laned, { op: "update-block", view: "returns", id: "asked", at: [0, 9] }).views.returns!.blocks![0]!.at).toEqual([0, 9]);
+    // A file edited by hand can still have one, which check warns of.
+    laned.views.returns!.blocks![0]!.at = [-40, 9];
+    expect(checkWorkspace(buildWorkspace(laned)).map((d) => [d.rule, d.path, d.message, d.fix])).toEqual([
+      ["block-x-negative", "views.returns.blocks[0].at", 'Block "asked" is at an x of -40, less than 0, so it\'s drawn at the inside of its lane\'s left.', "Give it an x of 0 or more: `open-arch update-block returns asked --at 0,9`."],
+    ]);
+    // Without lanes, x can be anything.
+    expect(rules(doc)).toEqual([]);
   });
 
   it("show in Mermaid as a frame for each lane, with its blocks inside it", () => {
