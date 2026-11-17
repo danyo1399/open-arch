@@ -476,14 +476,14 @@ A `flowchart` view draws the steps of a process, as a flowchart does: where it s
 | `text` | What it says, like "Pack the order", or for a decision a question, like "In stock?"; line breaks are kept. Required |
 | `description` | One sentence, shown under its text |
 | `lane` | The ID of the lane it's in. In a flowchart with lanes, a block in none is in a column of its own, left of them |
-| `at` | Its top-left corner, `[x, y]`. Without it, the designer lays the block out, from the first block down, and down the middle of its lane. In a flowchart with lanes, x is from the left of its lane: each lane is as wide as its blocks need |
+| `at` | Its top-left corner, `[x, y]`. Without it, the designer lays the block out, from the first block down, and down the middle of its lane. In a flowchart with lanes, x is from the inside of its lane's left, 30 in from its edge: each lane is as wide as its blocks need, and reaches further left for a block whose x is less than 0 |
 
 | Flow field | Meaning |
 |---|---|
 | `from`, `to` | The IDs of the blocks it leaves and goes to |
 | `text` | What it says, like `Yes` or `No` on the ways out of a decision |
 
-`show <view>` numbers the blocks and the flows from 1, in the lists' order. Removing a block removes the flows to and from it, and renaming one renames it in their `from` and `to`. Removing a lane leaves its blocks in no lane, and renaming one renames it in its blocks' `lane`. A flow from a block to itself isn't drawn. Mermaid has no shape for a document that GitHub draws, so the docs draw one as a box.
+`show <view>` numbers the blocks and the flows from 1, in the lists' order. Removing a block removes the flows to and from it, and renaming one renames it in their `from` and `to`. Removing a lane leaves its blocks in no lane, without their `at`, which was from that lane's left, so the designer lays them out again; renaming one renames it in its blocks' `lane`. A flow from a block to itself isn't drawn. Mermaid has no shape for a document that GitHub draws, so the docs draw one as a box.
 
 Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside their text.
 

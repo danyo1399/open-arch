@@ -551,7 +551,7 @@ Flows:
     expect(read(dir, "docs/views/returns.md")).toContain('  subgraph lane__staff["Shop staff"]');
     expect(cli(dir, "update-block", "returns", "refund", "--lane", "").code).toBe(0);
     expect(JSON.parse(read(dir)).views.returns.blocks[1]).toEqual({ id: "refund", text: "Refund", at: [10, 120] });
-    expect(cli(dir, "remove-lane", "returns", "customer").out).toContain("removed lane customer from view returns, leaving 1 block in no lane");
+    expect(cli(dir, "remove-lane", "returns", "customer").out).toContain("removed lane customer from view returns, leaving 1 block in no lane, to be laid out again");
     expect(cli(dir, "add-block", "returns", "x", "--lane", "nope").err).toContain('View "returns" has no lane "nope". Its lanes: staff.');
     expect(cli(dir, "add-lane", "--help").out).toContain("to a flowchart, a column for its blocks");
     expect(cli(dir, "check").code).toBe(0);

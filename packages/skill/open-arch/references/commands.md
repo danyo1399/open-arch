@@ -64,7 +64,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `remove-connection <view> <n>` | The connections after it move up one |
 | `add-lane <view> <id>` | Event and flowchart views only. `--name`, `--description`, `--position <n>` (its place: from the top on an event view, and from the left on a flowchart. 1 is the first; default: after the last) |
 | `update-lane <view> <id>` | `--name`, `--new-id <id>` (its cards or blocks follow it), `--description`, `--position <n>` (moves it; the lanes between move one place) |
-| `remove-lane <view> <id>` | Its cards, or its blocks, stay, in no lane |
+| `remove-lane <view> <id>` | Its cards, or its blocks, stay, in no lane; its blocks are laid out again, as their `--at` was from its left |
 | `add-card <view> <id>` | Event views only. `--kind <event\|command\|actor\|policy\|read-model\|external-system\|aggregate\|hotspot>` (default: event), `--name`, `--description`, `--lane <lane>` (default: none, in a row above the lanes), `--from <card>` (a card that leads to it, drawn as an arrow to it; repeat for each), `--position <n>` (its place along the timeline: 1 is the first; default: after the last) |
 | `update-card <view> <id>` | `--kind`, `--name`, `--new-id <id>` (the cards that come from it follow it), `--description`, `--lane` (`--lane ""` takes it out of its lane), `--from` (replaces the cards it comes from; `--from ""` removes them all), `--position <n>` (moves it; the cards between move one place) |
 | `remove-card <view> <id>` | Also removes the arrows to and from it |

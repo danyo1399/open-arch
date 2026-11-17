@@ -467,7 +467,7 @@ An empty value removes a field.
     { name: s, "new-id": s, description: s, position: s },
   ),
   "remove-lane": writer(
-    `Usage: open-arch remove-lane <view> <id>\n\nRemoves a lane. Its cards, or its blocks, stay, in no lane: move them with update-card --lane or update-block --lane.\n`,
+    `Usage: open-arch remove-lane <view> <id>\n\nRemoves a lane. Its cards, or its blocks, stay, in no lane: move them with update-card --lane or update-block --lane. Its blocks are laid out again, as their --at was from its left.\n`,
     {},
   ),
   "add-card": writer(
@@ -676,7 +676,7 @@ blocks.
   --description <text>   One sentence, shown under its text
   --lane <lane>          The lane it's in, a column of the flowchart: add it first with add-lane
   --at <x,y>             Top-left corner (default: the designer lays it out). In a flowchart
-                         with lanes, x is from the left of its lane
+                         with lanes, x is from the inside of its lane's left
   --position <n>         Its place in the view's list of blocks: 1 is the first (default: last)
 `,
     { kind: s, text: s, description: s, lane: s, at: s, position: s },

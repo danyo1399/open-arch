@@ -92,6 +92,11 @@ export interface LaneColumn {
   /** Its left edge, and its width. */
   x: number;
   w: number;
+  /**
+   * The x, in its blocks' positions, at the inside of its left: 0, or less where a block's x is
+   * less than 0, as for a block placed before the flowchart had lanes. The lane reaches that far.
+   */
+  from: number;
 }
 
 /** The lane a block is drawn in: its own, if the view has it. */
@@ -102,8 +107,9 @@ export function laneOf(view: Pick<ViewDef, "lanes">, block: Pick<Block, "lane">)
 /**
  * A flowchart's lanes as columns, left to right: first one for the blocks in no lane, when there
  * are some, then each lane, each as wide as its blocks need and no narrower than LANE.minWidth.
- * `at` holds each block's position, with x from the inside of its column's left (never less than
- * 0), and the result where each is drawn.
+ * `at` holds each block's position, with x from the inside of its column's left, and the result
+ * where each is drawn. A column reaches as far left as its blocks' x does below 0, so blocks keep
+ * where they are to each other, as when a flowchart whose blocks were placed gets its first lane.
  */
 export function laneColumns(view: Pick<ViewDef, "lanes" | "blocks">, at: Record<string, Point>): { columns: LaneColumn[]; positions: Record<string, Point> } {
   const placed = view.blocks.filter((b) => at[b.id]);
@@ -112,14 +118,15 @@ export function laneColumns(view: Pick<ViewDef, "lanes" | "blocks">, at: Record<
   let x = 0;
   for (const lane of [...(loose ? [undefined] : []), ...view.lanes]) {
     const inside = placed.filter((b) => laneOf(view, b) === lane?.id);
-    const w = Math.max(LANE.minWidth, ...inside.map((b) => Math.max(0, at[b.id]!.x) + blockWidth(b.kind) + 2 * LANE.pad));
-    columns.push({ lane, x, w });
+    const from = Math.min(0, ...inside.map((b) => at[b.id]!.x));
+    const w = Math.max(LANE.minWidth, ...inside.map((b) => at[b.id]!.x - from + blockWidth(b.kind) + 2 * LANE.pad));
+    columns.push({ lane, x, w, from });
     x += w;
   }
   const positions: Record<string, Point> = {};
   for (const b of placed) {
     const column = columns.find((c) => c.lane?.id === laneOf(view, b))!;
-    positions[b.id] = { x: column.x + LANE.pad + Math.max(0, at[b.id]!.x), y: at[b.id]!.y };
+    positions[b.id] = { x: column.x + LANE.pad + at[b.id]!.x - column.from, y: at[b.id]!.y };
   }
   return { columns, positions };
 }
@@ -129,9 +136,12 @@ function columnAt(columns: LaneColumn[], x: number): LaneColumn {
   return columns.find((c) => x >= c.x && x < c.x + c.w) ?? (x < (columns[0]?.x ?? 0) ? columns[0]! : columns[columns.length - 1]!);
 }
 
-/** Where a block drawn at `position` in `column` is kept: its `at`, with x from the inside of the column's left. */
+/**
+ * Where a block drawn at `position` in `column` is kept: its `at`, with x from the inside of the
+ * column's left. One let go of further left stays at its inside, rather than widen it.
+ */
 export function savedAt(column: LaneColumn, position: Point): [number, number] {
-  return [Math.max(0, Math.round(position.x - column.x - LANE.pad)), Math.round(position.y)];
+  return [Math.max(column.from, Math.round(position.x - column.x - LANE.pad + column.from)), Math.round(position.y)];
 }
 
 /** The lane a block let go of at `position`, `w` wide, goes in, by the column under its middle, and its `at` there. */

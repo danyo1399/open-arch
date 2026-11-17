@@ -1871,18 +1871,30 @@ function updateLane(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   return `renamed lane ${op.id} to ${op.newId} in view ${op.view}${where}`;
 }
 
-/** Removes a lane. Its cards, or its blocks, stay, in no lane. */
+/**
+ * Removes a lane. Its cards, or its blocks, stay, in no lane. A block's position is from the left
+ * of its lane, which is gone, so it's laid out again: kept, it would land on what's there now.
+ */
 function removeLane(doc: OpenArchDocument, viewId: string, id: string): string {
   const view = requireLanes(doc, viewId);
   const lane = requireLane(view, viewId, id);
   view.lanes!.splice(view.lanes!.indexOf(lane), 1);
   let left = 0;
-  for (const item of [...(view.cards ?? []), ...(view.blocks ?? [])]) {
-    if (item.lane !== id) continue;
-    delete item.lane;
+  for (const card of view.cards ?? []) {
+    if (card.lane !== id) continue;
+    delete card.lane;
     left++;
   }
-  return `removed lane ${id} from view ${viewId}${left ? `, leaving ${count(left, view.level === "flowchart" ? "block" : "card")} in no lane` : ""}`;
+  for (const block of view.blocks ?? []) {
+    if (block.lane !== id) continue;
+    delete block.lane;
+    delete block.at;
+    left++;
+  }
+  if (!left) return `removed lane ${id} from view ${viewId}`;
+  return view.level === "flowchart"
+    ? `removed lane ${id} from view ${viewId}, leaving ${count(left, "block")} in no lane, to be laid out again`
+    : `removed lane ${id} from view ${viewId}, leaving ${count(left, "card")} in no lane`;
 }
 
 function addCard(doc: OpenArchDocument, op: Extract<Operation, { op: "add-card" }>): string {

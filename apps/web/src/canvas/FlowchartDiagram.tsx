@@ -252,6 +252,39 @@ function items(view: ViewDef, nodes: FlowNode[]): DrawnItem[] {
   );
 }
 
+/** What's on the diagram round a new block: the lanes as drawn, if any, each block's box, the lanes' top, the middle of the canvas, and where the blocks and notes are. */
+export interface Surroundings {
+  columns?: LaneColumn[];
+  boxes: ReadonlyMap<string, Box>;
+  top: number;
+  middle: Point;
+  occupied: Point[];
+}
+
+/**
+ * Where a new block of this kind goes, in the nearest free spot: under the block selected, in its
+ * lane; at the bottom of the lane selected; or else in the middle of the canvas, in the lane
+ * there. Its `at` is as the file keeps it, so from the inside of its lane's left in a flowchart
+ * with lanes.
+ */
+export function newBlockPlace(view: ViewDef, kind: BlockKind, selection: Selection, { columns, boxes, top, middle, occupied }: Surroundings): { at: [number, number]; lane?: string } {
+  const afterBlock = selection?.kind === "block" ? view.blocks.find((b) => b.id === selection.id) : undefined;
+  const after = afterBlock && boxes.get(afterBlock.id);
+  const lane = selection?.kind === "lane" ? columns?.find((c) => c.lane?.id === selection.id) : undefined;
+  const width = blockWidth(kind);
+  const inLane = lane ? view.blocks.filter((b) => laneOf(view, b) === lane.lane?.id).flatMap((b) => boxes.get(b.id) ?? []) : [];
+  const start = after
+    ? { x: after.x + (after.w - width) / 2, y: after.y + after.h + BELOW }
+    : lane
+      ? { x: lane.x + LANE.pad + Math.max(0, LANE.centre - width / 2), y: inLane.length ? Math.max(...inLane.map((b) => b.y + b.h)) + BELOW : top + LANE.head + LANE.pad }
+      : { x: middle.x - width / 2, y: middle.y - 30 };
+  const spot = freeSpotAmong(start, occupied);
+  if (!columns?.length) return { at: [spot.x, spot.y] };
+  // After a block it's in that block's lane, and in a lane selected, that one; else in the one it lands in.
+  const column = afterBlock ? columns.find((c) => c.lane?.id === laneOf(view, afterBlock)) : lane;
+  return column ? { at: savedAt(column, spot), lane: column.lane?.id } : dropInLane(columns, spot, width);
+}
+
 interface FlowchartDiagramProps {
   computed: ComputedView;
   selection: Selection;
@@ -507,29 +540,9 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   };
 
-  /**
-   * A new block goes under the one selected, in its lane; at the bottom of the lane selected; or
-   * else in the middle of the canvas, in the lane there: in the nearest free spot.
-   */
   const addBlock = (kind: BlockKind) => {
     const occupied = nodesRef.current.filter((n) => n.type === "block" || n.type === "sticky").map((n) => n.position);
-    const afterBlock = selection?.kind === "block" ? view.blocks.find((b) => b.id === selection.id) : undefined;
-    const after = afterBlock && drawnBlocks.get(afterBlock.id)?.box;
-    const lane = selection?.kind === "lane" ? columns?.find((c) => c.lane?.id === selection.id) : undefined;
-    const width = blockWidth(kind);
-    const inLane = lane ? view.blocks.filter((b) => laneOf(view, b) === lane.lane?.id).flatMap((b) => boxes.get(b.id) ?? []) : [];
-    const start = after
-      ? { x: after.x + (after.w - width) / 2, y: after.y + after.h + BELOW }
-      : lane
-        ? { x: lane.x + LANE.pad + Math.max(0, LANE.centre - width / 2), y: inLane.length ? Math.max(...inLane.map((b) => b.y + b.h)) + BELOW : (laneNodes[0]?.position.y ?? 0) + LANE.head + LANE.pad }
-        : { x: middle().x - width / 2, y: middle().y - 30 };
-    const spot = freeSpotAmong(start, occupied);
-    let place: { at: [number, number]; lane?: string } = { at: [spot.x, spot.y] };
-    if (columns?.length) {
-      // After a block it's in that block's lane, and in a lane selected, that one; else in the one it lands in.
-      const column = afterBlock ? columns.find((c) => c.lane?.id === laneOf(view, afterBlock)) : lane;
-      place = column ? { at: savedAt(column, spot), lane: column.lane?.id } : dropInLane(columns, spot, width);
-    }
+    const place = newBlockPlace(view, kind, selection, { columns, boxes, top: laneNodes[0]?.position.y ?? 0, middle: middle(), occupied });
     const { ops, id } = addBlockOps(view, kind, selection, place.at, place.lane);
     void edit([...fixPlaced(), ...ops]).then((ok) => ok && onSelect({ kind: "block", id }, { isNew: true }));
   };
@@ -628,7 +641,17 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
               </span>
             )}
           </div>
-          <MenuButton className="primary" items={addItems} title={selection?.kind === "block" ? "Add a block after the one selected, or a sticky note" : "Add a block or a sticky note"}>
+          <MenuButton
+            className="primary"
+            items={addItems}
+            title={
+              selection?.kind === "block"
+                ? "Add a block after the one selected, a lane or a sticky note"
+                : selection?.kind === "lane"
+                  ? "Add a block in the lane selected, a lane after it, or a sticky note"
+                  : "Add a block, a lane or a sticky note"
+            }
+          >
             + Add
           </MenuButton>
           {exportItems.length > 0 && (
@@ -640,7 +663,15 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
       </ReactFlow>
       {ready && view.blocks.length === 0 && (
         <div className="empty-hint">
-          This flowchart has no blocks yet. Use <strong>+ Add</strong> to add a start, then each step after it, with the step before it selected. Drag from the dot under a block to another to add a flow.
+          {view.lanes.length ? (
+            <>
+              This flowchart has lanes but no blocks yet. Select a lane and use <strong>+ Add</strong> to add a block in it, then each step after it, with the step before it selected. Drag from the dot under a block to another to add a flow.
+            </>
+          ) : (
+            <>
+              This flowchart has no blocks yet. Use <strong>+ Add</strong> to add a start, then each step after it, with the step before it selected. Drag from the dot under a block to another to add a flow. + Add adds lanes too.
+            </>
+          )}
         </div>
       )}
     </div>

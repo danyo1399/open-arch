@@ -529,10 +529,14 @@ describe("flowchart lanes", () => {
     const renamed = apply(doc, { op: "update-lane", view: "returns", id: "shop", newId: "staff", position: 1 });
     expect(renamed.views.returns!.lanes!.map((l) => l.id)).toEqual(["staff", "customer"]);
     expect(renamed.views.returns!.blocks!.filter((b) => b.lane === "staff").map((b) => b.id)).toEqual(["refund", "chat"]);
-    // Removing a lane leaves its blocks in no lane.
-    const removed = applyOperations(doc, [{ op: "remove-lane", view: "returns", id: "shop" }]);
-    expect(removed.summary).toEqual(["removed lane shop from view returns, leaving 2 blocks in no lane"]);
-    expect(removed.doc.views.returns!.blocks!.some((b) => b.lane === "shop")).toBe(false);
+    // Removing a lane leaves its blocks in no lane, laid out again: their positions were from its left.
+    const placed = apply(doc, { op: "update-block", view: "returns", id: "refund", at: [10, 300] }, { op: "update-block", view: "returns", id: "asked", at: [10, 0] });
+    const removed = applyOperations(placed, [{ op: "remove-lane", view: "returns", id: "shop" }]);
+    expect(removed.summary).toEqual(["removed lane shop from view returns, leaving 2 blocks in no lane, to be laid out again"]);
+    const left = removed.doc.views.returns!.blocks!;
+    expect(left.find((b) => b.id === "refund")).toEqual({ id: "refund", text: "Refund the card", description: "Within 3 days" });
+    // Blocks in the lanes that are left keep theirs.
+    expect(left.find((b) => b.id === "asked")).toEqual({ id: "asked", kind: "start", text: "Return asked for", lane: "customer", at: [10, 0] });
     expect(apply(doc, { op: "update-block", view: "returns", id: "asked", lane: null }).views.returns!.blocks![0]).toEqual({ id: "asked", kind: "start", text: "Return asked for", at: [0, 0] });
     expect(fails(doc, { op: "add-block", view: "returns", id: "x", lane: "warehouse" })).toBe('View "returns" has no lane "warehouse". Its lanes: customer, shop.');
     expect(fails(doc, { op: "update-block", view: "returns", id: "asked", lane: "custmer" })).toBe('View "returns" has no lane "custmer". Did you mean "customer"?');

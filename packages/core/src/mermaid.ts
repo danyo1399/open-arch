@@ -28,6 +28,9 @@ import { allWidgets, cardArrows, screenArrows, type ComputedView } from "./views
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
 
+/** How a lane's frame is drawn, on an event view and on a flowchart: its outline, with nothing behind it. */
+const LANE_STYLE = "fill:none,stroke:#8a94a6";
+
 /** Only in a diagram with a library, so diagrams without one read as they did before there were libraries. */
 const LIBRARY_DEF = "classDef library fill:#85bbf0,stroke:#5d82a8,color:#000000,stroke-dasharray:5 5";
 
@@ -400,7 +403,7 @@ function renderEvents(cv: ComputedView): string {
     const ids = v.cards.filter((c) => c.kind === kind).map((c) => mermaidId(c.id));
     if (ids.length) lines.push(`  classDef ${CARD_DEFS[kind][0]} ${CARD_DEFS[kind][1]}`, `  class ${ids.join(",")} ${CARD_DEFS[kind][0]}`);
   }
-  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} fill:none,stroke:#8a94a6`);
+  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} ${LANE_STYLE}`);
   return lines.join("\n");
 }
 
@@ -627,7 +630,7 @@ function renderFlowchart(cv: ComputedView): string {
     const text = f.text?.split(/\r?\n/).map((l) => escape(l.trim())).filter(Boolean).join("<br/>");
     lines.push(`  ${mermaidId(f.from)} -->${text ? `|"${text}"|` : ""} ${mermaidId(f.to)}`);
   }
-  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} fill:none,stroke:#8a94a6`);
+  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} ${LANE_STYLE}`);
   return lines.join("\n");
 }
 
