@@ -968,10 +968,11 @@ function computeWhiteboard(view: ViewDef): ComputedView {
 
 /**
  * A flowchart view: it draws its blocks, not boxes, so it has none, and the element whose process
- * it is, if it says, as its frame. Its problems are flows to or from a block it doesn't have; and
- * flows that aren't drawn or say nothing they should: one from a block to itself, out of an end
- * or into a start, a decision without two ways out, and a way out of a decision that doesn't say
- * which answer it's for. And a flowchart with blocks but no start.
+ * it is, if it says, as its frame. Its problems are blocks in a lane it doesn't have, or with lanes
+ * at an x less than 0; flows to or from a block it doesn't have; and flows that aren't drawn or
+ * say nothing they should: one from a block to itself, out of an end or into a start, a decision
+ * without two ways out, and a way out of a decision that doesn't say which answer it's for. And a
+ * flowchart with blocks but no start.
  */
 function computeFlowchart(ws: Workspace, view: ViewDef): ComputedView {
   const diagnostics: Diagnostic[] = [];
@@ -987,6 +988,28 @@ function computeFlowchart(ws: Workspace, view: ViewDef): ComputedView {
       message: "This flowchart has no start, so it doesn't say where the process begins.",
       path: `${view.path}.blocks`,
       fix: `Add one with \`open-arch add-block ${view.id} ${free} --kind start\`, and a flow from it.`,
+    });
+  }
+  const lanes = view.lanes.map((l) => l.id);
+  for (const b of view.blocks) {
+    // With lanes, x is from the inside of a lane's left, which the operations keep 0 or more.
+    if (lanes.length && b.at && b.at[0] < 0) {
+      diagnostics.push({
+        severity: "warning",
+        rule: "block-x-negative",
+        message: `Block "${b.id}" is at an x of ${b.at[0]}, less than 0, so it's drawn at the inside of its lane's left.`,
+        path: `${b.path}.at`,
+        fix: `Give it an x of 0 or more: \`open-arch update-block ${view.id} ${b.id} --at 0,${b.at[1]}\`.`,
+      });
+    }
+    if (b.lane === undefined || lanes.includes(b.lane)) continue;
+    const match = suggest(b.lane, lanes);
+    diagnostics.push({
+      severity: "error",
+      rule: "block-lane-unknown",
+      message: `Block "${b.id}" is in the lane "${b.lane}", which isn't a lane of this view.`,
+      path: `${b.path}.lane`,
+      fix: match ? `Did you mean "${match}"?` : lanes.length ? `Its lanes: ${lanes.join(", ")}.` : `Add it with \`open-arch add-lane ${view.id} ${b.lane}\`.`,
     });
   }
   /** The flows each block has out of it that are drawn: to another block of the view. */

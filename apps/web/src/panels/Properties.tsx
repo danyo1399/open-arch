@@ -763,6 +763,21 @@ function BlockProperties({ view, block, isNew, edit, onSelect }: PropertiesProps
         <span className="field-hint">{BLOCK_KIND_HINTS[block.kind]}</span>
       </label>
       <Field label="Description" value={block.description ?? ""} multiline placeholder="One sentence, shown under its text" onCommit={(description) => set({ description: description || null })} />
+      {(view.lanes.length > 0 || block.lane !== undefined) && (
+        <label className="field">
+          <span className="field-label">Lane</span>
+          {/* Its place was in its old lane, where it could land on a block in the new one: it's laid out again. */}
+          <select value={block.lane ?? ""} onChange={(e) => set({ lane: e.target.value || null, at: null })}>
+            <option value="">(no lane)</option>
+            {block.lane !== undefined && !view.lanes.some((l) => l.id === block.lane) && <option value={block.lane}>{block.lane} (not a lane of this view)</option>}
+            {view.lanes.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <h3>Flows</h3>
       {out.length + into.length === 0 && <p className="muted small">None yet. Drag from the dot under this block to another block to add one.</p>}
       <ul className="plain">
@@ -1122,6 +1137,9 @@ function LaneProperties({ view, lane, isNew, edit, onSelect }: PropertiesProps &
     void edit([{ op: "update-lane", view: view.id, id: lane.id, newId }]).then((ok) => ok && onSelect({ kind: "lane", id: newId }));
   };
   const cards = view.cards.filter((c) => c.lane === lane.id);
+  // A flowchart's lanes are columns, left to right, and hold blocks.
+  const flowchart = view.level === "flowchart";
+  const blocks = view.blocks.filter((b) => b.lane === lane.id);
   return (
     <>
       <header className="props-header">
@@ -1131,24 +1149,33 @@ function LaneProperties({ view, lane, isNew, edit, onSelect }: PropertiesProps &
       <Field label="Name" value={lane.name} onCommit={(n) => n.trim() && rename(n)} autoFocus={isNew} />
       <Field label="ID" value={lane.id} onCommit={changeId} hint={idHint(followsName(lane.id, lane.name))} />
       <Field label="Description" value={lane.description ?? ""} multiline placeholder="One sentence, shown when you point at the lane" onCommit={(description) => set({ description: description || null })} />
-      <h3>Cards</h3>
-      {cards.length === 0 && <p className="muted small">None yet. Drag a card into this lane, or select the lane and use + Add.</p>}
+      <h3>{flowchart ? "Blocks" : "Cards"}</h3>
+      {(flowchart ? blocks : cards).length === 0 && <p className="muted small">None yet. Drag a {flowchart ? "block" : "card"} into this lane, or select the lane and use + Add.</p>}
       <ul className="plain">
-        {cards.map((c) => (
-          <li key={c.id}>
-            <button className="link" onClick={() => onSelect({ kind: "card", id: c.id })}>
-              {c.name}
-            </button>{" "}
-            <span className="muted small">{CARD_KIND_LABELS[c.kind]}</span>
-          </li>
-        ))}
+        {flowchart
+          ? blocks.map((b) => (
+              <li key={b.id}>
+                <button className="link" onClick={() => onSelect({ kind: "block", id: b.id })}>
+                  {blockText(b)}
+                </button>{" "}
+                <span className="muted small">{BLOCK_KIND_LABELS[b.kind]}</span>
+              </li>
+            ))
+          : cards.map((c) => (
+              <li key={c.id}>
+                <button className="link" onClick={() => onSelect({ kind: "card", id: c.id })}>
+                  {c.name}
+                </button>{" "}
+                <span className="muted small">{CARD_KIND_LABELS[c.kind]}</span>
+              </li>
+            ))}
       </ul>
       <div className="actions">
         <button disabled={lane.number === 1} onClick={() => set({ position: lane.number - 1 })}>
-          Move up
+          {flowchart ? "Move left" : "Move up"}
         </button>
         <button disabled={lane.number === view.lanes.length} onClick={() => set({ position: lane.number + 1 })}>
-          Move down
+          {flowchart ? "Move right" : "Move down"}
         </button>
         <button className="danger" onClick={() => void edit([{ op: "remove-lane", view: view.id, id: lane.id }]).then(() => onSelect(null))}>
           Delete lane
@@ -1856,13 +1883,15 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
                 <dd>{scope.name}</dd>
               </>
             )}
+            <dt>Lanes</dt>
+            <dd>{view.lanes.length}</dd>
             <dt>Blocks</dt>
             <dd>{view.blocks.length}</dd>
             <dt>Flows</dt>
             <dd>{view.flows.length}</dd>
           </dl>
           <p className="muted small">
-            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it.
+            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it. + Add adds a lane too, a column for the blocks of one actor, team or system: drag a block into a lane to put it there.
           </p>
         </>
       ) : view.level === "whiteboard" ? (

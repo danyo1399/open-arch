@@ -125,7 +125,7 @@ describe("event views", () => {
     expect(parsed.diagnostics.find((d) => d.path === "views.v.scope")!.message).toBe("Event views don't take `scope`: they show their cards in order, each in its lane.");
     const other = parseDocument(JSON.stringify({ ...shop(), views: { v: { title: "V", level: "landscape", lanes: [], cards: [] } } }));
     expect(other.diagnostics.map((d) => [d.path, d.message])).toEqual([
-      ["views.v.lanes", "Only event views have `lanes`."],
+      ["views.v.lanes", "Only event and flowchart views have `lanes`."],
       ["views.v.cards", "Only event views have `cards`."],
     ]);
   });
@@ -337,7 +337,7 @@ describe("event operations", () => {
     expect(fails(doc, { op: "add-lane", view: "ordering", id: "shop" })).toBe('View "ordering" already has a lane "shop".');
     expect(fails(doc, { op: "add-lane", view: "ordering", id: "Bad" })).toMatch(/isn't a valid ID/);
     expect(fails(doc, { op: "add-lane", view: "ordering", id: "x", position: 3 })).toBe('View "ordering" has 1 lane, so a new one\'s position can be 1 to 2.');
-    expect(fails(doc, { op: "add-lane", view: "landscape", id: "x" })).toBe('View "landscape" is a landscape view. Only event views have lanes and cards.');
+    expect(fails(doc, { op: "add-lane", view: "landscape", id: "x" })).toBe('View "landscape" is a landscape view. Only event and flowchart views have lanes.');
     expect(fails(doc, { op: "update-lane", view: "ordering", id: "shop" })).toBe('Say what to change on lane "shop": newId, name, description, position.');
     expect(fails(doc, { op: "update-lane", view: "ordering", id: "shop", position: 2 })).toBe('View "ordering" has 1 lane, so "position" must be 1 to 1.');
     expect(fails(doc, { op: "update-lane", view: "ordering", id: "shop", name: " " })).toBe("A lane's name can't be empty.");

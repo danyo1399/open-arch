@@ -80,7 +80,7 @@ deployment view, its nodes and what runs in them, its connections and the arrows
 an event view, its lanes, and its cards in order with the cards each comes from, or for a
 wireframe view, its screens in order, each with its widgets and the screens they lead to, for
 a whiteboard view, its shapes from the back to the front, and its arrows, or for a flowchart
-view, its blocks in order, and its flows.
+view, its lanes, its blocks in order, and its flows.
 A class's members, a relationship's kind when it isn't an association, a container's
 libraries and the containers a library is built into are shown too.
 `,
@@ -254,7 +254,8 @@ with a pen, each where it's put, none of them part of the model. Add its shapes 
 and its arrows with add-arrow. It takes no scope, include or exclude.
 A flowchart view shows the steps of a process: where it starts and ends, what's done, the
 decisions on the way, and the arrows from one to the next. Add its blocks with add-block and
-the flows between them with add-flow. Its scope, if any, is the element of any kind whose
+the flows between them with add-flow, and with add-lane, a lane, a column for the blocks of
+one actor, team or system. Its scope, if any, is the element of any kind whose
 process it is. It takes no include or exclude.
   --scope <id>           A system for context and container views, a container or library
                          for component views, a component or library for class views, for
@@ -445,24 +446,33 @@ An empty value removes a field.
   "add-lane": writer(
     `Usage: open-arch add-lane <view> <id> [--name <name>] [--description <text>] [--position <n>]
 
-Adds a swimlane to an event view: a row for the cards of one actor, team or system, like
-"Customer" or "Orders". The id must be unique among the view's lanes.
+Adds a swimlane for one actor, team or system, like "Customer" or "Orders": to an event view,
+a row for its cards, and to a flowchart, a column for its blocks. The id must be unique among
+the view's lanes.
   --name <name>          Display name (default: from the id)
   --description <text>   One sentence about the lane
-  --position <n>         Its place from the top: 1 is the first (default: under the last)
+  --position <n>         Its place: from the top on an event view, and from the left on a
+                         flowchart. 1 is the first (default: after the last)
+In a flowchart with lanes, a block's x is from the inside of its lane's left, and 0 or more,
+so a flowchart's first lane moves its placed blocks right together, if need be, so none has an
+x less than 0.
 `,
     { name: s, description: s, position: s },
   ),
   "update-lane": writer(
     `Usage: open-arch update-lane <view> <id> [--name <name>] [--new-id <id>] [--description <text>] [--position <n>]
 
---new-id changes its ID, and its cards follow it.
---position moves it: 1 is the top lane, and the lanes between move up or down one.
+--new-id changes its ID, and its cards or blocks follow it.
+--position moves it: 1 is the top lane, or on a flowchart the leftmost, and the lanes between
+move one place.
 An empty value removes a field.
 `,
     { name: s, "new-id": s, description: s, position: s },
   ),
-  "remove-lane": writer(`Usage: open-arch remove-lane <view> <id>\n\nRemoves a lane. Its cards stay, in no lane: move them with update-card --lane.\n`, {}),
+  "remove-lane": writer(
+    `Usage: open-arch remove-lane <view> <id>\n\nRemoves a lane. Its cards, or its blocks, stay, in no lane: move them with update-card --lane or update-block --lane. Its blocks are laid out again, as their --at was from its left.\n`,
+    {},
+  ),
   "add-card": writer(
     `Usage: open-arch add-card <view> <id> [--kind <kind>] [--name <name>] [--lane <lane>] [--from <card>]...
                          [--description <text>] [--position <n>]
@@ -652,8 +662,8 @@ An empty value removes a field: --heads "" and --color "" put them back to end a
   ),
   "remove-arrow": writer(`Usage: open-arch remove-arrow <view> <id>\n`, {}),
   "add-block": writer(
-    `Usage: open-arch add-block <view> <id> [--kind <kind>] [--text <text>] [--description <text>] [--at <x,y>]
-                          [--position <n>]
+    `Usage: open-arch add-block <view> <id> [--kind <kind>] [--text <text>] [--description <text>] [--lane <lane>]
+                          [--at <x,y>] [--position <n>]
 
 Adds a block to a flowchart view, like "pack-order". The id must be unique among the view's
 blocks.
@@ -667,23 +677,27 @@ blocks.
   --text <text>          What it says (default: from the id). Lines of their own, like
                          --text $'Pack\\nthe order' in bash
   --description <text>   One sentence, shown under its text
-  --at <x,y>             Top-left corner (default: the designer lays it out)
+  --lane <lane>          The lane it's in, a column of the flowchart: add it first with add-lane
+  --at <x,y>             Top-left corner (default: the designer lays it out). In a flowchart
+                         with lanes, x is from the inside of its lane's left, and 0 or more
   --position <n>         Its place in the view's list of blocks: 1 is the first (default: last)
 `,
-    { kind: s, text: s, description: s, at: s, position: s },
+    { kind: s, text: s, description: s, lane: s, at: s, position: s },
   ),
   "update-block": writer(
     `Usage: open-arch update-block <view> <id> [--kind <kind>] [--text <text>] [--new-id <id>] [--description <text>]
-                             [--at <x,y>] [--position <n>]
+                             [--lane <lane>] [--at <x,y>] [--position <n>]
 
 --kind is start, end, process, decision, input-output, subprocess, document or database.
+--lane moves it into a lane, and --lane "" out of its lane.
 --new-id changes its ID, and the flows to and from it follow it.
---at "" lets the designer lay it out again.
+--at x,y moves it. In a flowchart with lanes, x is from the inside of its lane's left, and 0 or
+more. --at "" lets the designer lay it out again.
 --position moves it to that place in the view's list of blocks: 1 is the first.
 An empty value removes a field: --kind "" makes it a process. A block needs text, so
 --text "" is refused.
 `,
-    { kind: s, text: s, "new-id": s, description: s, at: s, position: s },
+    { kind: s, text: s, "new-id": s, description: s, lane: s, at: s, position: s },
   ),
   "remove-block": writer(`Usage: open-arch remove-block <view> <id>\n\nRemoves a block, and the flows to and from it.\n`, {}),
   "add-flow": writer(

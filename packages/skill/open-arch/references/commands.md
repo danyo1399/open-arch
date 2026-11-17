@@ -62,9 +62,9 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-connection <view> <from> <to>` | Deployment views only. Each end is a node of the view, or a container or system one of its nodes runs; at least one is a node. `--description`, `--technology`, `--connection <n>` (insert it as connection n; default: after the last) |
 | `update-connection <view> <n>` | `--from <id>`, `--to <id>`, `--description`, `--technology`, `--move-to <n>` |
 | `remove-connection <view> <n>` | The connections after it move up one |
-| `add-lane <view> <id>` | Event views only. `--name`, `--description`, `--position <n>` (its place from the top: 1 is the first; default: under the last) |
-| `update-lane <view> <id>` | `--name`, `--new-id <id>` (its cards follow it), `--description`, `--position <n>` (moves it; the lanes between move up or down one) |
-| `remove-lane <view> <id>` | Its cards stay, in no lane |
+| `add-lane <view> <id>` | Event and flowchart views only. `--name`, `--description`, `--position <n>` (its place: from the top on an event view, and from the left on a flowchart. 1 is the first; default: after the last). A flowchart's first lane moves its placed blocks right together, if need be, so none has an x less than 0 |
+| `update-lane <view> <id>` | `--name`, `--new-id <id>` (its cards or blocks follow it), `--description`, `--position <n>` (moves it; the lanes between move one place) |
+| `remove-lane <view> <id>` | Its cards, or its blocks, stay, in no lane; its blocks are laid out again, as their `--at` was from its left |
 | `add-card <view> <id>` | Event views only. `--kind <event\|command\|actor\|policy\|read-model\|external-system\|aggregate\|hotspot>` (default: event), `--name`, `--description`, `--lane <lane>` (default: none, in a row above the lanes), `--from <card>` (a card that leads to it, drawn as an arrow to it; repeat for each), `--position <n>` (its place along the timeline: 1 is the first; default: after the last) |
 | `update-card <view> <id>` | `--kind`, `--name`, `--new-id <id>` (the cards that come from it follow it), `--description`, `--lane` (`--lane ""` takes it out of its lane), `--from` (replaces the cards it comes from; `--from ""` removes them all), `--position <n>` (moves it; the cards between move one place) |
 | `remove-card <view> <id>` | Also removes the arrows to and from it |
@@ -80,8 +80,8 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-arrow <view> <id>` | Whiteboard views only. `--from <shape\|x,y>` and `--to <shape\|x,y>` (required: a shape, which the arrow follows, or a point), `--from-side <top\|right\|bottom\|left>` and `--to-side` (the side of its shape the end stays on, wherever the other end is, like a diamond's tip; default: it faces the other end), `--text`, `--heads <end\|both\|none>` (default: end; none is a line), `--color`, `--dashed` |
 | `update-arrow <view> <id>` | `--from`, `--to` (on another shape, an end faces the other end unless it's given a side too; naming the shape it's on already keeps its side), `--from-side`, `--to-side` (put the end on that side of its shape; `""` lets it face the other end again), `--text`, `--new-id <id>`, `--heads` (`--heads ""` is end again), `--color`, `--dashed` / `--solid` |
 | `remove-arrow <view> <id>` | |
-| `add-block <view> <id>` | Flowchart views only. `--kind <start\|end\|process\|decision\|input-output\|subprocess\|document\|database>` (default: process), `--text` (what it says; default: from the id), `--description`, `--at <x,y>` (its top-left corner; default: the designer lays it out), `--position <n>` (its place in the view's list of blocks: 1 is the first; default: after the last) |
-| `update-block <view> <id>` | `--kind` (`--kind ""` makes it a process again), `--text` (a block needs text), `--new-id <id>` (the flows to and from it follow it), `--description`, `--at` (`--at ""` lets the designer lay it out again), `--position <n>` (moves it to that place) |
+| `add-block <view> <id>` | Flowchart views only. `--kind <start\|end\|process\|decision\|input-output\|subprocess\|document\|database>` (default: process), `--text` (what it says; default: from the id), `--description`, `--lane <lane>` (the lane it's in), `--at <x,y>` (its top-left corner; default: the designer lays it out. In a flowchart with lanes, x is from the inside of its lane's left, and 0 or more), `--position <n>` (its place in the view's list of blocks: 1 is the first; default: after the last) |
+| `update-block <view> <id>` | `--kind` (`--kind ""` makes it a process again), `--text` (a block needs text), `--new-id <id>` (the flows to and from it follow it), `--description`, `--lane` (`--lane ""` takes it out of its lane), `--at` (in a flowchart with lanes, x is from the inside of its lane's left, and 0 or more; `--at ""` lets the designer lay it out again), `--position <n>` (moves it to that place) |
 | `remove-block <view> <id>` | Also removes the flows to and from it |
 | `add-flow <view> <from> <to>` | Flowchart views only. `--text` (like `Yes` or `No` on the ways out of a decision), `--flow <n>` (its number: 1 is the first; default: after the last) |
 | `update-flow <view> <n>` | `--from`, `--to`, `--text`, `--move-to <n>` |
@@ -93,7 +93,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 
 `--index` picks one relationship when an element has several to the same target: 0 is the first. Without it, the command says how many there are and what each describes.
 
-A lane and a card are named by their IDs, each unique among its event view's lanes or cards. A card's `--from` names cards the view already has, so add a card after the ones that lead to it, or set it later with `update-card`.
+A lane and a card are named by their IDs, each unique among its event view's lanes or cards; a flowchart's lanes are named the same way, and its blocks' `--lane` names one the view already has, so add the lane first. A card's `--from` names cards the view already has, so add a card after the ones that lead to it, or set it later with `update-card`.
 
 A screen is named by its ID, unique among its wireframe view's screens, and a widget by its ID, unique among all the view's widgets, on every screen. A widget's `--to` names a screen the view already has, so add the screens first, or set it later with `update-widget`. A widget that leads to the screen it's on is a warning: no arrow is drawn.
 
@@ -142,7 +142,7 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `add-connection` | **view**, **from**, **to**, description, technology, connection (its number: 1 is the first; default: after the last) |
 | `update-connection` | **view**, **connection**, from, to, description, technology, newConnection (the number to move it to) |
 | `remove-connection` | **view**, **connection** |
-| `add-lane` | **view**, **id**, name, description, position (its place from the top: 1 is the first; default: under the last) |
+| `add-lane` | **view**, **id**, name, description, position (its place from the top, or on a flowchart from the left: 1 is the first; default: after the last). A flowchart's first lane moves its placed blocks right, if need be, so none has an x less than 0 |
 | `update-lane` | **view**, **id**, newId, name, description, position (the place to move it to) |
 | `remove-lane` | **view**, **id** |
 | `add-card` | **view**, **id**, kind (default: `"event"`), name, description, lane, from (a list of card IDs), position (its place along the timeline: 1 is the first; default: after the last) |
@@ -160,8 +160,8 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `add-arrow` | **view**, **id**, **from**, **to** (each a shape's ID, a shape and a side of it, `{ "shape": "paid", "side": "right" }`, or a point, `[x, y]`), fromSide, toSide (the side of its shape an end stays on), text, heads (default: `"end"`), color, dashed |
 | `update-arrow` | **view**, **id**, newId, from, to (on another shape, an end faces the other end unless it's given a side; naming the shape it's on already keeps its side), fromSide, toSide (`null` lets the end face the other end again), text, heads, color, dashed |
 | `remove-arrow` | **view**, **id** |
-| `add-block` | **view**, **id**, kind (default: `"process"`), text, description, at (`[x, y]`), position (its place in the list: 1 is the first; default: after the last) |
-| `update-block` | **view**, **id**, newId, kind, text, description, at (`null` lets the designer lay it out again), position (the place to move it to) |
+| `add-block` | **view**, **id**, kind (default: `"process"`), text, description, lane, at (`[x, y]`), position (its place in the list: 1 is the first; default: after the last) |
+| `update-block` | **view**, **id**, newId, kind, text, description, lane (`null` takes it out of its lane), at (`null` lets the designer lay it out again), position (the place to move it to) |
 | `remove-block` | **view**, **id** |
 | `add-flow` | **view**, **from**, **to**, text, flow (its number: 1 is the first; default: after the last) |
 | `update-flow` | **view**, **flow**, from, to, text, newFlow |

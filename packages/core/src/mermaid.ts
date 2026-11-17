@@ -28,6 +28,9 @@ import { allWidgets, cardArrows, screenArrows, type ComputedView } from "./views
 
 const RESERVED = new Set(["end", "graph", "flowchart", "subgraph", "class", "classdef", "click", "style", "linkstyle", "direction", "default", "call", "href"]);
 
+/** How a lane's frame is drawn, on an event view and on a flowchart: its outline, with nothing behind it. */
+const LANE_STYLE = "fill:none,stroke:#8a94a6";
+
 /** Only in a diagram with a library, so diagrams without one read as they did before there were libraries. */
 const LIBRARY_DEF = "classDef library fill:#85bbf0,stroke:#5d82a8,color:#000000,stroke-dasharray:5 5";
 
@@ -400,7 +403,7 @@ function renderEvents(cv: ComputedView): string {
     const ids = v.cards.filter((c) => c.kind === kind).map((c) => mermaidId(c.id));
     if (ids.length) lines.push(`  classDef ${CARD_DEFS[kind][0]} ${CARD_DEFS[kind][1]}`, `  class ${ids.join(",")} ${CARD_DEFS[kind][0]}`);
   }
-  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} fill:none,stroke:#8a94a6`);
+  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} ${LANE_STYLE}`);
   return lines.join("\n");
 }
 
@@ -598,24 +601,36 @@ function blockNode(b: Block): string {
 }
 
 /**
- * A flowchart view as a Mermaid flowchart, top to bottom: each block in its kind's shape, and each
- * flow between two of its blocks as an arrow, with its text. Mermaid lays them out itself, so they
- * aren't where the designer has them.
+ * A flowchart view as a Mermaid flowchart, top to bottom: each block in its kind's shape, in a
+ * frame for its lane, if it's in one, and each flow between two of its blocks as an arrow, with
+ * its text. Mermaid lays them out itself, so they aren't where the designer has them, and it has
+ * no swimlanes, so the frames aren't always side by side.
  */
 function renderFlowchart(cv: ComputedView): string {
   const v = cv.view;
   const lines = ["flowchart TB"];
-  if (v.blocks.length === 0) {
+  if (v.blocks.length === 0 && v.lanes.length === 0) {
     lines.push("  %% This view has no blocks yet.");
     return lines.join("\n");
   }
-  for (const b of v.blocks) lines.push(`  ${blockNode(b)}`);
+  // A block's ID comes from kebab-case, so never has two underscores in a row, and a lane's can't be any block's.
+  const laneId = (id: string) => `lane__${id.replace(/-/g, "_")}`;
+  const lanes = new Set(v.lanes.map((l) => l.id));
+  for (const b of v.blocks) if (b.lane === undefined || !lanes.has(b.lane)) lines.push(`  ${blockNode(b)}`);
+  for (const lane of v.lanes) {
+    const inside = v.blocks.filter((b) => b.lane === lane.id);
+    lines.push(`  subgraph ${laneId(lane.id)}["${escape(lane.name)}"]`);
+    // The direction is for the blocks: a lane without any has only its name.
+    if (inside.length) lines.push("    direction TB", ...inside.map((b) => `    ${blockNode(b)}`));
+    lines.push("  end");
+  }
   const ids = new Set(v.blocks.map((b) => b.id));
   for (const f of v.flows) {
     if (!ids.has(f.from) || !ids.has(f.to) || f.from === f.to) continue;
     const text = f.text?.split(/\r?\n/).map((l) => escape(l.trim())).filter(Boolean).join("<br/>");
     lines.push(`  ${mermaidId(f.from)} -->${text ? `|"${text}"|` : ""} ${mermaidId(f.to)}`);
   }
+  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} ${LANE_STYLE}`);
   return lines.join("\n");
 }
 

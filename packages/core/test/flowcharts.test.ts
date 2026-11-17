@@ -362,7 +362,7 @@ describe("block and flow operations", () => {
     expect(said({ op: "update-block", view: "returns", id: "done", position: 9 })).toBe("block done is already block 9 in view returns");
     expect(said({ op: "update-block", view: "returns", id: "done", text: "Finished", position: 1 })).toBe("updated block done in view returns, and moved it to block 1");
     expect(said({ op: "update-block", view: "returns", id: "done", newId: "finished" })).toBe("renamed block done to finished in view returns");
-    expect(fails(returns(), { op: "update-block", view: "returns", id: "done" })).toBe('Say what to change on block "done": newId, kind, text, description, at, position.');
+    expect(fails(returns(), { op: "update-block", view: "returns", id: "done" })).toBe('Say what to change on block "done": newId, kind, text, description, lane, at, position.');
     expect(fails(returns(), { op: "update-block", view: "returns", id: "done", text: " " })).toBe("A block needs some text: what's done, or for a decision, the question.");
     expect(fails(returns(), { op: "update-block", view: "returns", id: "done", newId: "refund" })).toBe('View "returns" already has a block "refund".');
     expect(fails(returns(), { op: "update-block", view: "returns", id: "dnoe", text: "X" })).toBe('View "returns" has no block "dnoe". Did you mean "done"?');
@@ -434,5 +434,181 @@ describe("block and flow operations", () => {
     expect(() => parseOperations({ op: "add-flow", view: "returns", from: "a" })).toThrow('add-flow needs "to".');
     expect(() => parseOperations({ op: "update-flow", view: "returns", flow: 0 })).toThrow('update-flow: "flow" must be a number, 1 or more: 1 is the first.');
     expect(() => parseOperations({ op: "remove-flow", view: "returns", flow: 1, text: "x" })).toThrow('remove-flow has no field "text".');
+  });
+});
+
+/** The return, in a lane for the customer and one for the shop, with the end in neither. */
+function laned(): OpenArchDocument {
+  const doc = returns();
+  const v = doc.views.returns!;
+  v.lanes = [
+    { id: "customer", name: "Customer" },
+    { id: "shop", name: "Shop", description: "The online shop's staff" },
+  ];
+  for (const b of v.blocks!) if (b.id !== "done") b.lane = b.id === "asked" ? "customer" : "shop";
+  return doc;
+}
+
+describe("flowchart lanes", () => {
+  it("are read and written, a lane on each line before the blocks, and only when there are some", () => {
+    const text = serializeDocument(laned());
+    expect(text).toContain(`      "scope": "api",
+      "lanes": [
+        { "id": "customer", "name": "Customer" },
+        { "id": "shop", "name": "Shop", "description": "The online shop's staff" }
+      ],
+      "blocks": [
+        { "id": "asked", "kind": "start", "text": "Return asked for", "lane": "customer", "at": [0, 0] },`);
+    expect(text).toContain(`        { "id": "done", "kind": "end", "text": "Done" }\n`);
+    const parsed = parseDocument(text);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.doc.views.returns).toEqual(laned().views.returns);
+    expect(rules(laned())).toEqual([]);
+    expect(serializeDocument(returns())).not.toContain('"lanes"');
+    expect(buildWorkspace(laned()).views.get("returns")!.blocks.map((b) => b.lane)).toEqual(["customer", "shop", "shop", "shop", "shop", "shop", "shop", "shop", undefined]);
+  });
+
+  it("are new in version 17: a version 16 file is read as it is", () => {
+    const parsed = parseDocument(JSON.stringify({ ...returns(), openarch: 16 }));
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.doc).toEqual(returns());
+  });
+
+  it("are only on event and flowchart views, and report malformed lanes and lanes on blocks", () => {
+    const doc = {
+      ...shop(),
+      views: {
+        f: { title: "F", level: "flowchart", lanes: [{ id: "a", name: "A" }, { id: "a", name: "Again" }, { name: "No ID" }], blocks: [{ id: "x", text: "X", lane: 5 }], flows: [] },
+        w: { title: "W", level: "whiteboard", lanes: [], shapes: [], arrows: [] },
+      },
+    };
+    const parsed = parseDocument(JSON.stringify(doc));
+    expect(parsed.diagnostics.map((d) => [`${d.rule} ${d.path}`, d.message])).toEqual([
+      ["id-duplicate views.f.lanes[1].id", '"a" is the ID of two lanes of this view.'],
+      ["field-required views.f.lanes[2].id", "`id` is required: an ID unique among the view's lanes."],
+      ["field-type views.f.blocks[0].lane", "Must be a string."],
+      ["field-not-allowed views.w.lanes", "Only event and flowchart views have `lanes`."],
+    ]);
+  });
+
+  it("are checked: a block's lane is a lane of the view", () => {
+    const doc = laned();
+    doc.views.returns!.blocks![8]!.lane = "shpo";
+    doc.views.returns!.blocks![7]!.lane = "warehouse";
+    expect(checkWorkspace(buildWorkspace(doc)).map((d) => [d.rule, d.path, d.message, d.fix])).toEqual([
+      ["block-lane-unknown", "views.returns.blocks[7].lane", 'Block "log" is in the lane "warehouse", which isn\'t a lane of this view.', "Its lanes: customer, shop."],
+      ["block-lane-unknown", "views.returns.blocks[8].lane", 'Block "done" is in the lane "shpo", which isn\'t a lane of this view.', 'Did you mean "shop"?'],
+    ]);
+    const none = returns();
+    none.views.returns!.blocks![0]!.lane = "customer";
+    expect(checkWorkspace(buildWorkspace(none)).find((d) => d.rule === "block-lane-unknown")!.fix).toBe("Add it with `open-arch add-lane returns customer`.");
+  });
+
+  it("are added, renamed, moved and removed, and blocks go in them and out of them", () => {
+    const result = applyOperations(returns(), [
+      { op: "add-lane", view: "returns", id: "shop" },
+      { op: "add-lane", view: "returns", id: "customer", position: 1 },
+      { op: "add-block", view: "returns", id: "chat", text: "Ask why", lane: "shop" },
+      { op: "update-block", view: "returns", id: "asked", lane: "customer" },
+      { op: "update-block", view: "returns", id: "refund", lane: "shop" },
+    ]);
+    expect(result.summary).toEqual([
+      "added lane shop to view returns",
+      "added lane customer to view returns, as lane 1",
+      "added process chat to view returns",
+      "updated block asked in view returns",
+      "updated block refund in view returns",
+    ]);
+    const doc = result.doc;
+    expect(doc.views.returns!.lanes).toEqual([
+      { id: "customer", name: "Customer" },
+      { id: "shop", name: "Shop" },
+    ]);
+    expect(doc.views.returns!.blocks!.at(-1)).toEqual({ id: "chat", text: "Ask why", lane: "shop" });
+    // A new ID for a lane takes its blocks with it.
+    const renamed = apply(doc, { op: "update-lane", view: "returns", id: "shop", newId: "staff", position: 1 });
+    expect(renamed.views.returns!.lanes!.map((l) => l.id)).toEqual(["staff", "customer"]);
+    expect(renamed.views.returns!.blocks!.filter((b) => b.lane === "staff").map((b) => b.id)).toEqual(["refund", "chat"]);
+    // Removing a lane leaves its blocks in no lane, laid out again: their positions were from its left.
+    const placed = apply(doc, { op: "update-block", view: "returns", id: "refund", at: [10, 300] }, { op: "update-block", view: "returns", id: "asked", at: [10, 0] });
+    const removed = applyOperations(placed, [{ op: "remove-lane", view: "returns", id: "shop" }]);
+    expect(removed.summary).toEqual(["removed lane shop from view returns, leaving 2 blocks in no lane, to be laid out again"]);
+    const left = removed.doc.views.returns!.blocks!;
+    expect(left.find((b) => b.id === "refund")).toEqual({ id: "refund", text: "Refund the card", description: "Within 3 days" });
+    // Blocks in the lanes that are left keep theirs.
+    expect(left.find((b) => b.id === "asked")).toEqual({ id: "asked", kind: "start", text: "Return asked for", lane: "customer", at: [10, 0] });
+    expect(apply(doc, { op: "update-block", view: "returns", id: "asked", lane: null }).views.returns!.blocks![0]).toEqual({ id: "asked", kind: "start", text: "Return asked for", at: [0, 0] });
+    expect(fails(doc, { op: "add-block", view: "returns", id: "x", lane: "warehouse" })).toBe('View "returns" has no lane "warehouse". Its lanes: customer, shop.');
+    expect(fails(doc, { op: "update-block", view: "returns", id: "asked", lane: "custmer" })).toBe('View "returns" has no lane "custmer". Did you mean "customer"?');
+    expect(fails(shop(), { op: "add-lane", view: "landscape", id: "x" })).toBe('View "landscape" is a landscape view. Only event and flowchart views have lanes.');
+  });
+
+  it("move blocks right when a flowchart gets its first lane, so none has an x less than 0, which a lane refuses", () => {
+    const doc = apply(returns(), { op: "update-block", view: "returns", id: "asked", at: [-300, 0] }, { op: "update-block", view: "returns", id: "in-time", at: [-100, 120] });
+    const added = applyOperations(doc, [{ op: "add-lane", view: "returns", id: "customer" }]);
+    expect(added.summary).toEqual(["added lane customer to view returns, moving its placed blocks 300 to the right, so none has an x less than 0"]);
+    const laned = added.doc;
+    expect(laned.views.returns!.blocks!.slice(0, 2).map((b) => b.at)).toEqual([
+      [0, 0],
+      [200, 120],
+    ]);
+    // Only the first lane moves them: they're all 0 or more after it.
+    expect(apply(laned, { op: "add-lane", view: "returns", id: "shop" }).views.returns!.blocks![1]!.at).toEqual([200, 120]);
+    // Blocks placed at 0 or more stay where they are.
+    expect(apply(returns(), { op: "add-lane", view: "returns", id: "customer" }).views.returns!.blocks![0]!.at).toEqual([0, 0]);
+    const lane = "In a flowchart with lanes, a block's x is from the inside of its lane's left, so it can't be less than 0.";
+    expect(fails(laned, { op: "update-block", view: "returns", id: "asked", at: [-1, 0] })).toBe(lane);
+    expect(fails(laned, { op: "add-block", view: "returns", id: "x", at: [-5, 0] })).toBe(lane);
+    expect(apply(laned, { op: "update-block", view: "returns", id: "asked", at: [0, 9] }).views.returns!.blocks![0]!.at).toEqual([0, 9]);
+    // A file edited by hand can still have one, which check warns of.
+    laned.views.returns!.blocks![0]!.at = [-40, 9];
+    expect(checkWorkspace(buildWorkspace(laned)).map((d) => [d.rule, d.path, d.message, d.fix])).toEqual([
+      ["block-x-negative", "views.returns.blocks[0].at", 'Block "asked" is at an x of -40, less than 0, so it\'s drawn at the inside of its lane\'s left.', "Give it an x of 0 or more: `open-arch update-block returns asked --at 0,9`."],
+    ]);
+    // Without lanes, x can be anything.
+    expect(rules(doc)).toEqual([]);
+  });
+
+  it("show in Mermaid as a frame for each lane, with its blocks inside it", () => {
+    const text = renderMermaid(view(laned()));
+    expect(text).toContain(
+      [
+        "flowchart TB",
+        '  done(["Done"])',
+        '  subgraph lane__customer["Customer"]',
+        "    direction TB",
+        '    asked(["Return asked for"])',
+        "  end",
+        '  subgraph lane__shop["Shop"]',
+        "    direction TB",
+        '    in_time{"Within 30 days?"}',
+      ].join("\n"),
+    );
+    expect(text).toContain('  refuse --> done\n  style lane__customer fill:none,stroke:#8a94a6\n  style lane__shop fill:none,stroke:#8a94a6');
+    // A lane with no blocks yet is a frame with its name.
+    const empty = apply(base(), { op: "add-lane", view: "returns", id: "customer" });
+    expect(renderMermaid(view(empty))).toBe(["flowchart TB", '  subgraph lane__customer["Customer"]', "  end", "  style lane__customer fill:none,stroke:#8a94a6"].join("\n"));
+  });
+
+  it("are documented with a table of lanes, and each block's lane", () => {
+    const page = exportDocs(buildWorkspace(laned()), "shop.openarch").find((f) => f.path === "views/returns.md")!.content;
+    expect(page).toContain(
+      [
+        "## Lanes",
+        "",
+        "| Lane | Description |",
+        "|---|---|",
+        "| Customer |  |",
+        "| Shop | The online shop's staff |",
+        "",
+        "## Blocks",
+        "",
+        "| # | Block | Kind | Lane | Description |",
+        "|---|---|---|---|---|",
+        "| 1 | Return asked for | Start | Customer |  |",
+        "| 2 | Within 30 days? | Decision | Shop |  |",
+      ].join("\n"),
+    );
+    expect(page).toContain("| 9 | Done | End |  |  |");
   });
 });

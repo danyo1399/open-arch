@@ -151,6 +151,7 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         kind: b.kind ?? "process",
         text: b.text,
         description: b.description || undefined,
+        lane: b.lane || undefined,
         at: b.at,
       })),
       flows: (v.flows ?? []).map((f, i) => ({ path: `views.${id}.flows[${i}]`, number: i + 1, from: f.from, to: f.to, text: f.text || undefined })),
