@@ -18,7 +18,7 @@ Exit codes: 0 = done, 1 = refused or failed (nothing saved), 2 = the command was
 |---|---|
 | `open-arch show` | The model as a tree, and the views |
 | `open-arch show <element-id>` | The element's fields, tags, notes, a class's stereotype and members, a container's libraries, the containers a library is built into, what it uses, what uses it (directly and through what's inside it), with those relationships' notes, and the views showing it |
-| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for, and on a class view, each arrow's kind. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along. For a state view: its states, with where it starts and can end, and its transitions in order. For a deployment view: its nodes, nested, with what each runs, its connections in order, and the arrows it draws between the copies of what runs where. For an event view: its lanes from the top down, and its cards in order, each with its kind, its lane and the cards it comes from. For a wireframe view: its screens in order, each with its device and the widgets on it, top to bottom, those in a row or panel under it, each with its kind, its text and the screen it leads to. For a whiteboard view: its shapes from the back to the front, each with its kind, where it is, its text and how it looks, and its arrows, each with its ends |
+| `open-arch show <view-id>` | The view's description and notes, its boxes, and its arrows with the relationships each stands for, and on a class view, each arrow's kind. For a sequence view: the elements in it, and its steps in order, with the relationships each goes along. For a state view: its states, with where it starts and can end, and its transitions in order. For a deployment view: its nodes, nested, with what each runs, its connections in order, and the arrows it draws between the copies of what runs where. For an event view: its lanes from the top down, and its cards in order, each with its kind, its lane and the cards it comes from. For a wireframe view: its screens in order, each with its device and the widgets on it, top to bottom, those in a row or panel under it, each with its kind, its text and the screen it leads to. For a whiteboard view: its shapes from the back to the front, each with its kind, where it is, its text and how it looks, and its arrows, each with its ends. For a flowchart view: its blocks in order, each with its kind, its text, its description and where it is, and its flows in order, each with its ends and its text |
 | `open-arch check [--json] [--strict]` | Problems in the model; exits 1 on errors (or warnings, with `--strict`) |
 | `open-arch export [folder] [--check]` | Writes the docs to the folder, or to the workspace's docs folder; `--check` exits 1 if they're out of date |
 
@@ -39,7 +39,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-relationship <from> <to>` | `--description`, `--technology`, `--tag <name[=value]>`, `--kind <association\|dependency\|inheritance\|realization\|composition\|aggregation>` (between two classes; default: association), `--bidirectional` (associations only: `<to>` uses `<from>` too), `--notes <markdown>` or `--notes-file <path\|->` |
 | `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--kind` (`--kind ""` makes it an association again), `--bidirectional` / `--one-way`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
-| `add-view <id>` | `--level <landscape\|context\|container\|component\|class\|sequence\|state\|deployment\|event\|wireframe\|whiteboard>` (required), `--scope <id>` (a container or library for a component view, a component or library for a class view, for a state view, optionally, the element of any kind whose states it shows, and for a wireframe view, optionally, the system or container whose screens it shows), `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. Sequence, deployment, event and whiteboard views take no scope, include or exclude, and state and wireframe views no include or exclude |
+| `add-view <id>` | `--level <landscape\|context\|container\|component\|class\|sequence\|state\|deployment\|event\|wireframe\|whiteboard\|flowchart>` (required), `--scope <id>` (a container or library for a component view, a component or library for a class view, for a state view, optionally, the element of any kind whose states it shows, for a wireframe view, optionally, the system or container whose screens it shows, and for a flowchart view, optionally, the element of any kind whose process it shows), `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. Sequence, deployment, event and whiteboard views take no scope, include or exclude, and state, wireframe and flowchart views no include or exclude |
 | `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--new-elements <show\|hide>`, `--notes`, `--notes-file`. `--new-elements hide` lists the view's boxes in include, so elements added later stay out; `show` puts `*` back, excluding what it would add. Either keeps the boxes the view has now |
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
@@ -80,6 +80,12 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-arrow <view> <id>` | Whiteboard views only. `--from <shape\|x,y>` and `--to <shape\|x,y>` (required: a shape, which the arrow follows, or a point), `--text`, `--heads <end\|both\|none>` (default: end; none is a line), `--color`, `--dashed` |
 | `update-arrow <view> <id>` | `--from`, `--to`, `--text`, `--new-id <id>`, `--heads` (`--heads ""` is end again), `--color`, `--dashed` / `--solid` |
 | `remove-arrow <view> <id>` | |
+| `add-block <view> <id>` | Flowchart views only. `--kind <start\|end\|process\|decision\|input-output\|subprocess\|document\|database>` (default: process), `--text` (what it says; default: from the id), `--description`, `--at <x,y>` (its top-left corner; default: the designer lays it out), `--position <n>` (its place in the view's list of blocks: 1 is the first; default: after the last) |
+| `update-block <view> <id>` | `--kind` (`--kind ""` makes it a process again), `--text` (a block needs text), `--new-id <id>` (the flows to and from it follow it), `--description`, `--at` (`--at ""` lets the designer lay it out again), `--position <n>` (moves it to that place) |
+| `remove-block <view> <id>` | Also removes the flows to and from it |
+| `add-flow <view> <from> <to>` | Flowchart views only. `--text` (like `Yes` or `No` on the ways out of a decision), `--flow <n>` (its number: 1 is the first; default: after the last) |
+| `update-flow <view> <n>` | `--from`, `--to`, `--text`, `--move-to <n>` |
+| `remove-flow <view> <n>` | The ones after it move up one |
 | `update-workspace` | `--name`, `--description`, `--docs <folder>` (`--docs ""` stops generating docs) |
 | `apply [file\|-]` | A JSON list of operations, all or nothing (see below) |
 | `init [file]` | `--name`, `--docs <folder>`, `--no-skills`, `--no-agents-md` |
@@ -92,6 +98,8 @@ A lane and a card are named by their IDs, each unique among its event view's lan
 A screen is named by its ID, unique among its wireframe view's screens, and a widget by its ID, unique among all the view's widgets, on every screen. A widget's `--to` names a screen the view already has, so add the screens first, or set it later with `update-widget`. A widget that leads to the screen it's on is a warning: no arrow is drawn.
 
 A shape and an arrow are named by their IDs, each unique among its whiteboard's shapes or arrows. An arrow's end that's a shape names one the view already has, so add the shapes first. An arrow from a shape to itself is a warning: it isn't drawn.
+
+A block is named by its ID, unique among its flowchart's blocks, and a flow by its number, as `show <view>` prints it: 1 is the first. A flow's ends name blocks the view already has, so add the blocks first. A flow can't go from a block to itself, or say what another between the same two blocks says. Check warns about a flowchart without a start, a decision with fewer than two ways out, a way out of a decision without text, a flow out of an end and one into a start.
 
 A step is named by its number in its sequence view, as `show <view>` prints it: 1 is the first. A step from A to B needs a relationship in the model from A, or something inside A, to B, or something inside B, or one between them that goes both ways. A reply goes back along one from B to A. If there's none, the command refuses the step: add the relationship first.
 
@@ -152,6 +160,12 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `add-arrow` | **view**, **id**, **from**, **to** (each a shape's ID or a point, `[x, y]`), text, heads (default: `"end"`), color, dashed |
 | `update-arrow` | **view**, **id**, newId, from, to, text, heads, color, dashed |
 | `remove-arrow` | **view**, **id** |
+| `add-block` | **view**, **id**, kind (default: `"process"`), text, description, at (`[x, y]`), position (its place in the list: 1 is the first; default: after the last) |
+| `update-block` | **view**, **id**, newId, kind, text, description, at (`null` lets the designer lay it out again), position (the place to move it to) |
+| `remove-block` | **view**, **id** |
+| `add-flow` | **view**, **from**, **to**, text, flow (its number: 1 is the first; default: after the last) |
+| `update-flow` | **view**, **flow**, from, to, text, newFlow |
+| `remove-flow` | **view**, **flow** |
 | `update-workspace` | name, description, docs |
 
 Example:

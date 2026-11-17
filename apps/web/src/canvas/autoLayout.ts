@@ -71,7 +71,8 @@ export function gridLayout(nodes: { id: string; inside: boolean }[]): Record<str
   return out;
 }
 
-export async function elkLayout(nodes: LayoutNode[], edges: { from: string; to: string }[]): Promise<Record<string, Point>> {
+/** `options`: more of ELK's layout options, for the whole diagram. */
+export async function elkLayout(nodes: LayoutNode[], edges: { from: string; to: string }[], options: Record<string, string> = {}): Promise<Record<string, Point>> {
   const box = (n: LayoutNode): ElkNode => ({ id: n.id, width: NODE_W, height: n.height ?? NODE_H });
   const inside = nodes.filter((n) => n.inside);
   const children: ElkNode[] = nodes.filter((n) => !n.inside).map(box);
@@ -87,6 +88,7 @@ export async function elkLayout(nodes: LayoutNode[], edges: { from: string; to: 
       "elk.direction": "DOWN",
       "elk.hierarchyHandling": "INCLUDE_CHILDREN",
       ...spacing,
+      ...options,
     },
     children,
     edges: edges.map((e, i) => ({ id: `e${i}`, sources: [e.from], targets: [e.to] })),

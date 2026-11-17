@@ -5,6 +5,7 @@
  */
 import { KIND_RANK, tagEntries } from "./model.js";
 import {
+  BLOCK_KINDS,
   CARD_KINDS,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
@@ -23,6 +24,8 @@ import {
   WIDGET_KINDS,
   type ArrowData,
   type ArrowEnd,
+  type BlockData,
+  type BlockKind,
   type CardData,
   type CardKind,
   type ConnectionData,
@@ -30,6 +33,7 @@ import {
   type Diagnostic,
   type ElementData,
   type ElementShape,
+  type FlowData,
   type LaneData,
   type OpenArchDocument,
   type Position,
@@ -89,10 +93,33 @@ type Report = (path: string, rule: string, message: string, fix?: string) => voi
 const TOP_KEYS = ["$schema", "openarch", "name", "description", "export", "elements", "views"];
 const ELEMENT_KEYS = ["kind", "name", "parent", "description", "technology", "external", "shape", "stereotype", "libraries", "tags", "notes", "members", "uses"];
 const RELATIONSHIP_KEYS = ["to", "kind", "bidirectional", "description", "technology", "tags", "notes"];
-const VIEW_KEYS = ["title", "description", "level", "scope", "include", "exclude", "notes", "steps", "initial", "states", "transitions", "nodes", "connections", "lanes", "cards", "screens", "shapes", "arrows", "stickies", "layout"];
+const VIEW_KEYS = [
+  "title",
+  "description",
+  "level",
+  "scope",
+  "include",
+  "exclude",
+  "notes",
+  "steps",
+  "initial",
+  "states",
+  "transitions",
+  "nodes",
+  "connections",
+  "lanes",
+  "cards",
+  "screens",
+  "shapes",
+  "arrows",
+  "blocks",
+  "flows",
+  "stickies",
+  "layout",
+];
 /** Views that draw something other than boxes picked from the model. */
-type OwnLevel = "sequence" | "state" | "deployment" | "event" | "wireframe" | "whiteboard";
-/** Fields only sequence, state, deployment, event, wireframe and whiteboard views take, and those they don't, with why. */
+type OwnLevel = "sequence" | "state" | "deployment" | "event" | "wireframe" | "whiteboard" | "flowchart";
+/** Fields only sequence, state, deployment, event, wireframe, whiteboard and flowchart views take, and those they don't, with why. */
 const ONLY_ON: Record<string, OwnLevel> = {
   steps: "sequence",
   initial: "state",
@@ -105,6 +132,8 @@ const ONLY_ON: Record<string, OwnLevel> = {
   screens: "wireframe",
   shapes: "whiteboard",
   arrows: "whiteboard",
+  blocks: "flowchart",
+  flows: "flowchart",
 };
 const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   sequence: { fields: ["include", "exclude", "layout"], why: "they show the elements in their steps, in the order they first appear" },
@@ -113,8 +142,17 @@ const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   event: { fields: ["scope", "include", "exclude", "layout"], why: "they show their cards in order, each in its lane" },
   wireframe: { fields: ["include", "exclude", "layout"], why: "they show their screens in order, each drawn from its widgets" },
   whiteboard: { fields: ["scope", "include", "exclude", "layout"], why: "they show their shapes and arrows, each where it's put" },
+  flowchart: { fields: ["include", "exclude", "layout"], why: "they show their blocks, each placed by its own `at`" },
 };
-const LEVEL_NAME: Record<OwnLevel, string> = { sequence: "Sequence", state: "State", deployment: "Deployment", event: "Event", wireframe: "Wireframe", whiteboard: "Whiteboard" };
+const LEVEL_NAME: Record<OwnLevel, string> = {
+  sequence: "Sequence",
+  state: "State",
+  deployment: "Deployment",
+  event: "Event",
+  wireframe: "Wireframe",
+  whiteboard: "Whiteboard",
+  flowchart: "Flowchart",
+};
 const STATE_KEYS = ["name", "description", "final", "at"];
 const TRANSITION_KEYS = ["from", "to", "event", "guard", "action"];
 const NODE_KEYS = ["name", "parent", "description", "technology", "infrastructure", "instances", "shape", "runs"];
@@ -125,6 +163,8 @@ const SCREEN_KEYS = ["id", "name", "description", "device", "widgets"];
 const WIDGET_KEYS = ["id", "kind", "text", "description", "to", "widgets"];
 const SHAPE_KEYS = ["id", "kind", "text", "at", "points", "size", "color", "fill", "dashed"];
 const ARROW_KEYS = ["id", "from", "to", "text", "heads", "color", "dashed"];
+const BLOCK_KEYS = ["id", "kind", "text", "description", "at"];
+const FLOW_KEYS = ["from", "to", "text"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "on", "color", "at"];
 const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
@@ -240,6 +280,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 12) out = { ...out, openarch: 13 };
   // Version 14 added whiteboard views, so a version 13 file means the same in it.
   if (out.openarch === 13) out = { ...out, openarch: 14 };
+  // Version 15 added flowchart views, so a version 14 file means the same in it.
+  if (out.openarch === 14) out = { ...out, openarch: 15 };
   return out;
 }
 
@@ -391,8 +433,9 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   const events = view.level === "event";
   const wireframe = view.level === "wireframe";
   const whiteboard = view.level === "whiteboard";
+  const flowchart = view.level === "flowchart";
   // Boxes come from include and exclude, and are placed by layout, only on the other views.
-  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard;
+  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard && !flowchart;
   const own = boxes ? undefined : (view.level as OwnLevel);
   for (const key of Object.keys(value)) {
     const only = ONLY_ON[key];
@@ -531,6 +574,31 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
           if (!arrow) return;
           if (view.arrows!.some((a) => a.id === arrow.id)) report(`${path}.arrows[${i}].id`, "id-duplicate", `"${arrow.id}" is the ID of two arrows of this view.`, "Give one of them another ID.");
           else view.arrows!.push(arrow);
+        });
+      }
+    }
+  }
+  if (flowchart) {
+    // A block with the ID of one before it is left out: every flow to it would mean the first.
+    if (value.blocks !== undefined) {
+      if (!Array.isArray(value.blocks)) report(`${path}.blocks`, "field-type", "Must be a list of blocks.");
+      else {
+        view.blocks = [];
+        value.blocks.forEach((item, i) => {
+          const b = readBlock(item, `${path}.blocks[${i}]`, report);
+          if (!b) return;
+          if (view.blocks!.some((other) => other.id === b.id)) report(`${path}.blocks[${i}].id`, "id-duplicate", `"${b.id}" is the ID of two blocks of this view.`, "Give one of them another ID.");
+          else view.blocks!.push(b);
+        });
+      }
+    }
+    if (value.flows !== undefined) {
+      if (!Array.isArray(value.flows)) report(`${path}.flows`, "field-type", "Must be a list of flows.");
+      else {
+        view.flows = [];
+        value.flows.forEach((item, i) => {
+          const flow = readFlow(item, `${path}.flows[${i}]`, report);
+          if (flow) view.flows!.push(flow);
         });
       }
     }
@@ -932,6 +1000,53 @@ function readArrow(value: unknown, path: string, report: Report): ArrowData | un
   return arrow;
 }
 
+function readBlock(value: unknown, path: string, report: Report): BlockData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A block must be an object like { "id": "pack", "text": "Pack the order" }.');
+    return undefined;
+  }
+  unknownKeys(value, BLOCK_KEYS, path, report);
+  const id = str(value.id, `${path}.id`, report);
+  if (!id) {
+    report(`${path}.id`, "field-required", "`id` is required: an ID unique among the view's blocks.");
+    return undefined;
+  }
+  if (!readId(id, `${path}.id`, report)) return undefined;
+  const b: BlockData = { id, text: id };
+  if (value.kind !== undefined) {
+    if ((BLOCK_KINDS as readonly unknown[]).includes(value.kind)) {
+      if (value.kind !== "process") b.kind = value.kind as BlockKind;
+    } else report(`${path}.kind`, "block-kind-invalid", `\`kind\` must be one of: ${BLOCK_KINDS.join(", ")}.`);
+  }
+  const text = str(value.text, `${path}.text`, report);
+  if (!text?.trim()) report(`${path}.text`, "field-required", "`text` is required: what the block says.");
+  else b.text = text;
+  const description = str(value.description, `${path}.description`, report);
+  if (description !== undefined) b.description = description;
+  if (value.at !== undefined) {
+    if (isPoint(value.at)) b.at = value.at;
+    else report(`${path}.at`, "field-type", "Must be a position, [x, y].");
+  }
+  return b;
+}
+
+function readFlow(value: unknown, path: string, report: Report): FlowData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A flow must be an object like { "from": "in-stock", "to": "pack", "text": "Yes" }.');
+    return undefined;
+  }
+  unknownKeys(value, FLOW_KEYS, path, report);
+  const from = str(value.from, `${path}.from`, report);
+  const to = str(value.to, `${path}.to`, report);
+  if (!from) report(`${path}.from`, "field-required", "`from` is required: the ID of the block it leaves.");
+  if (!to) report(`${path}.to`, "field-required", "`to` is required: the ID of the block it goes to.");
+  if (!from || !to) return undefined;
+  const flow: FlowData = { from, to };
+  const text = str(value.text, `${path}.text`, report);
+  if (text !== undefined) flow.text = text;
+  return flow;
+}
+
 /** `own`: the view's level, when it draws something other than boxes picked from the model, whose notes can't be on anything. */
 function readSticky(id: string, value: unknown, path: string, report: Report, own: OwnLevel | undefined): StickyData | undefined {
   if (!readId(id, path, report)) return undefined;
@@ -1137,7 +1252,8 @@ function viewText(v: ViewData, indent: string): string {
   const events = v.level === "event";
   const wireframe = v.level === "wireframe";
   const whiteboard = v.level === "whiteboard";
-  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard;
+  const flowchart = v.level === "flowchart";
+  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard && !flowchart;
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
   if (boxes) entries.push(["include", inline(v.include ?? ["*"])]);
   if (boxes && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
@@ -1201,6 +1317,12 @@ function viewText(v: ViewData, indent: string): string {
     const arrow = (a: ArrowData) => inline({ id: a.id, from: end(a.from), to: end(a.to), text: a.text || undefined, heads: a.heads && a.heads !== "end" ? a.heads : undefined, ...look(a) });
     entries.push(["shapes", listText((v.shapes ?? []).map(shape), indent)]);
     entries.push(["arrows", listText((v.arrows ?? []).map(arrow), indent)]);
+  }
+  if (flowchart) {
+    const blockLine = (b: BlockData) =>
+      inline({ id: b.id, kind: b.kind && b.kind !== "process" ? b.kind : undefined, text: b.text, description: b.description || undefined, at: b.at?.map((n) => Math.round(n)) });
+    entries.push(["blocks", listText((v.blocks ?? []).map(blockLine), indent)]);
+    entries.push(["flows", listText((v.flows ?? []).map((f) => inline({ from: f.from, to: f.to, text: f.text || undefined })), indent)]);
   }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();

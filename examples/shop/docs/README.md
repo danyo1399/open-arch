@@ -6,6 +6,7 @@ An online shop, used as the open-arch example.
 
 ## Views
 
+- [Checking out](views/checking-out.md) – What the Checkout API does when a customer places an order, from the cart to a receipt.
 - [Checkout API components](views/checkout-api-components.md) – How a checkout request is handled.
 - [Checkout screens](views/checkout-screens.md) – What the customer sees, from a product to a placed order.
 - [Ideas for a faster checkout](views/faster-checkout-ideas.md) – Rough ideas from the checkout retro, to talk through before anything is decided.

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { boardItemsOf, followRenames, selectBoard, shownInProperties, viewAction, whiteboardDeleteOps, whiteboardSelectionLeft } from "../src/model.js";
 
 const doc: OpenArchDocument = {
-  openarch: 14,
+  openarch: 15,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" } },
   views: {

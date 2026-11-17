@@ -24,6 +24,7 @@ import { EventDiagram } from "./canvas/EventDiagram.js";
 import { WhiteboardDiagram } from "./canvas/WhiteboardDiagram.js";
 import { WireframeDiagram } from "./canvas/WireframeDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
+import { FlowchartDiagram } from "./canvas/FlowchartDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
 import { canOpenFolders, exportToFolder, FolderHost, folderList, pickFolder } from "./folders.js";
 import { BrowserHost, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
@@ -109,6 +110,8 @@ export function detailsName(ws: Workspace, view: ViewDef | null, computed: Compu
   if (shown.kind === "step") return `Step ${shown.step.number}`;
   if (shown.kind === "state") return shown.state.name;
   if (shown.kind === "transition") return `Transition ${shown.transition.number}`;
+  if (shown.kind === "block") return shown.block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? shown.block.id;
+  if (shown.kind === "flow") return `Flow ${shown.flow.number}`;
   if (shown.kind === "node") return shown.node.name;
   if (shown.kind === "connection") return `Connection ${shown.connection.number}`;
   if (shown.kind === "instance") return `${shown.element.name} in ${shown.node.name}`;
@@ -218,6 +221,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "step" && ws && selection.number > (ws.views.get(viewId ?? "")?.steps.length ?? 0)) setSelection(null);
     if (selection?.kind === "state" && ws && !ws.views.get(viewId ?? "")?.states.some((s) => s.id === selection.id)) setSelection(null);
     if (selection?.kind === "transition" && ws && selection.number > (ws.views.get(viewId ?? "")?.transitions.length ?? 0)) setSelection(null);
+    if (selection?.kind === "block" && ws && !ws.views.get(viewId ?? "")?.blocks.some((b) => b.id === selection.id)) setSelection(null);
+    if (selection?.kind === "flow" && ws && selection.number > (ws.views.get(viewId ?? "")?.flows.length ?? 0)) setSelection(null);
     if (selection?.kind === "node" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.id)) setSelection(null);
     if (selection?.kind === "connection" && ws && selection.number > (ws.views.get(viewId ?? "")?.connections.length ?? 0)) setSelection(null);
     if (selection?.kind === "instance" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.node && n.runs.includes(selection.element))) setSelection(null);
@@ -340,6 +345,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     // So does a state, with its transitions, and a transition: Undo brings them back.
     if (selection?.kind === "state" && view) void edit([{ op: "remove-state", view: view.id, id: selection.id }]).then(() => select(null));
     if (selection?.kind === "transition" && view) void edit([{ op: "remove-transition", view: view.id, transition: selection.number }]).then(() => select(null));
+    // And a flowchart's block, with its flows, and a flow.
+    if (selection?.kind === "block" && view) void edit([{ op: "remove-block", view: view.id, id: selection.id }]).then(() => select(null));
+    if (selection?.kind === "flow" && view) void edit([{ op: "remove-flow", view: view.id, flow: selection.number }]).then(() => select(null));
     // A node, with what's inside it, and a connection are only this view's, and Undo brings them back.
     if (selection?.kind === "node" && view) void edit([{ op: "remove-node", view: view.id, id: selection.id }]).then(() => select(null));
     if (selection?.kind === "connection" && view) void edit([{ op: "remove-connection", view: view.id, connection: selection.number }]).then(() => select(null));
@@ -693,6 +701,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           computed ? (
             <ReactFlowProvider key={view.id}>
               <StateDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
+            </ReactFlowProvider>
+          ) : (
+            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+          )
+        ) : view?.level === "flowchart" ? (
+          computed ? (
+            <ReactFlowProvider key={view.id}>
+              <FlowchartDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

@@ -9,6 +9,7 @@ import { isInside, kindList, PARENT_KINDS } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
   ARROW_HEADS,
+  BLOCK_KINDS,
   CARD_KINDS,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
@@ -27,6 +28,8 @@ import {
   type ArrowData,
   type ArrowEnd,
   type ArrowHeads,
+  type BlockData,
+  type BlockKind,
   type CardData,
   type CardKind,
   type ConnectionData,
@@ -261,6 +264,15 @@ export type Operation =
   | { op: "add-arrow"; view: string; id: string; from: ArrowEnd; to: ArrowEnd; text?: string; heads?: ArrowHeads; color?: ShapeColor; dashed?: boolean }
   | { op: "update-arrow"; view: string; id: string; newId?: string; from?: ArrowEnd; to?: ArrowEnd; text?: string | null; heads?: ArrowHeads | null; color?: ShapeColor | null; dashed?: boolean }
   | { op: "remove-arrow"; view: string; id: string }
+  /** `at` is its top-left corner; without it, the designer lays it out. `position` is its place in the file's order: 1 is the first. */
+  | { op: "add-block"; view: string; id: string; kind?: BlockKind; text?: string; description?: string; at?: [number, number]; position?: number }
+  /** `at`: null lets the designer lay it out again. */
+  | { op: "update-block"; view: string; id: string; newId?: string; kind?: BlockKind; text?: string; description?: string | null; at?: [number, number] | null; position?: number }
+  | { op: "remove-block"; view: string; id: string }
+  /** `flow` is its number: 1 is the first. */
+  | { op: "add-flow"; view: string; from: string; to: string; text?: string; flow?: number }
+  | { op: "update-flow"; view: string; flow: number; from?: string; to?: string; text?: string | null; newFlow?: number }
+  | { op: "remove-flow"; view: string; flow: number }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -491,6 +503,18 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
     fields: { view: "string", id: "string", newId: "string", from: "end", to: "end", text: "nullable-string", heads: "nullable-string", color: "nullable-string", dashed: "boolean" },
   },
   "remove-arrow": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-block": {
+    required: ["view", "id"],
+    fields: { view: "string", id: "string", kind: "string", text: "string", description: "string", at: "point", position: "number" },
+  },
+  "update-block": {
+    required: ["view", "id"],
+    fields: { view: "string", id: "string", newId: "string", kind: "string", text: "string", description: "nullable-string", at: "nullable-point", position: "number" },
+  },
+  "remove-block": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-flow": { required: ["view", "from", "to"], fields: { view: "string", from: "string", to: "string", text: "string", flow: "number" } },
+  "update-flow": { required: ["view", "flow"], fields: { view: "string", flow: "number", from: "string", to: "string", text: "nullable-string", newFlow: "number" } },
+  "remove-flow": { required: ["view", "flow"], fields: { view: "string", flow: "number" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
@@ -782,6 +806,22 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       view.arrows!.splice(view.arrows!.indexOf(arrow), 1);
       return `removed arrow ${op.id} from view ${op.view}`;
     }
+    case "add-block":
+      return addBlock(doc, op);
+    case "update-block":
+      return updateBlock(doc, op);
+    case "remove-block":
+      return removeBlock(doc, op.view, op.id);
+    case "add-flow":
+      return addFlow(doc, op);
+    case "update-flow":
+      return updateFlow(doc, op);
+    case "remove-flow": {
+      const view = requireFlowchart(doc, op.view);
+      requireFlow(view, op.view, op.flow);
+      view.flows!.splice(op.flow - 1, 1);
+      return `removed flow ${op.flow} from view ${op.view}`;
+    }
     case "update-workspace":
       return updateWorkspace(doc, op);
   }
@@ -1048,6 +1088,8 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     screens: [],
     shapes: [],
     arrows: [],
+    blocks: [],
+    flows: [],
   };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
@@ -1059,22 +1101,30 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   const events = op.level === "event";
   const wireframe = op.level === "wireframe";
   const whiteboard = op.level === "whiteboard";
+  const flowchart = op.level === "flowchart";
   if (deployment && (op.include || op.exclude)) throw new OpError(DEPLOYMENT_BOXES);
   if (events && (op.include || op.exclude)) throw new OpError(EVENT_CARDS);
   if (wireframe && (op.include || op.exclude)) throw new OpError(WIREFRAME_SCREENS);
   if (whiteboard && (op.include || op.exclude)) throw new OpError(WHITEBOARD_SHAPES);
+  if (flowchart && (op.include || op.exclude)) throw new OpError(FLOWCHART_BLOCKS);
   checkIds(doc, op.include, "include");
   checkIds(doc, op.exclude, "exclude");
   const scope = op.scope ? doc.elements[op.scope] : undefined;
   const title =
     op.title?.trim() ||
-    (sequence || deployment || events || whiteboard ? titleFromId(op.id) : scope ? `${scope.name} ${LEVEL_TITLE[op.level]}` : statesView || wireframe ? titleFromId(op.id) : "System landscape");
+    (sequence || deployment || events || whiteboard
+      ? titleFromId(op.id)
+      : scope
+        ? `${scope.name} ${LEVEL_TITLE[op.level]}`
+        : statesView || wireframe || flowchart
+          ? titleFromId(op.id)
+          : "System landscape");
   doc.views[op.id] = clean<ViewData>({
     title,
     description: op.description?.trim(),
     level: op.level,
     scope: op.scope,
-    include: sequence || statesView || deployment || events || wireframe || whiteboard ? undefined : op.include ? [...op.include] : ["*"],
+    include: sequence || statesView || deployment || events || wireframe || whiteboard || flowchart ? undefined : op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
     notes: op.notes?.trim(),
     steps: sequence ? [] : undefined,
@@ -1087,6 +1137,8 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     screens: wireframe ? [] : undefined,
     shapes: whiteboard ? [] : undefined,
     arrows: whiteboard ? [] : undefined,
+    blocks: flowchart ? [] : undefined,
+    flows: flowchart ? [] : undefined,
   });
   return `added view ${op.id}`;
 }
@@ -1104,6 +1156,7 @@ export const LEVEL_TITLE: Record<ViewLevel, string> = {
   event: "events",
   wireframe: "wireframes",
   whiteboard: "whiteboard",
+  flowchart: "process",
 };
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
@@ -1133,6 +1186,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   if (view.level === "event" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(EVENT_CARDS);
   if (view.level === "wireframe" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(WIREFRAME_SCREENS);
   if (view.level === "whiteboard" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(WHITEBOARD_SHAPES);
+  if (view.level === "flowchart" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(FLOWCHART_BLOCKS);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -1185,6 +1239,7 @@ function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "event") throw new OpError(EVENT_CARDS);
   if (view.level === "wireframe") throw new OpError(WIREFRAME_SCREENS);
   if (view.level === "whiteboard") throw new OpError(WHITEBOARD_SHAPES);
+  if (view.level === "flowchart") throw new OpError(FLOWCHART_BLOCKS);
   requireElement(doc, id);
   if (shows(doc, viewId, id)) return `${id} is already in view ${viewId}`;
   if (view.exclude?.includes(id)) {
@@ -1206,6 +1261,7 @@ function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "event") throw new OpError(EVENT_CARDS);
   if (view.level === "wireframe") throw new OpError(WIREFRAME_SCREENS);
   if (view.level === "whiteboard") throw new OpError(WHITEBOARD_SHAPES);
+  if (view.level === "flowchart") throw new OpError(FLOWCHART_BLOCKS);
   requireElement(doc, id);
   if (!shows(doc, viewId, id)) throw new OpError(`"${id}" isn't a box in view "${viewId}".`);
   if (view.include?.includes(id)) view.include = view.include.filter((x) => x !== id);
@@ -1221,6 +1277,7 @@ function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<stri
   if (view.level === "event") throw new OpError("An event view is laid out from its lanes and the order of its cards, so it has no box positions. Move a card with update-card.");
   if (view.level === "wireframe") throw new OpError("A wireframe view is laid out from its screens and their widgets, so it has no box positions. Move a widget with update-widget.");
   if (view.level === "whiteboard") throw new OpError("A whiteboard view has no boxes. Move a shape with update-shape --at.");
+  if (view.level === "flowchart") throw new OpError("A flowchart view has no boxes. Move a block with update-block --at.");
   const layout: Record<string, Position> = { ...view.layout };
   for (const [id, pos] of Object.entries(positions)) {
     if (pos === null) {
@@ -2399,6 +2456,144 @@ function requireArrow(view: ViewData, viewId: string, id: string): ArrowData {
     throw new OpError(`View "${viewId}" has no arrow "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its arrows: ${ids.join(", ")}.` : " Add one with add-arrow."}`);
   }
   return arrow;
+}
+
+/** Why a flowchart view can't be given elements to show or hide. */
+const FLOWCHART_BLOCKS = "A flowchart view draws its blocks, not elements, so it takes no include or exclude list. Add a block with add-block, and a flow between two with add-flow.";
+const BLOCK_ID_EXAMPLE = 'IDs are lowercase kebab-case, like "pack-order".';
+
+function addBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "add-block" }>): string {
+  const view = requireFlowchart(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. ${BLOCK_ID_EXAMPLE}`);
+  const blocks = (view.blocks ??= []);
+  if (blocks.some((b) => b.id === op.id)) throw new OpError(`View "${op.view}" already has a block "${op.id}".`);
+  const kind = op.kind ?? "process";
+  checkOneOf(kind, BLOCK_KINDS, "kind of block");
+  const block = clean<BlockData>({
+    id: op.id,
+    kind: kind === "process" ? undefined : kind,
+    text: op.text?.trim() || titleFromId(op.id),
+    description: op.description?.trim(),
+    at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])],
+  });
+  const at = insertAt(blocks, block, op.position, op.view, "block");
+  return `added ${kind === "input-output" ? "input or output" : kind} ${op.id} to view ${op.view}${at < blocks.length ? `, as block ${at}` : ""}`;
+}
+
+function updateBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "update-block" }>): string {
+  const view = requireFlowchart(doc, op.view);
+  const block = requireBlock(view, op.view, op.id);
+  const fields = ["newId", "kind", "text", "description", "at", "position"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on block "${op.id}": ${fields.join(", ")}.`);
+  if (op.kind !== undefined) {
+    checkOneOf(op.kind, BLOCK_KINDS, "kind of block");
+    if (op.kind === "process") delete block.kind;
+    else block.kind = op.kind;
+  }
+  if (op.text !== undefined) {
+    if (!op.text.trim()) throw new OpError("A block needs some text: what's done, or for a decision, the question.");
+    block.text = op.text.trim();
+  }
+  if (op.description !== undefined) {
+    if (op.description === null || !op.description.trim()) delete block.description;
+    else block.description = op.description.trim();
+  }
+  if (op.at === null) delete block.at;
+  else if (op.at !== undefined) block.at = [Math.round(op.at[0]), Math.round(op.at[1])];
+  const blocks = view.blocks!;
+  const moved = moveTo(blocks, blocks.indexOf(block), op.position, op.view, "block");
+  const where = moved ? `, and moved it to block ${op.position}` : "";
+  if (op.newId === undefined || op.newId === op.id) {
+    // Asked only for the place, or the ID, it has already: say so, as nothing changed.
+    if (fields.every((f) => f === "position" || f === "newId" || op[f] === undefined)) {
+      return moved ? `moved block ${op.id} to block ${op.position} in view ${op.view}` : `block ${op.id} is already ${op.position === undefined ? `"${op.id}"` : `block ${op.position}`} in view ${op.view}`;
+    }
+    return `updated block ${op.id} in view ${op.view}${where}`;
+  }
+  // A new ID keeps the block where it is, and the flows to and from it follow it.
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. ${BLOCK_ID_EXAMPLE}`);
+  if (blocks.some((b) => b.id === op.newId)) throw new OpError(`View "${op.view}" already has a block "${op.newId}".`);
+  block.id = op.newId;
+  for (const f of view.flows ?? []) {
+    if (f.from === op.id) f.from = op.newId;
+    if (f.to === op.id) f.to = op.newId;
+  }
+  return `renamed block ${op.id} to ${op.newId} in view ${op.view}${where}`;
+}
+
+/** Removes a block, and the flows to and from it. */
+function removeBlock(doc: OpenArchDocument, viewId: string, id: string): string {
+  const view = requireFlowchart(doc, viewId);
+  const block = requireBlock(view, viewId, id);
+  view.blocks!.splice(view.blocks!.indexOf(block), 1);
+  const before = view.flows?.length ?? 0;
+  if (view.flows) view.flows = view.flows.filter((f) => f.from !== id && f.to !== id);
+  const gone = before - (view.flows?.length ?? 0);
+  return `removed block ${id} from view ${viewId}${gone ? ` and ${count(gone, "flow")} to or from it` : ""}`;
+}
+
+/** Refuses a flow from a block to itself, and one the view has already: the same ends and text. */
+function checkFlow(view: ViewData, viewId: string, flow: { from: string; to: string; text?: string }, other?: object): void {
+  requireBlock(view, viewId, flow.from);
+  requireBlock(view, viewId, flow.to);
+  if (flow.from === flow.to) throw new OpError("A flow can't go from a block to itself.");
+  const same = (view.flows ?? []).find((f) => f !== other && f.from === flow.from && f.to === flow.to && (f.text ?? "") === (flow.text ?? ""));
+  if (same) throw new OpError(`View "${viewId}" already has a flow from "${flow.from}" to "${flow.to}"${flow.text ? ` that says "${flow.text}"` : ""}: flow ${view.flows!.indexOf(same) + 1}.`);
+}
+
+function addFlow(doc: OpenArchDocument, op: Extract<Operation, { op: "add-flow" }>): string {
+  const view = requireFlowchart(doc, op.view);
+  const flow = clean({ from: op.from, to: op.to, text: op.text?.trim() });
+  checkFlow(view, op.view, flow);
+  const flows = (view.flows ??= []);
+  const at = op.flow ?? flows.length + 1;
+  if (at > flows.length + 1) throw new OpError(`View "${op.view}" has ${count(flows.length, "flow")}, so a new one can be flow 1 to ${flows.length + 1}.`);
+  flows.splice(at - 1, 0, flow);
+  return `added flow ${at} to view ${op.view}: ${op.from} -> ${op.to}`;
+}
+
+function updateFlow(doc: OpenArchDocument, op: Extract<Operation, { op: "update-flow" }>): string {
+  const view = requireFlowchart(doc, op.view);
+  const flow = requireFlow(view, op.view, op.flow);
+  const fields = ["from", "to", "text", "newFlow"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on flow ${op.flow}: ${fields.join(", ")}.`);
+  const next = clean({ from: op.from ?? flow.from, to: op.to ?? flow.to, text: op.text === undefined ? flow.text : op.text?.trim() || undefined });
+  if (op.from !== undefined || op.to !== undefined || op.text !== undefined) checkFlow(view, op.view, next, flow);
+  flow.from = next.from;
+  flow.to = next.to;
+  if (next.text) flow.text = next.text;
+  else delete flow.text;
+  const flows = view.flows!;
+  if (op.newFlow !== undefined && op.newFlow !== op.flow) {
+    if (op.newFlow > flows.length) throw new OpError(`View "${op.view}" has ${count(flows.length, "flow")}, so "newFlow" must be 1 to ${flows.length}.`);
+    flows.splice(op.flow - 1, 1);
+    flows.splice(op.newFlow - 1, 0, flow);
+    return `moved flow ${op.flow} to ${op.newFlow} in view ${op.view}`;
+  }
+  return `updated flow ${op.flow} in view ${op.view}`;
+}
+
+function requireFlowchart(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "flowchart") throw new OpError(`View "${id}" is a ${view.level} view. Only flowchart views have blocks and flows.`);
+  return view;
+}
+
+function requireBlock(view: ViewData, viewId: string, id: string): BlockData {
+  const block = view.blocks?.find((b) => b.id === id);
+  if (!block) {
+    const ids = (view.blocks ?? []).map((b) => b.id);
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no block "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its blocks: ${ids.join(", ")}.` : " Add one with add-block."}`);
+  }
+  return block;
+}
+
+function requireFlow(view: ViewData, viewId: string, number: number) {
+  const flows = view.flows ?? [];
+  const flow = flows[number - 1];
+  if (!flow) throw new OpError(flows.length ? `View "${viewId}" has ${count(flows.length, "flow")}: "flow" must be 1 to ${flows.length}.` : `View "${viewId}" has no flows yet.`);
+  return flow;
 }
 
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {

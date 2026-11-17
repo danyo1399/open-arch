@@ -125,7 +125,7 @@ describe("the AGENTS.md section", () => {
 
 describe("the file a generated page came from", () => {
   it("is read from the page's first line, and is null for a page open-arch didn't generate", () => {
-    const page = exportDocs(loadWorkspace(JSON.stringify({ openarch: 14, name: "A", elements: {}, views: {} })), "arch/a.openarch")[0]!.content;
+    const page = exportDocs(loadWorkspace(JSON.stringify({ openarch: 15, name: "A", elements: {}, views: {} })), "arch/a.openarch")[0]!.content;
     expect(generatedFrom(page)).toBe("arch/a.openarch");
     expect(generatedFrom("# Mine\n")).toBeNull();
   });

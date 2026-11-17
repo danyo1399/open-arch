@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 12 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 13 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -135,7 +135,7 @@ describe("changing", () => {
     expect(doc.views["shop-containers"].layout["orders-api"]).toEqual([0, 320]);
     expect(existsSync(join(dir, "docs/elements/checkout-api.md"))).toBe(false);
 
-    expect(cli(dir, "remove-element", "orders-api").out).toContain("removed orders-api and 7 elements inside it and views checkout-api-components, order-repository-classes");
+    expect(cli(dir, "remove-element", "orders-api").out).toContain("removed orders-api and 7 elements inside it and views checking-out, checkout-api-components, order-repository-classes");
     expect(existsSync(join(dir, "docs/views/checkout-api-components.md"))).toBe(false);
     expect(cli(dir, "check").code).toBe(0);
   });
@@ -447,6 +447,67 @@ Arrows:
     expect(cli(dir, "check").code).toBe(0);
   });
 
+  it("adds a flowchart view, its blocks and flows, and shows them in order", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "returns", "--level", "flowchart", "--scope", "checkout-api", "--title", "Returns").out).toContain("added view returns");
+    expect(cli(dir, "add-block", "returns", "asked", "--kind", "start", "--text", "Return asked for", "--at", "0,0").out).toContain("added start asked to view returns");
+    expect(cli(dir, "add-block", "returns", "in-time", "--kind", "decision", "--text", "Within 30 days?").out).toContain('warning: views.returns.blocks[1].kind: warning [decision-ways] The decision "in-time" has no way out');
+    expect(cli(dir, "add-block", "returns", "refund", "--text", "Refund\nthe card", "--description", "Within 3 days").code).toBe(0);
+    expect(cli(dir, "add-block", "returns", "label", "--kind", "input-output", "--position", "3").out).toContain("added input or output label to view returns, as block 3");
+    expect(cli(dir, "add-flow", "returns", "asked", "in-time").out).toContain("added flow 1 to view returns: asked -> in-time");
+    expect(cli(dir, "add-flow", "returns", "in-time", "label", "--text", "Yes").code).toBe(0);
+    expect(cli(dir, "add-flow", "returns", "in-time", "refund", "--text", "No").code).toBe(0);
+    expect(cli(dir, "add-flow", "returns", "label", "refund", "--flow", "2").out).toContain("added flow 2 to view returns: label -> refund");
+    expect(cli(dir, "show", "returns").out).toBe(`returns: Returns
+  level:        flowchart view of checkout-api (Checkout API)
+
+Blocks:
+  1.  asked    start            "Return asked for"  (at 0, 0)
+  2.  in-time  decision         "Within 30 days?"
+  3.  label    input or output  "Label"
+  4.  refund   process          "Refund / the card"  Within 3 days
+
+Flows:
+  1.  asked -> in-time
+  2.  label -> refund
+  3.  in-time -> label   "Yes"
+  4.  in-time -> refund  "No"
+`);
+    const json = JSON.parse(cli(dir, "show", "returns", "--json").out);
+    expect(json.blocks[0]).toEqual({ id: "asked", position: 1, kind: "start", text: "Return asked for", at: [0, 0] });
+    expect(json.flows[2]).toEqual({ flow: 3, from: "in-time", to: "label", text: "Yes" });
+    expect(read(dir, "docs/views/returns.md")).toContain('  in_time -->|"Yes"| label\n');
+    expect(read(dir, "docs/elements/checkout-api.md")).toContain("- [Returns](../views/returns.md) (its process)");
+    expect(cli(dir, "show", "checkout-api").out).toContain("returns (its process)");
+
+    expect(cli(dir, "update-block", "returns", "label", "--kind", "", "--text", "Email a label", "--new-id", "email", "--at", "10,20", "--position", "4").out).toContain(
+      "renamed block label to email in view returns, and moved it to block 4",
+    );
+    expect(cli(dir, "update-block", "returns", "refund", "--description", "", "--at", "").code).toBe(0);
+    expect(cli(dir, "update-flow", "returns", "2", "--text", "Sent", "--move-to", "4").out).toContain("moved flow 2 to 4 in view returns");
+    expect(cli(dir, "update-flow", "returns", "4", "--text", "").code).toBe(0);
+    const view = JSON.parse(read(dir)).views.returns;
+    expect(view.blocks.slice(2)).toEqual([
+      { id: "refund", text: "Refund\nthe card" },
+      { id: "email", text: "Email a label", at: [10, 20] },
+    ]);
+    expect(view.flows).toEqual([
+      { from: "asked", to: "in-time" },
+      { from: "in-time", to: "email", text: "Yes" },
+      { from: "in-time", to: "refund", text: "No" },
+      { from: "email", to: "refund" },
+    ]);
+    expect(cli(dir, "remove-flow", "returns", "4").out).toContain("removed flow 4 from view returns");
+    expect(cli(dir, "remove-block", "returns", "in-time").out).toContain("removed block in-time from view returns and 3 flows to or from it");
+    expect(cli(dir, "add-flow", "returns", "asked", "asked").err).toContain("A flow can't go from a block to itself.");
+    expect(cli(dir, "add-flow", "returns", "asked").err).toContain("Missing <to>.");
+    expect(cli(dir, "remove-flow", "returns", "x").err).toContain("<n> must be a flow's number");
+    expect(cli(dir, "add-block", "returns", "x", "--at", "1").err).toContain('--at needs x,y, e.g. --at 400,120, not "1".');
+    expect(cli(dir, "add-block", "place-order", "x").err).toContain('View "place-order" is a sequence view. Only flowchart views have blocks and flows.');
+    expect(cli(dir, "add-view", "--help").out).toContain("A flowchart view shows the steps of a process");
+    expect(cli(dir, "check").code).toBe(0);
+  });
+
   it("applies a batch of screens and widgets from JSON, all or nothing", () => {
     const dir = example();
     const ops = [
@@ -646,22 +707,22 @@ Arrows:
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 14', '"openarch": 1')
+      .replace('"openarch": 15', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 14, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 15, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])("reads a version %i file, and writes it back as version 14", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])("reads a version %i file, and writes it back as version 15", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 14', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 15', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 14,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 15,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -748,7 +809,7 @@ describe("init", () => {
   it("export leaves the docs of another workspace in the same folder alone", () => {
     const project = tempDir();
     for (const [name, title] of [["a.openarch", "A"], ["b.openarch", "B"]]) {
-      writeFileSync(join(project, name), JSON.stringify({ openarch: 14, name: title, export: { docs: "." }, elements: {}, views: {} }));
+      writeFileSync(join(project, name), JSON.stringify({ openarch: 15, name: title, export: { docs: "." }, elements: {}, views: {} }));
     }
     expect(cli(project, "export", "--file", "a.openarch").code).toBe(0);
     const result = cli(project, "export", "--file", "b.openarch");
@@ -800,7 +861,7 @@ describe("init", () => {
     expect(created.code).toBe(0);
     // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
     expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
-    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 14, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture.openarch"))).toEqual({ openarch: 15, name: "Payments", export: { docs: "docs/architecture" }, elements: {}, views: {} });
     expect(read(project, "docs/architecture/README.md")).toContain("# Payments");
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);

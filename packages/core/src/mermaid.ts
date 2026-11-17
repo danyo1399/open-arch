@@ -11,6 +11,7 @@ import {
   WIDGET_KIND_LABELS,
   type ArchElement,
   type Arrow,
+  type Block,
   type CardKind,
   type DeploymentNode,
   type ElementShape,
@@ -109,6 +110,7 @@ export function renderMermaid(cv: ComputedView): string {
   if (cv.view.level === "event") return renderEvents(cv);
   if (cv.view.level === "wireframe") return renderWireframe(cv);
   if (cv.view.level === "whiteboard") return renderWhiteboard(cv);
+  if (cv.view.level === "flowchart") return renderFlowchart(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = cv.nodes.filter((n) => inFrame(boundary, n));
@@ -561,6 +563,51 @@ function renderWhiteboard(cv: ComputedView): string {
     if (a.color !== "black") links.push(`  linkStyle ${i} stroke:${INK[a.color]}`);
   });
   lines.push(...styles, ...links);
+  return lines.join("\n");
+}
+
+/** A flowchart block as a Mermaid node: its text, then its description in italics, in its kind's shape. */
+function blockNode(b: Block): string {
+  const lines = (text: string) => text.split(/\r?\n/).map((l) => escape(l.trim())).filter(Boolean).join("<br/>");
+  const label = `"${[lines(b.text) || " ", ...(b.description?.trim() ? [`<i>${lines(b.description)}</i>`] : [])].join("<br/>")}"`;
+  const id = mermaidId(b.id);
+  // A document has no shape of its own in the Mermaid that GitHub draws, so it's a box.
+  switch (b.kind) {
+    case "start":
+    case "end":
+      return `${id}([${label}])`;
+    case "decision":
+      return `${id}{${label}}`;
+    case "input-output":
+      return `${id}[/${label}/]`;
+    case "subprocess":
+      return `${id}[[${label}]]`;
+    case "database":
+      return `${id}[(${label})]`;
+    default:
+      return `${id}[${label}]`;
+  }
+}
+
+/**
+ * A flowchart view as a Mermaid flowchart, top to bottom: each block in its kind's shape, and each
+ * flow between two of its blocks as an arrow, with its text. Mermaid lays them out itself, so they
+ * aren't where the designer has them.
+ */
+function renderFlowchart(cv: ComputedView): string {
+  const v = cv.view;
+  const lines = ["flowchart TB"];
+  if (v.blocks.length === 0) {
+    lines.push("  %% This view has no blocks yet.");
+    return lines.join("\n");
+  }
+  for (const b of v.blocks) lines.push(`  ${blockNode(b)}`);
+  const ids = new Set(v.blocks.map((b) => b.id));
+  for (const f of v.flows) {
+    if (!ids.has(f.from) || !ids.has(f.to) || f.from === f.to) continue;
+    const text = f.text?.split(/\r?\n/).map((l) => escape(l.trim())).filter(Boolean).join("<br/>");
+    lines.push(`  ${mermaidId(f.from)} -->${text ? `|"${text}"|` : ""} ${mermaidId(f.to)}`);
+  }
   return lines.join("\n");
 }
 

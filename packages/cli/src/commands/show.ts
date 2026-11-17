@@ -1,4 +1,5 @@
 import {
+  BLOCK_KIND_LABELS,
   CARD_KIND_LABELS,
   computeView,
   describeElement,
@@ -89,7 +90,17 @@ export function show(io: Io, opts: ShowOptions): number {
       lines.push("", "Its contents are used by:", ...relTable(d.contentsUsedBy.map(({ from, rel }) => [rel, `  ${arrow(from.id, rel)}`, relLabel(rel)])));
     }
     const how = (v: (typeof d.views)[number]) =>
-      v.as === "frame" ? " (as the frame)" : v.as === "states" ? " (its states)" : v.as === "screens" ? " (its screens)" : v.as === "deployed" ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})` : "";
+      v.as === "frame"
+        ? " (as the frame)"
+        : v.as === "states"
+          ? " (its states)"
+          : v.as === "screens"
+            ? " (its screens)"
+            : v.as === "process"
+              ? " (its process)"
+              : v.as === "deployed"
+                ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})`
+                : "";
     lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => `${v.view.id}${how(v)}`).join(", ")}` : "  (none)");
     print(json, lines.join("\n") + "\n");
     return 0;
@@ -122,6 +133,10 @@ export function show(io: Io, opts: ShowOptions): number {
     }
     if (view.level === "whiteboard") {
       print(whiteboardJson(cv), whiteboardText(cv));
+      return 0;
+    }
+    if (view.level === "flowchart") {
+      print(flowchartJson(cv), flowchartText(ws, cv));
       return 0;
     }
     const json = {
@@ -510,6 +525,44 @@ function whiteboardText(cv: ComputedView): string {
     "",
     "Arrows:",
     ...(arrows.length ? table(arrows) : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function flowchartJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    notes: view.notes,
+    blocks: view.blocks.map((b) => ({ id: b.id, position: b.number, kind: b.kind, text: b.text, description: b.description, at: b.at })),
+    flows: view.flows.map((f) => ({ flow: f.number, from: f.from, to: f.to, text: f.text })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function flowchartText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  const quoted = (text: string) => JSON.stringify(text.split(/\r?\n/).join(" / "));
+  const blocks = view.blocks.map((b) => [`  ${b.number}.`, b.id, BLOCK_KIND_LABELS[b.kind].toLowerCase(), [quoted(b.text), b.description ?? "", b.at ? `(at ${b.at.join(", ")})` : ""].filter(Boolean).join("  ")]);
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        flowchart view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Blocks:",
+    ...(blocks.length ? table(blocks) : ["  (none)"]),
+    "",
+    "Flows:",
+    ...(view.flows.length ? table(view.flows.map((f) => [`  ${f.number}.`, `${f.from} -> ${f.to}`, f.text ? quoted(f.text) : ""])) : ["  (none)"]),
     ...(view.stickies.length
       ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
       : []),

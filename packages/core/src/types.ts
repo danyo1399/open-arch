@@ -14,9 +14,11 @@ export type ElementKind = (typeof ELEMENT_KINDS)[number];
  * events and the other notes, in order along a timeline, in swimlanes. A wireframe view draws an
  * app's screens, as rough sketches of what's on each, and how a button or link on one leads to
  * another. A whiteboard view is a freehand sketch, to share an idea: shapes, text, arrows and
- * lines drawn with a pen, each where it's put, none of them part of the model.
+ * lines drawn with a pen, each where it's put, none of them part of the model. A flowchart view
+ * draws the steps of a process: where it starts and ends, what's done, the decisions on the
+ * way, and the arrows from one to the next.
  */
-export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event", "wireframe", "whiteboard"] as const;
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event", "wireframe", "whiteboard", "flowchart"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -182,13 +184,38 @@ export type TextSize = (typeof TEXT_SIZES)[number];
 export const ARROW_HEADS = ["end", "both", "none"] as const;
 export type ArrowHeads = (typeof ARROW_HEADS)[number];
 
+/**
+ * What a block on a flowchart view is, each in the usual flowchart shape:
+ * - start and end: where the process starts, and where it ends (a rounded pill)
+ * - process: a step, something that's done, like "Pack the order" (a box)
+ * - decision: a question with more than one way on, like "In stock?" (a diamond)
+ * - input-output: something that comes in or goes out, like "Read the card details" (a slanted box)
+ * - subprocess: a process drawn in full somewhere else (a box with a double line down each side)
+ * - document: a document or report that's made or read (a page with a wavy bottom edge)
+ * - database: data that's kept, like a database (a cylinder)
+ */
+export const BLOCK_KINDS = ["start", "end", "process", "decision", "input-output", "subprocess", "document", "database"] as const;
+export type BlockKind = (typeof BLOCK_KINDS)[number];
+
+/** Each kind of block, as the designer and the docs name it. */
+export const BLOCK_KIND_LABELS: Record<BlockKind, string> = {
+  start: "Start",
+  end: "End",
+  process: "Process",
+  decision: "Decision",
+  "input-output": "Input or output",
+  subprocess: "Subprocess",
+  document: "Document",
+  database: "Database",
+};
+
 /** Name/value pairs. A tag can have an empty value, which makes it a plain label. */
 export type Tags = Record<string, string>;
 
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 14;
+export const FORMAT_VERSION = 15;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -282,6 +309,31 @@ export interface ViewData {
   shapes?: ShapeData[];
   /** Whiteboard views only: the arrows and lines, drawn over the shapes. */
   arrows?: ArrowData[];
+  /** Flowchart views only: the blocks, in reading order. */
+  blocks?: BlockData[];
+  /** Flowchart views only: the arrows from one block to the next. */
+  flows?: FlowData[];
+}
+
+/** One block of a flowchart view: where the process starts or ends, a step, a decision, and so on. */
+export interface BlockData {
+  /** Unique among the view's blocks. */
+  id: string;
+  /** Default: process. */
+  kind?: BlockKind;
+  /** What it says, like "Pack the order", or for a decision a question, like "In stock?". */
+  text: string;
+  description?: string;
+  /** Top-left corner. Without it, the designer lays the block out. */
+  at?: [number, number];
+}
+
+/** An arrow on a flowchart view, from one block to the next. */
+export interface FlowData {
+  from: string;
+  to: string;
+  /** What it says, like "Yes" or "No" on the ways out of a decision. */
+  text?: string;
 }
 
 /** One shape on a whiteboard view: a rectangle, an ellipse, a diamond, text, or a line drawn with the pen. */
@@ -544,6 +596,32 @@ export interface ViewDef {
   shapes: Shape[];
   /** Whiteboard views only, in the file's order; empty on other views. */
   arrows: Arrow[];
+  /** Flowchart views only, in the file's order; empty on other views. */
+  blocks: Block[];
+  /** Flowchart views only, in the file's order; empty on other views. */
+  flows: Flow[];
+}
+
+export interface Block {
+  id: string;
+  /** Where it lives in the document, e.g. `views.returns.blocks[0]`. */
+  path: string;
+  /** Its place in the file's order: 1 is the first. */
+  number: number;
+  kind: BlockKind;
+  text: string;
+  description?: string;
+  at?: [number, number];
+}
+
+export interface Flow {
+  /** Where it lives in the document, e.g. `views.returns.flows[0]`. */
+  path: string;
+  /** Its number: 1 is the first. */
+  number: number;
+  from: string;
+  to: string;
+  text?: string;
 }
 
 export interface Shape {

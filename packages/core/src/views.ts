@@ -8,6 +8,7 @@
  * A wireframe view shows its screens in order, each with its widgets, and arrows from the
  * widgets that lead to other screens.
  * A whiteboard view shows its shapes and arrows, each where it's put.
+ * A flowchart view shows its blocks, each where it's put, and the flows between them.
  */
 import type { Workspace } from "./workspace.js";
 import { builtInto, childrenOf, compareElements, containerOf, inFrame, kindList, libraryOf, lineage, topLevel } from "./model.js";
@@ -142,6 +143,8 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   // Optional: the app whose screens the view shows.
   wireframe: ["system", "container"],
   whiteboard: [],
+  // Optional: the element whose process the flowchart shows, of any kind.
+  flowchart: ELEMENT_KINDS,
 };
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
@@ -163,7 +166,7 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
   }
   if (view.scope === undefined) {
-    if (view.level === "state" || view.level === "wireframe") return [];
+    if (view.level === "state" || view.level === "wireframe" || view.level === "flowchart") return [];
     return [{ ...at, severity: "error", rule: "view-scope-required", message: `A ${view.level} view needs \`scope\`: the ID of the ${wanted} it shows.` }];
   }
   const scope = ws.elements.get(view.scope);
@@ -198,7 +201,7 @@ export function representative(ws: Workspace, view: ViewDef): (id: string, copy?
   // The container whose copy of a library is drawn as the library's own box.
   const home = view.level === "component" ? scope : view.level === "class" ? scopeContainer : undefined;
   const plain = plainRepresentative(ws, view, scope, scopeSystem, scopeContainer);
-  if (scope && view.level !== "sequence" && view.level !== "state" && libraryOf(ws, scope.id)) return libraryViewRepresentative(ws, view, scope);
+  if (scope && view.level !== "sequence" && view.level !== "state" && view.level !== "flowchart" && libraryOf(ws, scope.id)) return libraryViewRepresentative(ws, view, scope);
   return (id, copy) => {
     const library = libraryOf(ws, id);
     if (!library || view.level === "sequence") return plain(id);
@@ -263,6 +266,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
       case "event":
       case "wireframe":
       case "whiteboard":
+      case "flowchart":
         return id;
     }
   };
@@ -276,6 +280,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   if (view.level === "event") return computeEvents(ws, view);
   if (view.level === "wireframe") return computeWireframe(ws, view);
   if (view.level === "whiteboard") return computeWhiteboard(view);
+  if (view.level === "flowchart") return computeFlowchart(ws, view);
   const diagnostics: Diagnostic[] = [];
   const rep = representative(ws, view);
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
@@ -957,6 +962,99 @@ function computeWhiteboard(view: ViewDef): ComputedView {
     }
   }
   return { view, nodes: [], edges: [], steps: [], diagnostics };
+}
+
+/**
+ * A flowchart view: it draws its blocks, not boxes, so it has none, and the element whose process
+ * it is, if it says, as its frame. Its problems are flows to or from a block it doesn't have; and
+ * flows that aren't drawn or say nothing they should: one from a block to itself, out of an end
+ * or into a start, a decision without two ways out, and a way out of a decision that doesn't say
+ * which answer it's for. And a flowchart with blocks but no start.
+ */
+function computeFlowchart(ws: Workspace, view: ViewDef): ComputedView {
+  const diagnostics: Diagnostic[] = [];
+  const blocks = new Map(view.blocks.map((b) => [b.id, b]));
+  const ids = [...blocks.keys()];
+  if (view.blocks.length && !view.blocks.some((b) => b.kind === "start")) {
+    diagnostics.push({
+      severity: "warning",
+      rule: "flowchart-start-missing",
+      message: "This flowchart has no start, so it doesn't say where the process begins.",
+      path: `${view.path}.blocks`,
+      fix: `Add one with \`open-arch add-block ${view.id} start --kind start\`, and a flow from it.`,
+    });
+  }
+  /** The flows each block has out of it that are drawn: to another block of the view. */
+  const out = new Map<string, number>();
+  for (const f of view.flows) {
+    let known = true;
+    for (const end of ["from", "to"] as const) {
+      if (blocks.has(f[end])) continue;
+      known = false;
+      const match = suggest(f[end], ids);
+      diagnostics.push({
+        severity: "error",
+        rule: "flow-unknown-block",
+        message: `Flow ${f.number}: "${f[end]}" isn't a block of this view.`,
+        path: `${f.path}.${end}`,
+        fix: match ? `Did you mean "${match}"?` : undefined,
+      });
+    }
+    if (!known) continue;
+    const from = blocks.get(f.from)!;
+    const to = blocks.get(f.to)!;
+    if (f.from === f.to) {
+      diagnostics.push({
+        severity: "warning",
+        rule: "flow-to-itself",
+        message: `Flow ${f.number} goes from block "${f.from}" to itself, so it isn't drawn.`,
+        path: `${f.path}.to`,
+        fix: "Point `to` at another block, or remove the flow.",
+      });
+      continue;
+    }
+    out.set(f.from, (out.get(f.from) ?? 0) + 1);
+    if (from.kind === "end") {
+      diagnostics.push({
+        severity: "warning",
+        rule: "flow-from-end",
+        message: `Flow ${f.number} leaves "${f.from}", an end, but the process ends there.`,
+        path: `${f.path}.from`,
+        fix: "Make the block another kind, or remove the flow.",
+      });
+    }
+    if (to.kind === "start") {
+      diagnostics.push({
+        severity: "warning",
+        rule: "flow-to-start",
+        message: `Flow ${f.number} goes into "${f.to}", a start, but nothing comes before the start.`,
+        path: `${f.path}.to`,
+        fix: "Point it at the step after the start instead, or make the block another kind.",
+      });
+    }
+    if (from.kind === "decision" && !f.text?.trim()) {
+      diagnostics.push({
+        severity: "warning",
+        rule: "decision-flow-text",
+        message: `Flow ${f.number}, out of the decision "${f.from}", doesn't say which answer it's for.`,
+        path: `${f.path}.text`,
+        fix: 'Give it text, like "Yes" or "No".',
+      });
+    }
+  }
+  for (const b of view.blocks) {
+    const ways = out.get(b.id) ?? 0;
+    if (b.kind !== "decision" || ways >= 2) continue;
+    diagnostics.push({
+      severity: "warning",
+      rule: "decision-ways",
+      message: `The decision "${b.id}" has ${ways === 0 ? "no way" : "one way"} out, so it decides nothing.`,
+      path: `${b.path}.kind`,
+      fix: 'Add a flow out of it for each answer, with text like "Yes" and "No", or make it a process.',
+    });
+  }
+  const boundary = view.scope ? ws.elements.get(view.scope) : undefined;
+  return { view, boundary, nodes: [], edges: [], steps: [], diagnostics };
 }
 
 function joinLabels(values: (string | undefined)[], separator: string): string | undefined {
