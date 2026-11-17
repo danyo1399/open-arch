@@ -6,7 +6,8 @@
  * diamond, an arrow or a line (from or to a shape, which it then follows), or a line with the
  * pen; click to type text. With the selection tool, drag a shape to move it, drag its corners to
  * resize it, double-click it to write in it, and drag from the dot under it to another shape to
- * draw an arrow. Double-click the background to type text there.
+ * draw an arrow. Shapes snap as they're moved and resized. Double-click the background to type
+ * text there.
  */
 import { endShape, endSide, SHAPE_KIND_LABELS, SHAPE_SIZE, type Arrow, type ArrowEnd, type ComputedView, type Operation, type Shape, type ShapeKind, type Sticky, type ViewDef } from "@open-arch/core";
 import {
@@ -112,6 +113,8 @@ const stickyNodeId = (id: string) => `sticky:${id}`;
 const endNodeId = (arrow: string, end: "from" | "to") => `end:${arrow}:${end}`;
 /** How big an end's grip is: bigger than the dot it draws, so it's easy to grab. */
 const GRIP = 18;
+/** The smallest a shape can be resized to, across or down. */
+const MIN_SIZE = 20;
 /** How a view's diagram is fitted to the canvas, as Canvas does. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
 const TOUCH = "(any-pointer: coarse)";
@@ -122,7 +125,7 @@ const DRAG_MIN = 6;
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MULTI_KEYS = isMac ? ["Meta", "Shift"] : ["Control", "Shift"];
 const addsToSelection = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => e.shiftKey || (isMac ? e.metaKey : e.ctrlKey);
-/** Shapes and notes snap as they're dragged, and line up with each other. Arrows' ends don't. */
+/** Shapes and notes snap as they're dragged, shapes as they're resized too, and they line up with each other. Arrows' ends don't. */
 const snapsHere = (n: FlowNode) => n.type !== "end";
 
 /** A text box that saves when it's left, or with Ctrl+Enter (⌘Enter on a Mac), and keeps the text as it was on Escape. */
@@ -206,7 +209,7 @@ function ShapeNode({ id, data, selected, width, height }: NodeProps<ShapeFlowNod
       style={!sized ? undefined : shape.kind === "text" ? { width: w, minHeight: shape.at[3] } : { width: w, height: h }}
       onDoubleClick={shape.kind === "pen" ? undefined : data.onEdit}
     >
-      {shape.kind !== "pen" && <NodeResizer isVisible={selected && !editing} color="var(--accent)" minWidth={20} minHeight={20} onResizeEnd={(_, r) => data.onResize({ x: r.x, y: r.y, w: r.width, h: r.height })} />}
+      {shape.kind !== "pen" && <NodeResizer isVisible={selected && !editing} color="var(--accent)" minWidth={MIN_SIZE} minHeight={MIN_SIZE} onResizeEnd={(_, r) => data.onResize({ x: r.x, y: r.y, w: r.width, h: r.height })} />}
       <Handle type="target" position={Position.Top} className={dropTarget ? "handle-drop" : "handle-hidden"} isConnectableStart={false} />
       {sketch && (
         <svg className="wb-sketch" width={w} height={h} aria-hidden="true">
@@ -319,7 +322,7 @@ interface WhiteboardDiagramProps {
   edit(edit: Edit): Promise<boolean>;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
-  /** What shapes and notes snap to as they're dragged, and its buttons. */
+  /** What shapes and notes snap to as they're dragged or resized, and its buttons. */
   snap: SnapControl;
 }
 
@@ -403,9 +406,14 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     },
     [edit, view.id],
   );
+  const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: MIN_SIZE });
   const resize = useCallback(
-    (shape: Shape, r: Rect) => void edit([{ op: "update-shape", view: view.id, id: shape.id, at: [Math.round(r.x), Math.round(r.y), Math.max(1, Math.round(r.w)), Math.max(1, Math.round(r.h))] }]),
-    [edit, view.id],
+    (shape: Shape, box: Rect) => {
+      // As it's drawn: snapped, as it was when it was let go.
+      const r = resized(shape.id, box);
+      void edit([{ op: "update-shape", view: view.id, id: shape.id, at: [Math.round(r.x), Math.round(r.y), Math.max(1, Math.round(r.w)), Math.max(1, Math.round(r.h))] }]);
+    },
+    [edit, view.id, resized],
   );
 
   useEffect(() => {
@@ -571,7 +579,6 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     [view, lines, selection, editing, finishArrow, zArrows],
   );
 
-  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
   /** The nodes a drag across the background selects, as it selects them. */
   const boxed = useRef<Set<string> | null>(null);
 
