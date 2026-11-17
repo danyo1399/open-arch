@@ -142,6 +142,11 @@ function FlowArrow({ id, data, markerEnd, selected }: EdgeProps<FlowEdge>) {
 const nodeTypes = { block: BlockNode, sticky: StickyNode, frame: FrameNode };
 const edgeTypes = { flow: FlowArrow };
 
+/** The blocks arrows meet only at the four tips of their diamond, the middles of their boxes' sides: the decisions. */
+export function tipsOf(blocks: readonly Pick<Block, "id" | "kind">[]): Set<string> {
+  return new Set(blocks.filter((b) => b.kind === "decision").map((b) => b.id));
+}
+
 /** What a new block of each kind says, until it's given text. */
 function newBlockText(kind: BlockKind): string {
   return kind === "start" || kind === "end" ? BLOCK_KIND_LABELS[kind] : `New ${BLOCK_KIND_LABELS[kind].toLowerCase()}`;
@@ -359,9 +364,9 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
       boxes,
       between.map((f) => ({ id: flowId(f), from: f.from, to: f.to })),
       sizes,
-      { notes },
+      { notes, tips: tipsOf(view.blocks) },
     );
-  }, [boxes, between, sizes, nodes, stickySize]);
+  }, [boxes, view, between, sizes, nodes, stickySize]);
 
   const select = useCallback((s: Selection) => onSelect(s), [onSelect]);
 

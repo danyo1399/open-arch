@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GRID, snapMove } from "../src/canvas/snap.js";
+import { GRID, snapMove, snapResize } from "../src/canvas/snap.js";
 
 const box = (x: number, y: number, w = 200, h = 100) => ({ x, y, w, h });
 const both = { guides: true, grid: true, reach: 6 };
@@ -66,5 +66,51 @@ describe("snapMove", () => {
   it("leaves what's dragged as it is with both off, or with nothing dragged", () => {
     expect(snapMove([box(303, 248)], [box(300, 0)], { guides: false, grid: false, reach: 6 })).toEqual({ dx: 0, dy: 0, guides: [] });
     expect(snapMove([], [box(300, 0)], both)).toEqual({ dx: 0, dy: 0, guides: [] });
+  });
+});
+
+describe("snapResize", () => {
+  const sized = { reach: 6, min: 20 };
+
+  it("lines the edge being dragged up with another box's edge, with a guide along it alone", () => {
+    // Its right edge, at 397, goes to the other's right edge, at 400. Its left edge, at 0, lines up with the other's too, but stays as it is, with no guide.
+    expect(snapResize(box(0, 300, 397), { x: "end" }, [box(0, 0, 400)], { ...guidesOnly, ...sized })).toEqual({
+      rect: box(0, 300, 400),
+      guides: [{ axis: "x", at: 400, from: 0, to: 400 }],
+    });
+    // Its bottom, at 204, goes to the other's top, at 200.
+    expect(snapResize(box(500, 0, 200, 204), { y: "end" }, [box(0, 200)], { ...guidesOnly, ...sized })).toEqual({
+      rect: box(500, 0, 200, 200),
+      guides: [{ axis: "y", at: 200, from: 0, to: 700 }],
+    });
+  });
+
+  it("moves its left or top edge, and keeps its right and bottom where they are", () => {
+    // Dragged by its top left corner: its left goes to 300, its top to 0.
+    expect(snapResize(box(303, -2, 297, 102), { x: "start", y: "start" }, [box(300, -400, 50, 50), box(0, 0)], { ...guidesOnly, ...sized }).rect).toEqual(box(300, 0, 300, 100));
+  });
+
+  it("lines up an edge with edges, not with middles", () => {
+    // Its right edge is 2 from the other's middle, and stays where it is.
+    expect(snapResize(box(0, 300, 98), { x: "end" }, [box(0, 0)], { ...guidesOnly, ...sized })).toEqual({ rect: box(0, 300, 98), guides: [] });
+  });
+
+  it("puts the edge being dragged on the grid, and lines up first when both are on", () => {
+    expect(snapResize(box(10, 10, 133, 77), { x: "end", y: "end" }, [], { ...gridOnly, ...sized }).rect).toEqual(box(10, 10, 130, 70));
+    expect(snapResize(box(13, 10, 133, 77), { x: "start" }, [], { ...gridOnly, ...sized }).rect).toEqual(box(20, 10, 126, 77));
+    // Its right edge lines up with the other's left, 3 away, not the grid line 3 the other way.
+    expect(snapResize(box(0, 300, 503), { x: "end" }, [box(506, 0)], { ...both, ...sized }).rect).toEqual(box(0, 300, 506));
+  });
+
+  it("doesn't make the box smaller than it can be", () => {
+    // Snapping to the grid at 20 would make it 10 across.
+    expect(snapResize(box(10, 10, 19, 100), { x: "end" }, [], { ...gridOnly, ...sized }).rect).toEqual(box(10, 10, 19, 100));
+    // Lining up with the other's right edge would make it 5 across; its left edge, 4 further, isn't in reach.
+    expect(snapResize(box(0, 300, 21), { x: "end" }, [box(-200, 0, 205)], { ...guidesOnly, ...sized }).rect).toEqual(box(0, 300, 21));
+  });
+
+  it("leaves it as it is with both off, or when no edge has moved", () => {
+    expect(snapResize(box(0, 300, 397), { x: "end" }, [box(0, 0, 400)], { guides: false, grid: false, ...sized })).toEqual({ rect: box(0, 300, 397), guides: [] });
+    expect(snapResize(box(3, 303, 397), {}, [box(0, 0, 400)], { ...both, ...sized })).toEqual({ rect: box(3, 303, 397), guides: [] });
   });
 });

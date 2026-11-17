@@ -271,9 +271,16 @@ code {
 
 /* --- Layout ---------------------------------------------------------------- */
 
+/* The side panels' widths are dragged with their edges (see SidePanels.tsx), which set
+   --browse-width and --details-width; till then they're their usual size. Each panel can take
+   half of what's left once the diagram is 320 pixels wide, as panelMax works out. Collapsed,
+   a panel is a strip. */
 .app {
+  --rail: 30px;
+  --browse-column: min(var(--browse-width, 260px), calc((100% - 320px) / 2));
+  --details-column: min(var(--details-width, 320px), calc((100% - 320px) / 2));
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 320px;
+  grid-template-columns: var(--browse-column) minmax(0, 1fr) var(--details-column);
   grid-template-rows: 46px minmax(0, 1fr);
   height: 100%;
   /* The page reaches the screen's edges (viewport-fit=cover in index.html), so on a phone it
@@ -330,6 +337,27 @@ code {
   flex: 1;
 }
 
+.app.browse-collapsed {
+  --browse-column: var(--rail);
+}
+.app.details-collapsed {
+  --details-column: var(--rail);
+}
+/* Placed, as each panel's edge or strip shares its cell. */
+.app > :is(.sidebar, .panel-edge-left, .panel-rail-left) {
+  grid-area: 2 / 1;
+}
+.app > .main {
+  grid-area: 2 / 2;
+}
+.app > :is(.properties, .panel-edge-right, .panel-rail-right) {
+  grid-area: 2 / 3;
+}
+.app.browse-collapsed > .sidebar,
+.app.details-collapsed > .properties {
+  display: none;
+}
+
 .sidebar,
 .properties {
   background: var(--panel);
@@ -355,17 +383,209 @@ code {
   background: var(--canvas);
 }
 
+/* The details go under the diagram (see STACKED in Designer.tsx), and their edge drags their
+   height, --details-height. The diagram keeps 320 pixels across, and 160 down. */
 @media (max-width: 900px) {
   .app {
-    grid-template-columns: 220px minmax(0, 1fr);
-    grid-template-rows: 46px minmax(0, 1fr) minmax(0, 40%);
+    --browse-column: min(var(--browse-width, 220px), calc(100% - 320px));
+    --details-row: min(var(--details-height, 40%), calc(100% - 46px - 160px));
+    grid-template-columns: var(--browse-column) minmax(0, 1fr);
+    grid-template-rows: 46px minmax(0, 1fr) var(--details-row);
+  }
+  .app.details-collapsed {
+    --details-row: var(--rail);
+  }
+  .app > :is(.properties, .panel-edge-bottom, .panel-rail-bottom) {
+    grid-area: 3 / 1 / 4 / -1;
   }
   .properties {
-    grid-column: 1 / -1;
     border-left: none;
     border-top: 1px solid var(--border);
   }
 }
+/* A side panel's edge is laid over the panel, as big as it is. Only the strip along its inner
+   edge, which drags it, and the button that collapses it take the pointer. Both stand over
+   the border, under the diagram's menus and panels. The Views & model panel's strip is mostly
+   on the diagram, clear of the panel's scrollbar. */
+.panel-edge {
+  position: relative;
+  z-index: 6;
+  pointer-events: none;
+}
+.panel-resize {
+  position: absolute;
+  pointer-events: auto;
+  /* A finger's drag resizes the panel, rather than scrolling the page. */
+  touch-action: none;
+}
+.panel-edge-left .panel-resize,
+.panel-edge-right .panel-resize {
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+}
+.panel-edge-left .panel-resize {
+  right: -6px;
+}
+.panel-edge-right .panel-resize {
+  left: -4px;
+}
+.panel-edge-bottom .panel-resize {
+  left: 0;
+  right: 0;
+  top: -4px;
+  height: 8px;
+  cursor: row-resize;
+}
+/* Wide enough for a finger. */
+@media (pointer: coarse) {
+  .panel-edge-left .panel-resize,
+  .panel-edge-right .panel-resize {
+    width: 20px;
+  }
+  .panel-edge-left .panel-resize {
+    right: -16px;
+  }
+  .panel-edge-left .panel-resize::after {
+    left: 2px;
+  }
+  .panel-edge-right .panel-resize {
+    left: -10px;
+  }
+  .panel-edge-bottom .panel-resize {
+    top: -10px;
+    height: 20px;
+  }
+}
+/* A line along the border shows what's dragged. */
+.panel-resize::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  background: transparent;
+  transition: background-color 0.12s;
+}
+.panel-edge-left .panel-resize::after,
+.panel-edge-right .panel-resize::after {
+  width: 3px;
+}
+.panel-edge-bottom .panel-resize::after {
+  height: 3px;
+}
+/* On the border, at the strip's left. */
+.panel-edge-left .panel-resize::after {
+  right: auto;
+  margin: 0;
+}
+.panel-resize:hover::after,
+.panel-resize:focus-visible::after,
+:root[data-resizing] .panel-resize::after {
+  background: var(--accent);
+}
+.panel-resize:focus-visible {
+  outline: none;
+}
+/* While an edge is dragged, the pointer keeps its look wherever it goes, and no text is selected. */
+:root[data-resizing] * {
+  user-select: none;
+}
+:root[data-resizing="across"] * {
+  cursor: col-resize !important;
+}
+:root[data-resizing="down"] * {
+  cursor: row-resize !important;
+}
+.panel-collapse {
+  position: absolute;
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+button.panel-collapse:hover {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.panel-edge-left .panel-collapse {
+  top: 12px;
+  right: -11px;
+}
+.panel-edge-right .panel-collapse {
+  top: 12px;
+  left: -11px;
+}
+.panel-edge-bottom .panel-collapse {
+  top: -11px;
+  right: 16px;
+}
+/* A collapsed panel: a strip down the side, or along the bottom, that says what's in it. */
+.panel-rail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  padding: 10px 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+}
+button.panel-rail:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.panel-rail-left,
+.panel-rail-right {
+  flex-direction: column;
+}
+.panel-rail-left {
+  border-right: 1px solid var(--border);
+}
+.panel-rail-right {
+  border-left: 1px solid var(--border);
+}
+.panel-rail-bottom {
+  padding: 0 16px;
+  border-top: 1px solid var(--border);
+}
+.panel-rail-text {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  white-space: nowrap;
+}
+.panel-rail-left .panel-rail-text,
+.panel-rail-right .panel-rail-text {
+  writing-mode: vertical-rl;
+}
+.panel-rail-label,
+.panel-rail-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-rail-label {
+  flex-shrink: 0;
+}
+.panel-rail-detail {
+  font-weight: 400;
+}
+.panel-rail-detail.error {
+  color: var(--danger);
+}
+
 /* Narrow screens (see NARROW in Designer.tsx): one panel fills the screen, picked with the
    tabs along the bottom. The others stack under it in the same cell; the canvas stays laid
    out there, so the diagram keeps its size and zoom while it's covered. */

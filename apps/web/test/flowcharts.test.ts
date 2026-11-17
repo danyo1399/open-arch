@@ -5,7 +5,7 @@ import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
 import { BLOCK_KINDS } from "@open-arch/core";
-import { addBlockOps, connectOps, FlowchartDiagram, flowchartLayout, moveOps, pinOps, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
+import { addBlockOps, connectOps, FlowchartDiagram, flowchartLayout, moveOps, pinOps, tipsOf, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
 import { blockHeight, blockWidth, onOutline, routeToOutlines, SLANT } from "../src/canvas/flowchartLayout.js";
 import { followRenames, followsName, LEVEL_NAMES, shownInProperties, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
@@ -254,6 +254,13 @@ describe("laying out a flowchart", () => {
 
 describe("a flowchart's shapes", () => {
   const box = { x: 0, y: 0, w: 200, h: 100 };
+
+  it("have arrows meet a decision only at its diamond's tips", () => {
+    expect([...tipsOf(view.blocks)]).toEqual(["in-time"]);
+    // Routed to a tip, an end stays there: it's on the diamond's outline already.
+    expect(onOutline("decision", box, { x: 100, y: 0 }, { x: 0, y: 1 })).toEqual({ x: 100, y: 0 });
+    expect(onOutline("decision", box, { x: 200, y: 50 }, { x: -1, y: 0 })).toEqual({ x: 200, y: 50 });
+  });
 
   it("meet arrows on a diamond's edges, not its box's corners", () => {
     // Straight down into the top, halfway to its corner: halfway down to its widest.

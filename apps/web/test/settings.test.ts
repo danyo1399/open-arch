@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
-import { Settings } from "../src/settings.js";
+import { PANEL_LIMITS, Settings } from "../src/settings.js";
 
 let dbCount = 0;
 /** Each test gets its own database. */
@@ -85,5 +85,49 @@ describe("snap settings", () => {
     await tab.setSnap({ grid: true });
     expect(await other.setSnap({ guides: false })).toEqual({ guides: false, grid: true });
     expect(await tab.snap()).toEqual({ guides: false, grid: true });
+  });
+});
+
+describe("panel settings", () => {
+  it("has both panels open, at their usual size, until changed, and keeps the change", async () => {
+    const name = fresh();
+    const settings = new Settings(name);
+    expect(await settings.panels()).toEqual({ browseCollapsed: false, detailsCollapsed: false });
+    await settings.setPanels({ browseCollapsed: true, browseWidth: 300 });
+    expect(await settings.panels()).toEqual({ browseCollapsed: true, detailsCollapsed: false, browseWidth: 300 });
+    expect(await new Settings(name).panels()).toEqual({ browseCollapsed: true, detailsCollapsed: false, browseWidth: 300 });
+    expect(await settings.setPanels({ detailsHeight: 250 })).toEqual({ browseCollapsed: true, detailsCollapsed: false, browseWidth: 300, detailsHeight: 250 });
+  });
+
+  it("puts a size back to the usual one when it's set to undefined", async () => {
+    const settings = new Settings(fresh());
+    await settings.setPanels({ browseWidth: 300, detailsWidth: 400 });
+    expect(await settings.setPanels({ browseWidth: undefined })).toEqual({ browseCollapsed: false, detailsCollapsed: false, detailsWidth: 400 });
+  });
+
+  it("keeps sizes within their limits, in whole pixels, and leaves out what it can't use", async () => {
+    const settings = new Settings(fresh());
+    expect(await settings.setPanels({ browseWidth: 10, detailsWidth: 9000, detailsHeight: 200.4 })).toEqual({
+      browseCollapsed: false,
+      detailsCollapsed: false,
+      browseWidth: PANEL_LIMITS.browseWidth.min,
+      detailsWidth: PANEL_LIMITS.detailsWidth.max,
+      detailsHeight: 200,
+    });
+    expect(await settings.setPanels({ browseWidth: Number.NaN, browseCollapsed: "yes" as unknown as boolean })).toEqual({
+      browseCollapsed: false,
+      detailsCollapsed: false,
+      detailsWidth: PANEL_LIMITS.detailsWidth.max,
+      detailsHeight: 200,
+    });
+  });
+
+  it("doesn't lose a change made in another tab", async () => {
+    const name = fresh();
+    const tab = new Settings(name);
+    const other = new Settings(name);
+    await tab.setPanels({ detailsCollapsed: true });
+    expect(await other.setPanels({ browseWidth: 320 })).toEqual({ browseCollapsed: false, detailsCollapsed: true, browseWidth: 320 });
+    expect(await tab.panels()).toEqual({ browseCollapsed: false, detailsCollapsed: true, browseWidth: 320 });
   });
 });

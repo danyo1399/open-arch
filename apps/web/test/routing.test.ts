@@ -599,6 +599,58 @@ describe("routeLinks", () => {
     expect(routes.get("a->b"), "a->b goes straight down, under the note on a").toHaveLength(2);
   });
 
+  it("meets a box in tips only at the middle of a side, wherever the boxes it's linked to are", () => {
+    // A diamond and the boxes around it, as in a flowchart: one above, out of line with it, and others below and beside.
+    const d = { x: 300, y: 300, w: 220, h: 100 };
+    const middles = [
+      { x: 410, y: 300 },
+      { x: 520, y: 350 },
+      { x: 410, y: 400 },
+      { x: 300, y: 350 },
+    ];
+    const layouts: [string, Box][][] = [
+      [["above", { x: 360, y: 0, w: 180, h: 60 }], ["below", { x: 200, y: 600, w: 180, h: 60 }], ["right", { x: 700, y: 560, w: 180, h: 60 }]],
+      [["above", { x: 100, y: 20, w: 180, h: 60 }], ["below", { x: 380, y: 620, w: 180, h: 60 }], ["right", { x: 640, y: 120, w: 180, h: 60 }]],
+      [["above", { x: 0, y: 330, w: 180, h: 60 }], ["below", { x: 250, y: 700, w: 300, h: 60 }], ["right", { x: 700, y: 330, w: 180, h: 60 }]],
+    ];
+    for (const around of layouts) {
+      const boxes = new Map<string, Box>([["d", d], ...around]);
+      const links = [link("above", "d"), link("d", "below"), link("d", "right")];
+      const ends = (routes: Map<string, readonly Point[]>) => links.map((l) => (l.from === "d" ? routes.get(l.id)![0]! : routes.get(l.id)!.at(-1)!));
+      const atMiddle = (p: Point) => middles.some((m) => m.x === p.x && m.y === p.y);
+      const tips = new Set(["d"]);
+      const routes = routeLinks(boxes, links, [], [], tips);
+      for (const [k, end] of ends(routes).entries()) expect(atMiddle(end), `${links[k]!.id} meets d at ${JSON.stringify(end)}`).toBe(true);
+      for (const l of links) for (const s of segments(routes.get(l.id)!)) for (const [id, box] of boxes) expect(cuts(s, box), `${l.id} goes through ${id}`).toBe(false);
+      // Laying out with labels too, which tries other routes for crowded ones.
+      const sizes = new Map(links.map((l) => [l.id, [{ w: 60, h: 20 }]]));
+      for (const end of ends(layoutArrows(boxes, links, sizes, { tips }).routes)) expect(atMiddle(end), JSON.stringify(end)).toBe(true);
+    }
+    // Without it, the arrow from above meets the box where it lines up with it, off the middle.
+    const plain = routeLinks(new Map<string, Box>([["d", d], ...layouts[0]!]), [link("above", "d")]);
+    expect(middles).not.toContainEqual(plain.get("above->d")!.at(-1));
+  });
+
+  it("draws a straight line from a box's tip to a box in line with it", () => {
+    const boxes = new Map([
+      ["d", { x: 300, y: 0, w: 220, h: 100 }],
+      ["e", { x: 320, y: 300, w: 180, h: 60 }],
+    ]);
+    expect(routeLinks(boxes, [link("d", "e")], [], [], new Set(["d"])).get("d->e")).toEqual([
+      { x: 410, y: 100 },
+      { x: 410, y: 300 },
+    ]);
+  });
+
+  it("falls back to a straight line to a box's tip when there's no way out", () => {
+    const boxes = new Map([
+      ["a", { x: 0, y: 0, w: 500, h: 400 }],
+      ["b", { x: 150, y: 150, w: 100, h: 60 }],
+    ]);
+    // a's middle is to the right of b's, so the line meets b at its right tip.
+    expect(routeLinks(boxes, [link("a", "b")], [], [], new Set(["b"])).get("a->b")!.at(-1)).toEqual({ x: 250, y: 180 });
+  });
+
   it("falls back to a straight line when there's no way out", () => {
     const boxes = new Map([
       ["a", { x: 0, y: 0, w: 500, h: 400 }],

@@ -323,6 +323,8 @@ class Grid {
    */
   private readonly besideRows: { steps: number[]; costs: number[] }[];
   private readonly besideCols: { steps: number[]; costs: number[] }[];
+  /** The boxes arrows attach to only at the middle of a side, by ID, such as a diamond, whose tips are there. */
+  readonly tips: ReadonlySet<string>;
   /** Where routed arrows attach on each side, by `Port.side`. */
   private readonly attached = new Map<string, Port[]>();
   /** The route each link has on the grid, by link ID: the grid's own record, so what's removed is always what was placed. */
@@ -335,10 +337,12 @@ class Grid {
   /**
    * `rects` are the boxes routes go around, and `notes` the notes, which a route goes round too
    * unless it's on one of the route's own boxes. `aligned` holds extra lines, such as ones a
-   * straight arrow between two boxes could run along.
+   * straight arrow between two boxes could run along. Arrows attach to the boxes `tips` names
+   * only at the middle of a side.
    */
-  constructor(rects: Rect[], frames: Rect[], aligned: { xs: number[]; ys: number[] }, notes: Rect[] = []) {
+  constructor(rects: Rect[], frames: Rect[], aligned: { xs: number[]; ys: number[] }, notes: Rect[] = [], tips: ReadonlySet<string> = new Set()) {
     this.rects = rects;
+    this.tips = tips;
     this.clears = rects.map(inflate);
     this.notes = [...notes];
     this.noteClears = this.notes.map(inflate);
@@ -678,8 +682,9 @@ function simplify(points: readonly Readonly<Point>[]): Readonly<Point>[] {
  * otherwise leave a little kink. A moved route keeps to the runs the search could
  * take, out of every box's clear space, where the stretches between arrows' stubs
  * and their boxes are, off the grid; an end moved along its box's side stays clear
- * of the corners; and a change is only kept if the search would have charged less
- * for it, so a run isn't moved beside another arrow or along a frame.
+ * of the corners, and doesn't move off the middle of a side on a box in `grid.tips`; and a
+ * change is only kept if the search would have charged less for it, so a run isn't moved
+ * beside another arrow or along a frame.
  */
 function straighten(grid: Grid, route: Route, from: Rect, to: Rect, under: readonly number[]): Route {
   const onSide = (p: Point, r: Rect) => {
@@ -714,6 +719,8 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect, under: reado
       if (!option || !onSide(option[0]!, from) || !onSide(option[option.length - 1]!, to)) continue;
       const points = simplify(option);
       const ports: [Port, Port] = [movedTo(best.ports[0], from, points[0]!), movedTo(best.ports[1], to, points[points.length - 1]!)];
+      // An end on a box arrows only meet at a side's middle stays there.
+      if (ports.some((p, k) => grid.tips.has(p.id) && !samePort(p, best.ports[k]!))) continue;
       // The search found the cheapest route between its ends, so keeping both of those can't help.
       if (samePort(ports[0], route.ports[0]) && samePort(ports[1], route.ports[1])) continue;
       const cells = grid.cellsOf(points, ports, under);
@@ -728,18 +735,23 @@ function straighten(grid: Grid, route: Route, from: Rect, to: Rect, under: reado
   return best;
 }
 
-/** A straight line between the borders of two boxes, for when there's no way around. */
-function straight(from: Box, to: Box): Point[] {
+/**
+ * A straight line between the borders of two boxes, for when there's no way around. On a box
+ * arrows meet only at a side's middle (a tip), it ends at the middle of the side it crosses.
+ */
+function straight(from: Box, to: Box, fromTip = false, toTip = false): Point[] {
   const centre = (b: Box) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-  const border = (b: Box, toward: Point) => {
+  const border = (b: Box, toward: Point, tip: boolean) => {
     const c = centre(b);
     const dx = toward.x - c.x;
     const dy = toward.y - c.y;
     if (dx === 0 && dy === 0) return c;
-    const scale = 1 / Math.max(Math.abs(dx) / (b.w / 2), Math.abs(dy) / (b.h / 2));
+    const [across, down] = [Math.abs(dx) / (b.w / 2), Math.abs(dy) / (b.h / 2)];
+    if (tip) return across >= down ? { x: c.x + Math.sign(dx) * (b.w / 2), y: c.y } : { x: c.x, y: c.y + Math.sign(dy) * (b.h / 2) };
+    const scale = 1 / Math.max(across, down);
     return { x: c.x + dx * scale, y: c.y + dy * scale };
   };
-  return [border(from, centre(to)), border(to, centre(from))];
+  return [border(from, centre(to), fromTip), border(to, centre(from), toTip)];
 }
 
 /**
@@ -755,6 +767,26 @@ function facing(a0: number, a1: number, b0: number, b1: number, count: number): 
   if (lo > hi) return [];
   const fit = Math.max(1, Math.min(count, Math.floor((hi - lo) / PORT_SPACING)));
   return Array.from({ length: fit }, (_, k) => Math.round(lo + ((hi - lo) * (k + 0.5)) / fit));
+}
+
+/** The middle of a side, from `from` to `to`: where anchorsOf puts its middle anchor. */
+function middleOf(from: number, to: number): number {
+  return Math.round(from + (to - from) / 2);
+}
+
+/**
+ * Lines across where two sides face each other, when arrows meet one of them, or both, only at
+ * the middle (a `tip`): the line through that middle, where the other side can take an arrow too,
+ * at its own middle when it's a tip as well. None when the other side can't.
+ */
+function tipFacing(a0: number, a1: number, aTip: boolean, b0: number, b1: number, bTip: boolean): number[] {
+  const takes = (lo: number, hi: number, tip: boolean, line: number) => {
+    if (tip) return line === middleOf(lo, hi);
+    const [from, to] = inset(lo, hi);
+    return line >= from && line <= to;
+  };
+  const lines = [...(aTip ? [middleOf(a0, a1)] : []), ...(bTip ? [middleOf(b0, b1)] : [])];
+  return [...new Set(lines)].filter((line) => takes(a0, a1, aTip, line) && takes(b0, b1, bTip, line));
 }
 
 /** Whether any run of a route goes through the inside of `r`. */
@@ -845,12 +877,15 @@ function couldBeStraight(a: Rect, b: Rect, lines: { xs: number[]; ys: number[] }
  * that could be straight first, then the rest, each shortest first, then any two that
  * cross again, each first in turn.
  */
-function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], frames: Rect[]): Routing {
+function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], frames: Rect[], tips: ReadonlySet<string> = new Set()): Routing {
   // Arrows attach to a box only at its own anchors, and at lines across where it
   // faces a box it's linked to, one for each arrow between the two, so those arrows
   // can be straight. Lines from boxes it has nothing to do with would give it places
-  // to attach that come and go as those boxes move.
-  const at = new Map([...rects].map(([id, r]) => [id, { xs: new Set(anchorsOf(r.left, r.right)), ys: new Set(anchorsOf(r.top, r.bottom)) }]));
+  // to attach that come and go as those boxes move. A box in `tips` has only the
+  // middle of each side, and the lines across where it faces another go through it.
+  const at = new Map(
+    [...rects].map(([id, r]) => [id, tips.has(id) ? { xs: new Set([middleOf(r.left, r.right)]), ys: new Set([middleOf(r.top, r.bottom)]) } : { xs: new Set(anchorsOf(r.left, r.right)), ys: new Set(anchorsOf(r.top, r.bottom)) }]),
+  );
   const pairs = new Map<string, Link[]>();
   for (const l of links) {
     const key = [l.from, l.to].sort().join("\n");
@@ -861,16 +896,21 @@ function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], fra
   for (const pair of pairs.values()) {
     const { from, to } = pair[0]!;
     const [a, b] = [rects.get(from)!, rects.get(to)!];
-    const lines = { xs: facing(a.left, a.right, b.left, b.right, pair.length), ys: facing(a.top, a.bottom, b.top, b.bottom, pair.length) };
+    const [ta, tb] = [tips.has(from), tips.has(to)];
+    const lines =
+      ta || tb
+        ? { xs: tipFacing(a.left, a.right, ta, b.left, b.right, tb), ys: tipFacing(a.top, a.bottom, ta, b.top, b.bottom, tb) }
+        : { xs: facing(a.left, a.right, b.left, b.right, pair.length), ys: facing(a.top, a.bottom, b.top, b.bottom, pair.length) };
     for (const l of pair) across.set(l.id, lines);
     for (const id of [from, to]) {
+      if (tips.has(id)) continue;
       for (const x of lines.xs) at.get(id)!.xs.add(x);
       for (const y of lines.ys) at.get(id)!.ys.add(y);
     }
     aligned.xs.push(...lines.xs);
     aligned.ys.push(...lines.ys);
   }
-  const grid = new Grid([...rects.values()], frames, aligned, notes);
+  const grid = new Grid([...rects.values()], frames, aligned, notes, tips);
   const ports = new Map([...rects].map(([id, r]) => [id, grid.portsOf(id, r, at.get(id)!)]));
   const starts = new Map(links.map((l) => [l.id, leaving(ports.get(l.from)!, rects.get(l.from)!, rects.get(l.to)!)]));
   const everyNote = notes.map((_, k) => k);
@@ -934,7 +974,7 @@ function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], fra
  * in the way (see routeLinks). `clear` holds the notes no route was in the way of, which other
  * routes have to keep clear of too, but for those on their own boxes, as the grid doesn't go round them.
  */
-function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: Box[]): Routing & { rects: Map<string, Rect>; routable: Link[]; clear: Rect[] } {
+function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: Box[], tips: ReadonlySet<string> = new Set()): Routing & { rects: Map<string, Rect>; routable: Link[]; clear: Rect[] } {
   const rects = new Map([...boxes].map(([id, b]) => [id, rect(b)]));
   const frameRects = frames.map(rect);
 
@@ -954,28 +994,28 @@ function routeAll(boxes: Map<string, Box>, links: Link[], frames: Box[], notes: 
   const noteClears = new Map(noteRects.map((n) => [n, inflate(n)]));
   const ends = routable.map((l) => ({ id: l.id, a: rects.get(l.from)!, b: rects.get(l.to)! }));
   const avoided: Rect[] = [];
-  let routing = routeAround(rects, avoided, routable, frameRects);
+  let routing = routeAround(rects, avoided, routable, frameRects, tips);
   for (;;) {
     const inTheWay = noteRects.filter(
       (n) => !avoided.includes(n) && ends.some(({ id, a, b }) => !onEnds(n, a, b) && runsThrough(routing.routes.get(id)?.points ?? [], noteClears.get(n)!)),
     );
     if (!inTheWay.length) break;
     avoided.push(...inTheWay);
-    routing = routeAround(rects, avoided, routable, frameRects);
+    routing = routeAround(rects, avoided, routable, frameRects, tips);
   }
   const clear = noteRects.filter((n) => !avoided.includes(n));
   return { ...routing, rects, routable, clear };
 }
 
 /** Each link's points: its route, or a straight line between its boxes when it has none. Shared with the routes, so read-only. */
-function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<string, Route>): Map<string, readonly Readonly<Point>[]> {
+function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<string, Route>, tips: ReadonlySet<string> = new Set()): Map<string, readonly Readonly<Point>[]> {
   const out = new Map<string, readonly Readonly<Point>[]>();
   for (const link of links) {
     const from = boxes.get(link.from);
     const to = boxes.get(link.to);
     if (!from || !to) continue;
     const route = routes.get(link.id);
-    out.set(link.id, route ? route.points : straight(from, to));
+    out.set(link.id, route ? route.points : straight(from, to, tips.has(link.from), tips.has(link.to)));
   }
   return out;
 }
@@ -987,10 +1027,11 @@ function pointsOf(boxes: Map<string, Box>, links: Link[], routes: ReadonlyMap<st
  * way: every obstacle adds grid lines right across the diagram, so a note out in empty
  * space would otherwise move arrows nowhere near it as it's dragged. A link goes under
  * a note on one of its own boxes, which is about that box, and going round which could
- * leave its arrows no way out; other links go round it.
+ * leave its arrows no way out; other links go round it. Arrows meet the boxes `tips` names only
+ * at the middle of a side, as a diamond's tips are.
  */
-export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = []): Map<string, readonly Readonly<Point>[]> {
-  return pointsOf(boxes, links, routeAll(boxes, links, frames, notes).routes);
+export function routeLinks(boxes: Map<string, Box>, links: Link[], frames: Box[] = [], notes: Box[] = [], tips: ReadonlySet<string> = new Set()): Map<string, readonly Readonly<Point>[]> {
+  return pointsOf(boxes, links, routeAll(boxes, links, frames, notes, tips).routes, tips);
 }
 
 /** How much of `a` lies inside `b`. */
@@ -1271,16 +1312,17 @@ export function placeLabels(routes: ReadonlyMap<string, readonly Readonly<Point>
  * apart from each other only once the routes are settled, so spreading them out
  * never changes the way an arrow goes.
  * `sizes` holds the sizes each label can be drawn at, widest first; each label
- * comes back with the size it's drawn at.
+ * comes back with the size it's drawn at. Arrows meet the boxes `tips` names only at the
+ * middle of a side, as routeLinks does.
  */
 export function layoutArrows<S extends Size>(
   boxes: Map<string, Box>,
   links: Link[],
   sizes: Map<string, S[]>,
-  { frames = [], notes = [], keepClear = [] }: { frames?: Box[]; notes?: Box[]; keepClear?: Box[] } = {},
+  { frames = [], notes = [], keepClear = [], tips = new Set() }: { frames?: Box[]; notes?: Box[]; keepClear?: Box[]; tips?: ReadonlySet<string> } = {},
 ): { routes: Map<string, readonly Readonly<Point>[]>; labels: Map<string, Point & S> } {
-  const { grid, ports, starts, routes, rects, routable, clear } = routeAll(boxes, links, frames, notes);
-  const scene = sceneOf(pointsOf(boxes, links, routes), [...boxes.values(), ...notes, ...keepClear]);
+  const { grid, ports, starts, routes, rects, routable, clear } = routeAll(boxes, links, frames, notes, tips);
+  const scene = sceneOf(pointsOf(boxes, links, routes, tips), [...boxes.values(), ...notes, ...keepClear]);
   const first = candidates(sizes, scene);
   const placed = placeAll(first, false);
   // The grid only goes around notes some route was in the way of, so other routes have to be checked against the rest, as routeAll does.
@@ -1346,7 +1388,7 @@ export function layoutArrows<S extends Size>(
 
   // Every label again, now the routes are settled, and spread apart where there's room. The scene already has the routes as they ended up.
   const labels = placeAll(moved ? candidates(sizes, scene) : first, true);
-  return { routes: pointsOf(boxes, links, routes), labels: new Map([...labels].map(([id, p]) => [id, { ...(p.spot.size as S), ...p.spot.at }])) };
+  return { routes: pointsOf(boxes, links, routes, tips), labels: new Map([...labels].map(([id, p]) => [id, { ...(p.spot.size as S), ...p.spot.at }])) };
 }
 
 type Run = readonly [Readonly<Point>, Readonly<Point>];

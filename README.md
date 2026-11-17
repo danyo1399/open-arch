@@ -94,7 +94,7 @@ The start page lists the folders you opened, to open again, and **Forget** takes
 
 With a mouse, drag across the diagram's background to select the boxes and sticky notes inside, or Ctrl-click them (⌘-click on a Mac) to add one or take it out. Drag any of them to move them all together; Undo takes the move back in one step. The scroll wheel pans, as do Space and drag and the middle button, and Ctrl-scroll (⌘-scroll on a Mac) or a pinch zooms. On a touch screen, drag to pan and pinch to zoom.
 
-As you drag boxes and sticky notes, they line up with the ones around them, edge to edge or middle to middle, and a line shows where they line up. The two buttons under the zoom buttons choose what they snap to: **Line up with other boxes**, on until you turn it off, and **Snap to the grid**, which puts them on the dots behind the diagram when they don't line up with anything. Start dragging, then hold Alt (⌥ on a Mac), to put one exactly where you let go. These are your settings, kept in the browser or the desktop app, not in the file. On a view laid out automatically, such as a deployment or event view, only sticky notes snap.
+As you drag boxes and sticky notes, they line up with the ones around them, edge to edge or middle to middle, and a line shows where they line up. The two buttons under the zoom buttons choose what they snap to: **Line up with other boxes**, on until you turn it off, and **Snap to the grid**, which puts them on the dots behind the diagram when they don't line up with anything. A whiteboard shape snaps as you resize it, too: the edge you drag lines up with the edges of the shapes around it, or goes to the grid. Start dragging, then hold Alt (⌥ on a Mac), to put one exactly where you let go, or make it exactly the size you drag it to. These are your settings, kept in the browser or the desktop app, not in the file. On a view laid out automatically, such as a deployment or event view, only sticky notes snap.
 
 Drag from the dot under a box to another box to add a relationship. To move one, select its arrow and drag the dot at either end to another box: the relationship keeps its description, technology, tags and notes. An arrow that stands for several relationships moves them all. When two elements call each other, select the relationship and tick **Goes both ways**: its arrow gets a head at each end, and stands for every relationship between the two boxes.
 
@@ -170,7 +170,7 @@ Pick a tool from the bar along the bottom of the board, or press its key:
 
 Escape picks the selection tool again. **+ Add** adds a rectangle, an ellipse, a diamond, text or a sticky note in the middle of the board.
 
-With the selection tool, drag a shape to move it, and drag a corner or an edge of a selected shape to resize it. Double-click a shape, or press Enter, to write in it, and double-click an arrow to write on it: Ctrl+Enter (⌘Enter on a Mac) or a click away saves it, and Esc leaves it as it was. Text left with nothing in it is deleted, and a shape with nothing written in it can't be made text alone. Drag from the dot under a shape to another shape to draw an arrow between them, or anywhere else for one that points there. Select an arrow and drag either end onto a shape, or off it. Drag across the board to select what's inside, arrows too when both their ends are, and move them together.
+With the selection tool, drag a shape to move it, and drag a corner or an edge of a selected shape to resize it. Shapes line up and snap to the grid as you move or resize them, as boxes do on other views. Double-click a shape, or press Enter, to write in it, and double-click an arrow to write on it: Ctrl+Enter (⌘Enter on a Mac) or a click away saves it, and Esc leaves it as it was. Text left with nothing in it is deleted, and a shape with nothing written in it can't be made text alone. Drag from the dot under a shape to another shape to draw an arrow between them, or anywhere else for one that points there. Select an arrow and drag either end onto a shape, or off it. Drag across the board to select what's inside, arrows too when both their ends are, and move them together.
 
 An arrow's end on a shape faces its other end, and moves round the shape's edge as they move. To keep it on one side, as a decision's yes leaves a diamond from its right tip and its no from its bottom one, let the end go on one of the dots that show at the shape's sides as you draw or drag it: the middle of each edge, and a diamond's or an ellipse's tips. It then stays there wherever the shapes move. The arrow's details show the side each end is on, and change it.
 
@@ -194,7 +194,7 @@ A flowchart shows the steps of a process: where it starts and ends, what's done,
 | Document | A page with a wavy bottom edge | A document or report that's made or read |
 | Database | A cylinder | Data that's kept |
 
-With a block selected, the new one goes under it, with a flow from it, so you can add the steps one after another. After an end, it has no flow from it, as the process stops there. Drag from the dot under a block to another to add a flow. Select a flow to give it text: on the ways out of a decision, the answer each is for, like Yes or No.
+With a block selected, the new one goes under it, with a flow from it, so you can add the steps one after another. After an end, it has no flow from it, as the process stops there. Drag from the dot under a block to another to add a flow. Select a flow to give it text: on the ways out of a decision, the answer each is for, like Yes or No. Arrows meet a decision only at the four tips of its diamond.
 
 The blocks are laid out automatically, from the first one down. Drag one to move it: then they all stay where they are, and **Lay out again**, in a block's details, lets the designer place that one again. Select a block to change its text, its kind or its description, or to add a flow from it; or a flow to change its ends, its text or its number. Deleting a block deletes the flows to and from it. The problems list warns about a flowchart without a start, a decision with fewer than two ways out, a way out of a decision that doesn't say which answer it's for, a flow out of an end or into a start, and one from a block back to itself, which isn't drawn. Blocks and flows belong to the view, not the model.
 
@@ -221,6 +221,14 @@ Sharing needs a [share server](#the-share-server). The designer only offers it w
 ### The Views and Model lists
 
 The Model list has every element in alphabetical order, with the contents of each system and container below it, in alphabetical order too. The menu beside **+ New view** sorts the Views list by name, or by level from landscape down to class, with sequence, state, deployment, event, wireframe, whiteboard and flowchart views last. To keep a view at the top of the list, select the pin by its name; select it again to unpin the view. The designer opens the first view in the list. The order and the pins are yours: they're kept in the browser's storage on this computer, in the desktop app too, not in the .openarch file.
+
+### The side panels
+
+The Views & model panel is left of the diagram, and the Details panel right of it, or under it on a screen up to 900 pixels wide. To give the diagram more room, collapse a panel with the arrow button on its edge. It becomes a strip that says what's in it, such as how many elements there are or what's selected; click the strip to expand it again. Picking an element in the Model list, a problem with an element, or the workspace's name expands the Details panel, to show it, as does adding a box with **+ Add**, whose name you then type there.
+
+Drag a panel's edge to make it wider or narrower, or taller or shorter under the diagram. A panel stops growing before the diagram gets too small. Or press Tab to get to the edge, and use the arrow keys; Home and End make the panel its smallest or largest. Double-click the edge to give the panel its usual size again.
+
+Which panels are collapsed, and their sizes, are yours: they're kept in the browser's storage on this computer, in the desktop app too, not in the .openarch file. The designer opens every workspace with the panels as you left them. On a phone, each panel fills the screen in turn, picked with the tabs along the bottom, so they don't collapse or resize.
 
 ### Ask AI (desktop)
 

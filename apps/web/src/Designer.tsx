@@ -16,7 +16,7 @@ import {
   type Workspace,
 } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Canvas, type Selection } from "./canvas/Canvas.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
@@ -72,7 +72,8 @@ import { MARKDOWN_FILE, PDF_FILE, PNG_FILE, providers, saveFile, SVG_FILE, type 
 import { diagramImage, nextPaint, type ImageFormat } from "./image.js";
 import { Sidebar } from "./panels/Sidebar.js";
 import { Usages } from "./panels/Usages.js";
-import { userSettings, useSnapSettings, useViewSettings } from "./settings.js";
+import { PANEL_PROPERTY, PanelEdge, PanelRail } from "./panels/SidePanels.js";
+import { userSettings, usePanelSettings, useSnapSettings, useViewSettings, type PanelSettings, type PanelSize } from "./settings.js";
 import { PUBLIC_DESIGNER, shareClient } from "./share.js";
 import { saveProblem, useWorkspace, type Edit } from "./state.js";
 
@@ -99,6 +100,9 @@ const NARROW = "(max-width: 640px), (max-height: 500px) and (max-width: 1000px)"
 
 /** On a narrow screen, the one panel that fills it. */
 type Pane = "diagram" | "browse" | "details";
+
+/** Screens up to this wide, but not narrow, have the details under the diagram (see styles.css). */
+const STACKED = "(max-width: 900px)";
 
 /** What the details panel shows, in a few words. */
 export function detailsName(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, selection: Selection): string {
@@ -164,6 +168,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const viewSettings = useViewSettings(host.key);
   /** What boxes and notes snap to as they're dragged, on every view: this person's too. */
   const snapSettings = useSnapSettings();
+  /** The side panels' sizes, and which are collapsed: this person's too. */
+  const panelSettings = usePanelSettings();
   // What's open follows a rename in the same render as the rename lands. A render in between
   // would show something else in its place (the view's details for a renamed element), and a
   // button being pressed there would go with it.
@@ -194,6 +200,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     [workspaceEdit, renamesSeen],
   );
   const narrow = useMediaQuery(NARROW);
+  const stacked = useMediaQuery(STACKED);
   const [pane, setPane] = useState<Pane>("diagram");
   // Becoming narrow shows the details while one is being typed in, as an on-screen keyboard can
   // be what made the window short, else the diagram: not whichever pane was last picked while
@@ -268,23 +275,50 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     select(null);
   };
 
+  const { setPanels } = panelSettings;
+  const detailsCollapsed = panelSettings.panels.detailsCollapsed;
+  const notify = state.notify;
+  /** Collapses or expands the side panels, or sizes them, saying so if it can't be kept. */
+  const changePanels = useCallback(
+    (change: Partial<PanelSettings>) => void setPanels(change).catch((e: unknown) => notify({ kind: "error", text: problemText(e) })),
+    [setPanels, notify],
+  );
+  /**
+   * The panel whose collapse button or strip was just pressed. The strip or the button that takes
+   * its place has the focus, as the one pressed is gone; once it has, it's forgotten.
+   */
+  const [toggled, setToggled] = useState<"browse" | "details" | null>(null);
+  useEffect(() => {
+    if (toggled) setToggled(null);
+  }, [toggled]);
+  const collapse = (panel: "browse" | "details", collapsed: boolean) => {
+    setToggled(panel);
+    changePanels(panel === "browse" ? { browseCollapsed: collapsed } : { detailsCollapsed: collapsed });
+  };
+  /** Shows the details: on a narrow screen, in their pane; elsewhere, expanding the Details panel if it's collapsed. */
+  const openDetails = useCallback(() => {
+    setPane("details");
+    if (!narrow && detailsCollapsed) changePanels({ detailsCollapsed: false });
+  }, [narrow, detailsCollapsed, changePanels]);
+
   // On a narrow screen, picking something shows it: a view's diagram, or an element's details.
-  // (Elsewhere the pane isn't used, and every panel is on screen.)
+  // (Elsewhere the pane isn't used, and every panel is on screen, or a strip for one that's
+  // collapsed, which picking something to see in it expands.)
   const showView = (id: string) => {
     selectView(id);
     setPane("diagram");
   };
   const showDetails = (next: Selection) => {
     select(next);
-    setPane("details");
+    openDetails();
   };
   /** A box just added gets its name typed in its details. */
   const selectOnCanvas = useCallback(
     (next: Selection, options?: { isNew?: boolean }) => {
       select(next, options);
-      if (options?.isNew) setPane("details");
+      if (options?.isNew) openDetails();
     },
-    [select],
+    [select, openDetails],
   );
   /** The usages panel is drawn over the diagram. */
   const findUsages = (id: string) => {
@@ -434,7 +468,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       </div>
     );
   }
-  if (!ws || state.text === null) return <div className="center muted">Loading…</div>;
+  // The panels open as they were left, rather than at their usual size and then changing.
+  if (!ws || state.text === null || !panelSettings.loaded) return <div className="center muted">Loading…</div>;
 
   const mod = isMac ? "⌘" : "Ctrl+";
   const selected =
@@ -596,11 +631,25 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     },
     { pane: "details", label: "Details", detail: detailsName(ws, view, computed, selection) },
   ];
+  // Beside the diagram, a panel can be collapsed to a strip, and dragged to a size. On a narrow
+  // screen each fills it in turn, as it always does.
+  const { panels } = panelSettings;
+  const browsePanel = panes[1]!;
+  const detailsPanel = panes[2]!;
+  const detailsPlace = stacked ? "bottom" : "right";
+  const detailsSize: PanelSize = stacked ? "detailsHeight" : "detailsWidth";
+  const appClass = narrow
+    ? `app narrow pane-${pane}`
+    : ["app", panels.browseCollapsed && "browse-collapsed", panels.detailsCollapsed && "details-collapsed"].filter(Boolean).join(" ");
+  // The sizes that were dragged; the others are the usual size for the screen.
+  const appStyle = Object.fromEntries(
+    (["browseWidth", "detailsWidth", "detailsHeight"] as const).flatMap((size) => (panels[size] === undefined ? [] : [[PANEL_PROPERTY[size], `${panels[size]}px`]])),
+  ) as CSSProperties;
   // Whose notes the notes editor has open: renamed meanwhile, they're called by the new name; gone, by the name they had.
   const notesNamed = dialog?.kind === "notes" ? (notesOf(ws, dialog.owner) === undefined ? dialog.name : notesName(ws, dialog.owner)) : "";
 
   return (
-    <div className={narrow ? `app narrow pane-${pane}` : "app"}>
+    <div className={appClass} style={appStyle}>
       <header className="topbar">
         {!narrow && <span className="brand">open-arch</span>}
         <button className="ws-name link" onClick={() => showDetails({ kind: "workspace" })} title="Workspace settings">
@@ -678,6 +727,20 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         pinnedViews={pins}
         onPinView={(id, pinned) => attempt(() => viewSettings.setPinned(current(id), pinned))}
       />
+      {!narrow &&
+        (panels.browseCollapsed ? (
+          <PanelRail place="left" label={browsePanel.label} detail={browsePanel.detail} bad={browsePanel.bad} onExpand={() => collapse("browse", false)} focus={toggled === "browse"} />
+        ) : (
+          <PanelEdge
+            place="left"
+            label={browsePanel.label}
+            size="browseWidth"
+            stacked={stacked}
+            onResize={(browseWidth) => changePanels({ browseWidth })}
+            onCollapse={() => collapse("browse", true)}
+            focus={toggled === "browse"}
+          />
+        ))}
 
       {/* Under another pane, the diagram keeps its size, so it keeps its zoom too. */}
       <main ref={mainRef} className="main" inert={narrow && pane !== "diagram"}>
@@ -824,6 +887,22 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           );
         }}
       />
+      {!narrow &&
+        (panels.detailsCollapsed ? (
+          <PanelRail place={detailsPlace} label={detailsPanel.label} detail={detailsPanel.detail} onExpand={() => collapse("details", false)} focus={toggled === "details"} />
+        ) : (
+          <PanelEdge
+            // A new edge when the panel moves under the diagram, or back beside it.
+            key={detailsPlace}
+            place={detailsPlace}
+            label={detailsPanel.label}
+            size={detailsSize}
+            stacked={stacked}
+            onResize={(value) => changePanels({ [detailsSize]: value })}
+            onCollapse={() => collapse("details", true)}
+            focus={toggled === "details"}
+          />
+        ))}
 
       {narrow && (
         <nav className="panes" aria-label="Panels">
