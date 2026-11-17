@@ -122,14 +122,14 @@ const VIEW_KEYS = [
 /** Views that draw something other than boxes picked from the model. */
 type OwnLevel = "sequence" | "state" | "deployment" | "event" | "wireframe" | "whiteboard" | "flowchart";
 /** Fields only sequence, state, deployment, event, wireframe, whiteboard and flowchart views take, and those they don't, with why. */
-const ONLY_ON: Record<string, OwnLevel> = {
+const ONLY_ON: Record<string, OwnLevel | OwnLevel[]> = {
   steps: "sequence",
   initial: "state",
   states: "state",
   transitions: "state",
   nodes: "deployment",
   connections: "deployment",
-  lanes: "event",
+  lanes: ["event", "flowchart"],
   cards: "event",
   screens: "wireframe",
   shapes: "whiteboard",
@@ -166,7 +166,7 @@ const WIDGET_KEYS = ["id", "kind", "text", "description", "to", "widgets"];
 const SHAPE_KEYS = ["id", "kind", "text", "at", "points", "size", "color", "fill", "dashed"];
 const ARROW_KEYS = ["id", "from", "to", "text", "heads", "color", "dashed"];
 const ARROW_END_KEYS = ["shape", "side"];
-const BLOCK_KEYS = ["id", "kind", "text", "description", "at"];
+const BLOCK_KEYS = ["id", "kind", "text", "description", "lane", "at"];
 const FLOW_KEYS = ["from", "to", "text"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "on", "color", "at"];
@@ -287,6 +287,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 14) out = { ...out, openarch: 15 };
   // Version 16 added flowchart views, so a version 15 file means the same in it.
   if (out.openarch === 15) out = { ...out, openarch: 16 };
+  // Version 17 added lanes to flowchart views, so a version 16 file means the same in it.
+  if (out.openarch === 16) out = { ...out, openarch: 17 };
   return out;
 }
 
@@ -444,8 +446,9 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   const own = boxes ? undefined : (view.level as OwnLevel);
   for (const key of Object.keys(value)) {
     const only = ONLY_ON[key];
-    if (only && only !== view.level) {
-      report(`${path}.${key}`, "field-not-allowed", `Only ${only} views have \`${key}\`.`, `Remove \`${key}\`.`);
+    const levels = only === undefined ? undefined : Array.isArray(only) ? only : [only];
+    if (levels && !levels.includes(view.level as OwnLevel)) {
+      report(`${path}.${key}`, "field-not-allowed", `Only ${levels.join(" and ")} views have \`${key}\`.`, `Remove \`${key}\`.`);
     } else if (own && NOT_ON[own].fields.includes(key)) {
       report(`${path}.${key}`, "field-not-allowed", `${LEVEL_NAME[own]} views don't take \`${key}\`: ${NOT_ON[own].why}.`, `Remove \`${key}\`.`);
     }
@@ -516,20 +519,20 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
       }
     }
   }
-  if (events) {
-    // A lane or card with the ID of one before it is left out: every reference to it would mean the first.
-    if (value.lanes !== undefined) {
-      if (!Array.isArray(value.lanes)) report(`${path}.lanes`, "field-type", "Must be a list of lanes.");
-      else {
-        view.lanes = [];
-        value.lanes.forEach((item, i) => {
-          const lane = readLane(item, `${path}.lanes[${i}]`, report);
-          if (!lane) return;
-          if (view.lanes!.some((l) => l.id === lane.id)) report(`${path}.lanes[${i}].id`, "id-duplicate", `"${lane.id}" is the ID of two lanes of this view.`, "Give one of them another ID.");
-          else view.lanes!.push(lane);
-        });
-      }
+  // A lane, card or block with the ID of one before it is left out: every reference to it would mean the first.
+  if ((events || flowchart) && value.lanes !== undefined) {
+    if (!Array.isArray(value.lanes)) report(`${path}.lanes`, "field-type", "Must be a list of lanes.");
+    else {
+      view.lanes = [];
+      value.lanes.forEach((item, i) => {
+        const lane = readLane(item, `${path}.lanes[${i}]`, report);
+        if (!lane) return;
+        if (view.lanes!.some((l) => l.id === lane.id)) report(`${path}.lanes[${i}].id`, "id-duplicate", `"${lane.id}" is the ID of two lanes of this view.`, "Give one of them another ID.");
+        else view.lanes!.push(lane);
+      });
     }
+  }
+  if (events) {
     if (value.cards !== undefined) {
       if (!Array.isArray(value.cards)) report(`${path}.cards`, "field-type", "Must be a list of cards.");
       else {
@@ -1039,8 +1042,10 @@ function readBlock(value: unknown, path: string, report: Report): BlockData | un
   const text = str(value.text, `${path}.text`, report);
   if (!text?.trim()) report(`${path}.text`, "field-required", "`text` is required: what the block says.");
   else b.text = text;
-  const description = str(value.description, `${path}.description`, report);
-  if (description !== undefined) b.description = description;
+  for (const key of ["description", "lane"] as const) {
+    const v = str(value[key], `${path}.${key}`, report);
+    if (v !== undefined) b[key] = v;
+  }
   if (value.at !== undefined) {
     if (isPoint(value.at)) b.at = value.at;
     else report(`${path}.at`, "field-type", "Must be a position, [x, y].");
@@ -1337,8 +1342,10 @@ function viewText(v: ViewData, indent: string): string {
     entries.push(["arrows", listText((v.arrows ?? []).map(arrow), indent)]);
   }
   if (flowchart) {
+    // Lanes only when it has some: most flowcharts have none.
+    if (v.lanes?.length) entries.push(["lanes", listText(v.lanes.map((l) => inline({ id: l.id, name: l.name, description: l.description || undefined })), indent)]);
     const blockLine = (b: BlockData) =>
-      inline({ id: b.id, kind: b.kind && b.kind !== "process" ? b.kind : undefined, text: b.text, description: b.description || undefined, at: b.at?.map((n) => Math.round(n)) });
+      inline({ id: b.id, kind: b.kind && b.kind !== "process" ? b.kind : undefined, text: b.text, description: b.description || undefined, lane: b.lane || undefined, at: b.at?.map((n) => Math.round(n)) });
     entries.push(["blocks", listText((v.blocks ?? []).map(blockLine), indent)]);
     entries.push(["flows", listText((v.flows ?? []).map((f) => inline({ from: f.from, to: f.to, text: f.text || undefined })), indent)]);
   }

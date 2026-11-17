@@ -278,8 +278,16 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
         const b = v.blocks.find((x) => x.id === id);
         return b ? text(b.text) : cell(id);
       };
+      const laneName = (id: string | undefined) => cell(v.lanes.find((l) => l.id === id)?.name ?? id);
+      if (v.lanes.length) {
+        lines.push("", "## Lanes", "", "| Lane | Description |", "|---|---|");
+        for (const lane of v.lanes) lines.push(`| ${cell(lane.name)} | ${cell(lane.description)} |`);
+      }
       lines.push("", "## Blocks", "");
-      if (v.blocks.length) {
+      if (v.blocks.length && v.lanes.length) {
+        lines.push("| # | Block | Kind | Lane | Description |", "|---|---|---|---|---|");
+        for (const b of v.blocks) lines.push(`| ${b.number} | ${text(b.text)} | ${BLOCK_KIND_LABELS[b.kind]} | ${laneName(b.lane)} | ${cell(b.description)} |`);
+      } else if (v.blocks.length) {
         lines.push("| # | Block | Kind | Description |", "|---|---|---|---|");
         for (const b of v.blocks) lines.push(`| ${b.number} | ${text(b.text)} | ${BLOCK_KIND_LABELS[b.kind]} | ${cell(b.description)} |`);
       } else lines.push("None yet.");

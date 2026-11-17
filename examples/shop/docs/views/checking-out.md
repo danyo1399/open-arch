@@ -8,16 +8,25 @@ What the Checkout API does when a customer places an order, from the cart to a r
 
 ```mermaid
 flowchart TB
-  checks_out(["Customer checks out"])
-  total["Work out the total<br/><i>Prices, delivery and tax</i>"]
-  card_details[/"Read the card details"/]
-  take_payment[["Take the payment<br/><i>With the payment provider</i>"]]
-  paid{"Payment taken?"}
-  declined["Say the card was declined"]
-  save_order["Save the order"]
-  orders[("Orders DB")]
-  receipt["Email a receipt"]
-  placed(["Order placed"])
+  subgraph lane__customer["Customer"]
+    direction TB
+    checks_out(["Customer checks out"])
+    placed(["Order placed"])
+  end
+  subgraph lane__checkout_api["Checkout API"]
+    direction TB
+    total["Work out the total<br/><i>Prices, delivery and tax</i>"]
+    card_details[/"Read the card details"/]
+    paid{"Payment taken?"}
+    declined["Say the card was declined"]
+    save_order["Save the order"]
+    orders[("Orders DB")]
+    receipt["Email a receipt"]
+  end
+  subgraph lane__payment_provider["Payment Provider"]
+    direction TB
+    take_payment[["Take the payment<br/><i>With the payment provider</i>"]]
+  end
   checks_out --> total
   total --> card_details
   card_details --> take_payment
@@ -28,22 +37,33 @@ flowchart TB
   save_order --> orders
   save_order --> receipt
   receipt --> placed
+  style lane__customer fill:none,stroke:#8a94a6
+  style lane__checkout_api fill:none,stroke:#8a94a6
+  style lane__payment_provider fill:none,stroke:#8a94a6
 ```
+
+## Lanes
+
+| Lane | Description |
+|---|---|
+| Customer |  |
+| Checkout API |  |
+| Payment Provider |  |
 
 ## Blocks
 
-| # | Block | Kind | Description |
-|---|---|---|---|
-| 1 | Customer checks out | Start |  |
-| 2 | Work out the total | Process | Prices, delivery and tax |
-| 3 | Read the card details | Input or output |  |
-| 4 | Take the payment | Subprocess | With the payment provider |
-| 5 | Payment taken? | Decision |  |
-| 6 | Say the card was declined | Process |  |
-| 7 | Save the order | Process |  |
-| 8 | Orders DB | Database |  |
-| 9 | Email a receipt | Document |  |
-| 10 | Order placed | End |  |
+| # | Block | Kind | Lane | Description |
+|---|---|---|---|---|
+| 1 | Customer checks out | Start | Customer |  |
+| 2 | Work out the total | Process | Checkout API | Prices, delivery and tax |
+| 3 | Read the card details | Input or output | Checkout API |  |
+| 4 | Take the payment | Subprocess | Payment Provider | With the payment provider |
+| 5 | Payment taken? | Decision | Checkout API |  |
+| 6 | Say the card was declined | Process | Checkout API |  |
+| 7 | Save the order | Process | Checkout API |  |
+| 8 | Orders DB | Database | Checkout API |  |
+| 9 | Email a receipt | Document | Checkout API |  |
+| 10 | Order placed | End | Customer |  |
 
 ## Flows
 

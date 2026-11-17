@@ -598,24 +598,36 @@ function blockNode(b: Block): string {
 }
 
 /**
- * A flowchart view as a Mermaid flowchart, top to bottom: each block in its kind's shape, and each
- * flow between two of its blocks as an arrow, with its text. Mermaid lays them out itself, so they
- * aren't where the designer has them.
+ * A flowchart view as a Mermaid flowchart, top to bottom: each block in its kind's shape, in a
+ * frame for its lane, if it's in one, and each flow between two of its blocks as an arrow, with
+ * its text. Mermaid lays them out itself, so they aren't where the designer has them, and it has
+ * no swimlanes, so the frames aren't always side by side.
  */
 function renderFlowchart(cv: ComputedView): string {
   const v = cv.view;
   const lines = ["flowchart TB"];
-  if (v.blocks.length === 0) {
+  if (v.blocks.length === 0 && v.lanes.length === 0) {
     lines.push("  %% This view has no blocks yet.");
     return lines.join("\n");
   }
-  for (const b of v.blocks) lines.push(`  ${blockNode(b)}`);
+  // A block's ID comes from kebab-case, so never has two underscores in a row, and a lane's can't be any block's.
+  const laneId = (id: string) => `lane__${id.replace(/-/g, "_")}`;
+  const lanes = new Set(v.lanes.map((l) => l.id));
+  for (const b of v.blocks) if (b.lane === undefined || !lanes.has(b.lane)) lines.push(`  ${blockNode(b)}`);
+  for (const lane of v.lanes) {
+    const inside = v.blocks.filter((b) => b.lane === lane.id);
+    lines.push(`  subgraph ${laneId(lane.id)}["${escape(lane.name)}"]`);
+    // The direction is for the blocks: a lane without any has only its name.
+    if (inside.length) lines.push("    direction TB", ...inside.map((b) => `    ${blockNode(b)}`));
+    lines.push("  end");
+  }
   const ids = new Set(v.blocks.map((b) => b.id));
   for (const f of v.flows) {
     if (!ids.has(f.from) || !ids.has(f.to) || f.from === f.to) continue;
     const text = f.text?.split(/\r?\n/).map((l) => escape(l.trim())).filter(Boolean).join("<br/>");
     lines.push(`  ${mermaidId(f.from)} -->${text ? `|"${text}"|` : ""} ${mermaidId(f.to)}`);
   }
+  for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} fill:none,stroke:#8a94a6`);
   return lines.join("\n");
 }
 

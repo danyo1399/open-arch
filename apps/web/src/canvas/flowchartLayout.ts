@@ -1,9 +1,10 @@
 /**
  * Sizes and shapes for a flowchart view's diagram: how big each kind of block is drawn before
- * it's been measured, and where an arrow meets a block's outline, which isn't always the box
- * round it: a decision is a diamond, a start or end a pill, and an input or output slanted.
+ * it's been measured, where an arrow meets a block's outline, which isn't always the box round
+ * it (a decision is a diamond, a start or end a pill, and an input or output slanted), and where
+ * its lanes go, as columns.
  */
-import type { Block, BlockKind } from "@open-arch/core";
+import type { Block, BlockKind, Lane, ViewDef } from "@open-arch/core";
 import type { Point } from "./autoLayout.js";
 import type { Box } from "./routing.js";
 
@@ -74,5 +75,95 @@ export function routeToOutlines(points: readonly Readonly<Point>[], from: { kind
   out[0] = onOutline(from.kind, from.box, out[0]!, leaving);
   const last = out.length - 1;
   out[last] = onOutline(to.kind, to.box, out[last]!, along(out[last - 1]!, out[last]!));
+  return out;
+}
+
+/**
+ * How a flowchart's lanes are drawn: the height of a lane's name at its top, the room inside a
+ * lane round its blocks, the narrowest a lane is, and how far apart blocks placed side by side in
+ * one are. Blocks placed in a lane go down its middle, at `centre` from the inside of its left.
+ */
+export const LANE = { head: 40, pad: 30, minWidth: 260, centre: 110, beside: 260 } as const;
+
+/** One column of a flowchart with lanes: a lane, or the column for the blocks in no lane. */
+export interface LaneColumn {
+  /** Left out for the column of blocks in no lane. */
+  lane?: Lane;
+  /** Its left edge, and its width. */
+  x: number;
+  w: number;
+}
+
+/** The lane a block is drawn in: its own, if the view has it. */
+export function laneOf(view: Pick<ViewDef, "lanes">, block: Pick<Block, "lane">): string | undefined {
+  return block.lane !== undefined && view.lanes.some((l) => l.id === block.lane) ? block.lane : undefined;
+}
+
+/**
+ * A flowchart's lanes as columns, left to right: first one for the blocks in no lane, when there
+ * are some, then each lane, each as wide as its blocks need and no narrower than LANE.minWidth.
+ * `at` holds each block's position, with x from the inside of its column's left (never less than
+ * 0), and the result where each is drawn.
+ */
+export function laneColumns(view: Pick<ViewDef, "lanes" | "blocks">, at: Record<string, Point>): { columns: LaneColumn[]; positions: Record<string, Point> } {
+  const placed = view.blocks.filter((b) => at[b.id]);
+  const loose = placed.some((b) => laneOf(view, b) === undefined);
+  const columns: LaneColumn[] = [];
+  let x = 0;
+  for (const lane of [...(loose ? [undefined] : []), ...view.lanes]) {
+    const inside = placed.filter((b) => laneOf(view, b) === lane?.id);
+    const w = Math.max(LANE.minWidth, ...inside.map((b) => Math.max(0, at[b.id]!.x) + blockWidth(b.kind) + 2 * LANE.pad));
+    columns.push({ lane, x, w });
+    x += w;
+  }
+  const positions: Record<string, Point> = {};
+  for (const b of placed) {
+    const column = columns.find((c) => c.lane?.id === laneOf(view, b))!;
+    positions[b.id] = { x: column.x + LANE.pad + Math.max(0, at[b.id]!.x), y: at[b.id]!.y };
+  }
+  return { columns, positions };
+}
+
+/** The column under `x`, or the nearest one, at either end. */
+function columnAt(columns: LaneColumn[], x: number): LaneColumn {
+  return columns.find((c) => x >= c.x && x < c.x + c.w) ?? (x < (columns[0]?.x ?? 0) ? columns[0]! : columns[columns.length - 1]!);
+}
+
+/** Where a block drawn at `position` in `column` is kept: its `at`, with x from the inside of the column's left. */
+export function savedAt(column: LaneColumn, position: Point): [number, number] {
+  return [Math.max(0, Math.round(position.x - column.x - LANE.pad)), Math.round(position.y)];
+}
+
+/** The lane a block let go of at `position`, `w` wide, goes in, by the column under its middle, and its `at` there. */
+export function dropInLane(columns: LaneColumn[], position: Point, w: number): { lane: string | undefined; at: [number, number] } {
+  const column = columnAt(columns, position.x + w / 2);
+  return { lane: column.lane?.id, at: savedAt(column, position) };
+}
+
+/**
+ * Positions, as laneColumns takes them, for every block of a flowchart with lanes: saved ones as
+ * they are; the rest at the height ELK puts them, `auto`, moved to line up with the saved ones,
+ * down the middle of their lane, or beside the blocks already there at that height.
+ */
+export function placeInLanes(view: Pick<ViewDef, "lanes" | "blocks">, saved: Record<string, Point>, auto: Record<string, Point>): Record<string, Point> {
+  const out: Record<string, Point> = { ...saved };
+  const known = view.blocks.filter((b) => saved[b.id] && auto[b.id]);
+  const dy = known.length ? known.reduce((sum, b) => sum + saved[b.id]!.y - auto[b.id]!.y, 0) / known.length : 0;
+  const size = (b: Block) => ({ w: blockWidth(b.kind), h: blockHeight(b) });
+  const missing = view.blocks.filter((b) => !saved[b.id]).sort((a, b) => (auto[a.id]?.y ?? 0) - (auto[b.id]?.y ?? 0) || (auto[a.id]?.x ?? 0) - (auto[b.id]?.x ?? 0));
+  for (const b of missing) {
+    const { w, h } = size(b);
+    const y = Math.round((auto[b.id]?.y ?? 0) + dy);
+    const lane = laneOf(view, b);
+    const others = view.blocks.filter((o) => o !== b && out[o.id] && laneOf(view, o) === lane);
+    const overlaps = (x: number) => others.some((o) => {
+      const p = out[o.id]!;
+      const s = size(o);
+      return x < p.x + s.w + 20 && x + w + 20 > p.x && y < p.y + s.h + 20 && y + h + 20 > p.y;
+    });
+    let k = 0;
+    while (overlaps(Math.max(0, LANE.centre - w / 2) + k * LANE.beside)) k++;
+    out[b.id] = { x: Math.round(Math.max(0, LANE.centre - w / 2) + k * LANE.beside), y };
+  }
   return out;
 }

@@ -544,7 +544,8 @@ function flowchartJson(cv: ComputedView) {
     level: view.level,
     scope: view.scope,
     notes: view.notes,
-    blocks: view.blocks.map((b) => ({ id: b.id, position: b.number, kind: b.kind, text: b.text, description: b.description, at: b.at })),
+    lanes: view.lanes.length ? view.lanes.map((l) => ({ id: l.id, name: l.name, description: l.description })) : undefined,
+    blocks: view.blocks.map((b) => ({ id: b.id, position: b.number, kind: b.kind, text: b.text, description: b.description, lane: b.lane, at: b.at })),
     flows: view.flows.map((f) => ({ flow: f.number, from: f.from, to: f.to, text: f.text })),
     stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
   };
@@ -554,12 +555,18 @@ function flowchartText(ws: Workspace, cv: ComputedView): string {
   const view = cv.view;
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const quoted = (text: string) => JSON.stringify(text.split(/\r?\n/).join(" / "));
-  const blocks = view.blocks.map((b) => [`  ${b.number}.`, b.id, BLOCK_KIND_LABELS[b.kind].toLowerCase(), [quoted(b.text), b.description ?? "", b.at ? `(at ${b.at.join(", ")})` : ""].filter(Boolean).join("  ")]);
+  const blocks = view.blocks.map((b) => [
+    `  ${b.number}.`,
+    b.id,
+    BLOCK_KIND_LABELS[b.kind].toLowerCase(),
+    [quoted(b.text), b.description ?? "", b.lane ? `(in ${b.lane})` : "", b.at ? `(at ${b.at.join(", ")})` : ""].filter(Boolean).join("  "),
+  ]);
   const lines = [
     `${view.id}: ${view.title}`,
     `  level:        flowchart view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
     ...(view.description ? [`  description:  ${view.description}`] : []),
     ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    ...(view.lanes.length ? ["", "Lanes, left to right:", ...table(view.lanes.map((l) => [`  ${l.id}`, l.name, l.description ?? ""]))] : []),
     "",
     "Blocks:",
     ...(blocks.length ? table(blocks) : ["  (none)"]),

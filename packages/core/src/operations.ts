@@ -287,9 +287,20 @@ export type Operation =
     }
   | { op: "remove-arrow"; view: string; id: string }
   /** `at` is its top-left corner; without it, the designer lays it out. `position` is its place in the file's order: 1 is the first. */
-  | { op: "add-block"; view: string; id: string; kind?: BlockKind; text?: string; description?: string; at?: [number, number]; position?: number }
-  /** `at`: null lets the designer lay it out again. */
-  | { op: "update-block"; view: string; id: string; newId?: string; kind?: BlockKind; text?: string; description?: string | null; at?: [number, number] | null; position?: number }
+  | { op: "add-block"; view: string; id: string; kind?: BlockKind; text?: string; description?: string; lane?: string; at?: [number, number]; position?: number }
+  /** `at`: null lets the designer lay it out again. `lane`: null takes it out of its lane. */
+  | {
+      op: "update-block";
+      view: string;
+      id: string;
+      newId?: string;
+      kind?: BlockKind;
+      text?: string;
+      description?: string | null;
+      lane?: string | null;
+      at?: [number, number] | null;
+      position?: number;
+    }
   | { op: "remove-block"; view: string; id: string }
   /** `flow` is its number: 1 is the first. */
   | { op: "add-flow"; view: string; from: string; to: string; text?: string; flow?: number }
@@ -539,11 +550,11 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "remove-arrow": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "add-block": {
     required: ["view", "id"],
-    fields: { view: "string", id: "string", kind: "string", text: "string", description: "string", at: "point", position: "number" },
+    fields: { view: "string", id: "string", kind: "string", text: "string", description: "string", lane: "string", at: "point", position: "number" },
   },
   "update-block": {
     required: ["view", "id"],
-    fields: { view: "string", id: "string", newId: "string", kind: "string", text: "string", description: "nullable-string", at: "nullable-point", position: "number" },
+    fields: { view: "string", id: "string", newId: "string", kind: "string", text: "string", description: "nullable-string", lane: "nullable-string", at: "nullable-point", position: "number" },
   },
   "remove-block": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "add-flow": { required: ["view", "from", "to"], fields: { view: "string", from: "string", to: "string", text: "string", flow: "number" } },
@@ -1820,7 +1831,7 @@ function moveTo<T>(items: T[], index: number, position: number | undefined, view
 }
 
 function addLane(doc: OpenArchDocument, op: Extract<Operation, { op: "add-lane" }>): string {
-  const view = requireEvents(doc, op.view);
+  const view = requireLanes(doc, op.view);
   if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. IDs are lowercase kebab-case, like "customer".`);
   const lanes = (view.lanes ??= []);
   if (lanes.some((l) => l.id === op.id)) throw new OpError(`View "${op.view}" already has a lane "${op.id}".`);
@@ -1830,7 +1841,7 @@ function addLane(doc: OpenArchDocument, op: Extract<Operation, { op: "add-lane" 
 }
 
 function updateLane(doc: OpenArchDocument, op: Extract<Operation, { op: "update-lane" }>): string {
-  const view = requireEvents(doc, op.view);
+  const view = requireLanes(doc, op.view);
   const lane = requireLane(view, op.view, op.id);
   const fields = ["newId", "name", "description", "position"] as const;
   if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on lane "${op.id}": ${fields.join(", ")}.`);
@@ -1852,26 +1863,26 @@ function updateLane(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
     }
     return `updated lane ${op.id} in view ${op.view}${where}`;
   }
-  // A new ID keeps the lane where it is, and its cards follow it.
+  // A new ID keeps the lane where it is, and its cards or blocks follow it.
   if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. IDs are lowercase kebab-case, like "customer".`);
   if (lanes.some((l) => l.id === op.newId)) throw new OpError(`View "${op.view}" already has a lane "${op.newId}".`);
   lane.id = op.newId;
-  for (const card of view.cards ?? []) if (card.lane === op.id) card.lane = op.newId;
+  for (const item of [...(view.cards ?? []), ...(view.blocks ?? [])]) if (item.lane === op.id) item.lane = op.newId;
   return `renamed lane ${op.id} to ${op.newId} in view ${op.view}${where}`;
 }
 
-/** Removes a lane. Its cards stay, in no lane. */
+/** Removes a lane. Its cards, or its blocks, stay, in no lane. */
 function removeLane(doc: OpenArchDocument, viewId: string, id: string): string {
-  const view = requireEvents(doc, viewId);
+  const view = requireLanes(doc, viewId);
   const lane = requireLane(view, viewId, id);
   view.lanes!.splice(view.lanes!.indexOf(lane), 1);
   let left = 0;
-  for (const card of view.cards ?? []) {
-    if (card.lane !== id) continue;
-    delete card.lane;
+  for (const item of [...(view.cards ?? []), ...(view.blocks ?? [])]) {
+    if (item.lane !== id) continue;
+    delete item.lane;
     left++;
   }
-  return `removed lane ${id} from view ${viewId}${left ? `, leaving ${count(left, "card")} in no lane` : ""}`;
+  return `removed lane ${id} from view ${viewId}${left ? `, leaving ${count(left, view.level === "flowchart" ? "block" : "card")} in no lane` : ""}`;
 }
 
 function addCard(doc: OpenArchDocument, op: Extract<Operation, { op: "add-card" }>): string {
@@ -1975,7 +1986,14 @@ function checkCardKind(kind: string): void {
 
 function requireEvents(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "event") throw new OpError(`View "${id}" is a ${view.level} view. Only event views have lanes and cards.`);
+  if (view.level !== "event") throw new OpError(`View "${id}" is a ${view.level} view. Only event views have cards.`);
+  return view;
+}
+
+/** An event or flowchart view: those that have lanes. */
+function requireLanes(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "event" && view.level !== "flowchart") throw new OpError(`View "${id}" is a ${view.level} view. Only event and flowchart views have lanes.`);
   return view;
 }
 
@@ -2528,11 +2546,13 @@ function addBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "add-block
   if (blocks.some((b) => b.id === op.id)) throw new OpError(`View "${op.view}" already has a block "${op.id}".`);
   const kind = op.kind ?? "process";
   checkOneOf(kind, BLOCK_KINDS, "kind of block");
+  if (op.lane) requireLane(view, op.view, op.lane);
   const block = clean<BlockData>({
     id: op.id,
     kind: kind === "process" ? undefined : kind,
     text: op.text?.trim() || titleFromId(op.id),
     description: op.description?.trim(),
+    lane: op.lane || undefined,
     at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])],
   });
   const at = insertAt(blocks, block, op.position, op.view, "block");
@@ -2542,7 +2562,7 @@ function addBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "add-block
 function updateBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "update-block" }>): string {
   const view = requireFlowchart(doc, op.view);
   const block = requireBlock(view, op.view, op.id);
-  const fields = ["newId", "kind", "text", "description", "at", "position"] as const;
+  const fields = ["newId", "kind", "text", "description", "lane", "at", "position"] as const;
   if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on block "${op.id}": ${fields.join(", ")}.`);
   if (op.kind !== undefined) {
     checkOneOf(op.kind, BLOCK_KINDS, "kind of block");
@@ -2556,6 +2576,11 @@ function updateBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "update
   if (op.description !== undefined) {
     if (op.description === null || !op.description.trim()) delete block.description;
     else block.description = op.description.trim();
+  }
+  if (op.lane === null || op.lane === "") delete block.lane;
+  else if (op.lane !== undefined) {
+    requireLane(view, op.view, op.lane);
+    block.lane = op.lane;
   }
   if (op.at === null) delete block.at;
   else if (op.at !== undefined) block.at = [Math.round(op.at[0]), Math.round(op.at[1])];

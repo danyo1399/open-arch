@@ -1,5 +1,5 @@
 {
-  "openarch": 16,
+  "openarch": 17,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -186,17 +186,22 @@
       "description": "What the Checkout API does when a customer places an order, from the cart to a receipt.",
       "level": "flowchart",
       "scope": "checkout-api",
+      "lanes": [
+        { "id": "customer", "name": "Customer" },
+        { "id": "checkout-api", "name": "Checkout API" },
+        { "id": "payment-provider", "name": "Payment Provider" }
+      ],
       "blocks": [
-        { "id": "checks-out", "kind": "start", "text": "Customer checks out" },
-        { "id": "total", "text": "Work out the total", "description": "Prices, delivery and tax" },
-        { "id": "card-details", "kind": "input-output", "text": "Read the card details" },
-        { "id": "take-payment", "kind": "subprocess", "text": "Take the payment", "description": "With the payment provider" },
-        { "id": "paid", "kind": "decision", "text": "Payment taken?" },
-        { "id": "declined", "text": "Say the card was declined" },
-        { "id": "save-order", "text": "Save the order" },
-        { "id": "orders", "kind": "database", "text": "Orders DB" },
-        { "id": "receipt", "kind": "document", "text": "Email a receipt" },
-        { "id": "placed", "kind": "end", "text": "Order placed" }
+        { "id": "checks-out", "kind": "start", "text": "Customer checks out", "lane": "customer" },
+        { "id": "total", "text": "Work out the total", "description": "Prices, delivery and tax", "lane": "checkout-api" },
+        { "id": "card-details", "kind": "input-output", "text": "Read the card details", "lane": "checkout-api" },
+        { "id": "take-payment", "kind": "subprocess", "text": "Take the payment", "description": "With the payment provider", "lane": "payment-provider" },
+        { "id": "paid", "kind": "decision", "text": "Payment taken?", "lane": "checkout-api" },
+        { "id": "declined", "text": "Say the card was declined", "lane": "checkout-api" },
+        { "id": "save-order", "text": "Save the order", "lane": "checkout-api" },
+        { "id": "orders", "kind": "database", "text": "Orders DB", "lane": "checkout-api" },
+        { "id": "receipt", "kind": "document", "text": "Email a receipt", "lane": "checkout-api" },
+        { "id": "placed", "kind": "end", "text": "Order placed", "lane": "customer" }
       ],
       "flows": [
         { "from": "checks-out", "to": "total" },

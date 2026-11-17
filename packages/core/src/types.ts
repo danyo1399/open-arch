@@ -16,7 +16,8 @@ export type ElementKind = (typeof ELEMENT_KINDS)[number];
  * another. A whiteboard view is a freehand sketch, to share an idea: shapes, text, arrows and
  * lines drawn with a pen, each where it's put, none of them part of the model. A flowchart view
  * draws the steps of a process: where it starts and ends, what's done, the decisions on the
- * way, and the arrows from one to the next.
+ * way, and the arrows from one to the next, in a swimlane for each actor, team or system if it
+ * has them.
  */
 export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event", "wireframe", "whiteboard", "flowchart"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
@@ -219,7 +220,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 16;
+export const FORMAT_VERSION = 17;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -303,7 +304,7 @@ export interface ViewData {
   nodes?: Record<string, DeploymentNodeData>;
   /** Deployment views only: arrows to or from nodes, like a load balancer forwarding to the web app. */
   connections?: ConnectionData[];
-  /** Event views only: the swimlanes, from the top down. */
+  /** Event and flowchart views only: the swimlanes, from the top down on an event view, and left to right on a flowchart. */
   lanes?: LaneData[];
   /** Event views only: the cards, in order along the timeline. */
   cards?: CardData[];
@@ -328,7 +329,12 @@ export interface BlockData {
   /** What it says, like "Pack the order", or for a decision a question, like "In stock?". */
   text: string;
   description?: string;
-  /** Top-left corner. Without it, the designer lays the block out. */
+  /** The ID of the lane it's in. Without it, in a flowchart with lanes, it's in a column of its own left of them. */
+  lane?: string;
+  /**
+   * Top-left corner. Without it, the designer lays the block out. In a flowchart with lanes, x
+   * is from the left of its lane, or of the column for blocks in no lane.
+   */
   at?: [number, number];
 }
 
@@ -424,7 +430,10 @@ export interface WidgetData {
   widgets?: WidgetData[];
 }
 
-/** One swimlane of an event view: a row for the cards of one actor, team or system, like "Customer". */
+/**
+ * One swimlane: on an event view, a row for the cards of one actor, team or system, like
+ * "Customer"; on a flowchart, a column for its blocks.
+ */
 export interface LaneData {
   /** Unique among the view's lanes. */
   id: string;
@@ -601,7 +610,7 @@ export interface ViewDef {
   nodes: DeploymentNode[];
   /** Deployment views only, in the file's order; empty on other views. */
   connections: Connection[];
-  /** Event views only, from the top down; empty on other views. */
+  /** Event views, from the top down, and flowchart views, left to right; empty on other views. */
   lanes: Lane[];
   /** Event views only, in order along the timeline; empty on other views. */
   cards: Card[];
@@ -626,6 +635,7 @@ export interface Block {
   kind: BlockKind;
   text: string;
   description?: string;
+  lane?: string;
   at?: [number, number];
 }
 

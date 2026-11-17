@@ -52,17 +52,17 @@ describe("hosts", () => {
   });
 
   it("leaves AGENTS.md out of the zip when the file's name has a line break in it", () => {
-    const text = JSON.stringify({ openarch: 16, name: "A", elements: {}, views: {} });
+    const text = JSON.stringify({ openarch: 17, name: "A", elements: {}, views: {} });
     const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a\nb.openarch", text)));
     expect(files).toContain("a\nb/a\nb.openarch");
     expect(files.some((path) => path.endsWith("AGENTS.md"))).toBe(false);
     // Or its docs folder's.
-    const docsText = JSON.stringify({ openarch: 16, name: "A", export: { docs: "do\u2029cs" }, elements: {}, views: {} });
+    const docsText = JSON.stringify({ openarch: 17, name: "A", export: { docs: "do\u2029cs" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(docsText), "a.openarch", docsText))).some((path) => path.endsWith("AGENTS.md"))).toBe(false);
   });
 
   it("says docs in the file's own folder are in ./, in the zip's AGENTS.md", () => {
-    const text = JSON.stringify({ openarch: 16, name: "A", export: { docs: "." }, elements: {}, views: {} });
+    const text = JSON.stringify({ openarch: 17, name: "A", export: { docs: "." }, elements: {}, views: {} });
     const files = unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text));
     expect(Object.keys(files)).toContain("a/README.md");
     expect(strFromU8(files["a/AGENTS.md"]!)).toContain("Readable docs generated from it are in `./`.");
@@ -70,13 +70,13 @@ describe("hosts", () => {
 
   it("zips the docs beside the file, with no folder of their own, when the workspace names no docs folder, or one outside its folder", () => {
     for (const docs of [undefined, "../docs", "/docs"]) {
-      const text = JSON.stringify({ openarch: 16, name: "A", ...(docs ? { export: { docs } } : {}), elements: {}, views: {} });
+      const text = JSON.stringify({ openarch: 17, name: "A", ...(docs ? { export: { docs } } : {}), elements: {}, views: {} });
       const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)));
       expect(files).toContain("a/README.md");
       expect(files).toContain("a/a.openarch");
       expect(files.some((path) => path.startsWith("a/a-docs/"))).toBe(false);
     }
-    const text = JSON.stringify({ openarch: 16, name: "A", export: { docs: "./docs/arch/" }, elements: {}, views: {} });
+    const text = JSON.stringify({ openarch: 17, name: "A", export: { docs: "./docs/arch/" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)))).toContain("a/docs/arch/README.md");
   });
 
@@ -88,7 +88,7 @@ describe("hosts", () => {
       ["../../out", "repo/arch/"],
     ];
     for (const [docs, where] of cases) {
-      const text = JSON.stringify({ openarch: 16, name: "A", export: { docs }, elements: {}, views: {} });
+      const text = JSON.stringify({ openarch: 17, name: "A", export: { docs }, elements: {}, views: {} });
       // Where a save in the folder writes them, when it can.
       const root = new FakeFolder("repo");
       root.put("arch/a.openarch", text);
@@ -105,7 +105,7 @@ describe("hosts", () => {
   });
 
   it("works out a docs folder from the file's folder, as a save does, so one that goes up and comes back in is kept", async () => {
-    const text = JSON.stringify({ openarch: 16, name: "A", export: { docs: "../a/docs" }, elements: {}, views: {} });
+    const text = JSON.stringify({ openarch: 17, name: "A", export: { docs: "../a/docs" }, elements: {}, views: {} });
     // In a folder, with the file in a/, a save writes these docs to a/docs/.
     const root = new FakeFolder("repo");
     root.put("a/a.openarch", text);
@@ -116,7 +116,7 @@ describe("hosts", () => {
     expect(zipped).toContain("a/docs/README.md");
     expect(zipped).not.toContain("a/README.md");
     // Up and into another folder isn't inside the file's folder: the zip has no place for it.
-    const other = JSON.stringify({ openarch: 16, name: "A", export: { docs: "../arch/docs" }, elements: {}, views: {} });
+    const other = JSON.stringify({ openarch: 17, name: "A", export: { docs: "../arch/docs" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(other), "a.openarch", other)))).toContain("a/README.md");
   });
 });
@@ -134,7 +134,7 @@ describe("the desktop app's host", () => {
 
 describe("model helpers", () => {
   const ws = buildWorkspace({
-    openarch: 16,
+    openarch: 17,
     name: "T",
     elements: {
       shop: { kind: "system", name: "Shop" },

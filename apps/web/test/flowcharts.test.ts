@@ -4,9 +4,9 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
-import { BLOCK_KINDS } from "@open-arch/core";
+import { BLOCK_KINDS, type ViewDef } from "@open-arch/core";
 import { addBlockOps, connectOps, FlowchartDiagram, flowchartLayout, moveOps, pinOps, tipsOf, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
-import { blockHeight, blockWidth, onOutline, routeToOutlines, SLANT } from "../src/canvas/flowchartLayout.js";
+import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, onOutline, placeInLanes, routeToOutlines, savedAt, SLANT } from "../src/canvas/flowchartLayout.js";
 import { followRenames, followsName, LEVEL_NAMES, shownInProperties, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
@@ -16,7 +16,7 @@ import { button, choose, click, mount, select } from "./dom.js";
 
 /** A return, each block placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
-  openarch: 16,
+  openarch: 17,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, customer: { kind: "person", name: "Customer" } },
   views: {
@@ -145,7 +145,7 @@ describe("FlowchartDiagram", () => {
     const { host, edits, selected } = await diagram({ kind: "block", id: "refund" });
     await click(button(host, "+ Add"));
     const items = [...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')];
-    expect(items.map((b) => b.textContent)).toEqual(["Process", "Start", "End", "Decision", "Input or output", "Subprocess", "Document", "Database", "Sticky note"]);
+    expect(items.map((b) => b.textContent)).toEqual(["Process", "Start", "End", "Decision", "Input or output", "Subprocess", "Document", "Database", "Lane", "Sticky note"]);
     await click(items.find((b) => b.textContent === "Decision")!);
     await new Promise((resolve) => setTimeout(resolve));
     expect(edits).toHaveLength(1);
@@ -401,5 +401,163 @@ describe("the New view dialog", () => {
     await choose(of, "shop");
     await click(button(host, "Create view"));
     expect(created).toEqual([{ op: "add-view", id: "shop-process", level: "flowchart", scope: "shop", title: "Shop process" }]);
+  });
+});
+
+/** The return in lanes: the customer's, and the shop's, with the end in neither. */
+const lanedDoc: OpenArchDocument = {
+  ...doc,
+  views: {
+    returns: {
+      ...doc.views.returns!,
+      lanes: [
+        { id: "customer", name: "Customer", description: "Whoever bought it" },
+        { id: "shop", name: "Shop" },
+      ],
+      blocks: doc.views.returns!.blocks!.map((b) => (b.id === "done" ? b : { ...b, lane: b.id === "asked" ? "customer" : "shop" })),
+    },
+  },
+};
+const lanedWs = buildWorkspace(lanedDoc);
+const lanedView = lanedWs.views.get("returns")!;
+
+describe("a flowchart's lanes", () => {
+  it("are columns, left to right, the one for blocks in no lane first, each as wide as its blocks need", () => {
+    const at = { asked: { x: 20, y: 0 }, "in-time": { x: 0, y: 120 }, refund: { x: 300, y: 300 }, refuse: { x: -40, y: 300 }, done: { x: 20, y: 450 } };
+    const { columns, positions } = laneColumns(lanedView, at);
+    expect(columns.map((c) => [c.lane?.id, c.x, c.w])).toEqual([
+      [undefined, 0, LANE.minWidth],
+      ["customer", 260, LANE.minWidth],
+      // refund is 300 in, and 180 wide, with the room either side.
+      ["shop", 520, 300 + 180 + 2 * LANE.pad],
+    ]);
+    expect(positions.asked).toEqual({ x: 260 + LANE.pad + 20, y: 0 });
+    expect(positions.refund).toEqual({ x: 520 + LANE.pad + 300, y: 300 });
+    // A block never sits left of its lane's inside.
+    expect(positions.refuse).toEqual({ x: 520 + LANE.pad, y: 300 });
+    // With every block in a lane, there's no column for blocks in none.
+    expect(laneColumns(lanedView, { asked: { x: 0, y: 0 } }).columns.map((c) => c.lane?.id)).toEqual(["customer", "shop"]);
+  });
+
+  it("take a block let go of over them, by its middle, keeping its place from the lane's left", () => {
+    const columns = laneColumns(lanedView, { asked: { x: 0, y: 0 }, done: { x: 0, y: 400 } }).columns;
+    expect(columns.map((c) => c.x)).toEqual([0, 260, 520]);
+    expect(dropInLane(columns, { x: 400, y: 50 }, 180)).toEqual({ lane: "customer", at: [400 - 260 - LANE.pad, 50] });
+    // Its middle is over the shop's lane, though its left isn't.
+    expect(dropInLane(columns, { x: 440, y: 50 }, 180)).toEqual({ lane: "shop", at: [0, 50] });
+    expect(dropInLane(columns, { x: 10, y: 50 }, 180)).toEqual({ lane: undefined, at: [0, 50] });
+    // Beyond either end, it's the nearest.
+    expect(dropInLane(columns, { x: -900, y: 0 }, 180).lane).toBeUndefined();
+    expect(dropInLane(columns, { x: 5000, y: 0 }, 180).lane).toBe("shop");
+    expect(savedAt(columns[2]!, { x: 600.4, y: 99.6 })).toEqual([600 - 520 - LANE.pad, 100]);
+  });
+
+  it("place blocks without a position down the middle of their lane, at ELK's height, beside any already there", () => {
+    const auto = { asked: { x: 500, y: 0 }, "in-time": { x: 500, y: 120 }, refund: { x: 300, y: 300 }, refuse: { x: 700, y: 300 }, done: { x: 500, y: 450 } };
+    const placed = placeInLanes(lanedView, { asked: { x: 5, y: 1000 } }, auto);
+    // The saved one stays, and the rest line up with it: 1000 below ELK's.
+    expect(placed.asked).toEqual({ x: 5, y: 1000 });
+    expect(placed["in-time"]).toEqual({ x: LANE.centre - 220 / 2, y: 1120 });
+    expect(placed.refund).toEqual({ x: LANE.centre - 90, y: 1300 });
+    // refuse is in refund's lane, at its height, so it goes beside it.
+    expect(placed.refuse).toEqual({ x: LANE.centre - 90 + LANE.beside, y: 1300 });
+    // done is in no lane, at the middle of that column.
+    expect(placed.done).toEqual({ x: LANE.centre - 80, y: 1450 });
+  });
+
+  it("keep the blocks the designer placed where they are in their lanes, and move one let go of over another lane into it", () => {
+    const columns = laneColumns(lanedView, { asked: { x: 0, y: 0 }, done: { x: 0, y: 400 } }).columns;
+    const drawn: DrawnItem[] = [
+      { kind: "block", id: "asked", position: { x: 300, y: 0 }, placed: true, lane: "customer", w: 160 },
+      { kind: "block", id: "refund", position: { x: 560, y: 300 }, placed: true, lane: "shop", w: 180 },
+    ];
+    expect(pinOps(lanedView, drawn, new Set(), columns)).toEqual([
+      { op: "update-block", view: "returns", id: "asked", at: [300 - 260 - LANE.pad, 0] },
+      { op: "update-block", view: "returns", id: "refund", at: [560 - 520 - LANE.pad, 300] },
+    ]);
+    const dragged: DrawnItem[] = [{ kind: "block", id: "refund", position: { x: 300, y: 320 }, placed: true, lane: "shop", w: 180 }];
+    expect(moveOps(lanedView, drawn, dragged, columns)).toEqual([
+      { op: "update-block", view: "returns", id: "asked", at: [10, 0] },
+      { op: "update-block", view: "returns", id: "refund", lane: "customer", at: [10, 320] },
+    ]);
+    // Over its own lane, only its place changes; over the column for no lane, it leaves its lane.
+    expect(moveOps(lanedView, [], [{ ...dragged[0]!, position: { x: 600, y: 320 } }], columns)).toEqual([{ op: "update-block", view: "returns", id: "refund", at: [50, 320] }]);
+    expect(moveOps(lanedView, [], [{ ...dragged[0]!, position: { x: 20, y: 320 } }], columns)).toEqual([{ op: "update-block", view: "returns", id: "refund", lane: null, at: [0, 320] }]);
+    expect(connectOps(lanedView, drawn, "refuse", "done", columns)!.ops[0]).toEqual({ op: "update-block", view: "returns", id: "asked", at: [10, 0] });
+    expect(addBlockOps(lanedView, "process", null, [10, 20], "shop").ops).toEqual([{ op: "add-block", view: "returns", id: "new-process", kind: "process", text: "New process", lane: "shop", at: [10, 20] }]);
+  });
+
+  it("are drawn as columns behind the blocks, with their names, and the column for blocks in no lane", async () => {
+    const { host } = await diagram(null, lanedDoc);
+    expect([...host.querySelectorAll(".flow-lane")].map((l) => [l.className, l.textContent])).toEqual([
+      ["flow-lane loose", "No lane"],
+      ["flow-lane", "Customer"],
+      ["flow-lane", "Shop"],
+    ]);
+    expect(host.querySelectorAll(".flow-lane")[1]!.getAttribute("title")).toBe("Whoever bought it");
+    const selected = await diagram({ kind: "lane", id: "shop" }, lanedDoc);
+    expect(selected.host.querySelector(".flow-lane.selected")?.textContent).toBe("Shop");
+  });
+
+  it("are added from + Add, after the lane selected, and selected to name them", async () => {
+    const { host, edits, selected } = await diagram({ kind: "lane", id: "customer" }, lanedDoc);
+    await click(button(host, "+ Add"));
+    await click([...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')].find((b) => b.textContent === "Lane")!);
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(edits.at(-1)!.at(-1)).toEqual({ op: "add-lane", view: "returns", id: "new-lane", name: "New lane", position: 2 });
+    expect(selected).toEqual([{ kind: "lane", id: "new-lane" }]);
+  });
+});
+
+describe("a flowchart lane's details and a block's lane", () => {
+  /** The details panel for the laned flowchart. */
+  function lanedPanel(selection: Selection) {
+    const r = { edits: [] as Operation[][], selected: [] as Selection[] };
+    const element = createElement(Properties, {
+      ws: lanedWs,
+      view: lanedView as ViewDef,
+      computed: computeView(lanedWs, lanedView),
+      selection,
+      isNew: false,
+      syncsDocs: false,
+      syncsSkill: false,
+      docs: null,
+      fileName: "shop.openarch",
+      edit: async (e: Edit) => {
+        r.edits.push(typeof e === "function" ? e(lanedWs) : e);
+        return true;
+      },
+      onSelect: (s: Selection) => void r.selected.push(s),
+      onHide() {},
+      onDelete() {},
+      onFindUsages() {},
+      onNewView() {},
+      onAddSticky() {},
+      onDeleteView() {},
+      onEditNotes() {},
+    });
+    return { host: mount(element), ...r };
+  }
+
+  it("list a lane's blocks, and move it left or right", async () => {
+    const { host, edits, selected } = lanedPanel({ kind: "lane", id: "customer" });
+    expect(host.textContent).toContain("BlocksReturn asked for Start");
+    expect(button(host, "Move left").disabled).toBe(true);
+    await click(button(host, "Move right"));
+    await click(host.querySelector<HTMLButtonElement>(".link")!);
+    expect(edits).toEqual([[{ op: "update-lane", view: "returns", id: "customer", position: 2 }]]);
+    expect(selected).toEqual([{ kind: "block", id: "asked" }]);
+  });
+
+  it("move a block into another lane, or out of its lane", async () => {
+    const { host, edits } = lanedPanel({ kind: "block", id: "refund" });
+    const lane = select(host, "Lane");
+    expect([...lane.options].map((o) => o.textContent)).toEqual(["(no lane)", "Customer", "Shop"]);
+    expect(lane.value).toBe("shop");
+    await choose(lane, "customer");
+    await choose(lane, "");
+    expect(edits).toEqual([[{ op: "update-block", view: "returns", id: "refund", lane: "customer" }], [{ op: "update-block", view: "returns", id: "refund", lane: null }]]);
+    // A flowchart without lanes doesn't ask.
+    expect(panel({ kind: "block", id: "refund" }).host.textContent).not.toContain("(no lane)");
   });
 });

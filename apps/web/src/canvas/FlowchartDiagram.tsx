@@ -4,7 +4,7 @@
  * them as arrows, each with its text. Drag a block to move it, or from the dot under one to
  * another to add a flow. The element whose process it is, if the view says, is the frame.
  */
-import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, type Block, type BlockKind, type ComputedView, type Flow, type Operation, type Sticky, type ViewEdge } from "@open-arch/core";
+import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, type Block, type BlockKind, type ComputedView, type Flow, type Operation, type Sticky, type ViewDef, type ViewEdge } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -34,7 +34,7 @@ import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
-import { blockHeight, blockWidth, routeToOutlines } from "./flowchartLayout.js";
+import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { FrameNode, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
@@ -42,7 +42,9 @@ import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap
 
 type BlockNodeData = { block: Block };
 type BlockFlowNode = Node<BlockNodeData, "block">;
-type FlowNode = BlockFlowNode | StickyFlowNode | FrameFlowNode;
+type LaneNodeData = { column: LaneColumn; height: number; selected: boolean };
+type LaneFlowNode = Node<LaneNodeData, "lane">;
+type FlowNode = BlockFlowNode | StickyFlowNode | FrameFlowNode | LaneFlowNode;
 
 type FlowEdgeData = {
   flow: Flow;
@@ -57,6 +59,9 @@ type FlowEdge = Edge<FlowEdgeData, "flow">;
 const FRAME_ID = "__frame";
 const FRAME_PAD = { x: 60, top: 64, bottom: 48 };
 const stickyNodeId = (id: string) => `sticky:${id}`;
+/** A lane's column: no block ID has a colon. The column for blocks in no lane has no lane's ID. */
+const laneNodeId = (column: LaneColumn) => `lane:${column.lane?.id ?? ""}`;
+const isLaneNode = (id: string) => id.startsWith("lane:");
 const flowId = (f: Flow) => `flow:${f.number}`;
 /** How a view's diagram is fitted to the canvas, as Canvas does. */
 const FIT = { padding: 0.15, maxZoom: 1.2 };
@@ -72,7 +77,7 @@ const FLOWCHART_ELK = { "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST", "el
 export const flowchartLayout = (nodes: Parameters<typeof elkLayout>[0], edges: Parameters<typeof elkLayout>[1]) => elkLayout(nodes, edges, FLOWCHART_ELK);
 
 /** Blocks and notes snap as they're dragged, and line up with each other. The frame grows round the blocks, so it's neither. */
-const snapsHere = (n: FlowNode) => n.type !== "frame";
+const snapsHere = (n: FlowNode) => n.type !== "frame" && n.type !== "lane";
 
 /** The outline of each kind that isn't a plain box, drawn behind its text, stretched to the block (see .flow-shape). */
 function Outline({ kind }: { kind: BlockKind }) {
@@ -95,6 +100,18 @@ function Outline({ kind }: { kind: BlockKind }) {
     <svg className="flow-shape" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
       {shape}
     </svg>
+  );
+}
+
+/** A lane: a column with its name at the top. The column for blocks in no lane says so. */
+function LaneNode({ data }: NodeProps<LaneFlowNode>) {
+  const { lane } = data.column;
+  return (
+    <div className={`flow-lane${lane ? "" : " loose"}${data.selected ? " selected" : ""}`} style={{ width: data.column.w, height: data.height }} title={lane?.description}>
+      <div className="flow-lane-name" style={{ height: LANE.head }}>
+        {lane ? lane.name : "No lane"}
+      </div>
+    </div>
   );
 }
 
@@ -139,7 +156,7 @@ function FlowArrow({ id, data, markerEnd, selected }: EdgeProps<FlowEdge>) {
   );
 }
 
-const nodeTypes = { block: BlockNode, sticky: StickyNode, frame: FrameNode };
+const nodeTypes = { block: BlockNode, sticky: StickyNode, frame: FrameNode, lane: LaneNode };
 const edgeTypes = { flow: FlowArrow };
 
 /** The blocks arrows meet only at the four tips of their diamond, the middles of their boxes' sides: the decisions. */
@@ -153,44 +170,64 @@ function newBlockText(kind: BlockKind): string {
 }
 
 /**
- * The edit that adds a block of this kind at `at`. After the selected block, it's the next in the
- * list, with a flow to it from the selected one, unless that's an end, where the process stops.
+ * The edit that adds a block of this kind at `at`, in `lane` if it says. After the selected
+ * block, it's the next in the list, with a flow to it from the selected one, unless that's an
+ * end, where the process stops.
  */
-export function addBlockOps(view: ComputedView["view"], kind: BlockKind, selection: Selection, at: [number, number]): { ops: Operation[]; id: string } {
+export function addBlockOps(view: ComputedView["view"], kind: BlockKind, selection: Selection, at: [number, number], lane?: string): { ops: Operation[]; id: string } {
   const text = newBlockText(kind);
   // Its ID is made from its text, so it follows the text it's given next.
   const id = uniqueAmong(view.blocks.map((b) => b.id), idFromName(text));
   const after = selection?.kind === "block" ? view.blocks.find((b) => b.id === selection.id) : undefined;
-  const ops: Operation[] = [{ op: "add-block", view: view.id, id, kind, text, at, ...(after && { position: after.number + 1 }) }];
+  const ops: Operation[] = [{ op: "add-block", view: view.id, id, kind, text, ...(lane && { lane }), at, ...(after && { position: after.number + 1 }) }];
   if (after && after.kind !== "end") ops.push({ op: "add-flow", view: view.id, from: after.id, to: id });
   return { ops, id };
 }
 
-/** A block or a sticky note as the diagram draws it: where it is now, and for a block, whether the file gives it a position. */
+/** A block or a sticky note as the diagram draws it: where it is now, and for a block, whether the file gives it a position, the lane it's drawn in and its width. */
 export interface DrawnItem {
   kind: "block" | "sticky";
   id: string;
   position: Point;
   /** True for a block the designer placed, as its file gives it no `at`. */
   placed?: boolean;
+  /** A block's lane, in a flowchart with lanes. */
+  lane?: string;
+  /** A block's width. */
+  w?: number;
 }
 
 const at = (p: Point): [number, number] => [Math.round(p.x), Math.round(p.y)];
 
-/**
- * Positions for the blocks the designer placed, all but `except`, where they're drawn now, so
- * they stay put once a block moves or a flow is added, which would lay them out again.
- */
-export function pinOps(view: ComputedView["view"], drawn: DrawnItem[], except: ReadonlySet<string> = new Set()): Operation[] {
-  return drawn.flatMap((d): Operation[] => (d.kind === "block" && d.placed && !except.has(d.id) ? [{ op: "update-block", view: view.id, id: d.id, at: at(d.position) }] : []));
+/** Where a block drawn at `d.position` is kept: in a flowchart with lanes, from the inside of its lane's left. */
+function keptAt(d: DrawnItem, columns: LaneColumn[] | undefined): [number, number] {
+  const column = columns?.find((c) => c.lane?.id === d.lane);
+  return column ? savedAt(column, d.position) : at(d.position);
 }
 
-/** The edit that keeps blocks and notes where they were dragged to, with the rest of the blocks where they are. */
-export function moveOps(view: ComputedView["view"], drawn: DrawnItem[], dragged: DrawnItem[]): Operation[] {
+/**
+ * Positions for the blocks the designer placed, all but `except`, where they're drawn now, so
+ * they stay put once a block moves or a flow is added, which would lay them out again. In a
+ * flowchart with lanes, `columns` are its lanes, as drawn.
+ */
+export function pinOps(view: ComputedView["view"], drawn: DrawnItem[], except: ReadonlySet<string> = new Set(), columns?: LaneColumn[]): Operation[] {
+  return drawn.flatMap((d): Operation[] => (d.kind === "block" && d.placed && !except.has(d.id) ? [{ op: "update-block", view: view.id, id: d.id, at: keptAt(d, columns) }] : []));
+}
+
+/**
+ * The edit that keeps blocks and notes where they were dragged to, with the rest of the blocks
+ * where they are. In a flowchart with lanes, a block let go of over another lane goes in it.
+ */
+export function moveOps(view: ComputedView["view"], drawn: DrawnItem[], dragged: DrawnItem[], columns?: LaneColumn[]): Operation[] {
   const moved = new Set(dragged.filter((d) => d.kind === "block").map((d) => d.id));
   return [
-    ...pinOps(view, drawn, moved),
-    ...dragged.map((d): Operation => (d.kind === "block" ? { op: "update-block", view: view.id, id: d.id, at: at(d.position) } : { op: "update-sticky", view: view.id, id: d.id, at: at(d.position) })),
+    ...pinOps(view, drawn, moved, columns),
+    ...dragged.map((d): Operation => {
+      if (d.kind === "sticky") return { op: "update-sticky", view: view.id, id: d.id, at: at(d.position) };
+      if (!columns?.length) return { op: "update-block", view: view.id, id: d.id, at: at(d.position) };
+      const drop = dropInLane(columns, d.position, d.w ?? 0);
+      return { op: "update-block", view: view.id, id: d.id, ...(drop.lane !== d.lane && { lane: drop.lane ?? null }), at: drop.at };
+    }),
   ];
 }
 
@@ -198,16 +235,20 @@ export function moveOps(view: ComputedView["view"], drawn: DrawnItem[], dragged:
  * The edit that adds a flow dragged from one block to another, with the blocks where they are,
  * and the number the flow gets. None from a block to itself, or to or from what isn't a block.
  */
-export function connectOps(view: ComputedView["view"], drawn: DrawnItem[], from: string, to: string): { ops: Operation[]; number: number } | null {
+export function connectOps(view: ComputedView["view"], drawn: DrawnItem[], from: string, to: string, columns?: LaneColumn[]): { ops: Operation[]; number: number } | null {
   const blocks = new Set(view.blocks.map((b) => b.id));
   if (from === to || !blocks.has(from) || !blocks.has(to)) return null;
-  return { ops: [...pinOps(view, drawn), { op: "add-flow", view: view.id, from, to }], number: view.flows.length + 1 };
+  return { ops: [...pinOps(view, drawn, new Set(), columns), { op: "add-flow", view: view.id, from, to }], number: view.flows.length + 1 };
 }
 
 /** What's on the diagram, as moveOps and connectOps take it. */
-function items(nodes: FlowNode[]): DrawnItem[] {
+function items(view: ViewDef, nodes: FlowNode[]): DrawnItem[] {
   return nodes.flatMap((n): DrawnItem[] =>
-    n.type === "block" ? [{ kind: "block", id: n.id, position: n.position, placed: !n.data.block.at }] : n.type === "sticky" ? [{ kind: "sticky", id: n.data.sticky.id, position: n.position }] : [],
+    n.type === "block"
+      ? [{ kind: "block", id: n.id, position: n.position, placed: !n.data.block.at, lane: laneOf(view, n.data.block), w: blockWidth(n.data.block.kind) }]
+      : n.type === "sticky"
+        ? [{ kind: "sticky", id: n.data.sticky.id, position: n.position }]
+        : [],
   );
 }
 
@@ -263,7 +304,17 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
   }, [graphKey, missing]);
 
   const ready = !missing || auto?.key === graphKey;
-  const positions = useMemo(() => (ready ? placeMissing(ids, saved, auto?.key === graphKey ? auto.positions : {}) : null), [ready, ids, saved, auto, graphKey]);
+  // With lanes, each is a column, and a block's position is from the left of its lane: see laneColumns.
+  const laned = view.lanes.length > 0;
+  const lanesAt = useMemo(() => {
+    if (!ready || !laned) return null;
+    return laneColumns(view, placeInLanes(view, saved, auto?.key === graphKey ? auto.positions : {}));
+  }, [ready, laned, view, saved, auto, graphKey]);
+  const columns = lanesAt?.columns;
+  const positions = useMemo(
+    () => (!ready ? null : lanesAt ? lanesAt.positions : placeMissing(ids, saved, auto?.key === graphKey ? auto.positions : {})),
+    [ready, lanesAt, ids, saved, auto, graphKey],
+  );
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
 
   const [nodes, setNodes] = useState<FlowNode[]>([]);
@@ -282,7 +333,9 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
 
   useEffect(() => {
     if (!positions) return setNodes([]);
-    const stickyAt = placeStickies(view.stickies, Object.values(positions), stickySize);
+    // Notes without a place go right of everything, the lanes too: a point at the right of the last lane stands for them.
+    const lastLane = columns?.at(-1);
+    const stickyAt = placeStickies(view.stickies, [...Object.values(positions), ...(lastLane ? [{ x: lastLane.x + lastLane.w - NODE_W, y: Math.min(0, ...Object.values(positions).map((p) => p.y)) }] : [])], stickySize);
     setNodes((previous) => [
       ...view.blocks.map(
         (block): BlockFlowNode => ({
@@ -307,7 +360,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
         }),
       ),
     ]);
-  }, [positions, view, selection, editing, finishEditing, stickySize]);
+  }, [positions, columns, view, selection, editing, finishEditing, stickySize]);
 
   /** Each block as drawn now, measured once it has been, with its kind. */
   const drawnBlocks = useMemo(() => {
@@ -321,13 +374,35 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
   }, [nodes]);
   const boxes = useMemo(() => new Map([...drawnBlocks].map(([id, b]) => [id, b.box])), [drawnBlocks]);
 
+  /** The lanes' sizes as React Flow last measured them, by node ID: see the frame's. */
+  const lanesMeasured = useRef(new Map<string, LaneFlowNode["measured"]>());
+
+  // Each lane, as a column behind the blocks, from above the highest of them to below the lowest.
+  const laneNodes = useMemo((): LaneFlowNode[] => {
+    if (!columns) return [];
+    const all = [...boxes.values()];
+    const top = all.length ? Math.min(...all.map((b) => b.y)) - LANE.head - LANE.pad : 0;
+    const bottom = all.length ? Math.max(...all.map((b) => b.y + b.h)) + LANE.pad : LANE.head + 200;
+    return columns.map((column) => ({
+      id: laneNodeId(column),
+      type: "lane",
+      position: { x: column.x, y: Math.round(top) },
+      data: { column, height: Math.round(bottom - top), selected: !!column.lane && selection?.kind === "lane" && selection.id === column.lane.id },
+      measured: lanesMeasured.current.get(laneNodeId(column)),
+      draggable: false,
+      connectable: false,
+      selectable: false,
+      zIndex: -1,
+    }));
+  }, [columns, boxes, selection]);
+
   /** The frame's size as React Flow last measured it. */
   const frameMeasured = useRef<FrameFlowNode["measured"]>(undefined);
 
-  // The frame round the blocks, for the element whose process they are.
+  // The frame round the blocks, and the lanes, for the element whose process they are.
   const frame = useMemo((): FrameFlowNode | null => {
-    if (!cv.boundary || boxes.size === 0) return null;
-    const all = [...boxes.values()];
+    if (!cv.boundary || boxes.size + laneNodes.length === 0) return null;
+    const all = [...boxes.values(), ...laneNodes.map((n) => ({ x: n.position.x, y: n.position.y, w: n.data.column.w, h: n.data.height }))];
     const left = Math.round(Math.min(...all.map((b) => b.x)) - FRAME_PAD.x);
     const top = Math.round(Math.min(...all.map((b) => b.y)) - FRAME_PAD.top);
     const width = Math.round(Math.max(...all.map((b) => b.x + b.w)) + FRAME_PAD.x) - left;
@@ -345,10 +420,10 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
       draggable: false,
       connectable: false,
       selectable: false,
-      zIndex: -1,
+      zIndex: -2,
       style: { pointerEvents: "none" },
     };
-  }, [cv.boundary, boxes]);
+  }, [cv.boundary, boxes, laneNodes]);
 
   // Labels are sized as arrows' labels are, from the same styles.
   const sizes = useMemo(() => {
@@ -360,13 +435,15 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
 
   const { routes, labels } = useMemo(() => {
     const notes = nodes.filter((n) => n.type === "sticky").map((n) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight((n as StickyFlowNode).data.sticky.text, stickySize) }));
+    // Arrows cross lanes freely, but keep off their sides, as off a frame's.
+    const frames = laneNodes.map((n) => ({ x: n.position.x, y: n.position.y, w: n.data.column.w, h: n.data.height }));
     return layoutArrows(
       boxes,
       between.map((f) => ({ id: flowId(f), from: f.from, to: f.to })),
       sizes,
-      { notes, tips: tipsOf(view.blocks) },
+      { frames, notes, tips: tipsOf(view.blocks) },
     );
-  }, [boxes, view, between, sizes, nodes, stickySize]);
+  }, [boxes, view, between, sizes, nodes, stickySize, laneNodes]);
 
   const select = useCallback((s: Selection) => onSelect(s), [onSelect]);
 
@@ -388,36 +465,40 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     [between, routes, labels, drawnBlocks, selection, select],
   );
 
-  const drawn = useMemo(() => (frame ? [frame, ...nodes] : nodes), [frame, nodes]);
+  const drawn = useMemo(() => [...(frame ? [frame] : []), ...laneNodes, ...nodes], [frame, laneNodes, nodes]);
 
   /** Positions for the blocks placed automatically, so they stay put as others move or flows are added. */
-  const fixPlaced = useCallback((): Operation[] => pinOps(view, items(nodesRef.current)), [view]);
+  const fixPlaced = useCallback((): Operation[] => pinOps(view, items(view, nodesRef.current), new Set(), columns), [view, columns]);
 
   const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
 
   const onNodesChange = useCallback(
     (made: NodeChange<FlowNode>[]) => {
       const changes = snapChanges(made);
-      for (const c of changes) if (c.type === "dimensions" && c.id === FRAME_ID && c.dimensions) frameMeasured.current = c.dimensions;
-      setNodes((nds) => applyNodeChanges(changes.filter((c) => !("id" in c) || c.id !== FRAME_ID), nds));
+      for (const c of changes) {
+        if (c.type !== "dimensions" || !c.dimensions) continue;
+        if (c.id === FRAME_ID) frameMeasured.current = c.dimensions;
+        else if (isLaneNode(c.id)) lanesMeasured.current.set(c.id, c.dimensions);
+      }
+      setNodes((nds) => applyNodeChanges(changes.filter((c) => !("id" in c) || (c.id !== FRAME_ID && !isLaneNode(c.id))), nds));
     },
     [snapChanges],
   );
 
   const onNodeDragStop = useCallback(
     (_: unknown, _node: FlowNode, letGo: FlowNode[]) => {
-      const ops = moveOps(view, items(nodesRef.current), items(dropped(letGo)));
+      const ops = moveOps(view, items(view, nodesRef.current), items(view, dropped(letGo)), columns);
       if (ops.length) void edit(ops);
     },
-    [edit, view, dropped],
+    [edit, view, dropped, columns],
   );
 
   const onConnect = useCallback(
     (c: Connection) => {
-      const made = connectOps(view, items(nodesRef.current), c.source, c.target);
+      const made = connectOps(view, items(view, nodesRef.current), c.source, c.target, columns);
       if (made) void edit(made.ops).then((ok) => ok && select({ kind: "flow", number: made.number }));
     },
-    [view, edit, select],
+    [view, edit, select, columns],
   );
 
   /** The middle of the canvas, on the diagram. */
@@ -426,15 +507,38 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   };
 
-  /** A new block goes under the one selected, or else in the middle of the canvas: in the nearest free spot. */
+  /**
+   * A new block goes under the one selected, in its lane; at the bottom of the lane selected; or
+   * else in the middle of the canvas, in the lane there: in the nearest free spot.
+   */
   const addBlock = (kind: BlockKind) => {
-    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
-    const after = selection?.kind === "block" ? drawnBlocks.get(selection.id)?.box : undefined;
+    const occupied = nodesRef.current.filter((n) => n.type === "block" || n.type === "sticky").map((n) => n.position);
+    const afterBlock = selection?.kind === "block" ? view.blocks.find((b) => b.id === selection.id) : undefined;
+    const after = afterBlock && drawnBlocks.get(afterBlock.id)?.box;
+    const lane = selection?.kind === "lane" ? columns?.find((c) => c.lane?.id === selection.id) : undefined;
     const width = blockWidth(kind);
-    const start = after ? { x: after.x + (after.w - width) / 2, y: after.y + after.h + BELOW } : { x: middle().x - width / 2, y: middle().y - 30 };
+    const inLane = lane ? view.blocks.filter((b) => laneOf(view, b) === lane.lane?.id).flatMap((b) => boxes.get(b.id) ?? []) : [];
+    const start = after
+      ? { x: after.x + (after.w - width) / 2, y: after.y + after.h + BELOW }
+      : lane
+        ? { x: lane.x + LANE.pad + Math.max(0, LANE.centre - width / 2), y: inLane.length ? Math.max(...inLane.map((b) => b.y + b.h)) + BELOW : (laneNodes[0]?.position.y ?? 0) + LANE.head + LANE.pad }
+        : { x: middle().x - width / 2, y: middle().y - 30 };
     const spot = freeSpotAmong(start, occupied);
-    const { ops, id } = addBlockOps(view, kind, selection, [spot.x, spot.y]);
+    let place: { at: [number, number]; lane?: string } = { at: [spot.x, spot.y] };
+    if (columns?.length) {
+      // After a block it's in that block's lane, and in a lane selected, that one; else in the one it lands in.
+      const column = afterBlock ? columns.find((c) => c.lane?.id === laneOf(view, afterBlock)) : lane;
+      place = column ? { at: savedAt(column, spot), lane: column.lane?.id } : dropInLane(columns, spot, width);
+    }
+    const { ops, id } = addBlockOps(view, kind, selection, place.at, place.lane);
     void edit([...fixPlaced(), ...ops]).then((ok) => ok && onSelect({ kind: "block", id }, { isNew: true }));
+  };
+
+  /** A new lane goes after the one selected, or else at the right. */
+  const addLane = () => {
+    const id = uniqueAmong(view.lanes.map((l) => l.id), "new-lane");
+    const after = selection?.kind === "lane" ? view.lanes.find((l) => l.id === selection.id) : undefined;
+    void edit([...fixPlaced(), { op: "add-lane", view: view.id, id, name: "New lane", ...(after && { position: after.number + 1 }) }]).then((ok) => ok && onSelect({ kind: "lane", id }, { isNew: true }));
   };
 
   const addSticky = () => {
@@ -469,7 +573,11 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
 
   // Process first, as most blocks are steps, then the rest in the order they're listed.
   const kinds: BlockKind[] = ["process", ...BLOCK_KINDS.filter((k) => k !== "process")];
-  const addItems: MenuItem[] = [...kinds.map((kind) => ({ label: BLOCK_KIND_LABELS[kind], onSelect: () => addBlock(kind) })), { label: "Sticky note", divider: true, onSelect: addSticky }];
+  const addItems: MenuItem[] = [
+    ...kinds.map((kind) => ({ label: BLOCK_KIND_LABELS[kind], onSelect: () => addBlock(kind) })),
+    { label: "Lane", divider: true, onSelect: addLane },
+    { label: "Sticky note", onSelect: addSticky },
+  ];
 
   const scope = cv.boundary;
   return (
@@ -486,6 +594,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
         onNodeClick={(_, node) => {
           if (node.type === "block") select({ kind: "block", id: node.id });
           else if (node.type === "sticky") select({ kind: "sticky", id: node.data.sticky.id });
+          else if (node.type === "lane") select(node.data.column.lane ? { kind: "lane", id: node.data.column.lane.id } : null);
         }}
         onNodeDragStart={(_, node) => {
           if (node.type === "block") select({ kind: "block", id: node.id });
