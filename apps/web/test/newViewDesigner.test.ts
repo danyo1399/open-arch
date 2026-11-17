@@ -48,7 +48,7 @@ afterAll(() => {
 });
 
 const doc: OpenArchDocument = {
-  openarch: 15,
+  openarch: 16,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -108,7 +108,7 @@ async function designer(model = doc) {
 describe("making a view of an element from its right-click menu", () => {
   it("makes a component view of a container's box, and opens it", async () => {
     const d = await designer();
-    expect(await d.newViewMenu(d.node("api")!)).toEqual(["Component view", "State view", "Wireframe view"]);
+    expect(await d.newViewMenu(d.node("api")!)).toEqual(["Component view", "State view", "Wireframe view", "Flowchart view"]);
     await click(d.item("Component view"));
     await d.settle();
     expect(d.open()).toEqual(["Orders API components", "component"]);
@@ -124,7 +124,7 @@ describe("making a view of an element from its right-click menu", () => {
     const taken = structuredClone(doc);
     taken.views["shop-context"] = { title: "Shop context", level: "context", scope: "shop" };
     const d = await designer(taken);
-    expect(await d.newViewMenu(d.row("Shop"))).toEqual(["Context view", "Container view", "State view", "Wireframe view"]);
+    expect(await d.newViewMenu(d.row("Shop"))).toEqual(["Context view", "Container view", "State view", "Wireframe view", "Flowchart view"]);
     await click(d.item("Context view"));
     await d.settle();
     expect(d.open()).toEqual(["Shop context", "context"]);

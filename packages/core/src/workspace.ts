@@ -144,6 +144,16 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         color: a.color ?? "black",
         dashed: a.dashed ?? false,
       })),
+      blocks: (v.blocks ?? []).map((b, i) => ({
+        id: b.id,
+        path: `views.${id}.blocks[${i}]`,
+        number: i + 1,
+        kind: b.kind ?? "process",
+        text: b.text,
+        description: b.description || undefined,
+        at: b.at,
+      })),
+      flows: (v.flows ?? []).map((f, i) => ({ path: `views.${id}.flows[${i}]`, number: i + 1, from: f.from, to: f.to, text: f.text || undefined })),
     });
   }
   for (const element of ws.elements.values()) {

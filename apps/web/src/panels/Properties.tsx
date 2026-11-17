@@ -3,6 +3,8 @@ import {
   ARROW_HEADS,
   ARROW_SIDES,
   arrowName,
+  BLOCK_KIND_LABELS,
+  BLOCK_KINDS,
   CARD_KIND_LABELS,
   CARD_KINDS,
   describeElement,
@@ -34,11 +36,14 @@ import {
   type Arrow,
   type ArrowHeads,
   type ArrowSide,
+  type Block,
+  type BlockKind,
   type Card,
   type CardKind,
   type ComputedView,
   type Connection,
   type DeploymentNode,
+  type Flow,
   type Lane,
   type NewElements,
   type Operation,
@@ -134,8 +139,10 @@ export function shapesLabel(boxes: number, notes: number): string {
   return parts.filter(Boolean).join(" and ");
 }
 
-function idHint(follows: boolean): string {
-  return follows ? "Changes with the name." : "Doesn't match the name, so it stays put when you rename. Edit it to match and it follows the name again.";
+/** `what` it follows: its name, or for a flowchart's block, its text. */
+function idHint(follows: boolean, what = "name"): string {
+  const change = what === "name" ? "rename" : `change the ${what}`;
+  return follows ? `Changes with the ${what}.` : `Doesn't match the ${what}, so it stays put when you ${change}. Edit it to match and it follows the ${what} again.`;
 }
 
 export function Properties(props: PropertiesProps) {
@@ -147,6 +154,8 @@ export function Properties(props: PropertiesProps) {
   else if (shown.kind === "step") body = <StepProperties {...props} view={shown.view} step={shown.step} />;
   else if (shown.kind === "state") body = <StateProperties {...props} view={shown.view} state={shown.state} />;
   else if (shown.kind === "transition") body = <TransitionProperties {...props} view={shown.view} transition={shown.transition} />;
+  else if (shown.kind === "block") body = <BlockProperties {...props} view={shown.view} block={shown.block} />;
+  else if (shown.kind === "flow") body = <FlowProperties {...props} view={shown.view} flow={shown.flow} />;
   else if (shown.kind === "node") body = <NodeProperties {...props} view={shown.view} node={shown.node} />;
   else if (shown.kind === "connection") body = <ConnectionProperties {...props} view={shown.view} connection={shown.connection} />;
   else if (shown.kind === "instance") body = <InstanceProperties {...props} view={shown.view} node={shown.node} element={shown.element} />;
@@ -686,6 +695,154 @@ function StateProperties({ view, state, isNew, edit, onSelect }: PropertiesProps
         {state.at && <button onClick={() => set({ at: null })}>Lay out again</button>}
         <button className="danger" onClick={() => void edit([{ op: "remove-state", view: view.id, id: state.id }]).then(() => onSelect(null))}>
           Delete state
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** What each kind of block is for, under the list to pick one from. */
+const BLOCK_KIND_HINTS: Record<BlockKind, string> = {
+  start: "Where the process starts. Drawn as a pill.",
+  end: "Where the process ends. Drawn as a pill.",
+  process: "A step: something that's done, like Pack the order.",
+  decision: "A question with more than one way on, like In stock? Give each flow out of it the answer it's for.",
+  "input-output": "Something that comes in or goes out, like Read the card details.",
+  subprocess: "A process drawn in full somewhere else, like another flowchart.",
+  document: "A document or report that's made or read.",
+  database: "Data that's kept, like a database.",
+};
+
+/** A block's text on one line, as lists name it. */
+const blockText = (b: Pick<Block, "id" | "text">) => b.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? b.id;
+
+function BlockProperties({ view, block, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; block: Block }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-block" }>, "op" | "view" | "id">) => void edit([{ op: "update-block", view: view.id, id: block.id, ...fields }]);
+  const ids = view.blocks.map((b) => b.id);
+  // An ID made from the text keeps following it, as a state's does; the selection follows the ID.
+  const retext = (text: string) => {
+    const base = idFromName(text);
+    const newId = base && followsName(block.id, block.text) ? uniqueAmong(ids, base, block.id) : block.id;
+    void edit([{ op: "update-block", view: view.id, id: block.id, text, ...(newId !== block.id && { newId }) }]).then((ok) => ok && newId !== block.id && onSelect({ kind: "block", id: newId }));
+  };
+  const changeId = (text: string) => {
+    const newId = idFromName(text);
+    if (!newId || newId === block.id) return;
+    void edit([{ op: "update-block", view: view.id, id: block.id, newId }]).then((ok) => ok && onSelect({ kind: "block", id: newId }));
+  };
+  const name = (id: string) => {
+    const b = view.blocks.find((x) => x.id === id);
+    return b ? blockText(b) : id;
+  };
+  const out = view.flows.filter((f) => f.from === block.id);
+  const into = view.flows.filter((f) => f.to === block.id && f.from !== block.id);
+  const flowLink = (f: Flow, other: string, arrow: string) => (
+    <li key={f.number}>
+      <button className="link" onClick={() => onSelect({ kind: "flow", number: f.number })}>
+        {arrow} {name(other)}
+      </button>{" "}
+      {f.text && <span className="muted small">{f.text}</span>}
+    </li>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className={`badge badge-block flow-badge-${block.kind}`}>{BLOCK_KIND_LABELS[block.kind]}</span>
+      </header>
+      <Field label="Text" value={block.text} multiline rows={2} onCommit={(t) => (t.trim() ? retext(t) : false)} autoFocus={isNew} placeholder={block.kind === "decision" ? "The question, e.g. In stock?" : "What's done, e.g. Pack the order"} />
+      <Field label="ID" value={block.id} onCommit={changeId} hint={idHint(followsName(block.id, block.text), "text")} />
+      <label className="field">
+        <span className="field-label">Kind</span>
+        <select value={block.kind} onChange={(e) => set({ kind: e.target.value as BlockKind })}>
+          {BLOCK_KINDS.map((kind) => (
+            <option key={kind} value={kind}>
+              {BLOCK_KIND_LABELS[kind]}
+            </option>
+          ))}
+        </select>
+        <span className="field-hint">{BLOCK_KIND_HINTS[block.kind]}</span>
+      </label>
+      <Field label="Description" value={block.description ?? ""} multiline placeholder="One sentence, shown under its text" onCommit={(description) => set({ description: description || null })} />
+      <h3>Flows</h3>
+      {out.length + into.length === 0 && <p className="muted small">None yet. Drag from the dot under this block to another block to add one.</p>}
+      <ul className="plain">
+        {out.map((f) => flowLink(f, f.to, "→"))}
+        {into.map((f) => flowLink(f, f.from, "←"))}
+      </ul>
+      <label className="field">
+        <span className="field-label">Add a flow to</span>
+        <select
+          value=""
+          onChange={(e) => {
+            const to = e.target.value;
+            if (!to) return;
+            const number = view.flows.length + 1;
+            void edit([{ op: "add-flow", view: view.id, from: block.id, to }]).then((ok) => ok && onSelect({ kind: "flow", number }));
+          }}
+        >
+          <option value="">Choose a block…</option>
+          {view.blocks
+            .filter((b) => b.id !== block.id)
+            .map((b) => (
+              <option key={b.id} value={b.id}>
+                {blockText(b)}
+              </option>
+            ))}
+        </select>
+      </label>
+      <div className="actions">
+        {block.at && <button onClick={() => set({ at: null })}>Lay out again</button>}
+        <button className="danger" onClick={() => void edit([{ op: "remove-block", view: view.id, id: block.id }]).then(() => onSelect(null))}>
+          Delete block
+        </button>
+      </div>
+    </>
+  );
+}
+
+function FlowProperties({ view, flow, edit, onSelect }: PropertiesProps & { view: ViewDef; flow: Flow }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-flow" }>, "op" | "view" | "flow">) => void edit([{ op: "update-flow", view: view.id, flow: flow.number, ...fields }]);
+  const count = view.flows.length;
+  const move = (to: number) => void edit([{ op: "update-flow", view: view.id, flow: flow.number, newFlow: to }]).then((ok) => ok && onSelect({ kind: "flow", number: to }));
+  const fromDecision = view.blocks.find((b) => b.id === flow.from)?.kind === "decision";
+  const end = (field: "from" | "to", label: string) => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={flow[field]} onChange={(e) => set({ [field]: e.target.value })}>
+        {!view.blocks.some((b) => b.id === flow[field]) && <option value={flow[field]}>{flow[field]} (not a block)</option>}
+        {view.blocks.map((b) => (
+          <option key={b.id} value={b.id}>
+            {blockText(b)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Flow {flow.number}</span>
+        <span className="muted small">of {count}</span>
+      </header>
+      {end("from", "From")}
+      {end("to", "To")}
+      <Field
+        label="Text"
+        value={flow.text ?? ""}
+        autoFocus={!flow.text}
+        placeholder={fromDecision ? "The answer it's for, e.g. Yes or No" : "What it says, if anything"}
+        hint={fromDecision ? "It's a way out of a decision, so say which answer it's for." : undefined}
+        onCommit={(text) => set({ text: text || null })}
+      />
+      <div className="actions">
+        <button disabled={flow.number === 1} onClick={() => move(flow.number - 1)}>
+          Move up
+        </button>
+        <button disabled={flow.number === count} onClick={() => move(flow.number + 1)}>
+          Move down
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-flow", view: view.id, flow: flow.number }]).then(() => onSelect(null))}>
+          Delete flow
         </button>
       </div>
     </>
@@ -1681,8 +1838,34 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
         onExpand={(text) => onEditNotes({ kind: "view", id: view.id }, text)}
       />
-      {view.level !== "sequence" && view.level !== "state" && view.level !== "deployment" && view.level !== "event" && view.level !== "wireframe" && view.level !== "whiteboard" && <NewElementsField view={view} edit={edit} />}
-      {view.level === "whiteboard" ? (
+      {view.level !== "sequence" &&
+        view.level !== "state" &&
+        view.level !== "deployment" &&
+        view.level !== "event" &&
+        view.level !== "wireframe" &&
+        view.level !== "whiteboard" &&
+        view.level !== "flowchart" && <NewElementsField view={view} edit={edit} />}
+      {view.level === "flowchart" ? (
+        <>
+          <dl className="facts">
+            <dt>Level</dt>
+            <dd>flowchart</dd>
+            {scope && (
+              <>
+                <dt>The process of</dt>
+                <dd>{scope.name}</dd>
+              </>
+            )}
+            <dt>Blocks</dt>
+            <dd>{view.blocks.length}</dd>
+            <dt>Flows</dt>
+            <dd>{view.flows.length}</dd>
+          </dl>
+          <p className="muted small">
+            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it.
+          </p>
+        </>
+      ) : view.level === "whiteboard" ? (
         <>
           <dl className="facts">
             <dt>Level</dt>

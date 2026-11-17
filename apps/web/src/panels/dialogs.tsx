@@ -183,20 +183,22 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   event: "Event: commands and events in order, in swimlanes, as in event storming",
   wireframe: "Wireframe: an app's screens, and how one leads to another",
   whiteboard: "Whiteboard: a freehand sketch of an idea, to share it",
+  flowchart: "Flowchart: the steps and decisions of a process",
 };
 
 export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
   const [level, setLevel] = useState<ViewLevel>("container");
   const scopeKinds = SCOPE_KINDS[level];
   // A state view's scope is optional, and can be any element: the one whose states it shows. A
-  // wireframe view's is optional too: the system or container whose screens it shows.
-  const optional = level === "state" || level === "wireframe";
+  // wireframe view's is optional too: the system or container whose screens it shows. So is a
+  // flowchart's: any element, whose process it shows.
+  const optional = level === "state" || level === "wireframe" || level === "flowchart";
   const scopeKind = scopeKinds.length && !optional ? kindList(scopeKinds) : undefined;
   const scopes = [...ws.elements.values()].filter((e) => scopeKinds.includes(e.kind)).sort((a, b) => a.name.localeCompare(b.name));
   const [scope, setScope] = useState<string>("");
   const scopeId = optional ? scopes.find((s) => s.id === scope)?.id : scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
-  // A sequence, a deployment, event or whiteboard view, and a state or wireframe view of nothing in particular, have no scope to name them after, so they need a title.
+  // A sequence, a deployment, event or whiteboard view, and a state, wireframe or flowchart view of nothing in particular, have no scope to name them after, so they need a title.
   const defaultTitle = level === "sequence" || level === "deployment" || level === "event" || level === "whiteboard" || (optional && !scopeName) ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
   const [title, setTitle] = useState("");
   const finalTitle = title.trim() || defaultTitle;
@@ -249,7 +251,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       {optional && (
         <label className="field">
-          <span className="field-label">{level === "wireframe" ? "The screens of" : "The states of"}</span>
+          <span className="field-label">{level === "wireframe" ? "The screens of" : level === "flowchart" ? "The process of" : "The states of"}</span>
           <select value={scopeId ?? ""} onChange={(e) => setScope(e.target.value)}>
             <option value="">Nothing in particular</option>
             {scopes.map((s) => (
@@ -262,7 +264,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       <label className="field">
         <span className="field-label">Title</span>
-        <input value={title} placeholder={defaultTitle ?? (level === "deployment" ? "e.g. Production" : level === "wireframe" ? "e.g. Checkout" : level === "whiteboard" ? "e.g. Ideas for faster checkout" : "e.g. Placing an order")} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+        <input value={title} placeholder={defaultTitle ?? (level === "deployment" ? "e.g. Production" : level === "wireframe" ? "e.g. Checkout" : level === "whiteboard" ? "e.g. Ideas for faster checkout" : level === "flowchart" ? "e.g. Handling a return" : "e.g. Placing an order")} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
       {level === "class" && <p className="muted small">A class view draws the component's or library's classes as a UML class diagram, with their attributes and methods, and how they relate.</p>}
       {level === "state" && <p className="muted small">A state view shows the states something can be in, like an order that's placed, paid or delivered, and the transitions between them.</p>}
@@ -274,6 +276,11 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       {level === "whiteboard" && (
         <p className="muted small">
           Give it a title, such as the idea it's about. A whiteboard is a freehand sketch, to share an idea: boxes, text, arrows and lines drawn with a pen, each where you put it. None of it is part of the model.
+        </p>
+      )}
+      {level === "flowchart" && (
+        <p className="muted small">
+          A flowchart shows the steps of a process: where it starts and ends, what's done, the decisions on the way, and the arrows from one to the next. Choose the element whose process it is, if you like.
         </p>
       )}
       {level === "deployment" && (

@@ -15,7 +15,7 @@ import { button, checkbox, choose, click, mount, select, type } from "./dom.js";
 
 /** A web app and an API in a cluster in a cloud region, a database beside it, behind a load balancer. */
 const doc: OpenArchDocument = {
-  openarch: 15,
+  openarch: 16,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },

@@ -33,7 +33,7 @@ import {
 } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 15,
+  openarch: 16,
   name: "Shop",
   elements: {
     api: { kind: "system", name: "API" },
@@ -66,7 +66,7 @@ describe("uniqueId", () => {
 
 describe("a new view of an element", () => {
   const shop = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer" },
@@ -81,17 +81,18 @@ describe("a new view of an element", () => {
   const element = (id: string) => shop.elements.get(id)!;
 
   it("can be of the levels that take that kind of element as their scope", () => {
-    expect(viewLevelsOf(element("customer"))).toEqual(["state"]);
-    expect(viewLevelsOf(element("shop"))).toEqual(["context", "container", "state", "wireframe"]);
-    expect(viewLevelsOf(element("api"))).toEqual(["component", "state", "wireframe"]);
-    expect(viewLevelsOf(element("orders"))).toEqual(["class", "state"]);
-    expect(viewLevelsOf(element("order"))).toEqual(["state"]);
-    expect(viewLevelsOf(element("logging"))).toEqual(["component", "class", "state"]);
+    expect(viewLevelsOf(element("customer"))).toEqual(["state", "flowchart"]);
+    expect(viewLevelsOf(element("shop"))).toEqual(["context", "container", "state", "wireframe", "flowchart"]);
+    expect(viewLevelsOf(element("api"))).toEqual(["component", "state", "wireframe", "flowchart"]);
+    expect(viewLevelsOf(element("orders"))).toEqual(["class", "state", "flowchart"]);
+    expect(viewLevelsOf(element("order"))).toEqual(["state", "flowchart"]);
+    expect(viewLevelsOf(element("logging"))).toEqual(["component", "class", "state", "flowchart"]);
   });
 
   it("is named after the element, as the New view dialog names it, with an ID no view has yet", () => {
     expect(newViewOf(shop, element("shop"), "container")).toEqual({ op: "add-view", id: "shop-containers", level: "container", scope: "shop", title: "Shop containers" });
     expect(newViewOf(shop, element("order"), "state")).toEqual({ op: "add-view", id: "order-states", level: "state", scope: "order", title: "Order states" });
+    expect(newViewOf(shop, element("api"), "flowchart")).toEqual({ op: "add-view", id: "orders-api-process", level: "flowchart", scope: "api", title: "Orders API process" });
     expect(newViewOf(shop, element("api"), "component")).toEqual({ op: "add-view", id: "orders-api-components-2", level: "component", scope: "api", title: "Orders API components" });
   });
 });
@@ -120,7 +121,7 @@ describe("byName", () => {
 
   it("puts the model tree in alphabetical order at every level, whatever the kinds and IDs", () => {
     const site = buildWorkspace({
-      openarch: 15,
+      openarch: 16,
       name: "Site",
       elements: {
         customer: { kind: "person", name: "Customer" },
@@ -156,7 +157,7 @@ describe("byName", () => {
 
 describe("notes", () => {
   const model = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: {
       api: { kind: "system", name: "API", notes: "Runs the **shop**.", uses: [{ to: "db" }, { to: "db", bidirectional: true, notes: "Syncs stock." }] },
@@ -236,7 +237,7 @@ describe("notes", () => {
 
 describe("viewList", () => {
   const site = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Site",
     elements: {
       website: { kind: "system", name: "Client Website" },
@@ -286,7 +287,7 @@ describe("viewList", () => {
 
 describe("viewAction", () => {
   const shop = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }] },
@@ -342,7 +343,7 @@ describe("viewAction", () => {
 
 describe("viewAction on a class view", () => {
   const code = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer" },
@@ -379,7 +380,7 @@ describe("viewAction on a class view", () => {
 
 describe("arrowRelationships", () => {
   const shop = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Browses" }, { to: "web" }, { to: "shop", description: "Pays" }] },
@@ -413,7 +414,7 @@ describe("arrowRelationships", () => {
 
 describe("arrowRemovals", () => {
   const ws = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "web" }, { to: "web" }] },
@@ -449,7 +450,7 @@ describe("arrowRemovals", () => {
 
 describe("arrowDeleteOps", () => {
   const ws = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: {
       site: { kind: "system", name: "Site", uses: [{ to: "cms", bidirectional: true, description: "Syncs pages with" }, { to: "cms", description: "Reads pages" }] },
@@ -485,7 +486,7 @@ describe("arrowDeleteOps", () => {
 
 describe("shownInProperties", () => {
   const noted = buildWorkspace({
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: { api: { kind: "system", name: "API" } },
     views: { landscape: { title: "Landscape", level: "landscape", stickies: { note: { text: "Read me" } } } },
@@ -679,7 +680,7 @@ describe("renames", () => {
 
 describe("renamesBetween", () => {
   const shop: OpenArchDocument = {
-    openarch: 15,
+    openarch: 16,
     name: "Shop",
     elements: {
       customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] },

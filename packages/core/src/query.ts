@@ -19,11 +19,14 @@ export interface ElementDescription {
   builtInto: ArchElement[];
   /**
    * Views that draw this element: as a box, as the frame around the view, as what a state view
-   * shows the states of, as the app a wireframe view shows the screens of, or running in a
-   * deployment view's nodes, which `runsIn` lists.
+   * shows the states of, as the app a wireframe view shows the screens of, as what a flowchart
+   * shows the process of, or running in a deployment view's nodes, which `runsIn` lists.
    */
-  views: { view: ViewDef; as: "box" | "frame" | "states" | "screens" | "deployed"; runsIn?: DeploymentNode[] }[];
+  views: { view: ViewDef; as: "box" | "frame" | "states" | "screens" | "process" | "deployed"; runsIn?: DeploymentNode[] }[];
 }
+
+/** What a view of an element shows of it, on views that draw something of their own rather than its contents. */
+const OWN_AS: Partial<Record<ViewDef["level"], "states" | "screens" | "process">> = { state: "states", wireframe: "screens", flowchart: "process" };
 
 export function describeElement(ws: Workspace, id: string): ElementDescription | undefined {
   const element = ws.elements.get(id);
@@ -42,7 +45,7 @@ export function describeElement(ws: Workspace, id: string): ElementDescription |
   }
   const views: ElementDescription["views"] = [];
   for (const cv of computeAllViews(ws)) {
-    if (cv.boundary?.id === id) views.push({ view: cv.view, as: cv.view.level === "state" ? "states" : cv.view.level === "wireframe" ? "screens" : "frame" });
+    if (cv.boundary?.id === id) views.push({ view: cv.view, as: OWN_AS[cv.view.level] ?? "frame" });
     else if (cv.deployment) {
       const runsIn = cv.deployment.nodes.filter((n) => cv.deployment!.instances.some((i) => i.node === n.id && i.element.id === id));
       if (runsIn.length) views.push({ view: cv.view, as: "deployed", runsIn });

@@ -112,7 +112,7 @@ function notes(io: Io, v: Values): string | null | undefined {
   }
 }
 
-/** A step's, transition's or connection's number, or a lane's, card's, screen's or widget's position, from `--<name> <n>` or a positional argument: 1 is the first. */
+/** A step's, transition's, connection's or flow's number, or a lane's, card's, screen's, widget's or block's position, from `--<name> <n>` or a positional argument: 1 is the first. */
 function stepNumber(v: Values[string], name: string, what = "step"): number | undefined {
   if (v === undefined) return undefined;
   const n = Number(v);
@@ -291,7 +291,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment, event, wireframe or whiteboard.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment, event, wireframe, whiteboard or flowchart.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",
@@ -675,6 +675,64 @@ export const BUILDERS: Record<string, Builder> = {
   "remove-arrow": (_io, _v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
     return [{ op: "remove-arrow", view: view!, id: id! }];
+  },
+  "add-block": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "add-block",
+        view: view!,
+        id: id!,
+        kind: text(v.kind) as never,
+        text: text(v.text),
+        description: text(v.description),
+        at: point(v.at) ?? undefined,
+        position: stepNumber(v.position, "--position", "block"),
+      },
+    ];
+  },
+  "update-block": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "update-block",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        // Its kind is process unless it says otherwise, so removing it makes it one.
+        kind: (clearable(v.kind) === null ? "process" : text(v.kind)) as never,
+        text: text(v.text),
+        description: clearable(v.description),
+        at: point(v.at),
+        position: stepNumber(v.position, "--position", "block"),
+      },
+    ];
+  },
+  "remove-block": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-block", view: view!, id: id! }];
+  },
+  "add-flow": (_io, v, p, usage) => {
+    const [view, from, to] = need(p, ["<view>", "<from>", "<to>"], usage);
+    return [{ op: "add-flow", view: view!, from: from!, to: to!, text: text(v.text), flow: stepNumber(v.flow, "--flow", "flow") }];
+  },
+  "update-flow": (_io, v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [
+      {
+        op: "update-flow",
+        view: view!,
+        flow: stepNumber(n, "<n>", "flow")!,
+        from: text(v.from),
+        to: text(v.to),
+        text: clearable(v.text),
+        newFlow: stepNumber(v["move-to"], "--move-to", "flow"),
+      },
+    ];
+  },
+  "remove-flow": (_io, _v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [{ op: "remove-flow", view: view!, flow: stepNumber(n, "<n>", "flow")! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

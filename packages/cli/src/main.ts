@@ -78,8 +78,9 @@ With a view id: its description and notes, and the boxes and arrows the view dra
 a sequence view, its steps in order, for a state view, its states and transitions, for a
 deployment view, its nodes and what runs in them, its connections and the arrows it draws, for
 an event view, its lanes, and its cards in order with the cards each comes from, or for a
-wireframe view, its screens in order, each with its widgets and the screens they lead to, or
-for a whiteboard view, its shapes from the back to the front, and its arrows.
+wireframe view, its screens in order, each with its widgets and the screens they lead to, for
+a whiteboard view, its shapes from the back to the front, and its arrows, or for a flowchart
+view, its blocks in order, and its flows.
 A class's members, a relationship's kind when it isn't an association, a container's
 libraries and the containers a library is built into are shown too.
 `,
@@ -121,8 +122,8 @@ remove-step, add-state, update-state, remove-state, add-transition, update-trans
 remove-transition, add-node, update-node, remove-node, add-connection, update-connection,
 remove-connection, add-lane, update-lane, remove-lane, add-card, update-card, remove-card,
 add-screen, update-screen, remove-screen, add-widget, update-widget, remove-widget,
-add-shape, update-shape, remove-shape, add-arrow, update-arrow, remove-arrow,
-update-workspace.
+add-shape, update-shape, remove-shape, add-arrow, update-arrow, remove-arrow, add-block,
+update-block, remove-block, add-flow, update-flow, remove-flow, update-workspace.
 In updates, null removes a field.
 `,
     {},
@@ -228,7 +229,7 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event|wireframe|whiteboard> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event|wireframe|whiteboard|flowchart> [options]
 
 A class view shows a component's or library's classes, with their members, as a UML class
 diagram.
@@ -251,14 +252,19 @@ exclude.
 A whiteboard view is a freehand sketch, to share an idea: shapes, text, arrows and lines drawn
 with a pen, each where it's put, none of them part of the model. Add its shapes with add-shape
 and its arrows with add-arrow. It takes no scope, include or exclude.
+A flowchart view shows the steps of a process: where it starts and ends, what's done, the
+decisions on the way, and the arrows from one to the next. Add its blocks with add-block and
+the flows between them with add-flow. Its scope, if any, is the element of any kind whose
+process it is. It takes no include or exclude.
   --scope <id>           A system for context and container views, a container or library
                          for component views, a component or library for class views, for
                          state views, if any, the element of any kind they're the states of,
-                         and for wireframe views, if any, the system or container whose
-                         screens they are
+                         for wireframe views, if any, the system or container whose screens
+                         they are, and for flowchart views, if any, the element of any kind
+                         whose process they show
   --title <title>        Default: from the scope and level, or for a sequence, deployment,
-                         event or whiteboard view, or a state or wireframe view without a
-                         scope, from the id
+                         event or whiteboard view, or a state, wireframe or flowchart view
+                         without a scope, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
@@ -645,6 +651,60 @@ An empty value removes a field: --heads "" and --color "" put them back to end a
     { from: s, to: s, "from-side": s, "to-side": s, text: s, "new-id": s, heads: s, color: s, dashed: b, solid: b },
   ),
   "remove-arrow": writer(`Usage: open-arch remove-arrow <view> <id>\n`, {}),
+  "add-block": writer(
+    `Usage: open-arch add-block <view> <id> [--kind <kind>] [--text <text>] [--description <text>] [--at <x,y>]
+                          [--position <n>]
+
+Adds a block to a flowchart view, like "pack-order". The id must be unique among the view's
+blocks.
+  --kind <kind>          start or end: where the process starts, or where it ends
+                         process (the default): a step, something that's done
+                         decision: a question with more than one way on, like "In stock?"
+                         input-output: something that comes in or goes out
+                         subprocess: a process drawn in full somewhere else
+                         document: a document or report that's made or read
+                         database: data that's kept
+  --text <text>          What it says (default: from the id). Lines of their own, like
+                         --text $'Pack\\nthe order' in bash
+  --description <text>   One sentence, shown under its text
+  --at <x,y>             Top-left corner (default: the designer lays it out)
+  --position <n>         Its place in the view's list of blocks: 1 is the first (default: last)
+`,
+    { kind: s, text: s, description: s, at: s, position: s },
+  ),
+  "update-block": writer(
+    `Usage: open-arch update-block <view> <id> [--kind <kind>] [--text <text>] [--new-id <id>] [--description <text>]
+                             [--at <x,y>] [--position <n>]
+
+--kind is start, end, process, decision, input-output, subprocess, document or database.
+--new-id changes its ID, and the flows to and from it follow it.
+--at "" lets the designer lay it out again.
+--position moves it to that place in the view's list of blocks: 1 is the first.
+An empty value removes a field: --kind "" makes it a process. A block needs text, so
+--text "" is refused.
+`,
+    { kind: s, text: s, "new-id": s, description: s, at: s, position: s },
+  ),
+  "remove-block": writer(`Usage: open-arch remove-block <view> <id>\n\nRemoves a block, and the flows to and from it.\n`, {}),
+  "add-flow": writer(
+    `Usage: open-arch add-flow <view> <from> <to> [--text <text>] [--flow <n>]
+
+Adds a flow, an arrow from one block of a flowchart view to another.
+  --text <text>          What it says, like "Yes" or "No" on the ways out of a decision
+  --flow <n>             Its number: 1 is the first (default: after the last)
+`,
+    { text: s, flow: s },
+  ),
+  "update-flow": writer(
+    `Usage: open-arch update-flow <view> <n> [--from <id>] [--to <id>] [--text <text>] [--move-to <n>]
+
+<n> is the flow's number, as show prints it: 1 is the first.
+  --move-to <n>          Give it another number; the ones between move up or down one
+An empty value removes a field.
+`,
+    { from: s, to: s, text: s, "move-to": s },
+  ),
+  "remove-flow": writer(`Usage: open-arch remove-flow <view> <n>\n\nRemoves flow <n>; the ones after it move up one.\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -681,6 +741,8 @@ Change (each change is checked first; nothing is saved if it would break the mod
   add-widget <view> <id>          update-widget <view> <id>       remove-widget <view> <id>
   add-shape <view> <id>           update-shape <view> <id>        remove-shape <view> <id>
   add-arrow <view> <id>           update-arrow <view> <id>        remove-arrow <view> <id>
+  add-block <view> <id>           update-block <view> <id>        remove-block <view> <id>
+  add-flow <view> <from> <to>     update-flow <view> <n>          remove-flow <view> <n>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

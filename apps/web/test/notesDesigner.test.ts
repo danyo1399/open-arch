@@ -83,7 +83,7 @@ class FileHost implements WorkspaceHost {
 }
 
 const doc: OpenArchDocument = {
-  openarch: 15,
+  openarch: 16,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },

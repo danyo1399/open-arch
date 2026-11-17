@@ -1,5 +1,5 @@
 {
-  "openarch": 15,
+  "openarch": 16,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -181,6 +181,36 @@
     }
   },
   "views": {
+    "checking-out": {
+      "title": "Checking out",
+      "description": "What the Checkout API does when a customer places an order, from the cart to a receipt.",
+      "level": "flowchart",
+      "scope": "checkout-api",
+      "blocks": [
+        { "id": "checks-out", "kind": "start", "text": "Customer checks out" },
+        { "id": "total", "text": "Work out the total", "description": "Prices, delivery and tax" },
+        { "id": "card-details", "kind": "input-output", "text": "Read the card details" },
+        { "id": "take-payment", "kind": "subprocess", "text": "Take the payment", "description": "With the payment provider" },
+        { "id": "paid", "kind": "decision", "text": "Payment taken?" },
+        { "id": "declined", "text": "Say the card was declined" },
+        { "id": "save-order", "text": "Save the order" },
+        { "id": "orders", "kind": "database", "text": "Orders DB" },
+        { "id": "receipt", "kind": "document", "text": "Email a receipt" },
+        { "id": "placed", "kind": "end", "text": "Order placed" }
+      ],
+      "flows": [
+        { "from": "checks-out", "to": "total" },
+        { "from": "total", "to": "card-details" },
+        { "from": "card-details", "to": "take-payment" },
+        { "from": "take-payment", "to": "paid" },
+        { "from": "paid", "to": "save-order", "text": "Yes" },
+        { "from": "paid", "to": "declined", "text": "No" },
+        { "from": "declined", "to": "card-details", "text": "Try another card" },
+        { "from": "save-order", "to": "orders" },
+        { "from": "save-order", "to": "receipt" },
+        { "from": "receipt", "to": "placed" }
+      ]
+    },
     "checkout-api-components": {
       "title": "Checkout API components",
       "description": "How a checkout request is handled.",

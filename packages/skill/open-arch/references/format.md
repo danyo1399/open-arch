@@ -77,16 +77,16 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `15` |
+| `openarch` | Format version, always `16` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs (`.` for the file's own folder) |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 14 files too, and write them back as version 15. Version 14 is the same, but a whiteboard arrow's end can't stay on a side of its shape. Version 13 is version 14 without whiteboard views. Version 12 is version 13 without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 15 files too, and write them back as version 16. Version 15 is the same, but without flowchart views. Version 14 is version 15, but a whiteboard arrow's end can't stay on a side of its shape. Version 13 is version 14 without whiteboard views. Version 12 is version 13 without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
-IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view, as are the IDs of a state view's states, a deployment view's nodes, an event view's lanes and its cards, a wireframe view's screens, and a whiteboard view's shapes and its arrows. A wireframe view's widgets have IDs unique among all its widgets, on every screen.
+IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view, as are the IDs of a state view's states, a deployment view's nodes, an event view's lanes and its cards, a wireframe view's screens, a whiteboard view's shapes and its arrows, and a flowchart view's blocks. A wireframe view's widgets have IDs unique among all its widgets, on every screen.
 
 ## Elements
 
@@ -163,13 +163,13 @@ Only associations go both ways. A relationship with a kind needs no description,
 |---|---|
 | `title` | Diagram title |
 | `description` | One sentence, shown under the title on the diagram |
-| `level` | `landscape`, `context`, `container`, `component`, `class`, `sequence`, `state`, `deployment`, `event`, `wireframe` or `whiteboard` |
-| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, optionally any element for state views (the one whose states they are), optionally a system or container for wireframe views (the one whose screens they are), none for landscape, sequence, deployment, event and whiteboard |
-| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence, state, deployment, event, wireframe and whiteboard views |
-| `exclude` | IDs to hide. Not used on sequence, state, deployment, event, wireframe and whiteboard views |
+| `level` | `landscape`, `context`, `container`, `component`, `class`, `sequence`, `state`, `deployment`, `event`, `wireframe`, `whiteboard` or `flowchart` |
+| `scope` | A system for context and container views, a container or library for component views, a component or library for class views, optionally any element for state views (the one whose states they are), optionally a system or container for wireframe views (the one whose screens they are), optionally any element for flowchart views (the one whose process they show), none for landscape, sequence, deployment, event and whiteboard |
+| `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence, state, deployment, event, wireframe, whiteboard and flowchart views |
+| `exclude` | IDs to hide. Not used on sequence, state, deployment, event, wireframe, whiteboard and flowchart views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
 | `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `on` (what it's on, see below), `color` (`yellow`, the default, `pink`, `blue` or `green`) and `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside what it's on, or else beside the diagram) |
-| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence, state, deployment, event, wireframe and whiteboard views |
+| `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence, state, deployment, event, wireframe, whiteboard and flowchart views |
 | `steps` | Sequence views only: what happens, in order (see below) |
 | `states` | State views only: the states, keyed by an ID unique within the view (see below) |
 | `initial` | State views only: the ID of the state it starts in |
@@ -177,6 +177,8 @@ Only associations go both ways. A relationship with a kind needs no description,
 | `screens` | Wireframe views only: the screens, in order, each with its widgets (see below) |
 | `shapes` | Whiteboard views only: the shapes, from the back to the front (see below) |
 | `arrows` | Whiteboard views only: the arrows and lines, drawn over the shapes (see below) |
+| `blocks` | Flowchart views only: the blocks, in reading order (see below) |
+| `flows` | Flowchart views only: the arrows from one block to the next, in order (see below) |
 | `nodes` | Deployment views only: where things run, keyed by an ID unique within the view (see below) |
 | `connections` | Deployment views only: arrows to or from nodes, in order (see below) |
 | `lanes` | Event views only: the swimlanes, from the top down (see below) |
@@ -439,6 +441,45 @@ A `whiteboard` view is a freehand sketch, to share an idea before it's decided: 
 
 Shapes are drawn in the order of `shapes`, each over the ones before it, and arrows over all of them. Removing a shape removes the arrows to and from it, and renaming one renames it in their `from` and `to`. An arrow from a shape to itself isn't drawn.
 
+A `flowchart` view draws the steps of a process, as a flowchart does: where it starts and ends, what's done, the decisions on the way, and the arrows from one to the next, each with what it says, like the answer to a decision. Its `scope`, if any, is the element whose process it shows, of any kind. Its blocks and flows belong to the view, not the model:
+
+```json
+"returns": {
+  "title": "Handling a return",
+  "level": "flowchart",
+  "scope": "checkout-api",
+  "blocks": [
+    { "id": "asked", "kind": "start", "text": "Return asked for", "at": [0, 0] },
+    { "id": "in-time", "kind": "decision", "text": "Within 30 days?", "at": [0, 120] },
+    { "id": "refund", "text": "Refund the card", "description": "Within 3 days" },
+    { "id": "refuse", "text": "Say no, and why" },
+    { "id": "done", "kind": "end", "text": "Done" }
+  ],
+  "flows": [
+    { "from": "asked", "to": "in-time" },
+    { "from": "in-time", "to": "refund", "text": "Yes" },
+    { "from": "in-time", "to": "refuse", "text": "No" },
+    { "from": "refund", "to": "done" },
+    { "from": "refuse", "to": "done" }
+  ]
+}
+```
+
+| Block field | Meaning |
+|---|---|
+| `id` | Unique among the view's blocks |
+| `kind` | `process` (the default: a step, something that's done, drawn as a box), `start` or `end` (where the process starts or ends, a pill), `decision` (a question with more than one way on, a diamond), `input-output` (something that comes in or goes out, a slanted box), `subprocess` (a process drawn in full somewhere else, a box with a second line down each side), `document` (a document or report that's made or read, a page with a wavy bottom edge) or `database` (data that's kept, a cylinder) |
+| `text` | What it says, like "Pack the order", or for a decision a question, like "In stock?"; line breaks are kept. Required |
+| `description` | One sentence, shown under its text |
+| `at` | Its top-left corner, `[x, y]`. Without it, the designer lays the block out, from the first block down |
+
+| Flow field | Meaning |
+|---|---|
+| `from`, `to` | The IDs of the blocks it leaves and goes to |
+| `text` | What it says, like `Yes` or `No` on the ways out of a decision |
+
+`show <view>` numbers the blocks and the flows from 1, in the lists' order. Removing a block removes the flows to and from it, and renaming one renames it in their `from` and `to`. A flow from a block to itself isn't drawn. Mermaid has no shape for a document that GitHub draws, so the docs draw one as a box.
+
 Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside their text.
 
 On a landscape, context, container, component or class view, a note can be `on` an element or a relationship, and the designer draws a dotted line from it to the box or arrow that shows it. Other views don't take `on`.
@@ -455,7 +496,7 @@ Each element is drawn at the level of detail the view allows: in a container vie
 When `export.docs` is set, every change made through `open-arch` (or the designer) rewrites that folder:
 
 - `README.md`: the workspace, its views and the model tree.
-- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, each starting with what it's on, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections. An event view has a Mermaid flowchart from left to right, with a frame for each lane and each card in its kind's colour, and tables of its lanes and cards. Mermaid has no swimlanes, so the frames aren't always one above the other as the designer draws them, and a card that comes from a later card can be drawn out of its place along the timeline. A lane with no cards is a box with its name. A whiteboard view has a Mermaid flowchart of its rectangles, ellipses, diamonds and text, in their colours, and the arrows between them, and tables of its shapes, top to bottom, and its arrows. Mermaid lays them out itself, so they aren't where they are on the whiteboard, and an arrow on a side of a shape joins the shape wherever Mermaid puts it, and it can't draw lines drawn with the pen, or arrows with an end at a point or a pen's line: the page says when it leaves those out. A wireframe view has a Mermaid flowchart from left to right, with a frame for each screen and its widgets top to bottom inside it, each drawn as near as Mermaid can to how it looks, and a table of each screen's widgets, numbered within the rows and panels they're in. Mermaid can't draw an arrow from a widget without turning its screen on its side, so its arrows go from screen to screen, with the text of the widgets that lead there on them, and where the arrows go round in a circle, Mermaid decides the order of the screens.
+- `views/<id>.md`: the view's description and notes, its Mermaid diagram, its sticky notes as quotes, each starting with what it's on, and tables of its elements and relationships, with the notes of each relationship under them. A class view has a Mermaid class diagram, and its relationships table says each one's kind. A sequence view has a Mermaid sequence diagram, and a table of its steps in place of the relationships. A state view has a Mermaid state diagram, and tables of its states and transitions. A deployment view has a Mermaid flowchart with a subgraph for each node that holds anything, and tables of its nodes, its relationships and its connections. An event view has a Mermaid flowchart from left to right, with a frame for each lane and each card in its kind's colour, and tables of its lanes and cards. Mermaid has no swimlanes, so the frames aren't always one above the other as the designer draws them, and a card that comes from a later card can be drawn out of its place along the timeline. A lane with no cards is a box with its name. A flowchart view has a Mermaid flowchart, top to bottom, of its blocks, each in its kind's shape, with its description under its text, and the flows between them, with their text, and tables of its blocks and flows. Mermaid lays them out itself, so they aren't where the designer has them. A whiteboard view has a Mermaid flowchart of its rectangles, ellipses, diamonds and text, in their colours, and the arrows between them, and tables of its shapes, top to bottom, and its arrows. Mermaid lays them out itself, so they aren't where they are on the whiteboard, and an arrow on a side of a shape joins the shape wherever Mermaid puts it, and it can't draw lines drawn with the pen, or arrows with an end at a point or a pen's line: the page says when it leaves those out. A wireframe view has a Mermaid flowchart from left to right, with a frame for each screen and its widgets top to bottom inside it, each drawn as near as Mermaid can to how it looks, and a table of each screen's widgets, numbered within the rows and panels they're in. Mermaid can't draw an arrow from a widget without turning its screen on its side, so its arrows go from screen to screen, with the text of the widgets that lead there on them, and where the arrows go round in a circle, Mermaid decides the order of the screens.
 - `elements/<id>.md`: the element's details, notes, members (for a class), libraries (for a container), the containers built with it (for a library), relationships (with their notes), contents and the views showing it, with the nodes it runs in on deployment views.
 
 Every page starts with `<!-- Generated by open-arch from <file>`. Tools only ever overwrite or delete pages with that marker naming the same file, or a file no longer beside it (say before a rename), and only look for stale ones at the folder's top and in `views/` and `elements/`, so other files in the folder are safe, and so are the docs of another workspace whose file is in the same folder as this one's. Workspaces in different folders need docs folders of their own. The folder can be `.`, the file's own folder. Don't edit generated pages: the next change rewrites them.
@@ -467,13 +508,13 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `15` (or `1` to `14`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `16` (or `1` to `15`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
-| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment, event, wireframe or whiteboard view, `scope` on a deployment, event or whiteboard view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `lanes` or `cards` on another view than an event view, `screens` on another view than a wireframe view, `shapes` or `arrows` on another view than a whiteboard view, `widgets` on a widget that isn't a row or a panel, `text`, `size` or `fill` on a pen, `points` on a shape that isn't one, `dashed` on text, or a sticky note's `on` on a sequence, state, deployment, event, wireframe or whiteboard view, or with both `element` and `from` or `to` |
+| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment, event, wireframe, whiteboard or flowchart view, `scope` on a deployment, event or whiteboard view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `lanes` or `cards` on another view than an event view, `screens` on another view than a wireframe view, `shapes` or `arrows` on another view than a whiteboard view, `blocks` or `flows` on another view than a flowchart view, `widgets` on a widget that isn't a row or a panel, `text`, `size` or `fill` on a pen, `points` on a shape that isn't one, `dashed` on text, or a sticky note's `on` on a sequence, state, deployment, event, wireframe, whiteboard or flowchart view, or with both `element` and `from` or `to` |
 | `field-type` | error | A field has the wrong type |
 | `field-required` | error | A required field is missing |
 | `id-format` | error | An ID isn't kebab-case |
-| `id-duplicate` | error | An element and a view share an ID, or two lanes or two cards of an event view do, or two screens or two widgets of a wireframe view, or two shapes or two arrows of a whiteboard view |
+| `id-duplicate` | error | An element and a view share an ID, or two lanes or two cards of an event view do, or two screens or two widgets of a wireframe view, or two shapes or two arrows of a whiteboard view, or two blocks of a flowchart view |
 | `kind-invalid` | error | Unknown `kind` |
 | `level-invalid` | error | Unknown view `level` |
 | `color-invalid` | error | Unknown sticky note, shape or arrow `color` |
@@ -483,6 +524,7 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | `widget-kind-invalid` | error | Unknown widget `kind` |
 | `device-invalid` | error | Unknown screen `device` |
 | `shape-kind-invalid` | error | Unknown whiteboard shape `kind` |
+| `block-kind-invalid` | error | Unknown flowchart block `kind` |
 | `size-invalid` | error | Unknown shape text `size` |
 | `fill-invalid` | error | Unknown shape `fill` |
 | `heads-invalid` | error | Unknown arrow `heads` |
@@ -541,6 +583,13 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | `shape-text-empty` | warning | A whiteboard's text has nothing to say, so it draws nothing |
 | `arrow-end-unknown` | error | A whiteboard arrow's `from` or `to` isn't a shape of its view |
 | `arrow-to-itself` | warning | A whiteboard arrow goes from a shape to itself, so it isn't drawn |
+| `flow-unknown-block` | error | A flow's `from` or `to` isn't a block of its view |
+| `flow-to-itself` | warning | A flow goes from a block to itself, so it isn't drawn |
+| `flow-from-end` | warning | A flow leaves an end, where the process stops |
+| `flow-to-start` | warning | A flow goes into a start, which nothing comes before |
+| `flowchart-start-missing` | warning | A flowchart with blocks has no start |
+| `decision-ways` | warning | A decision has fewer than two flows out, so it decides nothing |
+| `decision-flow-text` | warning | A flow out of a decision has no text, so it doesn't say which answer it's for |
 | `sticky-unknown-target` | error | A sticky note is on an element that isn't there, or a relationship the model doesn't have |
 | `sticky-target-not-drawn` | warning | A sticky note is on something the view doesn't draw, so no line joins them |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |

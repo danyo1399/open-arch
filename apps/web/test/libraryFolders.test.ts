@@ -31,7 +31,7 @@ class MemoryFolders {
   }
 }
 
-const workspace = (name: string) => JSON.stringify({ openarch: 15, name, elements: {}, views: {} });
+const workspace = (name: string) => JSON.stringify({ openarch: 16, name, elements: {}, views: {} });
 
 let picked: FolderHandle | null = null;
 const picker = () => Object.assign(window, { showDirectoryPicker: vi.fn(async () => picked) });

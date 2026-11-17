@@ -13,12 +13,14 @@ import {
   VIEW_LEVELS,
   type ArchElement,
   type Arrow,
+  type Block,
   type Card,
   type ComputedView,
   type Connection,
   type DeploymentNode,
   type ElementData,
   type ElementDescription,
+  type Flow,
   type Lane,
   type Operation,
   type Screen,
@@ -226,6 +228,7 @@ export const LEVEL_NAMES: Record<ViewLevel, string> = {
   event: "Event view",
   wireframe: "Wireframe view",
   whiteboard: "Whiteboard view",
+  flowchart: "Flowchart view",
 };
 
 /**
@@ -253,7 +256,7 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, an event view its cards, a wireframe view its screens and a whiteboard its shapes, so they have nothing to show or hide.
+  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, an event view its cards, a wireframe view its screens, a whiteboard its shapes and a flowchart its blocks, so they have nothing to show or hide.
   if (
     !view ||
     !computed ||
@@ -264,6 +267,7 @@ export function viewAction(ws: Workspace, view: ViewDef | null, computed: Comput
     view.level === "event" ||
     view.level === "wireframe" ||
     view.level === "whiteboard" ||
+    view.level === "flowchart" ||
     computed.boundary?.id === id
   )
     return null;
@@ -609,6 +613,8 @@ export type Shown =
   | { kind: "shape"; view: ViewDef; shape: Shape }
   | { kind: "boardArrow"; view: ViewDef; arrow: Arrow }
   | { kind: "board"; view: ViewDef; shapes: Shape[]; arrows: Arrow[]; stickies: Sticky[] }
+  | { kind: "block"; view: ViewDef; block: Block }
+  | { kind: "flow"; view: ViewDef; flow: Flow }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
@@ -663,6 +669,10 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
   if (view && screen) return { kind: "screen", view, screen };
   const widget = selection?.kind === "widget" && view ? allWidgets(view).find((w) => w.id === selection.id) : undefined;
   if (view && widget) return { kind: "widget", view, widget };
+  const block = selection?.kind === "block" ? view?.blocks.find((b) => b.id === selection.id) : undefined;
+  if (view && block) return { kind: "block", view, block };
+  const flow = selection?.kind === "flow" ? view?.flows[selection.number - 1] : undefined;
+  if (view && flow) return { kind: "flow", view, flow };
   return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
 }
 
@@ -838,6 +848,13 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "add-arrow":
       case "update-arrow":
       case "remove-arrow":
+      // So are a flowchart's blocks and flows.
+      case "add-block":
+      case "update-block":
+      case "remove-block":
+      case "add-flow":
+      case "update-flow":
+      case "remove-flow":
         return { ...op, view: follow(op.view) };
       case "add-step":
         return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };

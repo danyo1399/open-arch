@@ -10,7 +10,7 @@ import type { Edit } from "../src/state.js";
 import { button, checkbox, choose, click, mount, select } from "./dom.js";
 
 const doc: OpenArchDocument = {
-  openarch: 15,
+  openarch: 16,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things", notes: "Pays by **card**." }] },
@@ -120,7 +120,7 @@ describe("New view in an element's details", () => {
     const { element, made } = panel(model, "landscape", { kind: "element", id: "web" });
     await click(button(mount(element), "New view"));
     const items = [...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')];
-    expect(items.map((b) => b.textContent)).toEqual(["Component view", "State view", "Wireframe view"]);
+    expect(items.map((b) => b.textContent)).toEqual(["Component view", "State view", "Wireframe view", "Flowchart view"]);
     await click(items[0]!);
     expect(made).toEqual([{ id: "web", level: "component" }]);
   });

@@ -8,6 +8,7 @@ import { kindLabel, tagEntries, tagText } from "./model.js";
 import { computeAllViews, describeElement, modelTree, type TreeNode } from "./query.js";
 import { shapeName } from "./views.js";
 import {
+  BLOCK_KIND_LABELS,
   CARD_KIND_LABELS,
   endShape,
   endSide,
@@ -271,6 +272,25 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
       files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
       continue;
     }
+    if (v.level === "flowchart") {
+      const text = (t: string | undefined) => cell((t ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(" / "));
+      const blockText = (id: string) => {
+        const b = v.blocks.find((x) => x.id === id);
+        return b ? text(b.text) : cell(id);
+      };
+      lines.push("", "## Blocks", "");
+      if (v.blocks.length) {
+        lines.push("| # | Block | Kind | Description |", "|---|---|---|---|");
+        for (const b of v.blocks) lines.push(`| ${b.number} | ${text(b.text)} | ${BLOCK_KIND_LABELS[b.kind]} | ${cell(b.description)} |`);
+      } else lines.push("None yet.");
+      if (v.flows.length) {
+        lines.push("", "## Flows", "", "| # | From | To | Text |", "|---|---|---|---|");
+        for (const f of v.flows) lines.push(`| ${f.number} | ${blockText(f.from)} | ${blockText(f.to)} | ${text(f.text)} |`);
+      }
+      lines.push("", `[All views and elements](../README.md)`, "");
+      files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
+      continue;
+    }
     lines.push("", "## Elements", "");
     if (cv.nodes.length) {
       lines.push("| Element | Kind | Technology | Description |", "|---|---|---|---|");
@@ -341,7 +361,17 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     if (tags.length) lines.push("", "## Tags", "", "| Tag | Value |", "|---|---|", ...tags.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
     if (d.views.length) {
       const how = ({ as, runsIn }: (typeof d.views)[number]) =>
-        as === "frame" ? " (as the frame)" : as === "states" ? " (its states)" : as === "screens" ? " (its screens)" : as === "deployed" ? ` (runs in ${runsIn!.map((n) => n.name).join(", ")})` : "";
+        as === "frame"
+          ? " (as the frame)"
+          : as === "states"
+            ? " (its states)"
+            : as === "screens"
+              ? " (its screens)"
+              : as === "process"
+                ? " (its process)"
+                : as === "deployed"
+                  ? ` (runs in ${runsIn!.map((n) => n.name).join(", ")})`
+                  : "";
       lines.push("", "## Shown in", "", ...d.views.map((shown) => `- [${shown.view.title}](../views/${shown.view.id}.md)${how(shown)}`));
     }
     lines.push("", `[All views and elements](../README.md)`, "");

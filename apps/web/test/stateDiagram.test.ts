@@ -11,7 +11,7 @@ import { mount } from "./dom.js";
 
 /** An order's states, each placed, so nothing waits for ELK. */
 const shop: OpenArchDocument = {
-  openarch: 15,
+  openarch: 16,
   name: "Shop",
   elements: { order: { kind: "system", name: "Orders" } },
   views: {

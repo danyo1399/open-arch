@@ -88,6 +88,9 @@ export type Selection =
   | { kind: "shape"; id: string }
   | { kind: "boardArrow"; id: string }
   | { kind: "board"; shapes: string[]; arrows: string[]; stickies: string[] }
+  /** A flowchart view's block, and its flow, by its number: 1 is the first. */
+  | { kind: "block"; id: string }
+  | { kind: "flow"; number: number }
   | { kind: "several"; elements: string[]; stickies: string[] }
   | { kind: "workspace" }
   | null;
