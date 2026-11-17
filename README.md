@@ -222,6 +222,14 @@ Sharing needs a [share server](#the-share-server). The designer only offers it w
 
 The Model list has every element in alphabetical order, with the contents of each system and container below it, in alphabetical order too. The menu beside **+ New view** sorts the Views list by name, or by level from landscape down to class, with sequence, state, deployment, event, wireframe, whiteboard and flowchart views last. To keep a view at the top of the list, select the pin by its name; select it again to unpin the view. The designer opens the first view in the list. The order and the pins are yours: they're kept in the browser's storage on this computer, in the desktop app too, not in the .openarch file.
 
+### The side panels
+
+The Views & model panel is left of the diagram, and the Details panel right of it, or under it on a screen up to 900 pixels wide. To give the diagram more room, collapse a panel with the arrow button on its edge. It becomes a strip that says what's in it, such as how many elements there are or what's selected; click the strip to expand it again. Picking an element in the Model list, a problem with an element, or the workspace's name expands the Details panel, to show it, as does adding a box with **+ Add**, whose name you then type there.
+
+Drag a panel's edge to make it wider or narrower, or taller or shorter under the diagram. A panel stops growing before the diagram gets too small. Or press Tab to get to the edge, and use the arrow keys; Home and End make the panel its smallest or largest. Double-click the edge to give the panel its usual size again.
+
+Which panels are collapsed, and their sizes, are yours: they're kept in the browser's storage on this computer, in the desktop app too, not in the .openarch file. The designer opens every workspace with the panels as you left them. On a phone, each panel fills the screen in turn, picked with the tabs along the bottom, so they don't collapse or resize.
+
 ### Ask AI (desktop)
 
 **Ask AI** sends a request, with the open view and the selection, to OpenCode's local background service, starting it if needed (`opencode serve --service`). Each request gets its own OpenCode session in the file's folder, with the project's `open-arch` skill if `open-arch init` installed it, or else the app's copy.
