@@ -141,6 +141,39 @@ describe("routeLinks", () => {
     }
   });
 
+  it("goes round boxes in the open, rather than squeezed close beside them", () => {
+    // c->a has to go round b. Just outside the boxes, it would run close beside all three, between
+    // them and a side of the frame; just outside the frame, there's room.
+    const boxes = new Map([
+      ["a", at(0, 0)],
+      ["b", at(0, 220)],
+      ["c", at(0, 440)],
+    ]);
+    const frame = { x: -40, y: 180, w: W + 84, h: 420 };
+    const route = check(boxes, [link("c", "a")], [frame]).get("c->a")!;
+    const down = segments(route).filter(([p, q]) => p.x === q.x);
+    expect(down.length).toBe(1);
+    const x = down[0]![0].x;
+    expect(x < frame.x || x > frame.x + frame.w, `runs down inside the frame at x=${x}`).toBe(true);
+  });
+
+  it("goes down the middle of the gap between a frame and a box, rather than close beside the frame", () => {
+    // As above, with d beyond the frame's right side: c->a goes round that side, midway to d.
+    const boxes = new Map([
+      ["a", at(0, 0)],
+      ["b", at(0, 220)],
+      ["c", at(0, 440)],
+      ["d", at(480, 220)],
+    ]);
+    const frame = { x: -40, y: 180, w: W + 84, h: 420 };
+    const route = check(boxes, [link("c", "a")], [frame]).get("c->a")!;
+    const down = segments(route).filter(([p, q]) => p.x === q.x);
+    expect(down.length).toBe(1);
+    const x = down[0]![0].x;
+    const [toFrame, toD] = [x - (frame.x + frame.w), 480 - x];
+    expect(Math.abs(toD - toFrame), `${toFrame}px from the frame and ${toD}px from d`).toBeLessThan(MARGIN);
+  });
+
   it("attaches at the middle of a side, rather than nearer a corner to save a little line", () => {
     // b is up and to the left of a: a->b would be a little shorter into b's right side near its bottom corner.
     const up = new Map([
