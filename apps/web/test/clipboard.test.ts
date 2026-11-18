@@ -69,6 +69,26 @@ describe("copyImage", () => {
     }
   });
 
+  it("handles the picture failing to draw after the clipboard threw before taking it", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    // A browser whose ClipboardItem won't take a picture still being drawn.
+    globalThis.ClipboardItem = class {
+      constructor() {
+        throw new TypeError("Can't take a promise.");
+      }
+    } as unknown as typeof ClipboardItem;
+    try {
+      const png = new Promise<Blob>((_, reject) => setTimeout(() => reject(new Error("Couldn't draw the picture.")), 20));
+      await expect(copyImage(png)).rejects.toThrow("Can't take a promise.");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("says to save the picture instead in a browser that can't copy one", async () => {
     // @ts-expect-error A browser without ClipboardItem, such as an older Firefox.
     delete globalThis.ClipboardItem;

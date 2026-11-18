@@ -117,10 +117,9 @@ export function canCopyImages(): boolean {
  * error says why, not the clipboard's.
  */
 export async function copyImage(png: Promise<Blob>): Promise<void> {
-  if (!canCopyImages()) {
-    png.catch(() => undefined);
-    throw new Error("Couldn't copy: this browser can't put a picture on the clipboard. Save it as a PNG instead.");
-  }
+  // Handled at once, in case the clipboard throws before it takes the picture. Awaited below, it still says why it failed.
+  png.catch(() => undefined);
+  if (!canCopyImages()) throw new Error("Couldn't copy: this browser can't put a picture on the clipboard. Save it as a PNG instead.");
   const written = navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
   // Handled at once: the clipboard can refuse while the picture is still being drawn.
   written.catch(() => undefined);

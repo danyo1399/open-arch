@@ -31,9 +31,12 @@ const args = [...(process.getuid?.() === 0 ? ["--no-sandbox"] : []), at("./smoke
 // On Linux with no display, as on a server or in a container, the app gets a virtual one.
 const headless = process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
 const [command, commandArgs] = headless ? ["xvfb-run", ["--auto-servernum", "--server-args=-screen 0 1920x1080x24", electron, ...args]] : [electron, args];
+// The test copies a picture onto the clipboard only where that clipboard is nobody's own: on the
+// virtual display it makes here, or where the caller says so, as CI does on its throwaway machines.
+const ownClipboard = headless || process.env.OPEN_ARCH_SMOKE_OWN_CLIPBOARD === "1";
 const result = spawnSync(command, commandArgs, {
   stdio: "inherit",
-  env: { ...process.env, OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli, ...(headless ? { OPEN_ARCH_SMOKE_OWN_CLIPBOARD: "1" } : {}) },
+  env: { ...process.env, OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli, OPEN_ARCH_SMOKE_OWN_CLIPBOARD: ownClipboard ? "1" : "" },
   timeout: 60_000,
 });
 // On Windows, Electron's helper processes can hold files in userData for a moment after it exits.

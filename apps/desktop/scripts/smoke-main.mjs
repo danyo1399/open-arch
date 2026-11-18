@@ -123,8 +123,8 @@ app.on("browser-window-created", (_e, win) => {
       check(svg.startsWith("60,115,118,103,32,120,109,108/"), `saves the view as an SVG (${svg})`);
 
       // Copy the view as a picture, to paste somewhere else: it reaches the system's clipboard. Only
-      // with a display of the test's own (xvfb), whose clipboard nobody else uses: anywhere else
-      // it's the developer's, and copying would throw away what they had on it.
+      // where that clipboard is nobody's own (see smoke.mjs): anywhere else it's the developer's,
+      // and copying would throw away what they had on it.
       if (ownClipboard) {
         const copied = await page(`(async () => {
           [...document.querySelectorAll(".toolbar button")].find((b) => b.textContent.trim() === "Export").click();
@@ -138,7 +138,7 @@ app.on("browser-window-created", (_e, win) => {
         const item = (await clipboard.read()).find((i) => i.types.includes("image/png"));
         const picture = item ? new Uint8Array(await (await item.getType("image/png")).arrayBuffer()) : new Uint8Array();
         check(picture.slice(0, 8).join(",") === "137,80,78,71,13,10,26,10" && picture.length > 10_000, `copies the view as a PNG (${picture.length} bytes: ${copied})`);
-      } else console.log("SKIP copies the view as a PNG: the clipboard is this computer's, not the test's own");
+      } else console.log("SKIP copies the view as a PNG: it would replace what's on this computer's clipboard. Set OPEN_ARCH_SMOKE_OWN_CLIPBOARD=1 to run it.");
 
       // Ask AI: send a request, approve what the agent asks to do, then undo its change.
       const click = (selector, label) => page(`(() => {
