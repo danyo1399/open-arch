@@ -11,6 +11,15 @@ describe("copyText", () => {
     expect(write).toHaveBeenCalledWith("flowchart TB");
   });
 
+  it("says why the clipboard refused, once the picture is drawn, as Safari does when it isn't allowed", async () => {
+    let finish!: (blob: Blob) => void;
+    const png = new Promise<Blob>((resolve) => (finish = resolve));
+    vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("Not allowed."));
+    const copied = copyImage(png);
+    finish(new Blob(["png"]));
+    await expect(copied).rejects.toThrow("Not allowed.");
+  });
+
   it("says so when the browser refuses", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("Write permission denied."));
     await expect(copyText("flowchart TB")).rejects.toThrow("Write permission denied.");
