@@ -4,12 +4,13 @@
  *
  * Each arrow is the cheapest path on a grid of lines just outside every box's
  * sides, through the points where arrows attach, and down the middle of the
- * gaps between boxes and boundary frames. Corners, crossings, shared runs and runs
- * close beside another arrow, a box or a frame add to a path's cost, so a slightly
- * longer path wins when it's tidier, and arrows spread out where there's room. So do attaching off the middle
- * of a side, and leaving a box by a side that faces away from where the arrow's
- * going. Arrows that could be straight are routed first, then the rest, each
- * shortest first, then all routed again so the early ones can make way for the rest.
+ * gaps between boxes and boundary frames. Corners, crossings, shared runs and
+ * runs close beside another arrow, a box or a frame add to a path's cost, so a
+ * slightly longer path wins when it's tidier, and arrows spread out where
+ * there's room. So do attaching off the middle of a side, and leaving a box by
+ * a side that faces away from where the arrow's going. Arrows that could be
+ * straight are routed first, then the rest, each shortest first, then all
+ * routed again so the early ones can make way for the rest.
  * Two arrows that still cross are routed again, each first in turn, as either
  * might have taken the way the other needed.
  *
@@ -327,6 +328,12 @@ class Grid {
    */
   readonly besideSidesH: Float64Array;
   readonly besideSidesV: Float64Array;
+  /**
+   * The same for running beside a frame's side inside it, further than FRAME_GAP from it, by frame.
+   * An arrow between two boxes inside the frame doesn't pay it: the frame is drawn close round what's
+   * in it, and going out and back in would draw the arrow leaving the system and coming back.
+   */
+  private readonly insideFrames: { frame: Rect; h: Float64Array; v: Float64Array }[];
   /** How many notes' clear spaces each run is in. */
   readonly notesH: Uint16Array;
   readonly notesV: Uint16Array;
@@ -419,16 +426,16 @@ class Grid {
     // from them: the runs across the rect on the rows near its top and bottom, and down it on the
     // columns near its left and right.
     const overlapOf = (a0: number, a1: number, b0: number, b1: number) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
-    const besideSides = (r: Rect, costAt: (v: number, lo: number, hi: number) => number) => {
+    const besideSides = (r: Rect, costAt: (v: number, lo: number, hi: number) => number, h = this.besideSidesH, v = this.besideSidesV) => {
       const across = xs.flatMap((x, i) => (i + 1 < nx && x < r.right && xs[i + 1]! > r.left ? [i] : []));
       const down = ys.flatMap((y, j) => (j + 1 < ny && y < r.bottom && ys[j + 1]! > r.top ? [j] : []));
       ys.forEach((y, j) => {
         const cost = costAt(y, r.top, r.bottom);
-        if (cost) for (const i of across) this.besideSidesH[j * nx + i]! += cost * overlapOf(xs[i]!, xs[i + 1]!, r.left, r.right);
+        if (cost) for (const i of across) h[j * nx + i]! += cost * overlapOf(xs[i]!, xs[i + 1]!, r.left, r.right);
       });
       xs.forEach((x, i) => {
         const cost = costAt(x, r.left, r.right);
-        if (cost) for (const j of down) this.besideSidesV[j * nx + i]! += cost * overlapOf(ys[j]!, ys[j + 1]!, r.top, r.bottom);
+        if (cost) for (const j of down) v[j * nx + i]! += cost * overlapOf(ys[j]!, ys[j + 1]!, r.top, r.bottom);
       });
     };
     // Beside a box, outside it.
@@ -438,12 +445,23 @@ class Grid {
         return d > 0 && d < APART ? closeness(d) : 0;
       });
     }
-    // Beside a frame's side, inside the frame or out.
-    for (const f of frames) {
-      besideSides(f, (v, lo, hi) => {
-        const d = Math.min(Math.abs(v - lo), Math.abs(v - hi));
-        return d < FRAME_GAP ? OVERLAP : d < APART ? closeness(d) : 0;
+    // Beside a frame's side: closer than FRAME_GAP either side of it, then outside it, and inside it apart.
+    const fromSide = (v: number, lo: number, hi: number) => ({ d: Math.min(Math.abs(v - lo), Math.abs(v - hi)), inside: v > lo && v < hi });
+    this.insideFrames = frames.map((frame) => ({ frame, h: new Float64Array(n), v: new Float64Array(n) }));
+    for (const { frame, h, v } of this.insideFrames) {
+      besideSides(frame, (at, lo, hi) => {
+        const { d, inside } = fromSide(at, lo, hi);
+        return d < FRAME_GAP ? OVERLAP : d < APART && !inside ? closeness(d) : 0;
       });
+      besideSides(
+        frame,
+        (at, lo, hi) => {
+          const { d, inside } = fromSide(at, lo, hi);
+          return d >= FRAME_GAP && d < APART && inside ? closeness(d) : 0;
+        },
+        h,
+        v,
+      );
     }
 
     // The sides of clear spaces are grid lines, so a run is either wholly inside one or wholly outside it.
@@ -497,14 +515,28 @@ class Grid {
     return out;
   }
 
-  /** What a step costs along the run `run`, `length` long and on `axis`: its length, and more for running along another arrow, or beside one, a box or a frame. */
-  private stepCost(run: number, axis: typeof H | typeof V, length: number): number {
+  /**
+   * The frames, by their place in `insideFrames`, whose sides a route between ports at `a` and `b`
+   * pays to run beside inside them: those it doesn't have both ends in.
+   */
+  private framesFor(a: Point, b: Point): number[] {
+    const has = (f: Rect, p: Point) => p.x >= f.left && p.x <= f.right && p.y >= f.top && p.y <= f.bottom;
+    return this.insideFrames.flatMap(({ frame }, k) => (has(frame, a) && has(frame, b) ? [] : [k]));
+  }
+
+  /**
+   * What a step costs along the run `run`, `length` long and on `axis`: its length, and more for running
+   * along another arrow, or beside one, a box or a frame, inside the frames `frames` (see framesFor).
+   */
+  private stepCost(run: number, axis: typeof H | typeof V, length: number, frames: readonly number[]): number {
     const across = axis === H;
     const used = across ? this.usedH : this.usedV;
     const { steps, costs } = across ? this.besideRows[Math.floor(run / this.nx)]! : this.besideCols[run % this.nx]!;
     let beside = 0;
     for (let k = 0; k < steps.length; k++) beside += costs[k]! * used[run + steps[k]!]!;
-    return length + length * (OVERLAP * used[run]! + beside) + (across ? this.besideSidesH : this.besideSidesV)[run]!;
+    let sides = (across ? this.besideSidesH : this.besideSidesV)[run]!;
+    for (const k of frames) sides += this.insideFrames[k]![across ? "h" : "v"][run]!;
+    return length + length * (OVERLAP * used[run]! + beside) + sides;
   }
 
   /** What attaching at `port` costs, given the arrows already attached to its side. */
@@ -539,6 +571,8 @@ class Grid {
   search(starts: Port[], goals: Port[], target: Rect, under: readonly number[], soft = false): { cells: number[]; ports: [Port, Port]; cost: number } | undefined {
     const { nx, ny, xs, ys, cost, prev, done } = this;
     const goal = 2 * nx * ny;
+    // Every start is on one box, and every goal on the other.
+    const frames = starts[0] && goals[0] ? this.framesFor(starts[0].at, goals[0].at) : [];
     cost.fill(Infinity);
     prev.fill(-1);
     done.fill(0);
@@ -588,7 +622,7 @@ class Grid {
         if (blocked[run]) return;
         const notes = this.otherNotes(run, along, under);
         if (notes && !soft) return;
-        relax(q * 2 + axis, c + out + this.stepCost(run, along, length) + (notes ? UNDER_NOTE * length : 0) + this.armCost(q, along), s, estimate(q));
+        relax(q * 2 + axis, c + out + this.stepCost(run, along, length, frames) + (notes ? UNDER_NOTE * length : 0) + this.armCost(q, along), s, estimate(q));
       };
       if (axis === H) {
         if (i + 1 < nx) step(p + 1, p, xs[i + 1]! - xs[i]!);
@@ -616,13 +650,14 @@ class Grid {
     let cost = this.portCost(start) + this.portCost(end);
     if (!cells.length) return cost + Math.hypot(end.at.x - start.at.x, end.at.y - start.at.y);
     const moves = movesOf(cells, start, end);
+    const frames = this.framesFor(start.at, end.at);
     cells.forEach((p, k) => {
       cost += this.armCost(p, moves[k]!) + this.armCost(p, moves[k + 1]!);
       if (moves[k] !== moves[k + 1]) cost += BEND;
       const q = cells[k + 1];
       if (q === undefined) return;
       const [a, b] = [this.at(p), this.at(q)];
-      cost += this.stepCost(Math.min(p, q), moves[k + 1]!, Math.abs(b.x - a.x) + Math.abs(b.y - a.y));
+      cost += this.stepCost(Math.min(p, q), moves[k + 1]!, Math.abs(b.x - a.x) + Math.abs(b.y - a.y), frames);
     });
     return cost;
   }
@@ -726,7 +761,7 @@ function simplify(points: readonly Readonly<Point>[]): Readonly<Point>[] {
  * and their boxes are, off the grid; an end moved along its box's side stays clear
  * of the corners, and doesn't move off the middle of a side on a box in `grid.tips`; and a
  * change is only kept if the search would have charged less for it, so a run isn't moved
- * beside another arrow or along a frame.
+ * beside another arrow, a box or a frame.
  */
 function straighten(grid: Grid, route: Route, from: Rect, to: Rect, under: readonly number[]): Route {
   const onSide = (p: Point, r: Rect) => {
