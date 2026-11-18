@@ -3,9 +3,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { app, clipboard, ClipboardItem, ipcMain } from "electron";
+import { app, clipboard, ipcMain } from "electron";
 
-const { OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli } = process.env;
+const { OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli, OPEN_ARCH_SMOKE_OWN_CLIPBOARD: ownClipboard } = process.env;
 const file = join(folder, "shop.openarch");
 app.setPath("userData", userData);
 await import("../dist/main.js");
@@ -122,19 +122,10 @@ app.on("browser-window-created", (_e, win) => {
       // "<svg xmln", as bytes.
       check(svg.startsWith("60,115,118,103,32,120,109,108/"), `saves the view as an SVG (${svg})`);
 
-      // Copy the view as a picture, to paste somewhere else: it reaches the system's clipboard. On a
-      // Mac that's the developer's own clipboard, so what was on it is put back after.
-      // Electron only writes back items made afresh, so the data is copied out of each first.
-      const before = (
-        await Promise.all(
-          (await clipboard.read()).map(async (item) => {
-            const data = await Promise.all(item.types.map(async (type) => [type, await item.getType(type).catch(() => null)]));
-            return Object.fromEntries(data.filter(([, value]) => value !== null));
-          }),
-        )
-      ).filter((data) => Object.keys(data).length > 0);
-      try {
-        clipboard.clear();
+      // Copy the view as a picture, to paste somewhere else: it reaches the system's clipboard. Only
+      // with a display of the test's own (xvfb), whose clipboard nobody else uses: anywhere else
+      // it's the developer's, and copying would throw away what they had on it.
+      if (ownClipboard) {
         const copied = await page(`(async () => {
           [...document.querySelectorAll(".toolbar button")].find((b) => b.textContent.trim() === "Export").click();
           await new Promise((r) => setTimeout(r, 100));
@@ -147,12 +138,7 @@ app.on("browser-window-created", (_e, win) => {
         const item = (await clipboard.read()).find((i) => i.types.includes("image/png"));
         const picture = item ? new Uint8Array(await (await item.getType("image/png")).arrayBuffer()) : new Uint8Array();
         check(picture.slice(0, 8).join(",") === "137,80,78,71,13,10,26,10" && picture.length > 10_000, `copies the view as a PNG (${picture.length} bytes: ${copied})`);
-      } finally {
-        if (before.length) await clipboard.write(before.map((data) => new ClipboardItem(data)));
-        else clipboard.clear();
-      }
-      const kinds = (items) => JSON.stringify(items.map((i) => i.types).filter((types) => types.length > 0));
-      check(kinds(await clipboard.read()) === JSON.stringify(before.map(Object.keys)), "puts the clipboard back as it was");
+      } else console.log("SKIP copies the view as a PNG: the clipboard is this computer's, not the test's own");
 
       // Ask AI: send a request, approve what the agent asks to do, then undo its change.
       const click = (selector, label) => page(`(() => {

@@ -33,7 +33,7 @@ const headless = process.platform === "linux" && !process.env.DISPLAY && !proces
 const [command, commandArgs] = headless ? ["xvfb-run", ["--auto-servernum", "--server-args=-screen 0 1920x1080x24", electron, ...args]] : [electron, args];
 const result = spawnSync(command, commandArgs, {
   stdio: "inherit",
-  env: { ...process.env, OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli },
+  env: { ...process.env, OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli, ...(headless ? { OPEN_ARCH_SMOKE_OWN_CLIPBOARD: "1" } : {}) },
   timeout: 60_000,
 });
 // On Windows, Electron's helper processes can hold files in userData for a moment after it exits.

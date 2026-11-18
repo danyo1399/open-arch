@@ -122,12 +122,9 @@ export async function copyImage(png: Promise<Blob>): Promise<void> {
     throw new Error("Couldn't copy: this browser can't put a picture on the clipboard. Save it as a PNG instead.");
   }
   const written = navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
-  try {
-    await png;
-  } catch (error) {
-    written.catch(() => undefined);
-    throw error;
-  }
+  // Handled at once: the clipboard can refuse while the picture is still being drawn.
+  written.catch(() => undefined);
+  await png;
   await written;
 }
 

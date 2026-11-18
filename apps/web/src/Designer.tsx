@@ -562,6 +562,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       state.notify({ kind: "info", text: `Copied a picture of “${cv.view.title}”. Paste it into a document, a slide or a chat.` });
     });
   // The open diagram taken elsewhere: as Mermaid to paste, as a markdown file of its own, or as a picture to paste or save.
+  const canCopy = canCopyImages();
   const exportItems = (cv: ComputedView): MenuItem[] => [
     {
       label: "Copy as Mermaid",
@@ -572,8 +573,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         }),
     },
     { label: "Save as Markdown…", onSelect: () => attempt(async () => void (await saveFile(`${cv.view.id}.md`, viewMarkdown(cv), MARKDOWN_FILE))) },
-    ...(canCopyImages() ? [{ label: "Copy as PNG", divider: true, onSelect: () => copyPicture(cv) }] : []),
-    { label: "Save as PNG…", divider: !canCopyImages(), onSelect: () => saveImage(cv, "png", PNG_FILE) },
+    ...(canCopy ? [{ label: "Copy as PNG", divider: true, onSelect: () => copyPicture(cv) }] : []),
+    { label: "Save as PNG…", divider: !canCopy, onSelect: () => saveImage(cv, "png", PNG_FILE) },
     { label: "Save as SVG…", onSelect: () => saveImage(cv, "svg", SVG_FILE) },
     { label: "Save as PDF…", onSelect: () => saveImage(cv, "pdf", PDF_FILE) },
   ];

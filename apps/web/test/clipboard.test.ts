@@ -11,15 +11,6 @@ describe("copyText", () => {
     expect(write).toHaveBeenCalledWith("flowchart TB");
   });
 
-  it("says why the clipboard refused, once the picture is drawn, as Safari does when it isn't allowed", async () => {
-    let finish!: (blob: Blob) => void;
-    const png = new Promise<Blob>((resolve) => (finish = resolve));
-    vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("Not allowed."));
-    const copied = copyImage(png);
-    finish(new Blob(["png"]));
-    await expect(copied).rejects.toThrow("Not allowed.");
-  });
-
   it("says so when the browser refuses", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("Write permission denied."));
     await expect(copyText("flowchart TB")).rejects.toThrow("Write permission denied.");
@@ -56,6 +47,26 @@ describe("copyImage", () => {
   it("says so when the browser refuses", async () => {
     vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("Document is not focused."));
     await expect(copyImage(Promise.resolve(new Blob(["png"])))).rejects.toThrow("Document is not focused.");
+  });
+
+  it("says why the clipboard refused while the picture was drawn, as Safari does when it isn't allowed, and leaves nothing unhandled", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    // Not a spy: a spy handles the promise it returns itself, which would hide one left unhandled.
+    const write = Object.getOwnPropertyDescriptor(navigator.clipboard, "write");
+    navigator.clipboard.write = () => Promise.reject(new Error("Not allowed."));
+    try {
+      // The picture takes a while to draw, as it does in the designer.
+      const png = new Promise<Blob>((resolve) => setTimeout(() => resolve(new Blob(["png"])), 20));
+      await expect(copyImage(png)).rejects.toThrow("Not allowed.");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      if (write) Object.defineProperty(navigator.clipboard, "write", write);
+      else delete (navigator.clipboard as { write?: unknown }).write;
+    }
   });
 
   it("says to save the picture instead in a browser that can't copy one", async () => {
