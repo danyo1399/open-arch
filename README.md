@@ -208,6 +208,7 @@ The docs draw a flowchart in Mermaid, top to bottom, each block in its shape and
 
 - **Copy as Mermaid** puts the diagram's Mermaid text on the clipboard, to paste into a `mermaid` code block in markdown or into a Mermaid editor.
 - **Save as Markdown…** saves a markdown file with the view's title, its description and the diagram in Mermaid. Unlike the pages in the generated docs, it links to no other page, so it reads the same wherever you put it.
+- **Copy as PNG** puts a picture of the diagram on the clipboard, drawn as **Save as PNG…** draws it, to paste straight into a document, a slide or a chat. It's there in browsers that can copy a picture, and in the desktop app.
 - **Save as PNG…**, **Save as SVG…** and **Save as PDF…** save a picture of the diagram as the designer draws it: all of it, not just the part on the screen, without the selection, and in light colours on white even in dark mode, to suit a document or a slide. The PNG and the PDF are drawn at twice the screen's resolution, so they stay sharp in print. The SVG draws the boxes as web page content inside the SVG, which browsers show but some drawing programs can't edit. The PDF is one page the size of the diagram, holding the PNG picture, so its text can't be selected.
 
 ### Sharing a link

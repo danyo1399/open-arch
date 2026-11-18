@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { app, ipcMain } from "electron";
+import { app, clipboard, ipcMain } from "electron";
 
 const { OPEN_ARCH_SMOKE_FOLDER: folder, OPEN_ARCH_SMOKE_USERDATA: userData, OPEN_ARCH_SMOKE_OUT: out, OPEN_ARCH_SMOKE_CLI: cli } = process.env;
 const file = join(folder, "shop.openarch");
@@ -121,6 +121,21 @@ app.on("browser-window-created", (_e, win) => {
       const svg = await saveAs("Save as SVG…");
       // "<svg xmln", as bytes.
       check(svg.startsWith("60,115,118,103,32,120,109,108/"), `saves the view as an SVG (${svg})`);
+
+      // Copy the view as a picture, to paste somewhere else: it reaches the system's clipboard.
+      clipboard.clear();
+      const copied = await page(`(async () => {
+        [...document.querySelectorAll(".toolbar button")].find((b) => b.textContent.trim() === "Export").click();
+        await new Promise((r) => setTimeout(r, 100));
+        const item = [...document.querySelectorAll('.context-menu [role="menuitem"]')].find((b) => b.textContent === "Copy as PNG");
+        if (!item) return "not offered";
+        item.click();
+        for (let i = 0; i < 100 && !document.body.innerText.includes("Copied a picture of"); i++) await new Promise((r) => setTimeout(r, 100));
+        return document.querySelector(".toast")?.textContent ?? "no message";
+      })()`);
+      const item = (await clipboard.read()).find((i) => i.types.includes("image/png"));
+      const picture = item ? new Uint8Array(await (await item.getType("image/png")).arrayBuffer()) : new Uint8Array();
+      check(picture.slice(0, 8).join(",") === "137,80,78,71,13,10,26,10" && picture.length > 10_000, `copies the view as a PNG (${picture.length} bytes: ${copied})`);
 
       // Ask AI: send a request, approve what the agent asks to do, then undo its change.
       const click = (selector, label) => page(`(() => {

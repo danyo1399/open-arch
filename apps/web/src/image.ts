@@ -135,13 +135,13 @@ function targetIn(container: HTMLElement): Target {
   const sequence = container.querySelector<HTMLElement>(".sequence-surface");
   if (sequence) return { element: sequence, width: sequence.offsetWidth, height: sequence.offsetHeight };
   const viewport = container.querySelector<HTMLElement>(".react-flow__viewport");
-  if (!viewport) throw new Error("There's no diagram to save.");
+  if (!viewport) throw new Error("There's no diagram to make a picture of.");
   // The boxes, sticky notes, arrows and their labels. The arrows can go round the boxes, outside them.
   const parts = [...viewport.querySelectorAll(".react-flow__node, .react-flow__edge-path, .arrow-label")].map((e) => e.getBoundingClientRect());
   const origin = viewport.getBoundingClientRect();
   const zoom = new DOMMatrixReadOnly(getComputedStyle(viewport).transform).a || 1;
   const bounds = diagramBounds(parts, { x: origin.left, y: origin.top }, zoom);
-  if (!bounds) throw new Error("This view has nothing in it to save.");
+  if (!bounds) throw new Error("This view has nothing in it to make a picture of.");
   return {
     element: viewport,
     width: bounds.width,

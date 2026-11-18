@@ -27,7 +27,7 @@ import { StateDiagram } from "./canvas/StateDiagram.js";
 import { FlowchartDiagram } from "./canvas/FlowchartDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
 import { canOpenFolders, exportToFolder, FolderHost, folderList, pickFolder } from "./folders.js";
-import { BrowserHost, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, canCopyImages, copyImage, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
 import {
@@ -541,26 +541,27 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   // The open diagram as a picture of the whole of it, drawn with nothing selected, so the
   // picture has no highlights or grips. On a phone it's drawn on the Diagram pane, as another
   // pane hides it. What was selected, and the pane that was showing, come back after.
+  const drawImage = async (cv: ComputedView, format: ImageFormat) => {
+    const was = { selection, pane };
+    setPane("diagram");
+    setSelection(null);
+    await nextPaint();
+    try {
+      return await diagramImage(mainRef.current!, format, cv.view.title);
+    } finally {
+      setSelection(was.selection);
+      setPane(was.pane);
+    }
+  };
   const saveImage = (cv: ComputedView, format: ImageFormat, type: FileType) =>
+    attempt(async () => void (await saveFile(`${cv.view.id}${type.extension}`, () => drawImage(cv, format), type)));
+  // The clipboard is asked for straight away, while the click still counts, and waits for the picture.
+  const copyPicture = (cv: ComputedView) =>
     attempt(async () => {
-      const was = { selection, pane };
-      await saveFile(
-        `${cv.view.id}${type.extension}`,
-        async () => {
-          setPane("diagram");
-          setSelection(null);
-          await nextPaint();
-          try {
-            return await diagramImage(mainRef.current!, format, cv.view.title);
-          } finally {
-            setSelection(was.selection);
-            setPane(was.pane);
-          }
-        },
-        type,
-      );
+      await copyImage(drawImage(cv, "png"));
+      state.notify({ kind: "info", text: `Copied a picture of “${cv.view.title}”. Paste it into a document, a slide or a chat.` });
     });
-  // The open diagram taken elsewhere: as Mermaid to paste, as a markdown file of its own, or as a picture.
+  // The open diagram taken elsewhere: as Mermaid to paste, as a markdown file of its own, or as a picture to paste or save.
   const exportItems = (cv: ComputedView): MenuItem[] => [
     {
       label: "Copy as Mermaid",
@@ -571,7 +572,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         }),
     },
     { label: "Save as Markdown…", onSelect: () => attempt(async () => void (await saveFile(`${cv.view.id}.md`, viewMarkdown(cv), MARKDOWN_FILE))) },
-    { label: "Save as PNG…", divider: true, onSelect: () => saveImage(cv, "png", PNG_FILE) },
+    ...(canCopyImages() ? [{ label: "Copy as PNG", divider: true, onSelect: () => copyPicture(cv) }] : []),
+    { label: "Save as PNG…", divider: !canCopyImages(), onSelect: () => saveImage(cv, "png", PNG_FILE) },
     { label: "Save as SVG…", onSelect: () => saveImage(cv, "svg", SVG_FILE) },
     { label: "Save as PDF…", onSelect: () => saveImage(cv, "pdf", PDF_FILE) },
   ];

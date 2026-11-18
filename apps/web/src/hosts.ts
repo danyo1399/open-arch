@@ -102,6 +102,35 @@ export async function copyText(text: string): Promise<void> {
   if (!copied) throw new Error("Couldn't copy: this browser didn't allow the clipboard.");
 }
 
+/**
+ * Whether this browser can put a picture on the clipboard. Only a secure page (HTTPS or
+ * localhost) can, in a browser that knows ClipboardItem.
+ */
+export function canCopyImages(): boolean {
+  return typeof ClipboardItem !== "undefined" && typeof navigator.clipboard?.write === "function";
+}
+
+/**
+ * Puts a PNG on the clipboard, to paste into a document, a slide or a chat. Call it as soon as
+ * the user clicks, before anything else waits: Safari only allows the clipboard then. So it
+ * takes the picture still being drawn, and the clipboard waits for it. If drawing it fails, the
+ * error says why, not the clipboard's.
+ */
+export async function copyImage(png: Promise<Blob>): Promise<void> {
+  if (!canCopyImages()) {
+    png.catch(() => undefined);
+    throw new Error("Couldn't copy: this browser can't put a picture on the clipboard. Save it as a PNG instead.");
+  }
+  const written = navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+  try {
+    await png;
+  } catch (error) {
+    written.catch(() => undefined);
+    throw error;
+  }
+  await written;
+}
+
 /** Where a workspace's file is in a folder opened from the start page: the folder's name, and the file's path in it. */
 export interface FilePlace {
   folder: string;
