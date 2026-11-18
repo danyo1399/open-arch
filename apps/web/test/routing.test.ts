@@ -188,6 +188,19 @@ describe("routeLinks", () => {
     for (const p of route) expect(p.x > frame.x && p.x < frame.x + frame.w, `leaves the frame at x=${p.x}`).toBe(true);
   });
 
+  it("counts a box across a frame's side as in the frame when its middle is", () => {
+    // As above, with the frame's top across a: its top side is outside the frame, its middle inside.
+    const boxes = new Map([
+      ["a", at(0, 0)],
+      ["b", at(0, 220)],
+      ["c", at(0, 440)],
+      ["d", at(480, 220)],
+    ]);
+    const frame = { x: -40, y: 40, w: W + 80, h: 440 + H };
+    const route = check(boxes, [link("c", "a")], [frame]).get("c->a")!;
+    for (const p of route) expect(p.x > frame.x && p.x < frame.x + frame.w, `leaves the frame at x=${p.x}`).toBe(true);
+  });
+
   it("attaches at the middle of a side, rather than nearer a corner to save a little line", () => {
     // b is up and to the left of a: a->b would be a little shorter into b's right side near its bottom corner.
     const up = new Map([

@@ -128,6 +128,8 @@ type Side = "top" | "bottom" | "left" | "right";
 interface Port {
   /** The box. */
   id: string;
+  /** The middle of the box, which decides which frames it's in (see Grid.framesFor). */
+  middle: Readonly<Point>;
   edge: Side;
   /** The box and side together, such as `api:top`. */
   side: string;
@@ -211,12 +213,13 @@ function samePort(a: Port, b: Port): boolean {
 /** Where an arrow attaches at `pos` along one side of box `id`, for an arrow that pays `away` to leave by that side. */
 function portAt(id: string, r: Rect, edge: Side, pos: number, away = 0): Port {
   const o = inflate(r);
+  const middle = { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
   if (edge === "top" || edge === "bottom") {
     const [y, out] = edge === "top" ? [r.top, o.top] : [r.bottom, o.bottom];
-    return { id, edge, side: `${id}:${edge}`, pos, at: { x: pos, y }, stub: { x: pos, y: out }, axis: V, offset: Math.abs(pos - (r.left + r.right) / 2), away };
+    return { id, middle, edge, side: `${id}:${edge}`, pos, at: { x: pos, y }, stub: { x: pos, y: out }, axis: V, offset: Math.abs(pos - (r.left + r.right) / 2), away };
   }
   const [x, out] = edge === "left" ? [r.left, o.left] : [r.right, o.right];
-  return { id, edge, side: `${id}:${edge}`, pos, at: { x, y: pos }, stub: { x: out, y: pos }, axis: H, offset: Math.abs(pos - (r.top + r.bottom) / 2), away };
+  return { id, middle, edge, side: `${id}:${edge}`, pos, at: { x, y: pos }, stub: { x: out, y: pos }, axis: H, offset: Math.abs(pos - (r.top + r.bottom) / 2), away };
 }
 
 /**
@@ -516,8 +519,9 @@ class Grid {
   }
 
   /**
-   * The frames, by their place in `insideFrames`, whose sides a route between ports at `a` and `b`
-   * pays to run beside inside them: those it doesn't have both ends in.
+   * The frames, by their place in `insideFrames`, whose sides a route between boxes with their middles
+   * at `a` and `b` pays to run beside inside them: those it doesn't have both ends in. A box across a
+   * frame's side is in the frame if its middle is, so every port on the box decides the same.
    */
   private framesFor(a: Point, b: Point): number[] {
     const has = (f: Rect, p: Point) => p.x >= f.left && p.x <= f.right && p.y >= f.top && p.y <= f.bottom;
@@ -572,7 +576,7 @@ class Grid {
     const { nx, ny, xs, ys, cost, prev, done } = this;
     const goal = 2 * nx * ny;
     // Every start is on one box, and every goal on the other.
-    const frames = starts[0] && goals[0] ? this.framesFor(starts[0].at, goals[0].at) : [];
+    const frames = starts[0] && goals[0] ? this.framesFor(starts[0].middle, goals[0].middle) : [];
     cost.fill(Infinity);
     prev.fill(-1);
     done.fill(0);
@@ -650,7 +654,7 @@ class Grid {
     let cost = this.portCost(start) + this.portCost(end);
     if (!cells.length) return cost + Math.hypot(end.at.x - start.at.x, end.at.y - start.at.y);
     const moves = movesOf(cells, start, end);
-    const frames = this.framesFor(start.at, end.at);
+    const frames = this.framesFor(start.middle, end.middle);
     cells.forEach((p, k) => {
       cost += this.armCost(p, moves[k]!) + this.armCost(p, moves[k + 1]!);
       if (moves[k] !== moves[k + 1]) cost += BEND;
