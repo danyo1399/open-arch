@@ -23,7 +23,7 @@ export function agentsSection(workspace: string, docs: string | undefined, versi
   // Docs at the top of the project, beside AGENTS.md, have the path "". Their folder is the
   // project's own, so the section names the pages rather than telling agents to leave it all alone.
   const atTop = docs === "";
-  const where = docs === undefined ? "" : atTop ? " Readable docs generated from it are at the top of the project: `README.md` and the pages in `elements/` and `views/`." : ` Readable docs generated from it are in ${code(`${docs}/`)}.`;
+  const where = docs === undefined ? "" : atTop ? " Readable docs generated from it are at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the project has its own." : ` Readable docs generated from it are in ${code(`${docs}/`)}.`;
   const leave = docs === undefined ? code(workspace) : atTop ? `${code(workspace)} or a page generated from it (one that starts with \`${GENERATED_MARKER}\`)` : `${code(workspace)} or ${code(`${docs}/`)}`;
   return [
     SECTION_START,

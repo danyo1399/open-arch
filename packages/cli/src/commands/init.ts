@@ -17,7 +17,7 @@ export interface InitOptions {
 export { SKILL_TARGETS } from "../workspace.js";
 
 export function init(io: Io, opts: InitOptions): number {
-  let file = resolve(io.cwd, opts.file ?? `architecture${FILE_EXTENSION}`);
+  let file = opts.file === undefined ? defaultFile(io.cwd) : resolve(io.cwd, opts.file);
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, `architecture${FILE_EXTENSION}`);
   if (!file.endsWith(FILE_EXTENSION)) throw new CliError(`The workspace file must end in ${FILE_EXTENSION}.`, 2);
   const shown = displayPath(io.cwd, file);
@@ -82,6 +82,16 @@ export function init(io: Io, opts: InitOptions): number {
   }
   io.out("\nNext: add elements with `open-arch add-element <id> --kind system --name \"...\"`, or open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.\n");
   return 0;
+}
+
+/**
+ * The file init makes when none is named: architecture.openarch here, but at the top of a Git
+ * repository in a folder of its own, architecture/, so its docs don't mix with the repository's
+ * own README.md. One made here before is kept.
+ */
+function defaultFile(cwd: string): string {
+  const here = join(cwd, `architecture${FILE_EXTENSION}`);
+  return existsSync(here) || !existsSync(join(cwd, ".git")) ? here : join(cwd, "architecture", `architecture${FILE_EXTENSION}`);
 }
 
 /** The repository root above `dir`, else the current folder if `dir` is inside it, else `dir`. */
