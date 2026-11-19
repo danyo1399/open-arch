@@ -56,7 +56,7 @@ import {
 } from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type LayoutEdge, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
 import { classHeight, FrameNotes, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
@@ -249,6 +249,12 @@ export function connectOps(view: string, from: string, to: string, layout: Recor
  */
 export function layoutNodes(cv: ComputedView, drawn: ReadonlyMap<string, number> = new Map()): LayoutNode[] {
   return cv.nodes.map((n) => ({ id: n.id, inside: inFrame(cv.boundary, n), height: drawn.get(n.id) ?? (n.kind === "class" ? classHeight(n) : undefined) }));
+}
+
+/** The arrows for ELK to lay out, each with its label's size at its widest, so the boxes are put far enough apart for the labels. */
+export function layoutEdges(edges: ViewEdge[]): LayoutEdge[] {
+  const sizes = measureLabelSizes(edges);
+  return edges.map((e, k) => ({ from: e.from, to: e.to, label: sizes[k]![0] }));
 }
 
 /**
@@ -583,14 +589,16 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   const boxes = useMemo(() => new Set(ids), [ids]);
   /** The boxes and notes selected. */
   const picked = useMemo(() => selectedShapes(selection, boxes), [selection, boxes]);
-  const graphKey = `${view.id}|${ids.join(",")}|${cv?.edges.map((e) => `${e.from}>${e.to}`).join(",") ?? ""}`;
+  /** The arrows for ELK to lay out, with their labels' sizes. */
+  const arrows = useMemo(() => layoutEdges(cv?.edges ?? []), [cv]);
+  const graphKey = `${view.id}|${ids.join(",")}|${arrows.map((e) => `${e.from}>${e.to}`).join(",")}|${rowGap(arrows)}`;
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
   useEffect(() => {
     if (!cv || !missing) return;
     let cancelled = false;
-    void layOut(layoutNodes(cv), cv.edges).then(({ positions, failed }) => {
+    void layOut(layoutNodes(cv), arrows).then(({ positions, failed }) => {
       if (cancelled) return;
       if (failed) onError("Couldn't lay out the new boxes automatically, so they're in rows for now. Reload the page to try again.");
       setAuto({ key: graphKey, positions });
@@ -598,7 +606,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     return () => {
       cancelled = true;
     };
-    // The graph key captures everything ELK looks at.
+    // The graph key captures everything ELK looks at: the labels only change how far apart it puts the rows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphKey, missing]);
 
@@ -869,7 +877,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     async () => {
       if (!cv) return [];
       const drawn = new Map(nodesRef.current.flatMap((n) => (n.type === "element" && n.measured?.height ? [[elementOfNode(n), n.measured.height] as const] : [])));
-      const positions = await elkLayout(layoutNodes(cv, drawn), cv.edges);
+      const positions = await elkLayout(layoutNodes(cv, drawn), arrows);
       return (ws: Workspace) => autoLayoutOps(ws, view.id, positions);
     },
     edit,

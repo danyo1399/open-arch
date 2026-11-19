@@ -33,7 +33,7 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { CROW_FOOT, crowFoot, ENTITY, entityHeight, entityWidth, keyColumns } from "./entityLayout.js";
 import { FrameNode, FrameNotes, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
@@ -283,7 +283,6 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
   /** The links that are drawn: between entities of the view, one from an entity to itself as a loop. */
   const drawnLinks = useMemo(() => view.links.filter((l) => ids.includes(l.from) && ids.includes(l.to)), [view, ids]);
   const between = useMemo(() => drawnLinks.filter((l) => l.from !== l.to), [drawnLinks]);
-  const graphKey = `${view.id}|${view.entities.map((e) => `${e.id}:${entityWidth(e)}x${entityHeight(e)}`).join(",")}|${between.map((l) => `${l.from}>${l.to}`).join(",")}`;
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
@@ -293,11 +292,23 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
     [view],
   );
 
+  // Labels are sized as arrows' labels are, from the same styles.
+  const sizes = useMemo(() => {
+    const labelled = between.filter((l) => l.text);
+    const pseudo = labelled.map((l): ViewEdge => ({ from: l.from, to: l.to, description: l.text, kind: "association", implied: true, bidirectional: false, sources: [] }));
+    const measured = measureLabelSizes(pseudo);
+    return new Map(labelled.map((l, k) => [linkId(l), measured[k]!] as const));
+  }, [between]);
+  /** The links for ELK to lay out, each with its label's size at its widest, so the entities are put far enough apart for the labels. */
+  const arrows = useMemo(() => between.map((l) => ({ from: l.from, to: l.to, label: sizes.get(linkId(l))?.[0] })), [between, sizes]);
+  // Entities are laid out in columns, so it's the columns the labels push apart.
+  const graphKey = `${view.id}|${view.entities.map((e) => `${e.id}:${entityWidth(e)}x${entityHeight(e)}`).join(",")}|${between.map((l) => `${l.from}>${l.to}`).join(",")}|${rowGap(arrows, false)}`;
+
   // Entities without a position are laid out by ELK, left to right, each as big as it's drawn.
   useEffect(() => {
     if (!missing) return;
     let cancelled = false;
-    void layOut(layoutEntities(), between, entityLayout).then(({ positions, failed }) => {
+    void layOut(layoutEntities(), arrows, entityLayout).then(({ positions, failed }) => {
       if (cancelled) return;
       if (failed) onError("Couldn't lay out the new entities automatically, so they're in rows for now. Reload the page to try again.");
       setAuto({ key: graphKey, positions });
@@ -305,7 +316,7 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
     return () => {
       cancelled = true;
     };
-    // The graph key captures everything ELK looks at.
+    // The graph key captures everything ELK looks at: the labels only change how far apart it puts the columns.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphKey, missing]);
 
@@ -393,14 +404,6 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
       style: { pointerEvents: "none" },
     };
   }, [cv.boundary, boxes, drawnLinks]);
-
-  // Labels are sized as arrows' labels are, from the same styles.
-  const sizes = useMemo(() => {
-    const labelled = between.filter((l) => l.text);
-    const pseudo = labelled.map((l): ViewEdge => ({ from: l.from, to: l.to, description: l.text, kind: "association", implied: true, bidirectional: false, sources: [] }));
-    const measured = measureLabelSizes(pseudo);
-    return new Map(labelled.map((l, k) => [linkId(l), measured[k]!] as const));
-  }, [between]);
 
   const { routes, labels } = useMemo(() => {
     const notes = nodes.filter((n) => n.type === "sticky").map((n) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight((n as StickyFlowNode).data.sticky.text, stickySize) }));
@@ -509,7 +512,7 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
   const autoLayout = useAutoLayout(
     async () => {
       const drawn = new Map(nodesRef.current.flatMap((n) => (n.type === "entity" && n.measured?.height ? [[n.id, n.measured.height] as const] : [])));
-      const positions = await entityLayout(layoutEntities(drawn), between);
+      const positions = await entityLayout(layoutEntities(drawn), arrows);
       return (ws: Workspace) => autoLayoutEntityOps(ws, view.id, positions);
     },
     edit,

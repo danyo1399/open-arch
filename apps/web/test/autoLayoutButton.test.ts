@@ -3,17 +3,19 @@ import "fake-indexeddb/auto";
 import { applyOperations, buildWorkspace, computeView, loadWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { NODE_W, type Point } from "../src/canvas/autoLayout.js";
-import { AutoLayoutButton, autoLayoutOps, canAutoLayout, layoutNodes, useAutoLayout } from "../src/canvas/Canvas.js";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { NODE_H, NODE_W, ROW_GAP, type Point } from "../src/canvas/autoLayout.js";
+import { AutoLayoutButton, autoLayoutOps, canAutoLayout, layoutEdges, layoutNodes, useAutoLayout } from "../src/canvas/Canvas.js";
 import { autoLayoutBlockOps } from "../src/canvas/FlowchartDiagram.js";
+import { entityWidth } from "../src/canvas/entityLayout.js";
 import { blockWidth, LANE } from "../src/canvas/flowchartLayout.js";
 import { classHeight } from "../src/canvas/nodes.js";
+import { forgetLabelSizes } from "../src/canvas/RoutedEdge.js";
 import { autoLayoutStateOps } from "../src/canvas/StateDiagram.js";
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
 import type { Edit } from "../src/state.js";
-import { button, click, mount } from "./dom.js";
+import { button, click, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
   openarch: 19,
@@ -273,9 +275,9 @@ afterAll(() => {
   }
 });
 
-/** The whole designer, open on one view of the shop, with its boxes measured. */
-async function designer(view: string) {
-  const file = new MemoryHost("shop.openarch", serializeDocument({ ...shop, views: { [view]: shop.views[view]! } }));
+/** The whole designer, open on one view of the shop, or of `doc`, with its boxes measured. */
+async function designer(view: string, doc: OpenArchDocument = shop) {
+  const file = new MemoryHost("shop.openarch", serializeDocument({ ...doc, views: { [view]: doc.views[view]! } }));
   const host = mount(createElement(Designer, { host: file, onClose() {}, onHostChange() {} }));
   /** Lets the edits, ELK and the drawing settle, with every box measured. */
   const settle = async () => {
@@ -381,5 +383,162 @@ describe("Auto layout on a narrow screen", () => {
   it("isn't offered on a view with nothing to lay out", async () => {
     const d = await designer("empty");
     expect((await more(d.host)).map((i) => i.textContent?.trim())).not.toContain("Auto layout");
+  });
+});
+
+/**
+ * Three labelled arrows from one box, in each kind of view with Auto layout: a web app that
+ * uses three containers, a state with three ways out, a decision with three answers, and an
+ * entity with links to three others.
+ */
+const hub: OpenArchDocument = {
+  openarch: 19,
+  name: "Hub",
+  elements: {
+    shop: { kind: "system", name: "Shop" },
+    web: {
+      kind: "container",
+      name: "Web",
+      parent: "shop",
+      uses: [
+        { to: "api", description: "Places orders" },
+        { to: "search", description: "Finds products" },
+        { to: "accounts", description: "Signs customers in" },
+      ],
+    },
+    api: { kind: "container", name: "API", parent: "shop" },
+    search: { kind: "container", name: "Search", parent: "shop" },
+    accounts: { kind: "container", name: "Accounts", parent: "shop" },
+  },
+  views: {
+    // Nothing has a place yet, so the designer lays it out as it opens.
+    fresh: { title: "Fresh", level: "container", scope: "shop" },
+    containers: { title: "Containers", level: "container", scope: "shop", layout: { web: [0, 0], api: [10, 10], search: [20, 20], accounts: [30, 30] } },
+    states: {
+      title: "States",
+      level: "state",
+      states: { placed: { name: "Placed", at: [0, 0] }, paid: { name: "Paid", at: [5, 5] }, cancelled: { name: "Cancelled", at: [10, 10] }, held: { name: "Held", at: [15, 15] } },
+      transitions: [
+        { from: "placed", to: "paid", event: "Payment taken" },
+        { from: "placed", to: "cancelled", event: "Customer cancels" },
+        { from: "placed", to: "held", event: "Card needs checking" },
+      ],
+    },
+    flow: {
+      title: "Flow",
+      level: "flowchart",
+      blocks: [
+        { id: "check", kind: "decision", text: "How old?", at: [0, 0] },
+        { id: "refund", text: "Refund", at: [0, 0] },
+        { id: "credit", text: "Give credit", at: [0, 0] },
+        { id: "refuse", text: "Refuse", at: [0, 0] },
+      ],
+      flows: [
+        { from: "check", to: "refund", text: "Under 30 days" },
+        { from: "check", to: "credit", text: "Under 90 days" },
+        { from: "check", to: "refuse", text: "Older" },
+      ],
+    },
+    data: {
+      title: "Data",
+      level: "entity",
+      entities: [
+        { id: "order", name: "Order", at: [0, 0] },
+        { id: "line", name: "Line", at: [0, 0] },
+        { id: "payment", name: "Payment", at: [0, 0] },
+        { id: "parcel", name: "Parcel", at: [0, 0] },
+      ],
+      links: [
+        { from: "order", to: "line", text: "lists" },
+        { from: "order", to: "payment", text: "is paid by" },
+        { from: "order", to: "parcel", text: "is sent in" },
+      ],
+    },
+  },
+};
+
+describe("Auto layout and the arrows' labels", () => {
+  /**
+   * This page has no layout, so every label would measure nothing. Here each measures 120 wide and
+   * 24 a line, much as a label of a few words does in a browser. Three of one line, one above the
+   * other, need 168px: the three, 24px between each two, and 24px clear at each end of the arrows.
+   */
+  const LABEL = { width: 120, height: 24 };
+  const THREE = 3 * 24 + 2 * 24 + 2 * 24;
+  const measure = Element.prototype.getBoundingClientRect;
+  beforeEach(() => {
+    forgetLabelSizes();
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      return this.matches(".arrow-label") ? ({ width: LABEL.width, height: LABEL.height * this.children.length } as DOMRect) : measure.call(this);
+    };
+  });
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = measure;
+    forgetLabelSizes();
+  });
+
+  it("gives ELK each arrow with its label's size, and none for an arrow that's drawn without a label", () => {
+    const ws = buildWorkspace(shop);
+    const edges = computeView(ws, ws.views.get("containers")!).edges;
+    expect(layoutEdges(edges)).toEqual([
+      { from: "customer", to: "web", label: { w: 120, h: 24, maxWidth: 190 } },
+      { from: "web", to: "api", label: { w: 120, h: 24, maxWidth: 190 } },
+    ]);
+    // With a technology, a label has a second line.
+    expect(layoutEdges(edges.map((e) => ({ ...e, technology: "HTTPS" }))).map((e) => e.label?.h)).toEqual([48, 48]);
+    // An arrow standing for relationships between what's inside its boxes says nothing when they don't.
+    expect(layoutEdges(edges.map((e) => ({ ...e, description: undefined, implied: true })))).toEqual([
+      { from: "customer", to: "web", label: undefined },
+      { from: "web", to: "api", label: undefined },
+    ]);
+  });
+
+  it("puts a view of boxes' rows far enough apart for three labels one above the other", async () => {
+    const d = await designer("containers", hub);
+    await click(button(d.host, "Auto layout"));
+    await d.settle();
+    const at = (await d.saved()).layout;
+    for (const id of ["api", "search", "accounts"]) expect(at[id]![1] - at.web![1]).toBe(NODE.height + THREE);
+  });
+
+  it("does the same for a state view, a flowchart, and, for its columns, an entity view", async () => {
+    const states = await designer("states", hub);
+    await click(button(states.host, "Auto layout"));
+    await states.settle();
+    const state = Object.fromEntries((await states.saved()).states.map((s) => [s.id, s.at!]));
+    for (const id of ["paid", "cancelled", "held"]) expect(state[id]![1] - state.placed![1]).toBe(NODE.height + THREE);
+
+    const flow = await designer("flow", hub);
+    await click(button(flow.host, "Auto layout"));
+    await flow.settle();
+    const block = Object.fromEntries((await flow.saved()).blocks.map((b) => [b.id, b.at!]));
+    for (const id of ["refund", "credit", "refuse"]) expect(block[id]![1] - block.check![1]).toBe(NODE.height + THREE);
+
+    const data = await designer("data", hub);
+    await click(button(data.host, "Auto layout"));
+    await data.settle();
+    const view = await data.saved();
+    const entity = Object.fromEntries(view.entities.map((e) => [e.id, e.at!]));
+    // Links run across, so the columns are a label's width apart, and the room at each end of it.
+    for (const id of ["line", "payment", "parcel"]) expect(entity[id]![0] - entity.order![0]).toBe(entityWidth(view.entities[0]!) + LABEL.width + 2 * 24);
+  });
+
+  it("lays a view with no places out with room for its labels, and again when a label needs more", async () => {
+    const d = await designer("fresh", hub);
+    const y = (id: string) => Number(/translate\(([-\d.]+)px, ?([-\d.]+)px\)/.exec(d.host.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)!.style.transform)![2]);
+    // Before a box is drawn, ELK takes it to be NODE_H tall.
+    expect(y("api") - y("web")).toBe(NODE_H + THREE);
+    expect(THREE).toBeGreaterThan(ROW_GAP);
+    // A technology gives one of the labels a second line.
+    await click(d.host.querySelector('.react-flow__edge[data-id="web->accounts"]')!);
+    const technology = d.host.querySelector<HTMLInputElement>('.properties input[aria-label="Technology"]')!;
+    await type(technology, "HTTPS");
+    await act(async () => {
+      technology.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    await d.settle();
+    // Still laid out by the designer: nothing has a saved place.
+    expect((await d.saved()).layout).toEqual({});
+    expect(y("api") - y("web")).toBe(NODE_H + THREE + 24);
   });
 });

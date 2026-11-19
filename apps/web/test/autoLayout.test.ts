@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gridLayout, layOut, loadOnce, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY } from "../src/canvas/autoLayout.js";
+import { elkLayout, gridLayout, layOut, loadOnce, NODE_H, NODE_W, placeMissing, placeStickies, ROW_GAP, rowGap, STICKY, stickyHeight, TOUCH_STICKY } from "../src/canvas/autoLayout.js";
 
 describe("layOut", () => {
   const nodes = [
@@ -28,6 +28,74 @@ describe("layOut", () => {
     expect(placed.web).toEqual(saved.web);
     const overlaps = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) < NODE_W && Math.abs(a.y - b.y) < NODE_H;
     expect(overlaps(placed.customer!, saved.api) || overlaps(placed.customer!, saved.web)).toBe(false);
+  });
+});
+
+describe("rowGap", () => {
+  const label = (h: number, w = 120) => ({ w, h });
+
+  it("is the usual gap when no arrow has a label, or one label has room in it", () => {
+    expect(rowGap([])).toBe(ROW_GAP);
+    expect(rowGap([{ from: "a", to: "b" }, { from: "a", to: "c" }])).toBe(ROW_GAP);
+    expect(rowGap([{ from: "a", to: "b", label: label(24) }])).toBe(ROW_GAP);
+    // Labels on arrows that share no box each have a gap of their own.
+    expect(rowGap([{ from: "a", to: "b", label: label(24) }, { from: "b", to: "c", label: label(24) }, { from: "c", to: "d", label: label(24) }])).toBe(ROW_GAP);
+  });
+
+  it("makes room for the labels of the arrows leaving one box, one above the other", () => {
+    const two = [{ from: "a", to: "b", label: label(24) }, { from: "a", to: "c", label: label(24) }];
+    // Two labels, the space between them, and the room at each end of the arrows.
+    expect(rowGap(two)).toBe(24 + 24 + 24 + 2 * 24);
+    expect(rowGap([...two, { from: "a", to: "d", label: label(24) }])).toBe(3 * 24 + 2 * 24 + 2 * 24);
+    // An arrow with no label needs no room.
+    expect(rowGap([...two, { from: "a", to: "d" }])).toBe(rowGap(two));
+  });
+
+  it("makes the same room for the labels of the arrows arriving at one box", () => {
+    expect(rowGap([{ from: "a", to: "d", label: label(24) }, { from: "b", to: "d", label: label(24) }, { from: "c", to: "d", label: label(24) }])).toBe(3 * 24 + 2 * 24 + 2 * 24);
+  });
+
+  it("makes room for three labels at most, the tallest ones", () => {
+    const heights = [24, 40, 24, 56, 24];
+    const fan = heights.map((h, k) => ({ from: "a", to: `b${k}`, label: label(h) }));
+    expect(rowGap(fan)).toBe(56 + 40 + 24 + 2 * 24 + 2 * 24);
+    // A label that wraps onto part of a pixel still fits.
+    expect(rowGap([{ from: "a", to: "b", label: label(50.4) }, { from: "a", to: "c", label: label(50.4) }])).toBe(173);
+  });
+
+  it("makes room for the widest label where the boxes are in columns", () => {
+    const links = [{ from: "a", to: "b", label: label(24, 40) }, { from: "a", to: "c", label: label(24, 190) }];
+    expect(rowGap(links, false)).toBe(190 + 2 * 24);
+    expect(rowGap([{ from: "a", to: "b", label: label(24, 40) }], false)).toBe(ROW_GAP);
+    expect(rowGap([{ from: "a", to: "b" }], false)).toBe(ROW_GAP);
+  });
+});
+
+describe("elkLayout", () => {
+  const nodes = ["a", "b", "c", "d"].map((id) => ({ id, inside: false }));
+  const fan = (label?: { w: number; h: number }) => ["b", "c", "d"].map((to) => ({ from: "a", to, ...(label && { label }) }));
+
+  it("puts the rows further apart when the arrows between them have labels to fit", async () => {
+    const plain = await elkLayout(nodes, fan());
+    expect(plain.b!.y - plain.a!.y).toBe(NODE_H + ROW_GAP);
+    const labelled = await elkLayout(nodes, fan({ w: 120, h: 24 }));
+    expect(labelled.b!.y - labelled.a!.y).toBe(NODE_H + 168);
+    // Only the rows move apart: the boxes in a row are as they were.
+    for (const id of ["b", "c", "d"]) expect(labelled[id]!.x).toBe(plain[id]!.x);
+  });
+
+  it("puts the boxes inside the frame further apart too", async () => {
+    const inside = nodes.map((n) => ({ ...n, inside: true }));
+    const labelled = await elkLayout(inside, fan({ w: 120, h: 24 }));
+    expect(labelled.b!.y - labelled.a!.y).toBe(NODE_H + 168);
+  });
+
+  it("puts columns further apart for a wide label", async () => {
+    const across = { "elk.direction": "RIGHT" };
+    const plain = await elkLayout(nodes, fan(), across);
+    expect(plain.b!.x - plain.a!.x).toBe(NODE_W + ROW_GAP);
+    const labelled = await elkLayout(nodes, fan({ w: 190, h: 24 }), across);
+    expect(labelled.b!.x - labelled.a!.x).toBe(NODE_W + 190 + 48);
   });
 });
 

@@ -42,9 +42,16 @@ export interface LayoutNode {
   width?: number;
 }
 
+/** An arrow between two boxes to lay out, and how big its label is drawn at its widest, when it has one. */
+export interface LayoutEdge {
+  from: string;
+  to: string;
+  label?: { w: number; h: number };
+}
+
 export async function layOut(
   nodes: LayoutNode[],
-  edges: { from: string; to: string }[],
+  edges: LayoutEdge[],
   layout = elkLayout,
 ): Promise<{ positions: Record<string, Point>; failed: boolean }> {
   try {
@@ -73,13 +80,48 @@ export function gridLayout(nodes: { id: string; inside: boolean }[]): Record<str
   return out;
 }
 
+/** How far apart one row of boxes is from the next, when the arrows between them have no labels. */
+export const ROW_GAP = 110;
+/** Labels one above the other are given this much room between them, as the router keeps them this far apart where it can (see LABEL_APART in routing.ts). */
+const LABEL_APART = 24;
+/** The room left at each end of an arrow, between its label and the box there, for the line and its arrowhead to show. */
+const LABEL_CLEAR = 24;
+/** Room is made for this many labels one above the other. With more arrows than this at one box, their labels spread sideways too. */
+const STACKED = 3;
+
+/**
+ * How far apart ELK puts one row of boxes from the next, so the labels of the arrows between
+ * them have room: ROW_GAP, or more where they need it. Arrows leaving one box run side by side,
+ * closer together than their labels are wide, so their labels go one above the other, and the
+ * same for arrows arriving at one box. The rows are far enough apart for the tallest of those
+ * labels, up to STACKED of them, at whichever box needs the most room.
+ * When the boxes are laid out in columns (`down` is false), the arrows run across, and so do
+ * their labels: the columns are far enough apart for the widest.
+ */
+export function rowGap(edges: LayoutEdge[], down = true): number {
+  const labels = edges.flatMap((e) => (e.label ? [{ ...e, label: e.label }] : []));
+  if (!down) return Math.ceil(Math.max(ROW_GAP, ...labels.map((e) => e.label.w + 2 * LABEL_CLEAR)));
+  // The heights of the labels on the arrows leaving each box, and of those arriving at each.
+  const [leaving, arriving] = [new Map<string, number[]>(), new Map<string, number[]>()];
+  for (const e of labels) {
+    leaving.set(e.from, [...(leaving.get(e.from) ?? []), e.label.h]);
+    arriving.set(e.to, [...(arriving.get(e.to) ?? []), e.label.h]);
+  }
+  const room = (heights: number[]) => {
+    const tallest = heights.sort((a, b) => b - a).slice(0, STACKED);
+    return tallest.reduce((sum, h) => sum + h, 0) + (tallest.length - 1) * LABEL_APART + 2 * LABEL_CLEAR;
+  };
+  return Math.ceil(Math.max(ROW_GAP, ...[...leaving.values(), ...arriving.values()].map(room)));
+}
+
 /** `options`: more of ELK's layout options, for the whole diagram. */
-export async function elkLayout(nodes: LayoutNode[], edges: { from: string; to: string }[], options: Record<string, string> = {}): Promise<Record<string, Point>> {
+export async function elkLayout(nodes: LayoutNode[], edges: LayoutEdge[], options: Record<string, string> = {}): Promise<Record<string, Point>> {
   const box = (n: LayoutNode): ElkNode => ({ id: n.id, width: n.width ?? NODE_W, height: n.height ?? NODE_H });
   const inside = nodes.filter((n) => n.inside);
   const children: ElkNode[] = nodes.filter((n) => !n.inside).map(box);
+  const between = rowGap(edges, (options["elk.direction"] ?? "DOWN") === "DOWN");
   // The spaces between boxes, which ELK takes from each box's parent: the frame needs them too.
-  const spacing = { "elk.spacing.nodeNode": "70", "elk.layered.spacing.nodeNodeBetweenLayers": "110", "elk.spacing.componentComponent": "90" };
+  const spacing = { "elk.spacing.nodeNode": "70", "elk.layered.spacing.nodeNodeBetweenLayers": String(between), "elk.spacing.componentComponent": "90" };
   if (inside.length) {
     children.push({ id: "__frame", layoutOptions: { "elk.padding": "[top=50,left=40,bottom=50,right=40]", ...spacing }, children: inside.map(box) });
   }

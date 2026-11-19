@@ -32,7 +32,7 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { idFromName, newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { FrameNode, FrameNotes, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
@@ -333,18 +333,28 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
   const saved = useMemo<Record<string, Point>>(() => Object.fromEntries(view.blocks.flatMap((b) => (b.at ? [[b.id, { x: b.at[0], y: b.at[1] }]] : []))), [view]);
   /** The flows that are drawn: between two blocks of the view, and not from one to itself. */
   const between = useMemo(() => view.flows.filter((f) => f.from !== f.to && ids.includes(f.from) && ids.includes(f.to)), [view, ids]);
-  const graphKey = `${view.id}|${view.blocks.map((b) => `${b.id}:${b.kind}`).join(",")}|${between.map((f) => `${f.from}>${f.to}`).join(",")}`;
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
   /** The blocks for ELK to lay out, each as tall as it's drawn, in `drawn` by its ID, once it has been. */
   const layoutBlocks = useCallback((drawn: ReadonlyMap<string, number> = new Map()) => view.blocks.map((b) => ({ id: b.id, inside: false, height: drawn.get(b.id) ?? blockHeight(b) })), [view]);
 
+  // Labels are sized as arrows' labels are, from the same styles.
+  const sizes = useMemo(() => {
+    const labelled = between.filter((f) => f.text);
+    const pseudo = labelled.map((f): ViewEdge => ({ from: f.from, to: f.to, description: f.text, kind: "association", implied: true, bidirectional: false, sources: [] }));
+    const measured = measureLabelSizes(pseudo);
+    return new Map(labelled.map((f, k) => [flowId(f), measured[k]!] as const));
+  }, [between]);
+  /** The flows for ELK to lay out, each with its label's size at its widest, so the blocks are put far enough apart for the labels. */
+  const arrows = useMemo(() => between.map((f) => ({ from: f.from, to: f.to, label: sizes.get(flowId(f))?.[0] })), [between, sizes]);
+  const graphKey = `${view.id}|${view.blocks.map((b) => `${b.id}:${b.kind}`).join(",")}|${between.map((f) => `${f.from}>${f.to}`).join(",")}|${rowGap(arrows)}`;
+
   // Blocks without a position are laid out by ELK, top to bottom, each in the middle of the column ELK gives it.
   useEffect(() => {
     if (!missing) return;
     let cancelled = false;
-    void layOut(layoutBlocks(), between, flowchartLayout).then(({ positions, failed }) => {
+    void layOut(layoutBlocks(), arrows, flowchartLayout).then(({ positions, failed }) => {
       if (cancelled) return;
       if (failed) onError("Couldn't lay out the new blocks automatically, so they're in rows for now. Reload the page to try again.");
       setAuto({ key: graphKey, positions: centredBlocks(view.blocks, positions) });
@@ -352,7 +362,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     return () => {
       cancelled = true;
     };
-    // The graph key captures everything ELK looks at.
+    // The graph key captures everything ELK looks at: the labels only change how far apart it puts the rows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphKey, missing]);
 
@@ -478,14 +488,6 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     };
   }, [cv.boundary, boxes, laneNodes]);
 
-  // Labels are sized as arrows' labels are, from the same styles.
-  const sizes = useMemo(() => {
-    const labelled = between.filter((f) => f.text);
-    const pseudo = labelled.map((f): ViewEdge => ({ from: f.from, to: f.to, description: f.text, kind: "association", implied: true, bidirectional: false, sources: [] }));
-    const measured = measureLabelSizes(pseudo);
-    return new Map(labelled.map((f, k) => [flowId(f), measured[k]!] as const));
-  }, [between]);
-
   const { routes, labels } = useMemo(() => {
     const notes = nodes.filter((n) => n.type === "sticky").map((n) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight((n as StickyFlowNode).data.sticky.text, stickySize) }));
     // Arrows cross lanes freely, but keep off their sides, as off a frame's.
@@ -600,7 +602,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
   const autoLayout = useAutoLayout(
     async () => {
       const drawn = new Map(nodesRef.current.flatMap((n) => (n.type === "block" && n.measured?.height ? [[n.id, n.measured.height] as const] : [])));
-      const positions = centredBlocks(view.blocks, await flowchartLayout(layoutBlocks(drawn), between));
+      const positions = centredBlocks(view.blocks, await flowchartLayout(layoutBlocks(drawn), arrows));
       return (ws: Workspace) => autoLayoutBlockOps(ws, view.id, positions);
     },
     edit,

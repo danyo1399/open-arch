@@ -32,7 +32,7 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueStateId } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { FrameNode, FrameNotes, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
@@ -168,18 +168,28 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
   const ids = useMemo(() => view.states.map((s) => s.id), [view]);
   const saved = useMemo<Record<string, Point>>(() => Object.fromEntries(view.states.flatMap((s) => (s.at ? [[s.id, { x: s.at[0], y: s.at[1] }]] : []))), [view]);
   const between = useMemo(() => view.transitions.filter((t) => t.from !== t.to && ids.includes(t.from) && ids.includes(t.to)), [view, ids]);
-  const graphKey = `${view.id}|${ids.join(",")}|${between.map((t) => `${t.from}>${t.to}`).join(",")}`;
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
   /** The states for ELK to lay out, each as tall as it's drawn, in `drawn` by its ID, once it has been. */
   const layoutStates = useCallback((drawn: ReadonlyMap<string, number> = new Map()) => view.states.map((s) => ({ id: s.id, inside: false, height: drawn.get(s.id) ?? stateHeight(s) })), [view]);
 
+  // Labels are sized as arrows' labels are, from the same styles.
+  const sizes = useMemo(() => {
+    const labelled = between.filter((t) => transitionLabel(t));
+    const pseudo = labelled.map((t): ViewEdge => ({ from: t.from, to: t.to, description: transitionLabel(t), kind: "association", implied: true, bidirectional: false, sources: [] }));
+    const measured = measureLabelSizes(pseudo);
+    return new Map(labelled.map((t, k) => [transitionId(t), measured[k]!] as const));
+  }, [between]);
+  /** The transitions for ELK to lay out, each with its label's size at its widest, so the states are put far enough apart for the labels. */
+  const arrows = useMemo(() => between.map((t) => ({ from: t.from, to: t.to, label: sizes.get(transitionId(t))?.[0] })), [between, sizes]);
+  const graphKey = `${view.id}|${ids.join(",")}|${between.map((t) => `${t.from}>${t.to}`).join(",")}|${rowGap(arrows)}`;
+
   // States without a position are laid out by ELK, as boxes are.
   useEffect(() => {
     if (!missing) return;
     let cancelled = false;
-    void layOut(layoutStates(), between).then(({ positions, failed }) => {
+    void layOut(layoutStates(), arrows).then(({ positions, failed }) => {
       if (cancelled) return;
       if (failed) onError("Couldn't lay out the new states automatically, so they're in rows for now. Reload the page to try again.");
       setAuto({ key: graphKey, positions });
@@ -187,7 +197,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     return () => {
       cancelled = true;
     };
-    // The graph key captures everything ELK looks at.
+    // The graph key captures everything ELK looks at: the labels only change how far apart it puts the rows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphKey, missing]);
 
@@ -277,14 +287,6 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
       style: { pointerEvents: "none" },
     };
   }, [cv.boundary, boxes, view]);
-
-  // Labels are sized as arrows' labels are, from the same styles.
-  const sizes = useMemo(() => {
-    const labelled = between.filter((t) => transitionLabel(t));
-    const pseudo = labelled.map((t): ViewEdge => ({ from: t.from, to: t.to, description: transitionLabel(t), kind: "association", implied: true, bidirectional: false, sources: [] }));
-    const measured = measureLabelSizes(pseudo);
-    return new Map(labelled.map((t, k) => [transitionId(t), measured[k]!] as const));
-  }, [between]);
 
   const { routes, labels } = useMemo(() => {
     const notes = nodes.filter((n) => n.type === "sticky").map((n) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight((n as StickyFlowNode).data.sticky.text, stickySize) }));
@@ -418,7 +420,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
   const autoLayout = useAutoLayout(
     async () => {
       const drawn = new Map(nodesRef.current.flatMap((n) => (n.type === "state" && n.measured?.height ? [[n.id, n.measured.height] as const] : [])));
-      const positions = await elkLayout(layoutStates(drawn), between);
+      const positions = await elkLayout(layoutStates(drawn), arrows);
       return (ws: Workspace) => autoLayoutStateOps(ws, view.id, positions);
     },
     edit,
