@@ -313,6 +313,9 @@ describe("entity views", () => {
       { op: "add-attribute", view: "data", entity: "one", name: "first name", description: "a\nb" },
       { op: "add-attribute", view: "data", entity: "one", name: "pk", type: "decimal(10,2)" },
       { op: "add-attribute", view: "data", entity: "one", name: "1st", type: "9" },
+      { op: "add-attribute", view: "data", entity: "one", name: "größe", type: "número" },
+      { op: "add-attribute", view: "data", entity: "one", name: "pk-id", type: "UK(x)" },
+      { op: "add-attribute", view: "data", entity: "one", name: "pkid", type: "fk_ref" },
       { op: "add-link", view: "data", from: "one", to: "2fa", cardinality: ["one-or-more", "zero-or-one"] },
     );
     doc.views.data!.links!.push({ from: "one", to: "gone" });
@@ -323,6 +326,9 @@ describe("entity views", () => {
         '    _ first_name "a b"',
         "    decimal(10_2) pk_",
         "    _9 _1st",
+        "    n_mero gr__e",
+        "    UK_(x) pk_-id",
+        "    fk_ref pkid",
         "  }",
         '  _2fa["Codes"]',
         '  one_ }|--o| _2fa : ""',

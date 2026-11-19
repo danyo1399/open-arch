@@ -647,15 +647,16 @@ function entityId(id: string): string {
 }
 
 /**
- * An attribute's type or name as one word, as Mermaid reads it: anything but letters, digits and
- * `_-()[]` becomes `_`, and a word that starts with a digit, or is a key's name, gets another `_`.
- * Without a type, it's `_`, as Mermaid needs one.
+ * An attribute's type or name as one word, as Mermaid reads it: anything but the letters A to Z,
+ * digits and `_-()[]` becomes `_`. A word that starts with a digit gets a `_` before it, and one
+ * that starts with a key's name, like "pk" or "pk-id", which Mermaid would read as the key, gets
+ * a `_` after that. Without a type, it's `_`, as Mermaid needs one.
  */
 function attributeWord(text: string | undefined): string {
-  const out = (text ?? "").trim().replace(/[^\p{L}\p{N}_\-()[\]]/gu, "_");
+  const out = (text ?? "").trim().replace(/[^A-Za-z0-9_\-()[\]]/g, "_");
   if (!out) return "_";
-  if (!/^[\p{L}_]/u.test(out)) return `_${out}`;
-  return /^(pk|fk|uk)$/i.test(out) ? `${out}_` : out;
+  if (!/^[A-Za-z_]/.test(out)) return `_${out}`;
+  return out.replace(/^(pk|fk|uk)(?![A-Za-z0-9_])/i, "$1_");
 }
 
 /** How Mermaid draws each cardinality, at the start of a link's line and at its end. */

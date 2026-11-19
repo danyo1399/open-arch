@@ -13,12 +13,12 @@ export const PARENT_KINDS: Record<ElementKind, readonly ElementKind[]> = {
   class: ["component", "library"],
 };
 
-/** "a component or library": the kinds in a list, for messages. */
 /** "an" before a word that starts with a vowel, like "entity" or "event", and "a" before the rest. */
 export function aOrAn(word: string): "a" | "an" {
   return /^[aeiou]/i.test(word) ? "an" : "a";
 }
 
+/** "a component or library": the kinds in a list, for messages. */
 export function kindList(kinds: readonly string[], joiner = "or"): string {
   return kinds.length < 2 ? (kinds[0] ?? "") : `${kinds.slice(0, -1).join(", ")} ${joiner} ${kinds[kinds.length - 1]}`;
 }
