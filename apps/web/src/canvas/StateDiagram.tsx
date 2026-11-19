@@ -4,7 +4,7 @@
  * out of each state it can end in. Drag a state to move it, or from the dot under one to another
  * to add a transition. The element the states are of, if the view says, is the frame.
  */
-import { kindLabel, transitionLabel, type ComputedView, type Operation, type State, type Sticky, type Transition, type ViewEdge } from "@open-arch/core";
+import { kindLabel, transitionLabel, type ComputedView, type Operation, type State, type Sticky, type Transition, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -32,8 +32,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueStateId } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, layOut, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
+import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type Selection } from "./Canvas.js";
 import { FrameNode, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
@@ -135,6 +135,23 @@ interface StateDiagramProps {
   snap: SnapControl;
 }
 
+/**
+ * The edit Auto layout makes on a state view, as one step for Undo: every state where ELK put it,
+ * `positions`, and the sticky notes back beside the diagram. It's made from the workspace as it is
+ * when it's applied, so a state deleted or renamed while ELK worked is left out of it.
+ */
+export function autoLayoutStateOps(ws: Workspace, viewId: string, positions: Record<string, Point>): Operation[] {
+  const view = ws.views.get(viewId);
+  if (view?.level !== "state") return [];
+  return [
+    ...view.states.flatMap((s): Operation[] => {
+      const p = positions[s.id];
+      return p ? [{ op: "update-state", view: viewId, id: s.id, at: [Math.round(p.x), Math.round(p.y)] }] : [];
+    }),
+    ...stickiesBackOps(view),
+  ];
+}
+
 /** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
 function newStickyId(stickies: Sticky[]): string {
   const taken = new Set(stickies.map((s) => s.id));
@@ -153,14 +170,14 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
+  /** The states for ELK to lay out, each as tall as it's drawn, in `drawn` by its ID, once it has been. */
+  const layoutStates = useCallback((drawn: ReadonlyMap<string, number> = new Map()) => view.states.map((s) => ({ id: s.id, inside: false, height: drawn.get(s.id) ?? stateHeight(s) })), [view]);
+
   // States without a position are laid out by ELK, as boxes are.
   useEffect(() => {
     if (!missing) return;
     let cancelled = false;
-    void layOut(
-      view.states.map((s) => ({ id: s.id, inside: false, height: stateHeight(s) })),
-      between,
-    ).then(({ positions, failed }) => {
+    void layOut(layoutStates(), between).then(({ positions, failed }) => {
       if (cancelled) return;
       if (failed) onError("Couldn't lay out the new states automatically, so they're in rows for now. Reload the page to try again.");
       setAuto({ key: graphKey, positions });
@@ -395,6 +412,18 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     [rf],
   );
 
+  // Auto layout places every state as ELK would on a new view, but at the height each is drawn.
+  const autoLayout = useAutoLayout(
+    async () => {
+      const drawn = new Map(nodesRef.current.flatMap((n) => (n.type === "state" && n.measured?.height ? [[n.id, n.measured.height] as const] : [])));
+      const positions = await elkLayout(layoutStates(drawn), between);
+      return (ws: Workspace) => autoLayoutStateOps(ws, view.id, positions);
+    },
+    edit,
+    onError,
+    () => fitDiagram(),
+  );
+
   // Fit the diagram to the window once, after its states have been measured.
   const fitted = useRef(false);
   useEffect(() => {
@@ -460,6 +489,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
           >
             + Add
           </MenuButton>
+          <AutoLayoutButton layout={autoLayout} empty={view.states.length === 0} />
           {exportItems.length > 0 && (
             <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
               Export

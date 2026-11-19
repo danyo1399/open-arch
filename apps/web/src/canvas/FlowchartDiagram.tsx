@@ -4,7 +4,7 @@
  * them as arrows, each with its text. Drag a block to move it, or from the dot under one to
  * another to add a flow. The element whose process it is, if the view says, is the frame.
  */
-import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, type Block, type BlockKind, type ComputedView, type Flow, type Operation, type Sticky, type ViewDef, type ViewEdge } from "@open-arch/core";
+import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, type Block, type BlockKind, type ComputedView, type Flow, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -32,8 +32,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { idFromName, newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
+import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { FrameNode, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
@@ -75,6 +75,31 @@ const BELOW = 70;
  */
 const FLOWCHART_ELK = { "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST", "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES" };
 export const flowchartLayout = (nodes: Parameters<typeof elkLayout>[0], edges: Parameters<typeof elkLayout>[1]) => elkLayout(nodes, edges, FLOWCHART_ELK);
+
+/** ELK's positions for blocks, each moved to the middle of the column ELK gives it, which is NODE_W wide. */
+export function centredBlocks(blocks: readonly Pick<Block, "id" | "kind">[], positions: Record<string, Point>): Record<string, Point> {
+  return Object.fromEntries(
+    blocks.flatMap((b) => {
+      const p = positions[b.id];
+      return p ? [[b.id, { x: Math.round(p.x + (NODE_W - blockWidth(b.kind)) / 2), y: Math.round(p.y) }]] : [];
+    }),
+  );
+}
+
+/**
+ * The edit Auto layout makes on a flowchart, as one step for Undo: every block where ELK put it,
+ * `auto`, as from centredBlocks, and the sticky notes back beside the diagram. In a flowchart
+ * with lanes, each block goes down the middle of its lane, at the height ELK gives it, as on a
+ * new flowchart. It's made from the workspace as it is when it's applied, so a block deleted or
+ * renamed while ELK worked is left out of it.
+ */
+export function autoLayoutBlockOps(ws: Workspace, viewId: string, auto: Record<string, Point>): Operation[] {
+  const view = ws.views.get(viewId);
+  if (view?.level !== "flowchart") return [];
+  const blocks = view.blocks.filter((b) => auto[b.id]);
+  const at = view.lanes.length ? placeInLanes({ lanes: view.lanes, blocks }, {}, auto) : auto;
+  return [...blocks.map((b): Operation => ({ op: "update-block", view: viewId, id: b.id, at: [Math.round(at[b.id]!.x), Math.round(at[b.id]!.y)] })), ...stickiesBackOps(view)];
+}
 
 /** Blocks and notes snap as they're dragged, and line up with each other. The frame grows round the blocks, so it's neither. */
 const snapsHere = (n: FlowNode) => n.type !== "frame" && n.type !== "lane";
@@ -310,24 +335,17 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
+  /** The blocks for ELK to lay out, each as tall as it's drawn, in `drawn` by its ID, once it has been. */
+  const layoutBlocks = useCallback((drawn: ReadonlyMap<string, number> = new Map()) => view.blocks.map((b) => ({ id: b.id, inside: false, height: drawn.get(b.id) ?? blockHeight(b) })), [view]);
+
   // Blocks without a position are laid out by ELK, top to bottom, each in the middle of the column ELK gives it.
   useEffect(() => {
     if (!missing) return;
     let cancelled = false;
-    void layOut(
-      view.blocks.map((b) => ({ id: b.id, inside: false, height: blockHeight(b) })),
-      between,
-      flowchartLayout,
-    ).then(({ positions, failed }) => {
+    void layOut(layoutBlocks(), between, flowchartLayout).then(({ positions, failed }) => {
       if (cancelled) return;
       if (failed) onError("Couldn't lay out the new blocks automatically, so they're in rows for now. Reload the page to try again.");
-      const centred = Object.fromEntries(
-        view.blocks.flatMap((b) => {
-          const p = positions[b.id];
-          return p ? [[b.id, { x: Math.round(p.x + (NODE_W - blockWidth(b.kind)) / 2), y: Math.round(p.y) }]] : [];
-        }),
-      );
-      setAuto({ key: graphKey, positions: centred });
+      setAuto({ key: graphKey, positions: centredBlocks(view.blocks, positions) });
     });
     return () => {
       cancelled = true;
@@ -576,6 +594,18 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     [rf],
   );
 
+  // Auto layout places every block as ELK would on a new flowchart, but at the height each is drawn.
+  const autoLayout = useAutoLayout(
+    async () => {
+      const drawn = new Map(nodesRef.current.flatMap((n) => (n.type === "block" && n.measured?.height ? [[n.id, n.measured.height] as const] : [])));
+      const positions = centredBlocks(view.blocks, await flowchartLayout(layoutBlocks(drawn), between));
+      return (ws: Workspace) => autoLayoutBlockOps(ws, view.id, positions);
+    },
+    edit,
+    onError,
+    () => fitDiagram(),
+  );
+
   // Fit the diagram to the window once, after its blocks have been measured.
   const fitted = useRef(false);
   useEffect(() => {
@@ -654,6 +684,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
           >
             + Add
           </MenuButton>
+          <AutoLayoutButton layout={autoLayout} empty={view.blocks.length === 0} />
           {exportItems.length > 0 && (
             <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
               Export

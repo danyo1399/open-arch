@@ -1082,9 +1082,10 @@ button.heading {
   /* Inside the canvas, less React Flow's 15px panel margins, so a long title shrinks, not + Add. */
   max-width: calc(100% - 30px);
 }
-/* A long title shortens; + Add keeps its size. */
+/* A long title shortens; + Add and Auto layout keep their size. */
 .toolbar > .menu,
-.toolbar > button.primary {
+.toolbar > button.primary,
+.toolbar > button.auto-layout {
   flex-shrink: 0;
 }
 /* A sequence view's + Add step form opens under the toolbar's left end, not its own: from the

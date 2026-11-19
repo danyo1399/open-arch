@@ -55,7 +55,7 @@ import {
 } from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point, type StickySize } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
 import { classHeight, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
@@ -233,6 +233,78 @@ export function connectOps(view: string, from: string, to: string, layout: Recor
     { op: "add-relationship", from, to },
     { op: "set-layout", view, positions: layout },
   ];
+}
+
+/**
+ * The boxes for ELK to lay out: whether each is inside the frame, and how tall it is. That's its
+ * height as drawn, in `drawn` by element ID, once it has been; before that, a class's from its
+ * text, and NODE_H for the rest.
+ */
+export function layoutNodes(cv: ComputedView, drawn: ReadonlyMap<string, number> = new Map()): LayoutNode[] {
+  return cv.nodes.map((n) => ({ id: n.id, inside: inFrame(cv.boundary, n), height: drawn.get(n.id) ?? (n.kind === "class" ? classHeight(n) : undefined) }));
+}
+
+/**
+ * The edit Auto layout makes on a view of boxes, as one step for Undo: every box where ELK put it,
+ * `positions`, and the sticky notes back beside what they're on, or beside the diagram (see
+ * stickiesBackOps). It's made from the workspace as it is when it's applied, so a box deleted or
+ * renamed while ELK worked is left out of it.
+ */
+export function autoLayoutOps(ws: Workspace, viewId: string, positions: Record<string, Point>): Operation[] {
+  const view = ws.views.get(viewId);
+  if (!view) return [];
+  const layout = Object.fromEntries(Object.entries(positions).flatMap(([id, p]) => (ws.elements.has(id) ? [[id, [Math.round(p.x), Math.round(p.y)] as Position]] : [])));
+  return [...(Object.keys(layout).length ? [{ op: "set-layout" as const, view: viewId, positions: layout }] : []), ...stickiesBackOps(view)];
+}
+
+/** The toolbar's Auto layout button's work, and whether it's under way. */
+export interface AutoLayout {
+  run(): void;
+  busy: boolean;
+}
+
+/**
+ * What the toolbar's Auto layout button does. `layOutAll` has ELK work out where everything on
+ * the diagram goes, and gives the edit that puts it all there, as one step for Undo. Then the
+ * diagram is fitted to the canvas, with `fit`. It's busy while ELK works, and a second click
+ * then does nothing. When ELK can't lay it out, as when its file can't be loaded, `onError`
+ * says so, and nothing moves.
+ */
+export function useAutoLayout(layOutAll: () => Promise<Edit>, edit: (edit: Edit) => Promise<boolean>, onError: (text: string) => void, fit: () => void): AutoLayout {
+  const [busy, setBusy] = useState(false);
+  // A ref too, as two clicks can come before the first one's render.
+  const working = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const run = () => {
+    if (working.current) return;
+    working.current = true;
+    setBusy(true);
+    void layOutAll()
+      .then(
+        (change) => edit(change).then((ok) => ok && mounted.current && requestAnimationFrame(() => requestAnimationFrame(fit))),
+        () => onError("Couldn't lay out the diagram automatically, so nothing moved. Reload the page to try again."),
+      )
+      .finally(() => {
+        working.current = false;
+        if (mounted.current) setBusy(false);
+      });
+  };
+  return { run, busy };
+}
+
+/** The toolbar's Auto layout button. `empty` when there's nothing on the diagram to lay out. */
+export function AutoLayoutButton({ layout, empty }: { layout: AutoLayout; empty: boolean }) {
+  return (
+    <button className="auto-layout" onClick={layout.run} disabled={layout.busy || empty} title="Lay out the whole diagram again, so it's easy to read. Undo puts it back.">
+      Auto layout
+    </button>
+  );
 }
 
 /**
@@ -481,10 +553,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   useEffect(() => {
     if (!cv || !missing) return;
     let cancelled = false;
-    void layOut(
-      cv.nodes.map((n) => ({ id: n.id, inside: inFrame(cv.boundary, n), height: n.kind === "class" ? classHeight(n) : undefined })),
-      cv.edges,
-    ).then(({ positions, failed }) => {
+    void layOut(layoutNodes(cv), cv.edges).then(({ positions, failed }) => {
       if (cancelled) return;
       if (failed) onError("Couldn't lay out the new boxes automatically, so they're in rows for now. Reload the page to try again.");
       setAuto({ key: graphKey, positions });
@@ -756,6 +825,19 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       void rf.fitView(fitBelowToolbar(options, canvas.clientHeight, toolbar.getBoundingClientRect().bottom - canvas.getBoundingClientRect().top));
     },
     [rf],
+  );
+
+  // Auto layout places every box as ELK would on a new view, but at the height each is drawn.
+  const autoLayout = useAutoLayout(
+    async () => {
+      if (!cv) return [];
+      const drawn = new Map(nodesRef.current.flatMap((n) => (n.type === "element" && n.measured?.height ? [[elementOfNode(n), n.measured.height] as const] : [])));
+      const positions = await elkLayout(layoutNodes(cv, drawn), cv.edges);
+      return (ws: Workspace) => autoLayoutOps(ws, view.id, positions);
+    },
+    edit,
+    onError,
+    () => fitDiagram(),
   );
 
   /** The box a moving end would go to, or the box or frame a note's dot would put the note on, outlined while it's over it. */
@@ -1053,6 +1135,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           <MenuButton className="primary" items={addItems()}>
             + Add
           </MenuButton>
+          <AutoLayoutButton layout={autoLayout} empty={ids.length === 0} />
           {exportItems.length > 0 && (
             <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
               Export

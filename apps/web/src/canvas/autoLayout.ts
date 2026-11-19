@@ -3,6 +3,7 @@
  * gets a full ELK layout; boxes added to a laid-out view are put near where
  * ELK would put them, without moving anything the user placed.
  */
+import type { Operation, ViewDef } from "@open-arch/core";
 import type { ELK as ElkEngine, ElkNode } from "elkjs/lib/elk.bundled.js";
 
 export const NODE_W = 220;
@@ -192,6 +193,15 @@ export function placeStickies(
     y += stickyHeight(s.text, size) + STICKY_GAP;
   }
   return out;
+}
+
+/**
+ * The part of Auto layout's edit for sticky notes: each note with a saved place goes back to where
+ * the designer puts a note with none, beside what it's on or else beside the diagram. Once
+ * everything else has moved, the place it had means nothing.
+ */
+export function stickiesBackOps(view: Pick<ViewDef, "id" | "stickies">): Operation[] {
+  return view.stickies.flatMap((s): Operation[] => (s.at ? [{ op: "update-sticky", view: view.id, id: s.id, at: null }] : []));
 }
 
 /** The first spot on a grid to the right of and below `start` that nothing overlaps. */

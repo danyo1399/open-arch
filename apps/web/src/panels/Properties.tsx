@@ -2050,7 +2050,7 @@ function BoxViewFacts({ ws, view, computed, scope }: { ws: Workspace; view: View
         <dt>Boxes</dt>
         <dd>{computed?.nodes.length ?? 0}</dd>
       </dl>
-      <p className="muted small">Select a box, arrow or sticky note to edit it. Drag boxes and notes to arrange them; their positions are saved with the view.</p>
+      <p className="muted small">Select a box, arrow or sticky note to edit it. Drag boxes and notes to arrange them, or use <strong>Auto layout</strong> to lay them all out again. Their positions are saved with the view.</p>
       <p className="muted small">With a mouse, drag across the background to select several and move them together, or Ctrl-click (⌘-click on a Mac) each one. Scroll to move round the diagram, and Ctrl-scroll (⌘-scroll on a Mac) to zoom.</p>
     </>
   );
