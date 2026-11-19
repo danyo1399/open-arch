@@ -3,8 +3,8 @@ import { buildWorkspace, CARDINALITIES, computeView, type OpenArchDocument, type
 import { ReactFlowProvider } from "@xyflow/react";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
-import type { Selection } from "../src/canvas/Canvas.js";
-import { addAttributeOps, addEntityOps, clickedOn, connectOps, EntityDiagram, entityLayout, moveOps, pinOps, type DrawnItem } from "../src/canvas/EntityDiagram.js";
+import { canAutoLayout, type Selection } from "../src/canvas/Canvas.js";
+import { addAttributeOps, addEntityOps, autoLayoutEntityOps, clickedOn, connectOps, EntityDiagram, entityLayout, moveOps, pinOps, type DrawnItem } from "../src/canvas/EntityDiagram.js";
 import { CROW_FOOT, crowFoot, ENTITY_W, entityHeight, entityWidth, keyColumns } from "../src/canvas/entityLayout.js";
 import { followRenames, LEVEL_NAMES, shownInProperties, viewAction, viewLevelsOf } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
@@ -273,6 +273,23 @@ describe("laying out an entity view", () => {
     );
     expect(at.customer!.x + 260).toBeLessThan(at.order!.x);
     expect(at.order!.x + 200).toBeLessThan(at.line!.x);
+  });
+
+  it("is done again by Auto layout: every entity where ELK put it, and the sticky notes back beside the diagram, as one edit", async () => {
+    const noted = buildWorkspace({ ...doc, views: { data: { ...doc.views.data!, stickies: { placed: { text: "Here", at: [900, 900] }, loose: { text: "Beside" } } } } });
+    const ops = autoLayoutEntityOps(noted, "data", { customer: { x: 0.4, y: 10.6 }, order: { x: 300, y: 0 }, gone: { x: 9, y: 9 } });
+    expect(ops).toEqual([
+      { op: "update-entity", view: "data", id: "customer", at: [0, 11] },
+      { op: "update-entity", view: "data", id: "order", at: [300, 0] },
+      { op: "update-sticky", view: "data", id: "placed", at: null },
+    ]);
+    expect(autoLayoutEntityOps(noted, "nope", { customer: { x: 0, y: 0 } })).toEqual([]);
+    // It's offered on an entity view with an entity, in its toolbar.
+    expect(canAutoLayout(computeView(ws, view))).toBe(true);
+    const empty = buildWorkspace({ ...doc, views: { data: { title: "Empty", level: "entity", entities: [], links: [] } } });
+    expect(canAutoLayout(computeView(empty, empty.views.get("data")!))).toBe(false);
+    const { host } = await diagram();
+    expect(button(host, "Auto layout").disabled).toBe(false);
   });
 });
 

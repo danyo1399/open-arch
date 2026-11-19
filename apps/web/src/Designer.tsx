@@ -815,7 +815,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ) : view?.level === "entity" ? (
           computed ? (
             <ReactFlowProvider key={view.id}>
-              <EntityDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
+              <EntityDiagram
+                computed={computed}
+                selection={selection}
+                onSelect={selectOnCanvas}
+                edit={edit}
+                onError={(text) => state.notify({ kind: "error", text })}
+                exportItems={exportItems(computed)}
+                snap={snap}
+                autoLayoutHandle={autoLayout}
+              />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

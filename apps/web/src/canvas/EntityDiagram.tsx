@@ -6,7 +6,7 @@
  * dot under one to another to add a link. The element whose data it is, if the view says, is the
  * frame.
  */
-import { kindLabel, type Cardinality, type ComputedView, type Entity, type EntityLink, type Operation, type Sticky, type ViewDef, type ViewEdge } from "@open-arch/core";
+import { kindLabel, type Cardinality, type ComputedView, type Entity, type EntityLink, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -28,13 +28,13 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
+import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { CROW_FOOT, crowFoot, ENTITY, entityHeight, entityWidth, keyColumns } from "./entityLayout.js";
 import { FrameNode, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
@@ -71,6 +71,18 @@ const TOUCH = "(any-pointer: coarse)";
  */
 const ENTITY_ELK = { "elk.direction": "RIGHT", "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES" };
 export const entityLayout = (nodes: Parameters<typeof elkLayout>[0], edges: Parameters<typeof elkLayout>[1]) => elkLayout(nodes, edges, ENTITY_ELK);
+
+/**
+ * The edit Auto layout makes on an entity view, as one step for Undo: every entity where ELK put
+ * it, `auto`, and the sticky notes back beside the diagram. It's made from the workspace as it is
+ * when it's applied, so an entity deleted or renamed while ELK worked is left out of it.
+ */
+export function autoLayoutEntityOps(ws: Workspace, viewId: string, auto: Record<string, Point>): Operation[] {
+  const view = ws.views.get(viewId);
+  if (view?.level !== "entity") return [];
+  const entities = view.entities.filter((e) => auto[e.id]);
+  return [...entities.map((e): Operation => ({ op: "update-entity", view: viewId, id: e.id, at: [Math.round(auto[e.id]!.x), Math.round(auto[e.id]!.y)] })), ...stickiesBackOps(view)];
+}
 
 /** Entities and notes snap as they're dragged, and line up with each other. The frame grows round the entities, so it's neither. */
 const snapsHere = (n: FlowNode) => n.type !== "frame";
@@ -258,9 +270,11 @@ interface EntityDiagramProps {
   exportItems: MenuItem[];
   /** What entities and notes snap to as they're dragged, and its buttons. */
   snap: SnapControl;
+  /** Given the diagram's Auto layout, for the top bar's More menu on a narrow screen. */
+  autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
-export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap }: EntityDiagramProps) {
+export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap, autoLayoutHandle }: EntityDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, LinkEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -273,15 +287,17 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
+  /** The entities for ELK to lay out, each as big as it's drawn, in `drawn` by its ID, once it has been. */
+  const layoutEntities = useCallback(
+    (drawn: ReadonlyMap<string, number> = new Map()) => view.entities.map((e) => ({ id: e.id, inside: false, width: entityWidth(e), height: drawn.get(e.id) ?? entityHeight(e) })),
+    [view],
+  );
+
   // Entities without a position are laid out by ELK, left to right, each as big as it's drawn.
   useEffect(() => {
     if (!missing) return;
     let cancelled = false;
-    void layOut(
-      view.entities.map((e) => ({ id: e.id, inside: false, width: entityWidth(e), height: entityHeight(e) })),
-      between,
-      entityLayout,
-    ).then(({ positions, failed }) => {
+    void layOut(layoutEntities(), between, entityLayout).then(({ positions, failed }) => {
       if (cancelled) return;
       if (failed) onError("Couldn't lay out the new entities automatically, so they're in rows for now. Reload the page to try again.");
       setAuto({ key: graphKey, positions });
@@ -489,6 +505,19 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
     [rf],
   );
 
+  // Auto layout places every entity as ELK would on a new entity view, but at the height each is drawn.
+  const autoLayout = useAutoLayout(
+    async () => {
+      const drawn = new Map(nodesRef.current.flatMap((n) => (n.type === "entity" && n.measured?.height ? [[n.id, n.measured.height] as const] : [])));
+      const positions = await entityLayout(layoutEntities(drawn), between);
+      return (ws: Workspace) => autoLayoutEntityOps(ws, view.id, positions);
+    },
+    edit,
+    onError,
+    () => fitDiagram(),
+    autoLayoutHandle,
+  );
+
   // Fit the diagram to the window once, after its entities have been measured.
   const fitted = useRef(false);
   useEffect(() => {
@@ -555,6 +584,7 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
           <MenuButton className="primary" items={addItems} title={onEntity ? `Add an entity, an attribute of ${onEntity.name}, or a sticky note` : "Add an entity or a sticky note"}>
             + Add
           </MenuButton>
+          <AutoLayoutButton layout={autoLayout} empty={view.entities.length === 0} />
           {exportItems.length > 0 && (
             <MenuButton items={exportItems} className="export-button" title="Take this diagram elsewhere, as Mermaid or a picture">
               Export

@@ -273,11 +273,12 @@ export interface AutoLayout {
 /** Levels whose views are laid out automatically all the time, or, on a whiteboard, never: they have no Auto layout. */
 const NO_AUTO_LAYOUT: readonly ViewLevel[] = ["sequence", "deployment", "event", "wireframe", "whiteboard"];
 
-/** Whether a view has Auto layout, and anything to lay out: a view of boxes with a box in it, a state view with a state, or a flowchart with a block. */
+/** Whether a view has Auto layout, and anything to lay out: a view of boxes with a box in it, a state view with a state, a flowchart with a block, or an entity view with an entity. */
 export function canAutoLayout(cv: ComputedView): boolean {
   const { view } = cv;
   if (view.level === "state") return view.states.length > 0;
   if (view.level === "flowchart") return view.blocks.length > 0;
+  if (view.level === "entity") return view.entities.length > 0;
   return !NO_AUTO_LAYOUT.includes(view.level) && cv.nodes.length > 0;
 }
 
