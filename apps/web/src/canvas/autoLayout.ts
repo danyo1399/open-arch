@@ -9,6 +9,8 @@ import type { ELK as ElkEngine, ElkNode } from "elkjs/lib/elk.bundled.js";
 export const NODE_W = 220;
 export const NODE_H = 120;
 const GAP = 40;
+/** How far apart one row of boxes is from the next, when the arrows' labels need no more room than this. */
+export const ROW_GAP = 110;
 
 export interface Point {
   x: number;
@@ -67,8 +69,8 @@ export function gridLayout(nodes: { id: string; inside: boolean }[]): Record<str
   const out: Record<string, Point> = {};
   /** Puts the boxes in rows from `top` down, and says where the next one would start. */
   const rows = (ids: string[], top: number) => {
-    ids.forEach((id, i) => (out[id] = { x: (i % PER_ROW) * (NODE_W + 70), y: top + Math.floor(i / PER_ROW) * (NODE_H + 110) }));
-    return top + Math.ceil(ids.length / PER_ROW) * (NODE_H + 110);
+    ids.forEach((id, i) => (out[id] = { x: (i % PER_ROW) * (NODE_W + 70), y: top + Math.floor(i / PER_ROW) * (NODE_H + ROW_GAP) }));
+    return top + Math.ceil(ids.length / PER_ROW) * (NODE_H + ROW_GAP);
   };
   const outside = nodes.filter((n) => !n.inside).map((n) => n.id);
   const below = rows(outside, 0);
@@ -80,8 +82,6 @@ export function gridLayout(nodes: { id: string; inside: boolean }[]): Record<str
   return out;
 }
 
-/** How far apart one row of boxes is from the next, when the arrows between them have no labels. */
-export const ROW_GAP = 110;
 /** Labels one above the other are given this much room between them, as the router keeps them this far apart where it can (see LABEL_APART in routing.ts). */
 const LABEL_APART = 24;
 /** The room left at each end of an arrow, between its label and the box there, for the line and its arrowhead to show. */
@@ -90,11 +90,13 @@ const LABEL_CLEAR = 24;
 const STACKED = 3;
 
 /**
- * How far apart ELK puts one row of boxes from the next, so the labels of the arrows between
- * them have room: ROW_GAP, or more where they need it. Arrows leaving one box run side by side,
+ * How far apart ELK puts each row of boxes from the next, so the arrows' labels have room:
+ * ROW_GAP, or more when they need it. It's one gap for the whole diagram, as ELK takes one, so
+ * every row is as far apart as the most crowded needs. Arrows leaving one box run side by side,
  * closer together than their labels are wide, so their labels go one above the other, and the
  * same for arrows arriving at one box. The rows are far enough apart for the tallest of those
- * labels, up to STACKED of them, at whichever box needs the most room.
+ * labels, up to STACKED of them, at whichever box needs the most room. That can be one label on
+ * its own, when it's a tall one.
  * When the boxes are laid out in columns (`down` is false), the arrows run across, and so do
  * their labels: the columns are far enough apart for the widest.
  */

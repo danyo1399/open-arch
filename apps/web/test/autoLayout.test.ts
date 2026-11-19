@@ -34,12 +34,19 @@ describe("layOut", () => {
 describe("rowGap", () => {
   const label = (h: number, w = 120) => ({ w, h });
 
-  it("is the usual gap when no arrow has a label, or one label has room in it", () => {
+  it("is the usual gap when no arrow has a label, or a short label on its own fits in it", () => {
     expect(rowGap([])).toBe(ROW_GAP);
     expect(rowGap([{ from: "a", to: "b" }, { from: "a", to: "c" }])).toBe(ROW_GAP);
     expect(rowGap([{ from: "a", to: "b", label: label(24) }])).toBe(ROW_GAP);
     // Labels on arrows that share no box each have a gap of their own.
     expect(rowGap([{ from: "a", to: "b", label: label(24) }, { from: "b", to: "c", label: label(24) }, { from: "c", to: "d", label: label(24) }])).toBe(ROW_GAP);
+  });
+
+  it("is more for a label on its own too tall for the usual gap", () => {
+    // Three lines or so: the label, and the room at each end of its arrow.
+    expect(rowGap([{ from: "a", to: "b", label: label(80) }])).toBe(80 + 2 * 24);
+    // The tallest it can be and still fit.
+    expect(rowGap([{ from: "a", to: "b", label: label(ROW_GAP - 2 * 24) }])).toBe(ROW_GAP);
   });
 
   it("makes room for the labels of the arrows leaving one box, one above the other", () => {
