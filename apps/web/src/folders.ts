@@ -229,7 +229,8 @@ export async function newWorkspace(root: FolderHandle): Promise<{ path: string; 
   try {
     own = await root.getDirectoryHandle("architecture");
   } catch (error) {
-    if (!isMissing(error) && !isNamed(error, "TypeMismatchError")) throw error;
+    if (isNamed(error, "TypeMismatchError")) throw new Error(`${root.name} has a file named architecture, so a folder of that name can't be made for the workspace. Rename that file, or open a folder of its own for the workspace.`);
+    if (!isMissing(error)) throw error;
     own = null;
   }
   return { path: `architecture/${file}`, docs: own === null || (await isFreeFolder(own)) ? "." : "docs/architecture" };

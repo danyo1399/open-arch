@@ -96,24 +96,25 @@ export function docsFolder(file: string, doc: OpenArchDocument): string | undefi
 /**
  * Whether a new workspace in `dir` has the folder to itself, so its docs can go beside it: a
  * folder that isn't there yet, or holds nothing but hidden things, such as the skill an earlier
- * init put in .agents/, and isn't a Git repository's top.
+ * init put in .agents/, and isn't a Git repository's top. `except`, the file the workspace is
+ * written over, if it's there, doesn't count.
  */
-export function isFreeFolder(dir: string): boolean {
+export function isFreeFolder(dir: string, except?: string): boolean {
   let names: string[];
   try {
     names = readdirSync(dir);
   } catch {
     return !existsSync(dir);
   }
-  return !names.includes(".git") && names.every((name) => name.startsWith("."));
+  return !names.includes(".git") && names.every((name) => name.startsWith(".") || name === except);
 }
 
 /**
- * The docs folder of a new workspace in `dir`: beside the file when it has the folder to itself,
- * or else docs/architecture, so its pages don't mix with what's there, such as a README.md.
+ * The docs folder of a new workspace at `file`: beside it when it has the folder to itself, or
+ * else docs/architecture, so its pages don't mix with what's there, such as a README.md.
  */
-export function newDocsFolder(dir: string): string {
-  return isFreeFolder(dir) ? "." : "docs/architecture";
+export function newDocsFolder(file: string): string {
+  return isFreeFolder(dirname(file), basename(file)) ? "." : "docs/architecture";
 }
 
 export interface DocsResult {

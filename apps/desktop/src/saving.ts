@@ -12,11 +12,12 @@ import type { AgentSetup } from "./agent-setup.js";
 
 /**
  * A new, empty workspace for `file`: named after it, with its docs in the file's own folder if it
- * has the folder to itself, as `open-arch init` does, or else in docs/architecture beside it.
+ * has the folder to itself, as `open-arch init` does, or else in docs/architecture beside it. A file
+ * chosen to be written over doesn't count.
  */
 export function newDocument(file: string): OpenArchDocument {
   const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
-  doc.export = { docs: newDocsFolder(dirname(file)) };
+  doc.export = { docs: newDocsFolder(file) };
   return doc;
 }
 

@@ -174,6 +174,20 @@ describe("opening a folder from the start page", () => {
     expect(busy.files()["architecture/docs/architecture/README.md"]).toContain("# Site");
   });
 
+  it("says plainly when a file named architecture is where the workspace's folder would go", async () => {
+    picker();
+    const root = new FakeFolder("site");
+    root.put("index.html", "<p>Hi</p>");
+    root.put("architecture", "notes");
+    picked = root;
+    const { host, opened } = page();
+    await until(host, "Folders");
+    await click(button(host, "Open folder…"));
+    await until(host, "site has a file named architecture, so a folder of that name can't be made for the workspace. Rename that file, or open a folder of its own for the workspace.");
+    expect(opened).toEqual([]);
+    expect(Object.keys(root.files()).sort()).toEqual(["architecture", "index.html"]);
+  });
+
   it("says so, and lists the new workspace to open, when its docs can't be written", async () => {
     picker();
     const root = new FakeFolder("repo");

@@ -15,7 +15,6 @@ import { StartPage } from "./Start.js";
 
 const edited = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-
 export function LibraryPage({ library, folders = defaultFolders, onOpen }: { library: WorkspaceLibrary; folders?: FolderList; onOpen(host: WorkspaceHost): void }) {
   const [records, setRecords] = useState<StoredWorkspace[] | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -86,6 +86,7 @@ describe("hosts", () => {
       ["../docs", "repo/docs/"],
       ["docs", "repo/arch/docs/"],
       ["../../out", "repo/arch/"],
+      ["..", "repo/"],
     ];
     for (const [docs, where] of cases) {
       const text = JSON.stringify({ openarch: 17, name: "A", export: { docs }, elements: {}, views: {} });
@@ -98,7 +99,12 @@ describe("hosts", () => {
       const files = Object.keys(zipped);
       expect(files).toContain(`${where}README.md`);
       // Docs beside the file are named page by page, as their folder can hold other things.
-      const section = where === "repo/arch/" ? "beside it: the pages in `arch/elements/` and `arch/views/`, and `arch/README.md` unless the folder has its own." : `in \`${where.slice("repo/".length)}\`.`;
+      const section =
+        where === "repo/arch/"
+          ? "beside it: the pages in `arch/elements/` and `arch/views/`, and `arch/README.md` unless the folder has its own."
+          : where === "repo/"
+            ? "at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the folder has its own."
+            : `in \`${where.slice("repo/".length)}\`.`;
       expect(strFromU8(zipped["repo/AGENTS.md"]!)).toContain(`in \`arch/a.openarch\`. Readable docs generated from it are ${section}`);
       expect(files).toContain("repo/arch/a.openarch");
       expect(files).toContain("repo/AGENTS.md");

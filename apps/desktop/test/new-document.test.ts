@@ -11,6 +11,9 @@ describe("a new desktop workspace", () => {
       mkdirSync(join(dir, ".agents"));
       expect(newDocument(join(dir, "payments-platform.openarch"))).toMatchObject({ name: "Payments Platform", export: { docs: "." } });
       expect(newDocument(join(dir, "-.openarch")).name).toBe("Architecture");
+      // A file it's written over doesn't count.
+      writeFileSync(join(dir, "old.openarch"), "{}");
+      expect(newDocument(join(dir, "old.openarch")).export).toEqual({ docs: "." });
       // In a folder with other things in it, such as a README.md, the docs get a folder of their own.
       writeFileSync(join(dir, "README.md"), "# Mine\n");
       expect(newDocument(join(dir, "shop.openarch")).export).toEqual({ docs: "docs/architecture" });

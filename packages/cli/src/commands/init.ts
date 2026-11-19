@@ -26,7 +26,7 @@ export function init(io: Io, opts: InitOptions): number {
     io.out(`kept ${shown}\n`);
   } else {
     // Worked out before the file is made, while its folder still holds only what was there.
-    const docs = opts.docs ?? newDocsFolder(dirname(file));
+    const docs = opts.docs ?? newDocsFolder(file);
     mkdirSync(dirname(file), { recursive: true });
     const doc = emptyDocument(opts.name?.trim() || nameFromFileName(basename(projectRoot(io.cwd, dirname(file)))) || "Architecture");
     doc.export = { docs: docs.replace(/\\/g, "/") };
@@ -93,7 +93,12 @@ export function init(io: Io, opts: InitOptions): number {
  */
 function defaultFile(cwd: string): string {
   const here = join(cwd, `architecture${FILE_EXTENSION}`);
-  return existsSync(here) || isFreeFolder(cwd) ? here : join(cwd, "architecture", `architecture${FILE_EXTENSION}`);
+  if (existsSync(here) || isFreeFolder(cwd)) return here;
+  const own = join(cwd, "architecture");
+  if (existsSync(own) && !statSync(own).isDirectory()) {
+    throw new CliError(`There's a file named architecture here, so init can't make a folder of that name for the workspace. Name the file to make: \`open-arch init <folder>/architecture${FILE_EXTENSION}\`.`, 2);
+  }
+  return join(own, `architecture${FILE_EXTENSION}`);
 }
 
 /** The repository root above `dir`, else the current folder if `dir` is inside it, else `dir`. */

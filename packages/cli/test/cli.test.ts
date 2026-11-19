@@ -899,6 +899,16 @@ describe("init", () => {
     expect(read(other, "README.md")).toBe("# Orders\n");
   });
 
+  it("says plainly when a file named architecture is where its folder would go", () => {
+    const project = tempDir();
+    mkdirSync(join(project, ".git"));
+    writeFileSync(join(project, "architecture"), "notes\n");
+    const result = cli(project, "init");
+    expect(result.code).toBe(2);
+    expect(result.err).toContain("There's a file named architecture here, so init can't make a folder of that name for the workspace. Name the file to make: `open-arch init <folder>/architecture.openarch`.");
+    expect(read(project, "architecture")).toBe("notes\n");
+  });
+
   it("makes the workspace in an empty folder, and keeps one made at a repository's top before", () => {
     const project = tempDir();
     mkdirSync(join(project, ".git"));

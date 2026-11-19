@@ -20,19 +20,21 @@ export function agentsSection(workspace: string, docs: string | undefined, versi
   const breaks = /[\r\n\u2028\u2029]/;
   if (breaks.test(workspace)) throw new LineBreakInPath(workspace, "workspace");
   if (docs && breaks.test(docs)) throw new LineBreakInPath(docs, "docs");
-  // Docs beside the workspace file share its folder, which can hold other things: the project's
-  // own files, at its top, where the docs have the path "". So the section names the pages rather
-  // than telling agents to leave the whole folder alone.
+  // Docs beside the workspace file share its folder, which can hold other things, and so do docs
+  // at the project's top, which have the path "". So the section names their pages rather than
+  // telling agents to leave the whole folder alone.
   const fileDir = workspace.includes("/") ? workspace.slice(0, workspace.lastIndexOf("/")) : "";
   const beside = docs !== undefined && docs === fileDir;
-  const page = (name: string) => code(`${fileDir ? `${fileDir}/` : ""}${name}`);
+  const byPage = beside || docs === "";
+  const page = (name: string) => code(`${docs ? `${docs}/` : ""}${name}`);
+  const place = [beside ? "beside it" : "", docs === "" ? "at the top of the project" : ""].filter(Boolean).join(", ");
   const where =
     docs === undefined
       ? ""
-      : beside
-        ? ` Readable docs generated from it are beside it${fileDir ? "" : ", at the top of the project"}: the pages in ${page("elements/")} and ${page("views/")}, and ${page("README.md")} unless the folder has its own.`
+      : byPage
+        ? ` Readable docs generated from it are ${place}: the pages in ${page("elements/")} and ${page("views/")}, and ${page("README.md")} unless the folder has its own.`
         : ` Readable docs generated from it are in ${code(`${docs}/`)}.`;
-  const leave = docs === undefined ? code(workspace) : beside ? `${code(workspace)} or a page generated from it (one that starts with \`${GENERATED_MARKER}\`)` : `${code(workspace)} or ${code(`${docs}/`)}`;
+  const leave = docs === undefined ? code(workspace) : byPage ? `${code(workspace)} or a page generated from it (one that starts with \`${GENERATED_MARKER}\`)` : `${code(workspace)} or ${code(`${docs}/`)}`;
   return [
     SECTION_START,
     "## Architecture",
