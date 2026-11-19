@@ -10,6 +10,7 @@ import { shapeName } from "./views.js";
 import {
   BLOCK_KIND_LABELS,
   CARD_KIND_LABELS,
+  CARDINALITY_LABELS,
   endShape,
   endSide,
   SCREEN_DEVICE_LABELS,
@@ -299,6 +300,30 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
       files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
       continue;
     }
+    if (v.level === "entity") {
+      const entityName = (id: string) => cell(v.entities.find((e) => e.id === id)?.name ?? id);
+      lines.push("", "## Entities");
+      if (v.entities.length === 0) lines.push("", "None yet.");
+      for (const e of v.entities) {
+        lines.push("", `### ${e.name.replace(/\s*\r?\n\s*/g, " ")}`);
+        if (e.description) lines.push("", e.description);
+        lines.push("");
+        if (e.attributes.length) {
+          lines.push("| Attribute | Type | Key | Description |", "|---|---|---|---|");
+          for (const a of e.attributes) lines.push(`| ${cell(a.name)} | ${cell(a.type)} | ${a.keys.map((k) => k.toUpperCase()).join(", ")} | ${cell(a.description)} |`);
+        } else lines.push("No attributes yet.");
+      }
+      if (v.links.length) {
+        lines.push("", "## Links", "", "| # | From | To | How many | Text |", "|---|---|---|---|---|");
+        for (const l of v.links) {
+          const [from, to] = l.cardinality;
+          lines.push(`| ${l.number} | ${entityName(l.from)} | ${entityName(l.to)} | ${CARDINALITY_LABELS[from]} to ${CARDINALITY_LABELS[to].toLowerCase()} | ${cell(l.text)} |`);
+        }
+      }
+      lines.push("", `[All views and elements](../README.md)`, "");
+      files.push({ path: `views/${v.id}.md`, content: lines.join("\n") });
+      continue;
+    }
     lines.push("", "## Elements", "");
     if (cv.nodes.length) {
       lines.push("| Element | Kind | Technology | Description |", "|---|---|---|---|");
@@ -377,9 +402,11 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
               ? " (its screens)"
               : as === "process"
                 ? " (its process)"
-                : as === "deployed"
-                  ? ` (runs in ${runsIn!.map((n) => n.name).join(", ")})`
-                  : "";
+                : as === "data"
+                  ? " (its data)"
+                  : as === "deployed"
+                    ? ` (runs in ${runsIn!.map((n) => n.name).join(", ")})`
+                    : "";
       lines.push("", "## Shown in", "", ...d.views.map((shown) => `- [${shown.view.title}](../views/${shown.view.id}.md)${how(shown)}`));
     }
     lines.push("", `[All views and elements](../README.md)`, "");

@@ -20,13 +20,14 @@ export interface ElementDescription {
   /**
    * Views that draw this element: as a box, as the frame around the view, as what a state view
    * shows the states of, as the app a wireframe view shows the screens of, as what a flowchart
-   * shows the process of, or running in a deployment view's nodes, which `runsIn` lists.
+   * shows the process of, as what an entity view shows the data of, or running in a deployment
+   * view's nodes, which `runsIn` lists.
    */
-  views: { view: ViewDef; as: "box" | "frame" | "states" | "screens" | "process" | "deployed"; runsIn?: DeploymentNode[] }[];
+  views: { view: ViewDef; as: "box" | "frame" | "states" | "screens" | "process" | "data" | "deployed"; runsIn?: DeploymentNode[] }[];
 }
 
 /** What a view of an element shows of it, on views that draw something of their own rather than its contents. */
-const OWN_AS: Partial<Record<ViewDef["level"], "states" | "screens" | "process">> = { state: "states", wireframe: "screens", flowchart: "process" };
+const OWN_AS: Partial<Record<ViewDef["level"], "states" | "screens" | "process" | "data">> = { state: "states", wireframe: "screens", flowchart: "process", entity: "data" };
 
 export function describeElement(ws: Workspace, id: string): ElementDescription | undefined {
   const element = ws.elements.get(id);

@@ -1,5 +1,5 @@
 {
-  "openarch": 17,
+  "openarch": 18,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -411,6 +411,63 @@
         { "from": "paid", "to": "shipped", "event": "Warehouse ships it", "action": "Email the tracking link" },
         { "from": "paid", "to": "refunded", "event": "Customer cancels", "action": "Refund the card" },
         { "from": "shipped", "to": "delivered", "event": "Courier delivers it" }
+      ]
+    },
+    "orders-data": {
+      "title": "Orders data",
+      "description": "What the Orders DB keeps about each order, and who placed it.",
+      "level": "entity",
+      "scope": "orders-db",
+      "entities": [
+        {
+          "id": "customer",
+          "name": "Customer",
+          "description": "Someone who shops, by their email",
+          "attributes": [
+            { "name": "id", "type": "uuid", "keys": ["pk"] },
+            { "name": "email", "type": "text", "keys": ["uk"], "description": "Where receipts go" },
+            { "name": "name", "type": "text" }
+          ]
+        },
+        {
+          "id": "order",
+          "name": "Order",
+          "description": "One checkout, and where it's got to",
+          "attributes": [
+            { "name": "id", "type": "uuid", "keys": ["pk"] },
+            { "name": "customer_id", "type": "uuid", "keys": ["fk"] },
+            { "name": "placed_at", "type": "timestamptz" },
+            { "name": "status", "type": "text", "description": "Placed, paid, shipped or cancelled" }
+          ]
+        },
+        {
+          "id": "order-line",
+          "name": "Order line",
+          "description": "One thing bought, and how many",
+          "attributes": [
+            { "name": "order_id", "type": "uuid", "keys": ["pk", "fk"] },
+            { "name": "sku", "type": "text", "keys": ["pk"], "description": "The warehouse's code for it" },
+            { "name": "quantity", "type": "integer" },
+            { "name": "price", "type": "numeric(10,2)", "description": "Each, when it was bought" }
+          ]
+        },
+        {
+          "id": "payment",
+          "name": "Payment",
+          "description": "The card payment for an order",
+          "attributes": [
+            { "name": "id", "type": "uuid", "keys": ["pk"] },
+            { "name": "order_id", "type": "uuid", "keys": ["fk", "uk"] },
+            { "name": "provider_ref", "type": "text", "keys": ["uk"], "description": "The payment provider's ID for it" },
+            { "name": "amount", "type": "numeric(10,2)" },
+            { "name": "taken_at", "type": "timestamptz" }
+          ]
+        }
+      ],
+      "links": [
+        { "from": "customer", "to": "order", "text": "places" },
+        { "from": "order", "to": "order-line", "cardinality": ["one", "one-or-more"], "text": "lists" },
+        { "from": "order", "to": "payment", "cardinality": ["one", "zero-or-one"], "text": "is paid by" }
       ]
     },
     "place-order": {

@@ -5,13 +5,16 @@
  * would end up with new errors. Nothing edits the document any other way.
  */
 import { checkWorkspace } from "./check.js";
-import { isInside, kindList, PARENT_KINDS } from "./model.js";
+import { aOrAn, isInside, kindList, PARENT_KINDS } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
   ARROW_HEADS,
   ARROW_SIDES,
+  ATTRIBUTE_KEYS,
   BLOCK_KINDS,
+  CARDINALITIES,
   CARD_KINDS,
+  DEFAULT_CARDINALITY,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
   ID_PATTERN,
@@ -32,16 +35,21 @@ import {
   type ArrowEnd,
   type ArrowHeads,
   type ArrowSide,
+  type AttributeData,
+  type AttributeKey,
   type BlockData,
   type BlockKind,
   type CardData,
   type CardKind,
+  type Cardinality,
   type ConnectionData,
   type DeploymentNodeData,
   type Diagnostic,
   type ElementData,
   type ElementKind,
   type ElementShape,
+  type EntityData,
+  type EntityLinkData,
   type LaneData,
   type OpenArchDocument,
   type Position,
@@ -306,6 +314,24 @@ export type Operation =
   | { op: "add-flow"; view: string; from: string; to: string; text?: string; flow?: number }
   | { op: "update-flow"; view: string; flow: number; from?: string; to?: string; text?: string | null; newFlow?: number }
   | { op: "remove-flow"; view: string; flow: number }
+  /** `at` is its top-left corner; without it, the designer lays it out. `position` is its place in the file's order: 1 is the first. */
+  | { op: "add-entity"; view: string; id: string; name?: string; description?: string; at?: [number, number]; position?: number }
+  /** `at`: null lets the designer lay it out again. */
+  | { op: "update-entity"; view: string; id: string; newId?: string; name?: string; description?: string | null; at?: [number, number] | null; position?: number }
+  | { op: "remove-entity"; view: string; id: string }
+  /** An attribute is named by its entity and its name. `position` is its place among the entity's attributes: 1 is the first. */
+  | { op: "add-attribute"; view: string; entity: string; name: string; type?: string; keys?: AttributeKey[]; description?: string; position?: number }
+  /** `keys` replaces its keys: null or none leaves it no key. */
+  | { op: "update-attribute"; view: string; entity: string; name: string; newName?: string; type?: string | null; keys?: AttributeKey[] | null; description?: string | null; position?: number }
+  | { op: "remove-attribute"; view: string; entity: string; name: string }
+  /**
+   * `cardinality` is how many of each end there can be: of `from` for each `to`, then of `to` for
+   * each `from` (default: one, then zero or more). `link` is its number: 1 is the first.
+   */
+  | { op: "add-link"; view: string; from: string; to: string; cardinality?: [Cardinality, Cardinality]; text?: string; link?: number }
+  /** `cardinality`: null puts it back to one, then zero or more. */
+  | { op: "update-link"; view: string; link: number; from?: string; to?: string; cardinality?: [Cardinality, Cardinality] | null; text?: string | null; newLink?: number }
+  | { op: "remove-link"; view: string; link: number }
   | { op: "update-workspace"; name?: string; description?: string | null; docs?: string | null };
 
 export type OperationName = Operation["op"];
@@ -341,7 +367,9 @@ type FieldType =
   | "nullable-target"
   | "box"
   | "points"
-  | "end";
+  | "end"
+  | "pair"
+  | "nullable-pair";
 
 const SHAPES: Record<OperationName, { required: string[]; fields: Record<string, FieldType> }> = {
   "add-element": {
@@ -560,6 +588,27 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "add-flow": { required: ["view", "from", "to"], fields: { view: "string", from: "string", to: "string", text: "string", flow: "number" } },
   "update-flow": { required: ["view", "flow"], fields: { view: "string", flow: "number", from: "string", to: "string", text: "nullable-string", newFlow: "number" } },
   "remove-flow": { required: ["view", "flow"], fields: { view: "string", flow: "number" } },
+  "add-entity": { required: ["view", "id"], fields: { view: "string", id: "string", name: "string", description: "string", at: "point", position: "number" } },
+  "update-entity": {
+    required: ["view", "id"],
+    fields: { view: "string", id: "string", newId: "string", name: "string", description: "nullable-string", at: "nullable-point", position: "number" },
+  },
+  "remove-entity": { required: ["view", "id"], fields: { view: "string", id: "string" } },
+  "add-attribute": {
+    required: ["view", "entity", "name"],
+    fields: { view: "string", entity: "string", name: "string", type: "string", keys: "strings", description: "string", position: "number" },
+  },
+  "update-attribute": {
+    required: ["view", "entity", "name"],
+    fields: { view: "string", entity: "string", name: "string", newName: "string", type: "nullable-string", keys: "nullable-strings", description: "nullable-string", position: "number" },
+  },
+  "remove-attribute": { required: ["view", "entity", "name"], fields: { view: "string", entity: "string", name: "string" } },
+  "add-link": { required: ["view", "from", "to"], fields: { view: "string", from: "string", to: "string", cardinality: "pair", text: "string", link: "number" } },
+  "update-link": {
+    required: ["view", "link"],
+    fields: { view: "string", link: "number", from: "string", to: "string", cardinality: "nullable-pair", text: "nullable-string", newLink: "number" },
+  },
+  "remove-link": { required: ["view", "link"], fields: { view: "string", link: "number" } },
   "update-workspace": { required: [], fields: { name: "string", description: "nullable-string", docs: "nullable-string" } },
 };
 
@@ -618,6 +667,10 @@ function fits(type: FieldType, value: unknown): boolean {
       return Array.isArray(value) && value.every(isPoint);
     case "end":
       return typeof value === "string" || isPoint(value) || (isRecord(value) && Object.keys(value).every((k) => k === "shape" || k === "side") && typeof value.shape === "string" && typeof value.side === "string");
+    case "pair":
+      return Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === "string");
+    case "nullable-pair":
+      return value === null || (Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === "string"));
   }
 }
 
@@ -641,6 +694,8 @@ const TYPE_TEXT: Record<FieldType, string> = {
   box: "a position, [x, y], or a position and a size, [x, y, width, height]",
   points: "a list of points, [[x, y], ...]",
   end: 'the ID of a shape, a shape and a side of it, like { "shape": "decision", "side": "right" }, or a point, [x, y]',
+  pair: 'how many of each end there can be, `from`\'s then `to`\'s, like ["one", "zero-or-more"]',
+  "nullable-pair": 'how many of each end there can be, `from`\'s then `to`\'s, like ["one", "zero-or-more"], or null for one, then zero or more',
 };
 
 /** Check operations received as JSON: an operation object or a list of them. */
@@ -866,6 +921,34 @@ function applyOne(doc: OpenArchDocument, op: Operation): string {
       requireFlow(view, op.view, op.flow);
       view.flows!.splice(op.flow - 1, 1);
       return `removed flow ${op.flow} from view ${op.view}`;
+    }
+    case "add-entity":
+      return addEntity(doc, op);
+    case "update-entity":
+      return updateEntity(doc, op);
+    case "remove-entity":
+      return removeEntity(doc, op.view, op.id);
+    case "add-attribute":
+      return addAttribute(doc, op);
+    case "update-attribute":
+      return updateAttribute(doc, op);
+    case "remove-attribute": {
+      const view = requireEntityView(doc, op.view);
+      const entity = requireEntity(view, op.view, op.entity);
+      const attribute = requireAttribute(entity, op.name);
+      entity.attributes!.splice(entity.attributes!.indexOf(attribute), 1);
+      if (entity.attributes!.length === 0) delete entity.attributes;
+      return `removed attribute ${op.name} from entity ${op.entity} in view ${op.view}`;
+    }
+    case "add-link":
+      return addLink(doc, op);
+    case "update-link":
+      return updateLink(doc, op);
+    case "remove-link": {
+      const view = requireEntityView(doc, op.view);
+      requireLink(view, op.view, op.link);
+      view.links!.splice(op.link - 1, 1);
+      return `removed link ${op.link} from view ${op.view}`;
     }
     case "update-workspace":
       return updateWorkspace(doc, op);
@@ -1135,6 +1218,8 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     arrows: [],
     blocks: [],
     flows: [],
+    entities: [],
+    links: [],
   };
   const problems = scopeProblems(ws, draft);
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
@@ -1147,11 +1232,13 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
   const wireframe = op.level === "wireframe";
   const whiteboard = op.level === "whiteboard";
   const flowchart = op.level === "flowchart";
+  const entities = op.level === "entity";
   if (deployment && (op.include || op.exclude)) throw new OpError(DEPLOYMENT_BOXES);
   if (events && (op.include || op.exclude)) throw new OpError(EVENT_CARDS);
   if (wireframe && (op.include || op.exclude)) throw new OpError(WIREFRAME_SCREENS);
   if (whiteboard && (op.include || op.exclude)) throw new OpError(WHITEBOARD_SHAPES);
   if (flowchart && (op.include || op.exclude)) throw new OpError(FLOWCHART_BLOCKS);
+  if (entities && (op.include || op.exclude)) throw new OpError(ENTITY_BOXES);
   checkIds(doc, op.include, "include");
   checkIds(doc, op.exclude, "exclude");
   const scope = op.scope ? doc.elements[op.scope] : undefined;
@@ -1161,7 +1248,7 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
       ? titleFromId(op.id)
       : scope
         ? `${scope.name} ${LEVEL_TITLE[op.level]}`
-        : statesView || wireframe || flowchart
+        : statesView || wireframe || flowchart || entities
           ? titleFromId(op.id)
           : "System landscape");
   doc.views[op.id] = clean<ViewData>({
@@ -1169,7 +1256,7 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     description: op.description?.trim(),
     level: op.level,
     scope: op.scope,
-    include: sequence || statesView || deployment || events || wireframe || whiteboard || flowchart ? undefined : op.include ? [...op.include] : ["*"],
+    include: sequence || statesView || deployment || events || wireframe || whiteboard || flowchart || entities ? undefined : op.include ? [...op.include] : ["*"],
     exclude: op.exclude?.length ? [...op.exclude] : undefined,
     notes: op.notes?.trim(),
     steps: sequence ? [] : undefined,
@@ -1184,6 +1271,8 @@ function addView(doc: OpenArchDocument, op: Extract<Operation, { op: "add-view" 
     arrows: whiteboard ? [] : undefined,
     blocks: flowchart ? [] : undefined,
     flows: flowchart ? [] : undefined,
+    entities: entities ? [] : undefined,
+    links: entities ? [] : undefined,
   });
   return `added view ${op.id}`;
 }
@@ -1202,6 +1291,7 @@ export const LEVEL_TITLE: Record<ViewLevel, string> = {
   wireframe: "wireframes",
   whiteboard: "whiteboard",
   flowchart: "process",
+  entity: "entities",
 };
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
@@ -1232,6 +1322,7 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   if (view.level === "wireframe" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(WIREFRAME_SCREENS);
   if (view.level === "whiteboard" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(WHITEBOARD_SHAPES);
   if (view.level === "flowchart" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(FLOWCHART_BLOCKS);
+  if (view.level === "entity" && (op.include !== undefined || op.exclude !== undefined || op.newElements !== undefined)) throw new OpError(ENTITY_BOXES);
   if (op.include !== undefined) {
     checkIds(doc, op.include, "include");
     view.include = [...op.include];
@@ -1285,6 +1376,7 @@ function showInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "wireframe") throw new OpError(WIREFRAME_SCREENS);
   if (view.level === "whiteboard") throw new OpError(WHITEBOARD_SHAPES);
   if (view.level === "flowchart") throw new OpError(FLOWCHART_BLOCKS);
+  if (view.level === "entity") throw new OpError(ENTITY_BOXES);
   requireElement(doc, id);
   if (shows(doc, viewId, id)) return `${id} is already in view ${viewId}`;
   if (view.exclude?.includes(id)) {
@@ -1307,6 +1399,7 @@ function hideInView(doc: OpenArchDocument, viewId: string, id: string): string {
   if (view.level === "wireframe") throw new OpError(WIREFRAME_SCREENS);
   if (view.level === "whiteboard") throw new OpError(WHITEBOARD_SHAPES);
   if (view.level === "flowchart") throw new OpError(FLOWCHART_BLOCKS);
+  if (view.level === "entity") throw new OpError(ENTITY_BOXES);
   requireElement(doc, id);
   if (!shows(doc, viewId, id)) throw new OpError(`"${id}" isn't a box in view "${viewId}".`);
   if (view.include?.includes(id)) view.include = view.include.filter((x) => x !== id);
@@ -1323,6 +1416,7 @@ function setLayout(doc: OpenArchDocument, viewId: string, positions: Record<stri
   if (view.level === "wireframe") throw new OpError("A wireframe view is laid out from its screens and their widgets, so it has no box positions. Move a widget with update-widget.");
   if (view.level === "whiteboard") throw new OpError("A whiteboard view has no boxes. Move a shape with update-shape --at.");
   if (view.level === "flowchart") throw new OpError("A flowchart view has no boxes. Move a block with update-block --at.");
+  if (view.level === "entity") throw new OpError("An entity view has no boxes. Move an entity with update-entity --at.");
   const layout: Record<string, Position> = { ...view.layout };
   for (const [id, pos] of Object.entries(positions)) {
     if (pos === null) {
@@ -1377,7 +1471,7 @@ function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "updat
  */
 function stickyTarget(doc: OpenArchDocument, view: ViewData, viewId: string, on: StickyTargetData): StickyTargetData {
   if (!STICKY_TARGET_LEVELS.includes(view.level)) {
-    throw new OpError(`View "${viewId}" is a ${view.level} view. Only sticky notes on landscape, context, container, component and class views can be on an element or relationship.`);
+    throw new OpError(`View "${viewId}" is ${aOrAn(view.level)} ${view.level} view. Only sticky notes on landscape, context, container, component and class views can be on an element or relationship.`);
   }
   if ("element" in on) {
     requireElement(doc, on.element);
@@ -1476,7 +1570,8 @@ function checkStep(doc: OpenArchDocument, step: StepData): void {
 }
 
 const countSteps = (n: number) => `${n} step${n === 1 ? "" : "s"}`;
-const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+/** `n` of `noun`, in the plural unless it's 1: "1 entity", "2 entities". */
+const count = (n: number, noun: string) => `${n} ${n === 1 ? noun : /[^aeiou]y$/.test(noun) ? `${noun.slice(0, -1)}ies` : `${noun}s`}`;
 
 /** Why a state view can't be given elements to show or hide. */
 const STATE_BOXES = "A state view draws its states, not elements, so it takes no include or exclude list. Add a state with add-state, or remove one with remove-state.";
@@ -1568,7 +1663,7 @@ function updateTransition(doc: OpenArchDocument, op: Extract<Operation, { op: "u
 
 function requireStates(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "state") throw new OpError(`View "${id}" is a ${view.level} view. Only state views have states and transitions.`);
+  if (view.level !== "state") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only state views have states and transitions.`);
   return view;
 }
 
@@ -1789,7 +1884,7 @@ function runList(doc: OpenArchDocument, runs: string[] | undefined): string[] | 
 
 function requireDeployment(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "deployment") throw new OpError(`View "${id}" is a ${view.level} view. Only deployment views have nodes and connections.`);
+  if (view.level !== "deployment") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only deployment views have nodes and connections.`);
   return view;
 }
 
@@ -2006,14 +2101,14 @@ function checkCardKind(kind: string): void {
 
 function requireEvents(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "event") throw new OpError(`View "${id}" is a ${view.level} view. Only event views have cards.`);
+  if (view.level !== "event") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only event views have cards.`);
   return view;
 }
 
 /** An event or flowchart view: those that have lanes. */
 function requireLanes(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "event" && view.level !== "flowchart") throw new OpError(`View "${id}" is a ${view.level} view. Only event and flowchart views have lanes.`);
+  if (view.level !== "event" && view.level !== "flowchart") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only event and flowchart views have lanes.`);
   return view;
 }
 
@@ -2271,7 +2366,7 @@ function checkDevice(device: string): void {
 
 function requireWireframe(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "wireframe") throw new OpError(`View "${id}" is a ${view.level} view. Only wireframe views have screens and widgets.`);
+  if (view.level !== "wireframe") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only wireframe views have screens and widgets.`);
   return view;
 }
 
@@ -2531,7 +2626,7 @@ function updateArrow(doc: OpenArchDocument, op: Extract<Operation, { op: "update
 
 function requireWhiteboard(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "whiteboard") throw new OpError(`View "${id}" is a ${view.level} view. Only whiteboard views have shapes and arrows.`);
+  if (view.level !== "whiteboard") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only whiteboard views have shapes and arrows.`);
   return view;
 }
 
@@ -2688,7 +2783,7 @@ function updateFlow(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
 
 function requireFlowchart(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "flowchart") throw new OpError(`View "${id}" is a ${view.level} view. Only flowchart views have blocks and flows.`);
+  if (view.level !== "flowchart") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only flowchart views have blocks and flows.`);
   return view;
 }
 
@@ -2707,6 +2802,224 @@ function requireFlow(view: ViewData, viewId: string, number: number) {
   const flow = flows[number - 1];
   if (!flow) throw new OpError(flows.length ? `View "${viewId}" has ${count(flows.length, "flow")}: "flow" must be 1 to ${flows.length}.` : `View "${viewId}" has no flows yet.`);
   return flow;
+}
+
+/** Why an entity view can't be given elements to show or hide. */
+const ENTITY_BOXES =
+  "An entity view draws its entities, not elements, so it takes no include or exclude list. Add an entity with add-entity, its attributes with add-attribute, and a link between two with add-link.";
+const ENTITY_ID_EXAMPLE = 'IDs are lowercase kebab-case, like "order-line".';
+
+function addEntity(doc: OpenArchDocument, op: Extract<Operation, { op: "add-entity" }>): string {
+  const view = requireEntityView(doc, op.view);
+  if (!ID_PATTERN.test(op.id)) throw new OpError(`"${op.id}" isn't a valid ID. ${ENTITY_ID_EXAMPLE}`);
+  const entities = (view.entities ??= []);
+  if (entities.some((e) => e.id === op.id)) throw new OpError(`View "${op.view}" already has an entity "${op.id}".`);
+  const entity = clean<EntityData>({ id: op.id, name: op.name?.trim() || titleFromId(op.id), description: op.description?.trim(), at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])] });
+  const at = insertAt(entities, entity, op.position, op.view, "entity");
+  return `added entity ${op.id} to view ${op.view}${at < entities.length ? `, as entity ${at}` : ""}`;
+}
+
+function updateEntity(doc: OpenArchDocument, op: Extract<Operation, { op: "update-entity" }>): string {
+  const view = requireEntityView(doc, op.view);
+  const entity = requireEntity(view, op.view, op.id);
+  const fields = ["newId", "name", "description", "at", "position"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on entity "${op.id}": ${fields.join(", ")}.`);
+  if (op.name !== undefined) {
+    if (!op.name.trim()) throw new OpError("An entity's name can't be empty.");
+    entity.name = op.name.trim();
+  }
+  if (op.description !== undefined) {
+    if (op.description === null || !op.description.trim()) delete entity.description;
+    else entity.description = op.description.trim();
+  }
+  if (op.at === null) delete entity.at;
+  else if (op.at !== undefined) entity.at = [Math.round(op.at[0]), Math.round(op.at[1])];
+  const entities = view.entities!;
+  const moved = moveTo(entities, entities.indexOf(entity), op.position, op.view, "entity");
+  const where = moved ? `, and moved it to entity ${op.position}` : "";
+  if (op.newId === undefined || op.newId === op.id) {
+    // Asked only for the place, or the ID, it has already: say so, as nothing changed.
+    if (fields.every((f) => f === "position" || f === "newId" || op[f] === undefined)) {
+      return moved ? `moved entity ${op.id} to entity ${op.position} in view ${op.view}` : `entity ${op.id} is already ${op.position === undefined ? `"${op.id}"` : `entity ${op.position}`} in view ${op.view}`;
+    }
+    return `updated entity ${op.id} in view ${op.view}${where}`;
+  }
+  // A new ID keeps the entity where it is, and the links to and from it follow it.
+  if (!ID_PATTERN.test(op.newId)) throw new OpError(`"${op.newId}" isn't a valid ID. ${ENTITY_ID_EXAMPLE}`);
+  if (entities.some((e) => e.id === op.newId)) throw new OpError(`View "${op.view}" already has an entity "${op.newId}".`);
+  entity.id = op.newId;
+  for (const l of view.links ?? []) {
+    if (l.from === op.id) l.from = op.newId;
+    if (l.to === op.id) l.to = op.newId;
+  }
+  return `renamed entity ${op.id} to ${op.newId} in view ${op.view}${where}`;
+}
+
+/** Removes an entity, with its attributes, and the links to and from it. */
+function removeEntity(doc: OpenArchDocument, viewId: string, id: string): string {
+  const view = requireEntityView(doc, viewId);
+  const entity = requireEntity(view, viewId, id);
+  view.entities!.splice(view.entities!.indexOf(entity), 1);
+  const before = view.links?.length ?? 0;
+  if (view.links) view.links = view.links.filter((l) => l.from !== id && l.to !== id);
+  const gone = before - (view.links?.length ?? 0);
+  return `removed entity ${id} from view ${viewId}${gone ? ` and ${count(gone, "link")} to or from it` : ""}`;
+}
+
+/** An attribute's name or type: one line, trimmed, which `what` names. */
+function attributeLine(text: string, what: string): string {
+  if (/[\r\n\u2028\u2029]/.test(text)) throw new OpError(`An attribute's ${what} is one line: take out the line break.`);
+  return text.trim();
+}
+
+/** An attribute's keys, checked, each once, in the order of ATTRIBUTE_KEYS; none when it has no key. */
+function attributeKeys(keys: readonly string[] | null | undefined): AttributeKey[] | undefined {
+  for (const key of keys ?? []) checkOneOf(key, ATTRIBUTE_KEYS, "key");
+  const list = ATTRIBUTE_KEYS.filter((k) => keys?.includes(k));
+  return list.length ? list : undefined;
+}
+
+function addAttribute(doc: OpenArchDocument, op: Extract<Operation, { op: "add-attribute" }>): string {
+  const view = requireEntityView(doc, op.view);
+  const entity = requireEntity(view, op.view, op.entity);
+  const name = attributeLine(op.name, "name");
+  if (!name) throw new OpError('An attribute needs a name: what\'s kept, like "email".');
+  const attributes = (entity.attributes ??= []);
+  if (attributes.some((a) => a.name === name)) throw new OpError(`Entity "${op.entity}" already has an attribute "${name}".`);
+  const attribute = clean<AttributeData>({ name, type: op.type === undefined ? undefined : attributeLine(op.type, "type"), keys: attributeKeys(op.keys), description: op.description?.trim() });
+  const at = op.position ?? attributes.length + 1;
+  if (at > attributes.length + 1) throw new OpError(`Entity "${op.entity}" has ${count(attributes.length, "attribute")}, so a new one's position can be 1 to ${attributes.length + 1}.`);
+  attributes.splice(at - 1, 0, attribute);
+  return `added attribute ${name} to entity ${op.entity} in view ${op.view}${at < attributes.length ? `, as attribute ${at}` : ""}`;
+}
+
+function updateAttribute(doc: OpenArchDocument, op: Extract<Operation, { op: "update-attribute" }>): string {
+  const view = requireEntityView(doc, op.view);
+  const entity = requireEntity(view, op.view, op.entity);
+  const attribute = requireAttribute(entity, op.name);
+  const fields = ["newName", "type", "keys", "description", "position"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on attribute "${op.name}": ${fields.join(", ")}.`);
+  const attributes = entity.attributes!;
+  if (op.newName !== undefined) {
+    const name = attributeLine(op.newName, "name");
+    if (!name) throw new OpError("An attribute's name can't be empty.");
+    if (name !== attribute.name && attributes.some((a) => a.name === name)) throw new OpError(`Entity "${op.entity}" already has an attribute "${name}".`);
+    attribute.name = name;
+  }
+  if (op.type !== undefined) {
+    const type = op.type === null ? "" : attributeLine(op.type, "type");
+    if (type) attribute.type = type;
+    else delete attribute.type;
+  }
+  if (op.keys !== undefined) {
+    const keys = attributeKeys(op.keys);
+    if (keys) attribute.keys = keys;
+    else delete attribute.keys;
+  }
+  if (op.description !== undefined) {
+    if (op.description === null || !op.description.trim()) delete attribute.description;
+    else attribute.description = op.description.trim();
+  }
+  const index = attributes.indexOf(attribute);
+  let moved = false;
+  if (op.position !== undefined && op.position !== index + 1) {
+    if (op.position > attributes.length) throw new OpError(`Entity "${op.entity}" has ${count(attributes.length, "attribute")}, so "position" must be 1 to ${attributes.length}.`);
+    attributes.splice(index, 1);
+    attributes.splice(op.position - 1, 0, attribute);
+    moved = true;
+  }
+  const renamed = attribute.name !== op.name ? `renamed attribute ${op.name} to ${attribute.name}` : `updated attribute ${op.name}`;
+  if (fields.every((f) => f === "position" || op[f] === undefined)) {
+    return moved ? `moved attribute ${op.name} to attribute ${op.position} of entity ${op.entity} in view ${op.view}` : `attribute ${op.name} is already attribute ${index + 1} of entity ${op.entity} in view ${op.view}`;
+  }
+  return `${renamed} of entity ${op.entity} in view ${op.view}${moved ? `, and moved it to attribute ${op.position}` : ""}`;
+}
+
+/** Each end's cardinality, checked. */
+function checkCardinality(cardinality: readonly string[]): [Cardinality, Cardinality] {
+  for (const c of cardinality) checkOneOf(c, CARDINALITIES, "cardinality");
+  return [cardinality[0] as Cardinality, cardinality[1] as Cardinality];
+}
+
+/** Refuses a link to or from an entity the view doesn't have, and one it has already: the same ends and text. An entity can link to itself. */
+function checkLink(view: ViewData, viewId: string, link: { from: string; to: string; text?: string }, other?: object): void {
+  requireEntity(view, viewId, link.from);
+  requireEntity(view, viewId, link.to);
+  const same = (view.links ?? []).find((l) => l !== other && l.from === link.from && l.to === link.to && (l.text ?? "") === (link.text ?? ""));
+  if (same) throw new OpError(`View "${viewId}" already has a link from "${link.from}" to "${link.to}"${link.text ? ` that says "${link.text}"` : ""}: link ${view.links!.indexOf(same) + 1}.`);
+}
+
+/** A link's cardinality as the file keeps it: left out when it's the default, one, then zero or more. */
+function keptCardinality(c: [Cardinality, Cardinality] | undefined): [Cardinality, Cardinality] | undefined {
+  return c && (c[0] !== DEFAULT_CARDINALITY[0] || c[1] !== DEFAULT_CARDINALITY[1]) ? c : undefined;
+}
+
+function addLink(doc: OpenArchDocument, op: Extract<Operation, { op: "add-link" }>): string {
+  const view = requireEntityView(doc, op.view);
+  const link = clean<EntityLinkData>({ from: op.from, to: op.to, cardinality: keptCardinality(op.cardinality && checkCardinality(op.cardinality)), text: op.text?.trim() });
+  checkLink(view, op.view, link);
+  const links = (view.links ??= []);
+  const at = op.link ?? links.length + 1;
+  if (at > links.length + 1) throw new OpError(`View "${op.view}" has ${count(links.length, "link")}, so a new one can be link 1 to ${links.length + 1}.`);
+  links.splice(at - 1, 0, link);
+  return `added link ${at} to view ${op.view}: ${op.from} -> ${op.to}`;
+}
+
+function updateLink(doc: OpenArchDocument, op: Extract<Operation, { op: "update-link" }>): string {
+  const view = requireEntityView(doc, op.view);
+  const link = requireLink(view, op.view, op.link);
+  const fields = ["from", "to", "cardinality", "text", "newLink"] as const;
+  if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on link ${op.link}: ${fields.join(", ")}.`);
+  const next = { from: op.from ?? link.from, to: op.to ?? link.to, text: op.text === undefined ? link.text : op.text?.trim() || undefined };
+  if (op.from !== undefined || op.to !== undefined || op.text !== undefined) checkLink(view, op.view, next, link);
+  const cardinality = op.cardinality === undefined ? link.cardinality : keptCardinality(op.cardinality === null ? undefined : checkCardinality(op.cardinality));
+  link.from = next.from;
+  link.to = next.to;
+  if (next.text) link.text = next.text;
+  else delete link.text;
+  if (cardinality) link.cardinality = cardinality;
+  else delete link.cardinality;
+  const links = view.links!;
+  if (op.newLink !== undefined && op.newLink !== op.link) {
+    if (op.newLink > links.length) throw new OpError(`View "${op.view}" has ${count(links.length, "link")}, so "newLink" must be 1 to ${links.length}.`);
+    links.splice(op.link - 1, 1);
+    links.splice(op.newLink - 1, 0, link);
+    return `moved link ${op.link} to ${op.newLink} in view ${op.view}`;
+  }
+  return `updated link ${op.link} in view ${op.view}`;
+}
+
+function requireEntityView(doc: OpenArchDocument, id: string): ViewData {
+  const view = requireView(doc, id);
+  if (view.level !== "entity") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only entity views have entities, attributes and links.`);
+  return view;
+}
+
+function requireEntity(view: ViewData, viewId: string, id: string): EntityData {
+  const entity = view.entities?.find((e) => e.id === id);
+  if (!entity) {
+    const ids = (view.entities ?? []).map((e) => e.id);
+    const near = suggest(id, ids);
+    throw new OpError(`View "${viewId}" has no entity "${id}".${near ? ` Did you mean "${near}"?` : ids.length ? ` Its entities: ${ids.join(", ")}.` : " Add one with add-entity."}`);
+  }
+  return entity;
+}
+
+function requireAttribute(entity: EntityData, name: string): AttributeData {
+  const attribute = entity.attributes?.find((a) => a.name === name);
+  if (!attribute) {
+    const names = (entity.attributes ?? []).map((a) => a.name);
+    const near = suggest(name, names);
+    throw new OpError(`Entity "${entity.id}" has no attribute "${name}".${near ? ` Did you mean "${near}"?` : names.length ? ` Its attributes: ${names.join(", ")}.` : " Add one with add-attribute."}`);
+  }
+  return attribute;
+}
+
+function requireLink(view: ViewData, viewId: string, number: number): EntityLinkData {
+  const links = view.links ?? [];
+  const link = links[number - 1];
+  if (!link) throw new OpError(links.length ? `View "${viewId}" has ${count(links.length, "link")}: "link" must be 1 to ${links.length}.` : `View "${viewId}" has no links yet.`);
+  return link;
 }
 
 function updateWorkspace(doc: OpenArchDocument, op: Extract<Operation, { op: "update-workspace" }>): string {
@@ -2761,7 +3074,7 @@ function requireView(doc: OpenArchDocument, id: string): ViewData {
 
 function requireSequence(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
-  if (view.level !== "sequence") throw new OpError(`View "${id}" is a ${view.level} view. Only sequence views have steps.`);
+  if (view.level !== "sequence") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only sequence views have steps.`);
   return view;
 }
 

@@ -3,12 +3,15 @@
  * reports every problem it finds; writing always produces the same canonical
  * text for the same model, so diffs stay small and merges stay local.
  */
-import { KIND_RANK, tagEntries } from "./model.js";
+import { aOrAn, KIND_RANK, tagEntries } from "./model.js";
 import {
   ARROW_HEADS,
   ARROW_SIDES,
+  ATTRIBUTE_KEYS,
   BLOCK_KINDS,
+  CARDINALITIES,
   CARD_KINDS,
+  DEFAULT_CARDINALITY,
   ELEMENT_KINDS,
   ELEMENT_SHAPES,
   FORMAT_VERSION,
@@ -26,15 +29,20 @@ import {
   type ArrowData,
   type ArrowEnd,
   type ArrowSide,
+  type AttributeData,
+  type AttributeKey,
   type BlockData,
   type BlockKind,
   type CardData,
   type CardKind,
+  type Cardinality,
   type ConnectionData,
   type DeploymentNodeData,
   type Diagnostic,
   type ElementData,
   type ElementShape,
+  type EntityData,
+  type EntityLinkData,
   type FlowData,
   type LaneData,
   type OpenArchDocument,
@@ -116,12 +124,14 @@ const VIEW_KEYS = [
   "arrows",
   "blocks",
   "flows",
+  "entities",
+  "links",
   "stickies",
   "layout",
 ];
 /** Views that draw something other than boxes picked from the model. */
-type OwnLevel = "sequence" | "state" | "deployment" | "event" | "wireframe" | "whiteboard" | "flowchart";
-/** Fields only sequence, state, deployment, event, wireframe, whiteboard and flowchart views take, and those they don't, with why. */
+type OwnLevel = "sequence" | "state" | "deployment" | "event" | "wireframe" | "whiteboard" | "flowchart" | "entity";
+/** Fields only sequence, state, deployment, event, wireframe, whiteboard, flowchart and entity views take, and those they don't, with why. */
 const ONLY_ON: Record<string, OwnLevel | OwnLevel[]> = {
   steps: "sequence",
   initial: "state",
@@ -136,6 +146,8 @@ const ONLY_ON: Record<string, OwnLevel | OwnLevel[]> = {
   arrows: "whiteboard",
   blocks: "flowchart",
   flows: "flowchart",
+  entities: "entity",
+  links: "entity",
 };
 const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   sequence: { fields: ["include", "exclude", "layout"], why: "they show the elements in their steps, in the order they first appear" },
@@ -145,6 +157,7 @@ const NOT_ON: Record<OwnLevel, { fields: string[]; why: string }> = {
   wireframe: { fields: ["include", "exclude", "layout"], why: "they show their screens in order, each drawn from its widgets" },
   whiteboard: { fields: ["scope", "include", "exclude", "layout"], why: "they show their shapes and arrows, each where it's put" },
   flowchart: { fields: ["include", "exclude", "layout"], why: "they show their blocks, each where its `at` puts it, or laid out from the first down" },
+  entity: { fields: ["include", "exclude", "layout"], why: "they show their entities, each where its `at` puts it, or laid out automatically" },
 };
 const LEVEL_NAME: Record<OwnLevel, string> = {
   sequence: "Sequence",
@@ -154,6 +167,7 @@ const LEVEL_NAME: Record<OwnLevel, string> = {
   wireframe: "Wireframe",
   whiteboard: "Whiteboard",
   flowchart: "Flowchart",
+  entity: "Entity",
 };
 const STATE_KEYS = ["name", "description", "final", "at"];
 const TRANSITION_KEYS = ["from", "to", "event", "guard", "action"];
@@ -168,6 +182,9 @@ const ARROW_KEYS = ["id", "from", "to", "text", "heads", "color", "dashed"];
 const ARROW_END_KEYS = ["shape", "side"];
 const BLOCK_KEYS = ["id", "kind", "text", "description", "lane", "at"];
 const FLOW_KEYS = ["from", "to", "text"];
+const ENTITY_KEYS = ["id", "name", "description", "attributes", "at"];
+const ATTRIBUTE_FIELDS = ["name", "type", "keys", "description"];
+const LINK_KEYS = ["from", "to", "cardinality", "text"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "on", "color", "at"];
 const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
@@ -289,6 +306,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 15) out = { ...out, openarch: 16 };
   // Version 17 added lanes to flowchart views, so a version 16 file means the same in it.
   if (out.openarch === 16) out = { ...out, openarch: 17 };
+  // Version 18 added entity views, so a version 17 file means the same in it.
+  if (out.openarch === 17) out = { ...out, openarch: 18 };
   return out;
 }
 
@@ -441,8 +460,9 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
   const wireframe = view.level === "wireframe";
   const whiteboard = view.level === "whiteboard";
   const flowchart = view.level === "flowchart";
+  const entities = view.level === "entity";
   // Boxes come from include and exclude, and are placed by layout, only on the other views.
-  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard && !flowchart;
+  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard && !flowchart && !entities;
   const own = boxes ? undefined : (view.level as OwnLevel);
   for (const key of Object.keys(value)) {
     const only = ONLY_ON[key];
@@ -607,6 +627,31 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
         value.flows.forEach((item, i) => {
           const flow = readFlow(item, `${path}.flows[${i}]`, report);
           if (flow) view.flows!.push(flow);
+        });
+      }
+    }
+  }
+  if (entities) {
+    // An entity with the ID of one before it is left out: every link to it would mean the first.
+    if (value.entities !== undefined) {
+      if (!Array.isArray(value.entities)) report(`${path}.entities`, "field-type", "Must be a list of entities.");
+      else {
+        view.entities = [];
+        value.entities.forEach((item, i) => {
+          const e = readEntity(item, `${path}.entities[${i}]`, report);
+          if (!e) return;
+          if (view.entities!.some((other) => other.id === e.id)) report(`${path}.entities[${i}].id`, "id-duplicate", `"${e.id}" is the ID of two entities of this view.`, "Give one of them another ID.");
+          else view.entities!.push(e);
+        });
+      }
+    }
+    if (value.links !== undefined) {
+      if (!Array.isArray(value.links)) report(`${path}.links`, "field-type", "Must be a list of links.");
+      else {
+        view.links = [];
+        value.links.forEach((item, i) => {
+          const link = readLink(item, `${path}.links[${i}]`, report);
+          if (link) view.links!.push(link);
         });
       }
     }
@@ -1070,6 +1115,94 @@ function readFlow(value: unknown, path: string, report: Report): FlowData | unde
   return flow;
 }
 
+function readEntity(value: unknown, path: string, report: Report): EntityData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'An entity must be an object like { "id": "order", "name": "Order" }.');
+    return undefined;
+  }
+  unknownKeys(value, ENTITY_KEYS, path, report);
+  const id = str(value.id, `${path}.id`, report);
+  if (!id) {
+    report(`${path}.id`, "field-required", "`id` is required: an ID unique among the view's entities.");
+    return undefined;
+  }
+  if (!readId(id, `${path}.id`, report)) return undefined;
+  const name = str(value.name, `${path}.name`, report);
+  if (!name?.trim()) report(`${path}.name`, "field-required", "`name` is required.");
+  const entity: EntityData = { id, name: name?.trim() ? name : id };
+  const description = str(value.description, `${path}.description`, report);
+  if (description !== undefined) entity.description = description;
+  if (value.attributes !== undefined) {
+    if (!Array.isArray(value.attributes)) report(`${path}.attributes`, "field-type", "Must be a list of attributes.");
+    else {
+      // An attribute with the name of one before it is left out: it would say something else about the same thing.
+      entity.attributes = [];
+      value.attributes.forEach((item, i) => {
+        const a = readAttribute(item, `${path}.attributes[${i}]`, report);
+        if (!a) return;
+        if (entity.attributes!.some((other) => other.name === a.name)) {
+          report(`${path}.attributes[${i}].name`, "attribute-duplicate", `"${a.name}" is the name of two attributes of the entity "${id}".`, "Give one of them another name, or remove it.");
+        } else entity.attributes!.push(a);
+      });
+    }
+  }
+  if (value.at !== undefined) {
+    if (isPoint(value.at)) entity.at = value.at;
+    else report(`${path}.at`, "field-type", "Must be a position, [x, y].");
+  }
+  return entity;
+}
+
+function readAttribute(value: unknown, path: string, report: Report): AttributeData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'An attribute must be an object like { "name": "id", "type": "uuid", "keys": ["pk"] }.');
+    return undefined;
+  }
+  unknownKeys(value, ATTRIBUTE_FIELDS, path, report);
+  const name = str(value.name, `${path}.name`, report);
+  if (!name?.trim()) {
+    report(`${path}.name`, "field-required", '`name` is required: what\'s kept, like "email".');
+    return undefined;
+  }
+  const attribute: AttributeData = { name };
+  for (const key of ["type", "description"] as const) {
+    const v = str(value[key], `${path}.${key}`, report);
+    if (v !== undefined) attribute[key] = v;
+  }
+  const keys = strList(value.keys, `${path}.keys`, report);
+  if (keys) {
+    const known = keys.filter((k): k is AttributeKey => (ATTRIBUTE_KEYS as readonly string[]).includes(k));
+    if (known.length < keys.length) report(`${path}.keys`, "attribute-key-invalid", `Each of \`keys\` must be one of: ${ATTRIBUTE_KEYS.join(", ")}.`);
+    attribute.keys = known;
+  }
+  return attribute;
+}
+
+function readLink(value: unknown, path: string, report: Report): EntityLinkData | undefined {
+  if (!isObject(value)) {
+    report(path, "field-type", 'A link must be an object like { "from": "customer", "to": "order", "text": "places" }.');
+    return undefined;
+  }
+  unknownKeys(value, LINK_KEYS, path, report);
+  const from = str(value.from, `${path}.from`, report);
+  const to = str(value.to, `${path}.to`, report);
+  if (!from) report(`${path}.from`, "field-required", "`from` is required: the ID of the entity at one end.");
+  if (!to) report(`${path}.to`, "field-required", "`to` is required: the ID of the entity at the other end.");
+  if (!from || !to) return undefined;
+  const link: EntityLinkData = { from, to };
+  if (value.cardinality !== undefined) {
+    const c = value.cardinality;
+    if (!Array.isArray(c) || c.length !== 2 || !c.every((v) => typeof v === "string")) {
+      report(`${path}.cardinality`, "field-type", 'Must say how many of each end there can be, `from`\'s then `to`\'s, like ["one", "zero-or-more"].');
+    } else if (!c.every((v) => (CARDINALITIES as readonly string[]).includes(v))) {
+      report(`${path}.cardinality`, "cardinality-invalid", `Each end's cardinality must be one of: ${CARDINALITIES.join(", ")}.`);
+    } else link.cardinality = c as [Cardinality, Cardinality];
+  }
+  const text = str(value.text, `${path}.text`, report);
+  if (text !== undefined) link.text = text;
+  return link;
+}
+
 /** `own`: the view's level, when it draws something other than boxes picked from the model, whose notes can't be on anything. */
 function readSticky(id: string, value: unknown, path: string, report: Report, own: OwnLevel | undefined): StickyData | undefined {
   if (!readId(id, path, report)) return undefined;
@@ -1086,7 +1219,7 @@ function readSticky(id: string, value: unknown, path: string, report: Report, ow
   const sticky: StickyData = { text };
   if (value.on !== undefined) {
     if (own) {
-      report(`${path}.on`, "field-not-allowed", `Only sticky notes on landscape, context, container, component and class views can be on an element or relationship, and this is a ${own} view.`, "Remove `on`.");
+      report(`${path}.on`, "field-not-allowed", `Only sticky notes on landscape, context, container, component and class views can be on an element or relationship, and this is ${aOrAn(own)} ${own} view.`, "Remove `on`.");
     } else {
       const on = readStickyTarget(value.on, `${path}.on`, report);
       if (on) sticky.on = on;
@@ -1265,6 +1398,23 @@ function widgetText(w: WidgetData, indent: string): string {
   return block(entries, indent);
 }
 
+/** An entity as a block, its attributes a list in it, an attribute to a line. An attribute's keys are each written once, in the order of ATTRIBUTE_KEYS. */
+function entityText(e: EntityData, indent: string): string {
+  const entries: [string, string][] = [
+    ["id", JSON.stringify(e.id)],
+    ["name", JSON.stringify(e.name)],
+  ];
+  if (present(e.description, (d) => d !== "")) entries.push(["description", JSON.stringify(e.description)]);
+  const keys = (a: AttributeData) => {
+    const list = ATTRIBUTE_KEYS.filter((k) => a.keys?.includes(k));
+    return list.length ? list : undefined;
+  };
+  const attribute = (a: AttributeData) => inline({ name: a.name, type: a.type || undefined, keys: keys(a), description: a.description || undefined });
+  entries.push(["attributes", listText((e.attributes ?? []).map(attribute), indent)]);
+  if (e.at) entries.push(["at", inline(e.at.map((n) => Math.round(n)))]);
+  return block(entries, indent);
+}
+
 function viewText(v: ViewData, indent: string): string {
   const entries: [string, string][] = [["title", JSON.stringify(v.title)]];
   if (present(v.description, (d) => d !== "")) entries.push(["description", JSON.stringify(v.description)]);
@@ -1276,7 +1426,8 @@ function viewText(v: ViewData, indent: string): string {
   const wireframe = v.level === "wireframe";
   const whiteboard = v.level === "whiteboard";
   const flowchart = v.level === "flowchart";
-  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard && !flowchart;
+  const entities = v.level === "entity";
+  const boxes = !sequence && !statesView && !deployment && !events && !wireframe && !whiteboard && !flowchart && !entities;
   if (present(v.scope)) entries.push(["scope", JSON.stringify(v.scope)]);
   if (boxes) entries.push(["include", inline(v.include ?? ["*"])]);
   if (boxes && present(v.exclude, (x) => x.length > 0)) entries.push(["exclude", inline(v.exclude)]);
@@ -1348,6 +1499,11 @@ function viewText(v: ViewData, indent: string): string {
       inline({ id: b.id, kind: b.kind && b.kind !== "process" ? b.kind : undefined, text: b.text, description: b.description || undefined, lane: b.lane || undefined, at: b.at?.map((n) => Math.round(n)) });
     entries.push(["blocks", listText((v.blocks ?? []).map(blockLine), indent)]);
     entries.push(["flows", listText((v.flows ?? []).map((f) => inline({ from: f.from, to: f.to, text: f.text || undefined })), indent)]);
+  }
+  if (entities) {
+    entries.push(["entities", listText((v.entities ?? []).map((e) => entityText(e, `${indent}    `)), indent)]);
+    const cardinality = (c: EntityLinkData["cardinality"]) => (c && (c[0] !== DEFAULT_CARDINALITY[0] || c[1] !== DEFAULT_CARDINALITY[1]) ? c : undefined);
+    entries.push(["links", listText((v.links ?? []).map((l) => inline({ from: l.from, to: l.to, cardinality: cardinality(l.cardinality), text: l.text || undefined })), indent)]);
   }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();

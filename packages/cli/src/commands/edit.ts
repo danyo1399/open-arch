@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { applyOperations, buildWorkspace, OpError, parseOperations, type ArrowEnd, type NewElements, type Operation, type Position, type RelationshipKind, type StickyTargetData, type TagChanges, type Tags } from "@open-arch/core";
+import { aOrAn, applyOperations, buildWorkspace, OpError, parseOperations, type ArrowEnd, type AttributeKey, type Cardinality, type NewElements, type Operation, type Position, type RelationshipKind, type StickyTargetData, type TagChanges, type Tags } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { formatDiagnostic } from "./check.js";
@@ -112,11 +112,11 @@ function notes(io: Io, v: Values): string | null | undefined {
   }
 }
 
-/** A step's, transition's, connection's or flow's number, or a lane's, card's, screen's, widget's or block's position, from `--<name> <n>` or a positional argument: 1 is the first. */
+/** A step's, transition's, connection's, flow's or link's number, or a lane's, card's, screen's, widget's, block's, entity's or attribute's position, from `--<name> <n>` or a positional argument: 1 is the first. */
 function stepNumber(v: Values[string], name: string, what = "step"): number | undefined {
   if (v === undefined) return undefined;
   const n = Number(v);
-  if (typeof v !== "string" || !Number.isInteger(n) || n < 1) throw new CliError(`${name} must be a ${what}'s number: 1 is the first.`, 2);
+  if (typeof v !== "string" || !Number.isInteger(n) || n < 1) throw new CliError(`${name} must be ${aOrAn(what)} ${what}'s number: 1 is the first.`, 2);
   return n;
 }
 
@@ -180,6 +180,22 @@ function arrowEnd(v: Values[string], name: string): ArrowEnd | undefined {
   const parts = v.split(",").map((n) => Number(n.trim()));
   if (parts.length !== 2 || !parts.every(Number.isFinite)) throw new CliError(`${name} needs a shape's ID or a point, x,y, e.g. ${name} 400,120, not "${v}".`, 2);
   return parts as [number, number];
+}
+
+/** A link's `--cardinality one,zero-or-more`: how many of its `from`, then of its `to`. In an update, an empty value means "back to one, then zero or more". */
+function cardinality(v: Values[string]): [Cardinality, Cardinality] | null | undefined {
+  if (typeof v !== "string") return undefined;
+  if (v.trim() === "") return null;
+  const parts = v.split(",").map((c) => c.trim());
+  if (parts.length !== 2 || parts.some((c) => !c)) throw new CliError(`--cardinality needs how many of each end there can be, from's then to's, e.g. --cardinality one,zero-or-more, not "${v}".`, 2);
+  return parts as [Cardinality, Cardinality];
+}
+
+/** An attribute's `--key pk,fk`. In an update, an empty value means "no key". */
+function keys(v: Values[string]): AttributeKey[] | null | undefined {
+  if (typeof v !== "string") return undefined;
+  const parts = list(v)!;
+  return parts.length ? (parts as AttributeKey[]) : null;
 }
 
 /** What a sticky note is on: `--element <id>`, or `--from <id> --to <id>` and maybe `--kind`. `--detach`, in an update, takes it off. */
@@ -291,7 +307,7 @@ export const BUILDERS: Record<string, Builder> = {
   "add-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
     const level = text(v.level);
-    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment, event, wireframe, whiteboard or flowchart.\n\n${usage}`, 2);
+    if (!level) throw new CliError(`Pass --level: landscape, context, container, component, class, sequence, state, deployment, event, wireframe, whiteboard, flowchart or entity.\n\n${usage}`, 2);
     return [
       {
         op: "add-view",
@@ -735,6 +751,87 @@ export const BUILDERS: Record<string, Builder> = {
   "remove-flow": (_io, _v, p, usage) => {
     const [view, n] = need(p, ["<view>", "<n>"], usage);
     return [{ op: "remove-flow", view: view!, flow: stepNumber(n, "<n>", "flow")! }];
+  },
+  "add-entity": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "add-entity", view: view!, id: id!, name: text(v.name), description: text(v.description), at: point(v.at) ?? undefined, position: stepNumber(v.position, "--position", "entity") }];
+  },
+  "update-entity": (_io, v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [
+      {
+        op: "update-entity",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        name: text(v.name),
+        description: clearable(v.description),
+        at: point(v.at),
+        position: stepNumber(v.position, "--position", "entity"),
+      },
+    ];
+  },
+  "remove-entity": (_io, _v, p, usage) => {
+    const [view, id] = need(p, ["<view>", "<id>"], usage);
+    return [{ op: "remove-entity", view: view!, id: id! }];
+  },
+  "add-attribute": (_io, v, p, usage) => {
+    const [view, entity, name] = need(p, ["<view>", "<entity>", "<name>"], usage);
+    return [
+      {
+        op: "add-attribute",
+        view: view!,
+        entity: entity!,
+        name: name!,
+        type: text(v.type),
+        keys: keys(v.key) ?? undefined,
+        description: text(v.description),
+        position: stepNumber(v.position, "--position", "attribute"),
+      },
+    ];
+  },
+  "update-attribute": (_io, v, p, usage) => {
+    const [view, entity, name] = need(p, ["<view>", "<entity>", "<name>"], usage);
+    return [
+      {
+        op: "update-attribute",
+        view: view!,
+        entity: entity!,
+        name: name!,
+        newName: text(v["new-name"]),
+        type: clearable(v.type),
+        keys: keys(v.key),
+        description: clearable(v.description),
+        position: stepNumber(v.position, "--position", "attribute"),
+      },
+    ];
+  },
+  "remove-attribute": (_io, _v, p, usage) => {
+    const [view, entity, name] = need(p, ["<view>", "<entity>", "<name>"], usage);
+    return [{ op: "remove-attribute", view: view!, entity: entity!, name: name! }];
+  },
+  "add-link": (_io, v, p, usage) => {
+    const [view, from, to] = need(p, ["<view>", "<from>", "<to>"], usage);
+    return [{ op: "add-link", view: view!, from: from!, to: to!, cardinality: cardinality(v.cardinality) ?? undefined, text: text(v.text), link: stepNumber(v.link, "--link", "link") }];
+  },
+  "update-link": (_io, v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [
+      {
+        op: "update-link",
+        view: view!,
+        link: stepNumber(n, "<n>", "link")!,
+        from: text(v.from),
+        to: text(v.to),
+        cardinality: cardinality(v.cardinality),
+        text: clearable(v.text),
+        newLink: stepNumber(v["move-to"], "--move-to", "link"),
+      },
+    ];
+  },
+  "remove-link": (_io, _v, p, usage) => {
+    const [view, n] = need(p, ["<view>", "<n>"], usage);
+    return [{ op: "remove-link", view: view!, link: stepNumber(n, "<n>", "link")! }];
   },
   "update-workspace": (_io, v, p, usage) => {
     need(p, [], usage);

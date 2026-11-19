@@ -83,8 +83,9 @@ a sequence view, its steps in order, for a state view, its states and transition
 deployment view, its nodes and what runs in them, its connections and the arrows it draws, for
 an event view, its lanes, and its cards in order with the cards each comes from, or for a
 wireframe view, its screens in order, each with its widgets and the screens they lead to, for
-a whiteboard view, its shapes from the back to the front, and its arrows, or for a flowchart
-view, its lanes, its blocks in order, and its flows.
+a whiteboard view, its shapes from the back to the front, and its arrows, for a flowchart
+view, its lanes, its blocks in order, and its flows, or for an entity view, its entities in
+order, each with its attributes, and its links with how many of each end there can be.
 A class's members, a relationship's kind when it isn't an association, a container's
 libraries and the containers a library is built into are shown too.
 `,
@@ -127,7 +128,9 @@ remove-transition, add-node, update-node, remove-node, add-connection, update-co
 remove-connection, add-lane, update-lane, remove-lane, add-card, update-card, remove-card,
 add-screen, update-screen, remove-screen, add-widget, update-widget, remove-widget,
 add-shape, update-shape, remove-shape, add-arrow, update-arrow, remove-arrow, add-block,
-update-block, remove-block, add-flow, update-flow, remove-flow, update-workspace.
+update-block, remove-block, add-flow, update-flow, remove-flow, add-entity, update-entity,
+remove-entity, add-attribute, update-attribute, remove-attribute, add-link, update-link,
+remove-link, update-workspace.
 In updates, null removes a field.
 `,
     {},
@@ -233,7 +236,7 @@ An empty value removes a field.
     { index: s },
   ),
   "add-view": writer(
-    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event|wireframe|whiteboard|flowchart> [options]
+    `Usage: open-arch add-view <id> --level <landscape|context|container|component|class|sequence|state|deployment|event|wireframe|whiteboard|flowchart|entity> [options]
 
 A class view shows a component's or library's classes, with their members, as a UML class
 diagram.
@@ -261,15 +264,21 @@ decisions on the way, and the arrows from one to the next. Add its blocks with a
 the flows between them with add-flow, and with add-lane, a lane, a column for the blocks of
 one actor, team or system. Its scope, if any, is the element of any kind whose
 process it is. It takes no include or exclude.
+An entity view shows the data something keeps, as an entity-relationship diagram (ERD): its
+entities, like a database's tables, each with its attributes, and the links between them,
+with how many of each end there can be. Add its entities with add-entity, their attributes
+with add-attribute and the links with add-link. Its scope, if any, is the system, container,
+component or library whose data it is, like a database. It takes no include or exclude.
   --scope <id>           A system for context and container views, a container or library
                          for component views, a component or library for class views, for
                          state views, if any, the element of any kind they're the states of,
                          for wireframe views, if any, the system or container whose screens
-                         they are, and for flowchart views, if any, the element of any kind
-                         whose process they show
+                         they are, for flowchart views, if any, the element of any kind whose
+                         process they show, and for entity views, if any, the system,
+                         container, component or library whose data they show
   --title <title>        Default: from the scope and level, or for a sequence, deployment,
-                         event or whiteboard view, or a state, wireframe or flowchart view
-                         without a scope, from the id
+                         event or whiteboard view, or a state, wireframe, flowchart or
+                         entity view without a scope, from the id
   --description <text>   One sentence, shown under the title
   --include <a,b>        What to show (default: *, the scope's contents and what they connect to)
   --exclude <a,b>        What to hide
@@ -723,6 +732,86 @@ An empty value removes a field.
     { from: s, to: s, text: s, "move-to": s },
   ),
   "remove-flow": writer(`Usage: open-arch remove-flow <view> <n>\n\nRemoves flow <n>; the ones after it move up one.\n`, {}),
+  "add-entity": writer(
+    `Usage: open-arch add-entity <view> <id> [--name <name>] [--description <text>] [--at <x,y>] [--position <n>]
+
+Adds an entity to an entity view, like "order": a thing whose data is kept, like a database's
+table. The id must be unique among the view's entities. Add what's kept about it with
+add-attribute.
+  --name <name>          Default: from the id
+  --description <text>   One sentence, shown under its name
+  --at <x,y>             Top-left corner (default: the designer lays it out)
+  --position <n>         Its place in the view's list of entities: 1 is the first (default: last)
+`,
+    { name: s, description: s, at: s, position: s },
+  ),
+  "update-entity": writer(
+    `Usage: open-arch update-entity <view> <id> [--name <name>] [--new-id <id>] [--description <text>] [--at <x,y>]
+                              [--position <n>]
+
+--new-id changes its ID, and the links to and from it follow it.
+--at "" lets the designer lay it out again.
+--position moves it to that place in the view's list of entities: 1 is the first.
+An empty value removes a field. An entity needs a name, so --name "" is refused.
+`,
+    { name: s, "new-id": s, description: s, at: s, position: s },
+  ),
+  "remove-entity": writer(`Usage: open-arch remove-entity <view> <id>\n\nRemoves an entity, with its attributes, and the links to and from it.\n`, {}),
+  "add-attribute": writer(
+    `Usage: open-arch add-attribute <view> <entity> <name> [--type <type>] [--key <pk,fk,uk>] [--description <text>]
+                              [--position <n>]
+
+Adds an attribute to an entity of an entity view: something kept about it, like a table's
+column, such as "email". Its name must be unique among the entity's attributes.
+  --type <type>          What it holds, like uuid, text or decimal(10,2)
+  --key <pk,fk,uk>       The keys it's part of: pk, its primary key, or part of it; fk, a
+                         foreign key, which names one of another entity; uk, unique, so no
+                         two of the entity have the same
+  --description <text>   One sentence, shown in the docs
+  --position <n>         Its place among the entity's attributes: 1 is the first (default: last)
+`,
+    { type: s, key: s, description: s, position: s },
+  ),
+  "update-attribute": writer(
+    `Usage: open-arch update-attribute <view> <entity> <name> [--new-name <name>] [--type <type>] [--key <pk,fk,uk>]
+                                 [--description <text>] [--position <n>]
+
+<name> is the attribute's name now. --key replaces its keys: pk, fk or uk, or several, like
+--key pk,fk.
+--position moves it to that place among the entity's attributes: 1 is the first.
+An empty value removes a field: --key "" leaves it no key. An attribute needs a name, so
+--new-name "" is refused.
+`,
+    { "new-name": s, type: s, key: s, description: s, position: s },
+  ),
+  "remove-attribute": writer(`Usage: open-arch remove-attribute <view> <entity> <name>\n`, {}),
+  "add-link": writer(
+    `Usage: open-arch add-link <view> <from> <to> [--cardinality <from's,to's>] [--text <text>] [--link <n>]
+
+Adds a link between two entities of an entity view, or from one to itself: a relationship,
+in an ERD's terms, like a customer placing orders.
+  --cardinality <a,b>    How many of each end there can be: of <from> for each <to>, then of
+                         <to> for each <from>, each one (exactly one), zero-or-one,
+                         one-or-more or zero-or-more. Drawn in crow's foot notation, each at
+                         its end (default: one,zero-or-more, like one customer to their orders)
+  --text <text>          What it says, like "places"
+  --link <n>             Its number: 1 is the first (default: after the last)
+`,
+    { cardinality: s, text: s, link: s },
+  ),
+  "update-link": writer(
+    `Usage: open-arch update-link <view> <n> [--from <id>] [--to <id>] [--cardinality <from's,to's>] [--text <text>]
+                            [--move-to <n>]
+
+<n> is the link's number, as show prints it: 1 is the first.
+  --cardinality <a,b>    How many of each end there can be, as add-link takes it; ""
+                         puts it back to one,zero-or-more
+  --move-to <n>          Give it another number; the ones between move up or down one
+An empty value removes a field.
+`,
+    { from: s, to: s, cardinality: s, text: s, "move-to": s },
+  ),
+  "remove-link": writer(`Usage: open-arch remove-link <view> <n>\n\nRemoves link <n>; the ones after it move up one.\n`, {}),
   "update-workspace": writer(
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
@@ -761,6 +850,10 @@ Change (each change is checked first; nothing is saved if it would break the mod
   add-arrow <view> <id>           update-arrow <view> <id>        remove-arrow <view> <id>
   add-block <view> <id>           update-block <view> <id>        remove-block <view> <id>
   add-flow <view> <from> <to>     update-flow <view> <n>          remove-flow <view> <n>
+  add-entity <view> <id>          update-entity <view> <id>       remove-entity <view> <id>
+  add-attribute <view> <entity> <name>    update-attribute <view> <entity> <name>
+  remove-attribute <view> <entity> <name>
+  add-link <view> <from> <to>     update-link <view> <n>          remove-link <view> <n>
   apply [file | -]       Several changes from JSON, all or nothing
 
 Other:

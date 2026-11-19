@@ -9,9 +9,10 @@
  * widgets that lead to other screens.
  * A whiteboard view shows its shapes and arrows, each where it's put.
  * A flowchart view shows its blocks, each where it's put, and the flows between them.
+ * An entity view shows its entities, each where it's put, and the links between them.
  */
 import type { Workspace } from "./workspace.js";
-import { builtInto, childrenOf, compareElements, containerOf, inFrame, kindList, libraryOf, lineage, topLevel } from "./model.js";
+import { aOrAn, builtInto, childrenOf, compareElements, containerOf, inFrame, kindList, libraryOf, lineage, topLevel } from "./model.js";
 import { suggest } from "./suggest.js";
 import {
   ELEMENT_KINDS,
@@ -146,6 +147,8 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   whiteboard: [],
   // Optional: the element whose process the flowchart shows, of any kind.
   flowchart: ELEMENT_KINDS,
+  // Optional: the element whose data the view shows, like a database.
+  entity: ["system", "container", "component", "library"],
 };
 
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
@@ -167,15 +170,15 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
   }
   if (view.scope === undefined) {
-    if (view.level === "state" || view.level === "wireframe" || view.level === "flowchart") return [];
-    return [{ ...at, severity: "error", rule: "view-scope-required", message: `A ${view.level} view needs \`scope\`: the ID of the ${wanted} it shows.` }];
+    if (view.level === "state" || view.level === "wireframe" || view.level === "flowchart" || view.level === "entity") return [];
+    return [{ ...at, severity: "error", rule: "view-scope-required", message: `${aOrAn(view.level) === "an" ? "An" : "A"} ${view.level} view needs \`scope\`: the ID of the ${wanted} it shows.` }];
   }
   const scope = ws.elements.get(view.scope);
   if (!scope) {
     return [{ ...at, severity: "error", rule: "view-scope-unknown", message: `Scope "${view.scope}" isn't an element.`, fix: didYouMean(ws, view.scope) }];
   }
   if (!kinds.includes(scope.kind)) {
-    return [{ ...at, severity: "error", rule: "view-scope-kind", message: `A ${view.level} view's scope must be a ${wanted}, but "${scope.id}" is a ${scope.kind}.` }];
+    return [{ ...at, severity: "error", rule: "view-scope-kind", message: `${aOrAn(view.level) === "an" ? "An" : "A"} ${view.level} view's scope must be a ${wanted}, but "${scope.id}" is a ${scope.kind}.` }];
   }
   return [];
 }
@@ -202,7 +205,7 @@ export function representative(ws: Workspace, view: ViewDef): (id: string, copy?
   // The container whose copy of a library is drawn as the library's own box.
   const home = view.level === "component" ? scope : view.level === "class" ? scopeContainer : undefined;
   const plain = plainRepresentative(ws, view, scope, scopeSystem, scopeContainer);
-  if (scope && view.level !== "sequence" && view.level !== "state" && view.level !== "flowchart" && libraryOf(ws, scope.id)) return libraryViewRepresentative(ws, view, scope);
+  if (scope && view.level !== "sequence" && view.level !== "state" && view.level !== "flowchart" && view.level !== "entity" && libraryOf(ws, scope.id)) return libraryViewRepresentative(ws, view, scope);
   return (id, copy) => {
     const library = libraryOf(ws, id);
     if (!library || view.level === "sequence") return plain(id);
@@ -268,6 +271,7 @@ function plainRepresentative(ws: Workspace, view: ViewDef, scope?: ArchElement, 
       case "wireframe":
       case "whiteboard":
       case "flowchart":
+      case "entity":
         return id;
     }
   };
@@ -282,6 +286,7 @@ export function computeView(ws: Workspace, view: ViewDef): ComputedView {
   if (view.level === "wireframe") return computeWireframe(ws, view);
   if (view.level === "whiteboard") return computeWhiteboard(view);
   if (view.level === "flowchart") return computeFlowchart(ws, view);
+  if (view.level === "entity") return computeEntities(ws, view);
   const diagnostics: Diagnostic[] = [];
   const rep = representative(ws, view);
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
@@ -1080,6 +1085,30 @@ function computeFlowchart(ws: Workspace, view: ViewDef): ComputedView {
       path: `${b.path}.kind`,
       fix: 'Add a flow out of it for each answer, with text like "Yes" and "No", or make it a process.',
     });
+  }
+  const boundary = view.scope ? ws.elements.get(view.scope) : undefined;
+  return { view, boundary, nodes: [], edges: [], steps: [], diagnostics };
+}
+
+/**
+ * An entity view: it draws its entities, not boxes, so it has none, and the element whose data it
+ * is, if it says, as its frame. Its problems are links to or from an entity it doesn't have.
+ */
+function computeEntities(ws: Workspace, view: ViewDef): ComputedView {
+  const diagnostics: Diagnostic[] = [];
+  const ids = view.entities.map((e) => e.id);
+  for (const link of view.links) {
+    for (const end of ["from", "to"] as const) {
+      if (ids.includes(link[end])) continue;
+      const match = suggest(link[end], ids);
+      diagnostics.push({
+        severity: "error",
+        rule: "link-unknown-entity",
+        message: `Link ${link.number}: "${link[end]}" isn't an entity of this view.`,
+        path: `${link.path}.${end}`,
+        fix: match ? `Did you mean "${match}"?` : ids.length ? `Its entities: ${ids.join(", ")}.` : `Add it with \`open-arch add-entity ${view.id} ${link[end]}\`.`,
+      });
+    }
   }
   const boundary = view.scope ? ws.elements.get(view.scope) : undefined;
   return { view, boundary, nodes: [], edges: [], steps: [], diagnostics };

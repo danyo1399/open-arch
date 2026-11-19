@@ -14,6 +14,7 @@ import {
   type Arrow,
   type Block,
   type CardKind,
+  type Cardinality,
   type DeploymentNode,
   type ElementShape,
   type RelationshipKind,
@@ -115,6 +116,7 @@ export function renderMermaid(cv: ComputedView): string {
   if (cv.view.level === "wireframe") return renderWireframe(cv);
   if (cv.view.level === "whiteboard") return renderWhiteboard(cv);
   if (cv.view.level === "flowchart") return renderFlowchart(cv);
+  if (cv.view.level === "entity") return renderEntities(cv);
   const lines = ["flowchart TB"];
   const boundary = cv.boundary;
   const inside = cv.nodes.filter((n) => inFrame(boundary, n));
@@ -631,6 +633,77 @@ function renderFlowchart(cv: ComputedView): string {
     lines.push(`  ${mermaidId(f.from)} -->${text ? `|"${text}"|` : ""} ${mermaidId(f.to)}`);
   }
   for (const lane of v.lanes) lines.push(`  style ${laneId(lane.id)} ${LANE_STYLE}`);
+  return lines.join("\n");
+}
+
+/** Words an entity-relationship diagram reads as keywords, or as how many there are, whatever their case. */
+const ENTITY_RESERVED = new Set(["one", "many", "to", "end", "class", "classdef", "style", "erdiagram", "acctitle", "accdescr", "subgraph"]);
+
+/** An entity's ID in an entity-relationship diagram, which can't start with a digit, and has keywords of its own. */
+function entityId(id: string): string {
+  const out = id.replace(/-/g, "_");
+  if (/^[0-9]/.test(out)) return `_${out}`;
+  return ENTITY_RESERVED.has(out) ? `${out}_` : out;
+}
+
+/**
+ * An attribute's type or name as one word, as Mermaid reads it: anything but letters, digits and
+ * `_-()[]` becomes `_`, and a word that starts with a digit, or is a key's name, gets another `_`.
+ * Without a type, it's `_`, as Mermaid needs one.
+ */
+function attributeWord(text: string | undefined): string {
+  const out = (text ?? "").trim().replace(/[^\p{L}\p{N}_\-()[\]]/gu, "_");
+  if (!out) return "_";
+  if (!/^[\p{L}_]/u.test(out)) return `_${out}`;
+  return /^(pk|fk|uk)$/i.test(out) ? `${out}_` : out;
+}
+
+/** How Mermaid draws each cardinality, at the start of a link's line and at its end. */
+const CARDINALITY_ENDS: Record<Cardinality, [start: string, end: string]> = {
+  one: ["||", "||"],
+  "zero-or-one": ["|o", "o|"],
+  "one-or-more": ["}|", "|{"],
+  "zero-or-more": ["}o", "o{"],
+};
+
+/** Text on one line, for a quoted name, comment or label in an entity-relationship diagram. */
+function escapeEntity(text: string): string {
+  return escape(text.replace(/\s*\r?\n\s*/g, " ").trim());
+}
+
+/**
+ * An entity view as a Mermaid entity-relationship diagram: each entity by its name, with its
+ * attributes (each with its type, keys and description), and each link between two of its
+ * entities, or from one to itself, with how many of each end there can be, in crow's foot
+ * notation, and its text. Mermaid lays them out itself, so they aren't where the designer has them.
+ */
+function renderEntities(cv: ComputedView): string {
+  const v = cv.view;
+  const lines = ["erDiagram"];
+  if (v.entities.length === 0) {
+    lines.push("  %% This view has no entities yet.");
+    return lines.join("\n");
+  }
+  for (const e of v.entities) {
+    const head = `  ${entityId(e.id)}["${escapeEntity(e.name)}"]`;
+    if (!e.attributes.length) {
+      lines.push(head);
+      continue;
+    }
+    lines.push(`${head} {`);
+    for (const a of e.attributes) {
+      const keys = a.keys.map((k) => k.toUpperCase()).join(", ");
+      const comment = a.description?.trim() ? ` "${escapeEntity(a.description)}"` : "";
+      lines.push(`    ${attributeWord(a.type)} ${attributeWord(a.name)}${keys ? ` ${keys}` : ""}${comment}`);
+    }
+    lines.push("  }");
+  }
+  const ids = new Set(v.entities.map((e) => e.id));
+  for (const l of v.links) {
+    if (!ids.has(l.from) || !ids.has(l.to)) continue;
+    const [from, to] = l.cardinality;
+    lines.push(`  ${entityId(l.from)} ${CARDINALITY_ENDS[from][0]}--${CARDINALITY_ENDS[to][1]} ${entityId(l.to)} : "${escapeEntity(l.text ?? "")}"`);
+  }
   return lines.join("\n");
 }
 

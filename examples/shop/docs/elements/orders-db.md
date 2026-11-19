@@ -15,6 +15,7 @@ Stores orders and their status.
 ## Shown in
 
 - [Checkout API components](../views/checkout-api-components.md)
+- [Orders data](../views/orders-data.md) (its data)
 - [Placing an order](../views/place-order.md)
 - [Production](../views/production.md) (runs in Database)
 - [Shop containers](../views/shop-containers.md)

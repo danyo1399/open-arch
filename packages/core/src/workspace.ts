@@ -1,5 +1,6 @@
 /** The model, indexed for queries, built from a parsed document. */
 import { nodeOrder, parseDocument } from "./document.js";
+import { ATTRIBUTE_KEYS, DEFAULT_CARDINALITY } from "./types.js";
 import type { ArchElement, Diagnostic, OpenArchDocument, Screen, ScreenData, State, StateData, Sticky, StickyTarget, StickyTargetData, TransitionData, ViewDef, Widget, WidgetData } from "./types.js";
 
 export interface Workspace {
@@ -155,6 +156,33 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         at: b.at,
       })),
       flows: (v.flows ?? []).map((f, i) => ({ path: `views.${id}.flows[${i}]`, number: i + 1, from: f.from, to: f.to, text: f.text || undefined })),
+      entities: (v.entities ?? []).map((e, i) => {
+        const path = `views.${id}.entities[${i}]`;
+        return {
+          id: e.id,
+          path,
+          number: i + 1,
+          name: e.name,
+          description: e.description || undefined,
+          attributes: (e.attributes ?? []).map((a, k) => ({
+            path: `${path}.attributes[${k}]`,
+            number: k + 1,
+            name: a.name,
+            type: a.type || undefined,
+            keys: ATTRIBUTE_KEYS.filter((key) => a.keys?.includes(key)),
+            description: a.description || undefined,
+          })),
+          at: e.at,
+        };
+      }),
+      links: (v.links ?? []).map((l, i) => ({
+        path: `views.${id}.links[${i}]`,
+        number: i + 1,
+        from: l.from,
+        to: l.to,
+        cardinality: l.cardinality ? [l.cardinality[0], l.cardinality[1]] : [DEFAULT_CARDINALITY[0], DEFAULT_CARDINALITY[1]],
+        text: l.text || undefined,
+      })),
     });
   }
   for (const element of ws.elements.values()) {
