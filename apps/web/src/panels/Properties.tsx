@@ -471,7 +471,7 @@ function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect, onA
   );
 }
 
-function StickyProperties({ ws, view, computed, sticky, edit, onSelect }: PropertiesProps & { view: ViewDef; sticky: Sticky }) {
+function StickyProperties({ ws, view, computed, sticky, edit, onSelect, onEditNotes }: PropertiesProps & { view: ViewDef; sticky: Sticky }) {
   const set = (fields: Omit<Extract<Operation, { op: "update-sticky" }>, "op" | "view" | "id">) => void edit([{ op: "update-sticky", view: view.id, id: sticky.id, ...fields }]);
   // Views of boxes draw a line from a note to the box or arrow it's on.
   const choices = computed && STICKY_TARGET_LEVELS.includes(view.level) ? stickyChoices(ws, computed, sticky) : null;
@@ -531,7 +531,8 @@ function StickyProperties({ ws, view, computed, sticky, edit, onSelect }: Proper
           </label>
         ))}
       </fieldset>
-      <p className="muted small">Sticky notes explain this diagram to the people reading it: what to look at, or why it's drawn this way. They belong to this view and aren't part of the model, so other views don't show them. The docs show them under the diagram.</p>
+      <NotesField value={sticky.notes ?? ""} onCommit={(notes) => set({ notes: notes || null })} rows={4} onExpand={(text) => onEditNotes({ kind: "sticky", view: view.id, id: sticky.id }, text)} />
+      <p className="muted small">Sticky notes explain this diagram to the people reading it: what to look at, or why it's drawn this way. They belong to this view and aren't part of the model, so other views don't show them. The docs show them under the diagram, with their notes.</p>
       <div className="actions">
         {sticky.at && view.level !== "sequence" && <button onClick={() => set({ at: null })}>{drawn ? "Move next to what it's on" : "Move beside the diagram"}</button>}
         <button className="danger" onClick={() => void edit([{ op: "remove-sticky", view: view.id, id: sticky.id }]).then(() => onSelect(null))}>

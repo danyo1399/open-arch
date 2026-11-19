@@ -335,15 +335,15 @@ export const BUILDERS: Record<string, Builder> = {
     if (p.length < 2) throw new CliError(`Name a view and at least one element.\n\n${usage}`, 2);
     return p.slice(1).map((id) => ({ op: "hide-in-view", view: p[0]!, id }) as const);
   },
-  "add-sticky": (_io, v, p, usage) => {
+  "add-sticky": (io, v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
     const body = text(v.text);
     if (body === undefined) throw new CliError(`Pass --text.\n\n${usage}`, 2);
-    return [{ op: "add-sticky", view: view!, id: id!, text: body, on: stickyOn(v) ?? undefined, color: text(v.color) as never, at: point(v.at) ?? undefined }];
+    return [{ op: "add-sticky", view: view!, id: id!, text: body, on: stickyOn(v) ?? undefined, color: text(v.color) as never, at: point(v.at) ?? undefined, notes: notes(io, v) ?? undefined }];
   },
-  "update-sticky": (_io, v, p, usage) => {
+  "update-sticky": (io, v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
-    return [{ op: "update-sticky", view: view!, id: id!, text: text(v.text), on: stickyOn(v), color: text(v.color) as never, at: point(v.at) }];
+    return [{ op: "update-sticky", view: view!, id: id!, text: text(v.text), on: stickyOn(v), color: text(v.color) as never, at: point(v.at), notes: notes(io, v) }];
   },
   "remove-sticky": (_io, _v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);

@@ -36,7 +36,7 @@ import type { Edit } from "../state.js";
 import { freeSpotAmong, NODE_W, placeStickies, STICKY, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
 import { holdsAnything, layOutDeployment, placeDeploymentLabels, type DeploymentLayout } from "./deploymentLayout.js";
-import { StickyNode, type StickyFlowNode } from "./nodes.js";
+import { ElementNotes, StickyNode, type StickyFlowNode } from "./nodes.js";
 import { labelLines, measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 
@@ -129,6 +129,7 @@ function BoxNode({ id, data }: NodeProps<BoxFlowNode>) {
             {element.technology ? `: ${element.technology}` : ""}]
           </div>
           {element.description && <div className="c4-desc">{element.description}</div>}
+          <ElementNotes element={element} />
         </>
       ) : (
         <>

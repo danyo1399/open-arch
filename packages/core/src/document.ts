@@ -186,7 +186,7 @@ const ENTITY_KEYS = ["id", "name", "description", "attributes", "at"];
 const ATTRIBUTE_FIELDS = ["name", "type", "keys", "description"];
 const LINK_KEYS = ["from", "to", "cardinality", "text"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
-const STICKY_KEYS = ["text", "on", "color", "at"];
+const STICKY_KEYS = ["text", "on", "color", "at", "notes"];
 const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -308,6 +308,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 16) out = { ...out, openarch: 17 };
   // Version 18 added entity views, so a version 17 file means the same in it.
   if (out.openarch === 17) out = { ...out, openarch: 18 };
+  // Version 19 added notes to sticky notes, so a version 18 file means the same in it.
+  if (out.openarch === 18) out = { ...out, openarch: 19 };
   return out;
 }
 
@@ -1233,6 +1235,8 @@ function readSticky(id: string, value: unknown, path: string, report: Report, ow
     if (Array.isArray(value.at) && value.at.length === 2 && value.at.every((n) => typeof n === "number" && Number.isFinite(n))) sticky.at = value.at as [number, number];
     else report(`${path}.at`, "field-type", "Must be a position, [x, y].");
   }
+  const notes = str(value.notes, `${path}.notes`, report);
+  if (notes !== undefined) sticky.notes = notes;
   return sticky;
 }
 
@@ -1508,7 +1512,7 @@ function viewText(v: ViewData, indent: string): string {
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();
     const on = (t: StickyTargetData) => ("element" in t ? { element: t.element } : { from: t.from, to: t.to, kind: t.kind && t.kind !== "association" ? t.kind : undefined });
-    const sticky = (s: StickyData) => inline({ text: s.text, on: s.on && on(s.on), color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)) });
+    const sticky = (s: StickyData) => inline({ text: s.text, on: s.on && on(s.on), color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)), notes: s.notes || undefined });
     entries.push(["stickies", block(keys.map((k) => [k, sticky(v.stickies![k]!)]), `${indent}  `)]);
   }
   if (boxes && present(v.layout, (l) => Object.keys(l).length > 0)) {

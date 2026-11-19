@@ -148,7 +148,7 @@ describe("putting sticky notes on things", () => {
     expect(doc.views["shop-containers"]!.stickies!.a).toEqual({ text: "A", on: { from: "customer", to: "web-app" } });
     doc = apply(doc, { op: "update-sticky", view: "shop-containers", id: "a", on: null });
     expect(doc.views["shop-containers"]!.stickies!.a).toEqual({ text: "A" });
-    expect(fails(doc, { op: "update-sticky", view: "shop-containers", id: "a" })).toBe("Say what to change: text, on, color or at.");
+    expect(fails(doc, { op: "update-sticky", view: "shop-containers", id: "a" })).toBe("Say what to change: text, on, color, at or notes.");
   });
 
   it("refuses what isn't there, and views that don't draw boxes", () => {
@@ -249,5 +249,67 @@ describe("sticky notes in the docs", () => {
         "> Not on anything.",
       ].join("\n"),
     );
+  });
+
+  it("have their notes after their text, in the same quote", () => {
+    const doc = noted();
+    doc.views["shop-containers"]!.stickies!.cache!.notes = "Kept for **a minute**.\n\n- Then read again";
+    const page = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "views/shop-containers.md")!.content;
+    expect(page).toContain(["> On [DB](../elements/db.md): Cached for a minute.", ">", "> Kept for **a minute**.", ">", "> - Then read again", "", "> On [Web App]"].join("\n"));
+  });
+});
+
+describe("a sticky note's notes", () => {
+  it("are read and written in the file's canonical form, after its other fields", () => {
+    const doc = noted();
+    doc.views["shop-containers"]!.stickies!.cache!.notes = "## Why\n\nIt's read often.";
+    const text = serializeDocument(doc);
+    expect(text).toContain('"cache": { "text": "Cached for a minute.", "on": { "element": "db" }, "at": [10, 20], "notes": "## Why\\n\\nIt\'s read often." },');
+    const read = parseDocument(text);
+    expect(read.diagnostics).toEqual([]);
+    expect(read.doc.views["shop-containers"]!.stickies).toEqual(doc.views["shop-containers"]!.stickies);
+    expect(buildWorkspace(read.doc).views.get("shop-containers")!.stickies.find((s) => s.id === "cache")!.notes).toBe("## Why\n\nIt's read often.");
+  });
+
+  it("are reported when they aren't text, and the note is kept", () => {
+    const doc = shop() as unknown as { views: Record<string, Record<string, unknown>> };
+    doc.views.landscape!.stickies = { a: { text: "A", notes: 5 } };
+    const read = parseDocument(JSON.stringify(doc));
+    expect(read.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual(["field-type views.landscape.stickies.a.notes"]);
+    expect(read.doc.views.landscape!.stickies).toEqual({ a: { text: "A" } });
+  });
+
+  it("are new in version 19: a version 18 file is read as it is", () => {
+    const parsed = parseDocument(JSON.stringify({ ...noted(), openarch: 18 }));
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.doc).toEqual(noted());
+  });
+
+  it("are given when a note is added, and changed, trimmed and taken off when it's updated", () => {
+    let doc = apply(shop(), { op: "add-sticky", view: "landscape", id: "a", text: "A", notes: "  Longer.\n" }, { op: "add-sticky", view: "landscape", id: "b", text: "B", notes: " " });
+    expect(doc.views.landscape!.stickies).toEqual({ a: { text: "A", notes: "Longer." }, b: { text: "B" } });
+    doc = apply(doc, { op: "update-sticky", view: "landscape", id: "a", notes: "**More.**" });
+    expect(doc.views.landscape!.stickies!.a).toEqual({ text: "A", notes: "**More.**" });
+    doc = apply(doc, { op: "update-sticky", view: "landscape", id: "a", text: "A2" });
+    expect(doc.views.landscape!.stickies!.a).toEqual({ text: "A2", notes: "**More.**" });
+    doc = apply(doc, { op: "update-sticky", view: "landscape", id: "a", notes: "" });
+    expect(doc.views.landscape!.stickies!.a).toEqual({ text: "A2" });
+    doc = apply(doc, { op: "update-sticky", view: "landscape", id: "b", notes: "B's." }, { op: "update-sticky", view: "landscape", id: "b", notes: null });
+    expect(doc.views.landscape!.stickies!.b).toEqual({ text: "B" });
+  });
+
+  it("are checked in a batch: text, or null to take them off", () => {
+    const bad = (op: unknown) => {
+      try {
+        parseOperations(op);
+        return "ok";
+      } catch (error) {
+        return (error as Error).message;
+      }
+    };
+    expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", notes: "y" })).toBe("ok");
+    expect(bad({ op: "update-sticky", view: "v", id: "n", notes: null })).toBe("ok");
+    expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", notes: null })).toMatch(/^add-sticky: "notes" must be/);
+    expect(bad({ op: "update-sticky", view: "v", id: "n", notes: 5 })).toMatch(/^update-sticky: "notes" must be/);
   });
 });

@@ -1,6 +1,7 @@
 import { kindLabel, type ArchElement, type Sticky } from "@open-arch/core";
-import { Handle, Position, useConnection, useReactFlow, type Node, type NodeProps } from "@xyflow/react";
-import { useEffect, useRef, type PointerEvent } from "react";
+import { Handle, Position, useConnection, useReactFlow, ViewportPortal, type Node, type NodeProps } from "@xyflow/react";
+import { createContext, useContext, useEffect, useRef, type PointerEvent } from "react";
+import { stickyName } from "../model.js";
 import type { Point } from "./autoLayout.js";
 import { DRAG_DISTANCE } from "./RoutedEdge.js";
 
@@ -27,6 +28,68 @@ export type StickyNodeData = {
   onLinkDrop?(at: Point | null): void;
 };
 export type StickyFlowNode = Node<StickyNodeData, "sticky">;
+
+/**
+ * Opens the notes of an element, or of a sticky note on the open view, in the notes editor. The
+ * designer gives it to the diagrams; without it, boxes and notes don't offer their notes.
+ */
+export const NotesOpener = createContext<{ element(id: string): void; sticky(id: string): void } | null>(null);
+
+/**
+ * The chip on the corner of a box or sticky note that has notes: it shows they're there, and a
+ * click opens them in the notes editor. Pictures of the diagram leave it out (see image.ts). It
+ * doesn't select the box or note, drag it, start an arrow from it, or edit a note's text.
+ */
+export function NotesButton({ name, onOpen }: { name: string; onOpen(): void }) {
+  return (
+    <button
+      type="button"
+      className="notes-button nodrag nopan"
+      title={`Notes on ${name}`}
+      aria-label={`Notes on ${name}`}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerUp={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5" />
+      </svg>
+    </button>
+  );
+}
+
+/** The notes chip for an element, when it has notes and the diagram can open them. */
+export function ElementNotes({ element }: { element: ArchElement }) {
+  const opener = useContext(NotesOpener);
+  return element.notes && opener ? <NotesButton name={element.name} onOpen={() => opener.element(element.id)} /> : null;
+}
+
+/** The notes chip for a sticky note on the open view, when it has notes and the diagram can open them. */
+export function StickyNotes({ sticky }: { sticky: Sticky }) {
+  const opener = useContext(NotesOpener);
+  return sticky.notes && opener ? <NotesButton name={stickyName(sticky.text)} onOpen={() => opener.sticky(sticky.id)} /> : null;
+}
+
+/**
+ * The notes chip for the frame round a view's boxes, on its top right corner, as a box's is. The
+ * frame is drawn under the diagram's background, which takes its clicks (see withFrame in
+ * Canvas.tsx), so the chip is drawn over the diagram instead, where it can be pressed. It goes
+ * inside the diagram's ReactFlow.
+ */
+export function FrameNotes({ frame }: { frame: FrameFlowNode | null | undefined }) {
+  if (!frame) return null;
+  return (
+    <ViewportPortal>
+      <div className="frame-notes" style={{ transform: `translate(${frame.position.x + frame.data.width}px, ${frame.position.y}px)` }}>
+        <ElementNotes element={frame.data.element} />
+      </div>
+    </ViewportPortal>
+  );
+}
 
 /** A member with brackets is a method, as in UML; the rest are attributes. */
 export function splitMembers(members: string[]): { attributes: string[]; methods: string[] } {
@@ -97,6 +160,7 @@ export function ElementNode({ id, data, selected }: NodeProps<ElementFlowNode>) 
           {data.problems}
         </div>
       )}
+      <ElementNotes element={e} />
       <Handle type="source" position={Position.Bottom} className="handle-source" title="Drag to another box to add a relationship" />
     </div>
   );
@@ -213,6 +277,7 @@ export function StickyNode({ data, selected }: NodeProps<StickyFlowNode>) {
       ) : (
         <div className="sticky-text">{sticky.text}</div>
       )}
+      {!editing && <StickyNotes sticky={sticky} />}
       {!editing && data.onLinkDrag && data.onLinkDrop && <LinkGrip onDrag={data.onLinkDrag} onDrop={data.onLinkDrop} />}
     </div>
   );

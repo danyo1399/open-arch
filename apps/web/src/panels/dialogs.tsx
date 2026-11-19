@@ -1,6 +1,7 @@
 import { kindLabel, kindList, LEVEL_TITLE, SCOPE_KINDS, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
 import { addViewOp, deletePlan } from "../model.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { Format, RichNotes } from "./richNotes.js";
 
 export function Modal({ title, children, actions, onClose }: { title: string; children: ReactNode; actions: ReactNode; onClose(): void }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -17,9 +18,10 @@ export function Modal({ title, children, actions, onClose }: { title: string; ch
 }
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const mod = isMac ? "⌘" : "Ctrl+";
 
 interface NotesEditorProps {
-  /** Whose notes they are: an element's name, a view's title, or a relationship's two ends. */
+  /** Whose notes they are: an element's name, a view's title, a relationship's two ends, or a sticky note's text. */
   name: string;
   /** The text to start from: what's in the box in the details panel. */
   text: string;
@@ -32,11 +34,73 @@ interface NotesEditorProps {
   onClose(): void;
 }
 
+/** The formatted view's toolbar: what each button does, what it shows, and what it says it does. */
+const TOOLS: { format: Format; label: string; title: string; className?: string }[] = [
+  { format: "bold", label: "B", title: `Bold (${mod}B)`, className: "tool-bold" },
+  { format: "italic", label: "I", title: `Italic (${mod}I)`, className: "tool-italic" },
+  { format: "strike", label: "S", title: "Strikethrough", className: "tool-strike" },
+  { format: "code", label: "Code", title: "Code, in a line of text" },
+  { format: "h1", label: "H1", title: "Heading" },
+  { format: "h2", label: "H2", title: "Smaller heading" },
+  { format: "h3", label: "H3", title: "Smallest heading" },
+  { format: "bullets", label: "• List", title: "Bulleted list" },
+  { format: "numbers", label: "1. List", title: "Numbered list" },
+  { format: "quote", label: "Quote", title: "Quote" },
+  { format: "codeBlock", label: "Code block", title: "Code block, for lines of code or a Mermaid diagram" },
+];
+
 /**
- * Notes in an editor as big as the window, for writing at length. Done, Ctrl+Enter (⌘Enter on a
- * Mac) and Esc all save them, so a stray key doesn't lose what was written, and Undo takes them
- * back. Cancel leaves them as they were. A save that doesn't go through keeps the editor open,
- * with the text still in it, and so does what the notes are on going.
+ * The formatted view: the editor in richNotes.ts, loaded the first time it's shown. Each time
+ * it's shown it gets a box of its own, so one that's still loading as it goes never lands in
+ * the next one.
+ */
+function FormattedNotes({ text, onReady, onFail, onChange, onDone }: { text: string; onReady(editor: RichNotes): void; onFail(): void; onChange(): void; onDone(): void }) {
+  const root = useRef<HTMLDivElement>(null);
+  // What it says is the latest, so a change seen as it loads goes to this render's callbacks.
+  const said = useRef({ onReady, onFail, onChange });
+  said.current = { onReady, onFail, onChange };
+  useEffect(() => {
+    const box = document.createElement("div");
+    root.current!.append(box);
+    let editor: RichNotes | null = null;
+    let gone = false;
+    import("./richNotes.js")
+      .then(({ richNotes }) => richNotes(box, text, { placeholder: "Longer documentation. Markdown works too, like ## for a heading or - for a list.", onChange: () => said.current.onChange() }))
+      .then((made) => {
+        if (gone) return void made.destroy();
+        editor = made;
+        said.current.onReady(made);
+        made.view.focus();
+      })
+      .catch(() => !gone && said.current.onFail());
+    return () => {
+      gone = true;
+      void editor?.destroy();
+      box.remove();
+    };
+  }, [text]);
+  return (
+    <div
+      ref={root}
+      className="notes-formatted"
+      // Before the editor sees them: it takes Esc for itself, which would never reach the dialog.
+      onKeyDownCapture={(e) => {
+        if (e.key === "Escape" || (e.key === "Enter" && (isMac ? e.metaKey : e.ctrlKey))) {
+          e.preventDefault();
+          e.stopPropagation();
+          onDone();
+        }
+      }}
+    />
+  );
+}
+
+/**
+ * Notes in an editor as big as the window, for writing at length. They're shown formatted, as
+ * they read, and edited that way, or as markdown, the way they're saved. Done, Ctrl+Enter (⌘Enter
+ * on a Mac) and Esc all save them, so a stray key doesn't lose what was written, and Undo takes
+ * them back. Cancel leaves them as they were. A save that doesn't go through keeps the editor
+ * open, with the text still in it, and so does what the notes are on going.
  */
 export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }: NotesEditorProps) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -48,16 +112,33 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
   // closes on is what was saved. A ref, as a second key can come before the render that shows it.
   const busy = useRef(false);
   const [saving, setSaving] = useState(false);
+  /** Formatted, as the notes read, or the markdown they're saved as. */
+  const [view, setView] = useState<"formatted" | "markdown">("formatted");
+  /** The markdown the view shown now started from. */
+  const [source, setSource] = useState(text);
+  /** The formatted view's editor, once it's loaded, and whether it couldn't be. */
+  const rich = useRef<RichNotes | null>(null);
+  const [richReady, setRichReady] = useState(false);
+  const [richFailed, setRichFailed] = useState(false);
+  /** The formats the selection has, for the toolbar. */
+  const [formats, setFormats] = useState<Set<Format>>(() => new Set());
+  /** While a link's address is being typed: the address, and whether the selection was in a link already. */
+  const [linking, setLinking] = useState<{ href: string; had: boolean } | null>(null);
   useEffect(() => {
     ref.current?.showModal();
   }, []);
+  useEffect(() => {
+    rich.current?.setEditable(!saving);
+  }, [saving, richReady]);
+  /** The notes as they are now, in markdown. */
+  const current = () => (view === "markdown" ? box.current!.value : (rich.current?.markdown() ?? source));
   /** Keeps the editor open, with the text, as Esc pressed twice can close it whatever the page does. */
   const stayOpen = () => {
     if (!ref.current!.open) ref.current!.showModal();
   };
   const done = async () => {
     if (busy.current) return stayOpen();
-    const next = box.current!.value;
+    const next = current();
     if (next === saved) return onClose();
     if (!ready || saved === undefined) return stayOpen();
     busy.current = true;
@@ -68,6 +149,21 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
     if (ok) return onClose();
     setFailed(true);
     stayOpen();
+  };
+  /** Shows the notes formatted or as markdown, as they are now. */
+  const show = (next: "formatted" | "markdown") => {
+    if (next === view || busy.current) return;
+    setSource(current());
+    rich.current = null;
+    setRichReady(false);
+    setFormats(new Set());
+    setLinking(null);
+    setView(next);
+  };
+  const editor = richReady ? rich.current : null;
+  const setLink = (href: string | null) => {
+    editor?.link(href);
+    setLinking(null);
   };
   // The box's own text landing after it opened, as leaving the box saves it, isn't a change from elsewhere.
   const changed = saved !== undefined && saved !== opened && saved !== text;
@@ -82,20 +178,120 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
       }}
       onClose={() => void done()}
     >
-      <h2>Notes on {name}</h2>
-      <textarea
-        ref={box}
-        defaultValue={text}
-        readOnly={saving}
-        aria-label="Notes"
-        placeholder="Longer documentation, in markdown"
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (isMac ? e.metaKey : e.ctrlKey)) {
+      <div className="notes-head">
+        <h2>Notes on {name}</h2>
+        <div className="segmented" role="group" aria-label="Show the notes">
+          <button aria-pressed={view === "formatted"} onClick={() => show("formatted")} disabled={saving || richFailed} title="As they read, with headings, lists and links drawn as they are">
+            Formatted
+          </button>
+          <button aria-pressed={view === "markdown"} onClick={() => show("markdown")} disabled={saving} title="As markdown, the way they're saved">
+            Markdown
+          </button>
+        </div>
+      </div>
+      {view === "formatted" && (
+        <div className="notes-toolbar" role="toolbar" aria-label="Formatting">
+          {TOOLS.map((tool) => (
+            <button
+              key={tool.format}
+              className={tool.className}
+              title={tool.title}
+              aria-label={tool.title}
+              aria-pressed={formats.has(tool.format)}
+              disabled={!editor || saving}
+              // Pressing a button leaves the cursor and the selection in the notes.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                editor?.format(tool.format);
+                setFormats(editor?.formats() ?? new Set());
+              }}
+            >
+              {tool.label}
+            </button>
+          ))}
+          <button
+            title="Link"
+            aria-label="Link"
+            aria-pressed={linking !== null}
+            disabled={!editor || saving}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const here = editor?.linkHere() ?? null;
+              setLinking(linking ? null : { href: here ?? "", had: here !== null });
+            }}
+          >
+            Link
+          </button>
+        </div>
+      )}
+      {view === "formatted" && linking && (
+        <form
+          className="notes-link"
+          onSubmit={(e) => {
             e.preventDefault();
-            void done();
-          }
-        }}
-      />
+            setLink(linking.href.trim() || null);
+          }}
+        >
+          <input
+            autoFocus
+            aria-label="Link address"
+            placeholder="https://…"
+            value={linking.href}
+            onChange={(e) => setLinking({ ...linking, href: e.target.value })}
+            onKeyDown={(e) => {
+              // Esc puts the link away, rather than closing the editor.
+              if (e.key !== "Escape") return;
+              e.preventDefault();
+              e.stopPropagation();
+              setLinking(null);
+              editor?.view.focus();
+            }}
+          />
+          <button type="submit" className="primary" disabled={!linking.href.trim()}>
+            {linking.had ? "Change link" : "Add link"}
+          </button>
+          {linking.had && (
+            <button type="button" onClick={() => setLink(null)}>
+              Remove link
+            </button>
+          )}
+        </form>
+      )}
+      {view === "formatted" ? (
+        <>
+          {!richReady && <p className="muted small notes-loading">Loading the notes…</p>}
+          <FormattedNotes
+            text={source}
+            onReady={(made) => {
+              rich.current = made;
+              setRichReady(true);
+              setFormats(made.formats());
+            }}
+            onFail={() => {
+              setRichFailed(true);
+              setView("markdown");
+            }}
+            onChange={() => rich.current && setFormats(rich.current.formats())}
+            onDone={() => void done()}
+          />
+        </>
+      ) : (
+        <textarea
+          ref={box}
+          defaultValue={source}
+          readOnly={saving}
+          autoFocus
+          aria-label="Notes"
+          placeholder="Longer documentation, in markdown"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (isMac ? e.metaKey : e.ctrlKey)) {
+              e.preventDefault();
+              void done();
+            }
+          }}
+        />
+      )}
+      {richFailed && view === "markdown" && <p className="muted small">The formatted view couldn't be loaded, so the notes are shown as markdown.</p>}
       {saved === undefined ? (
         <p className="error small" role="alert">
           {name} was changed or deleted elsewhere, so these notes can't be saved. Copy them to keep them.
@@ -108,7 +304,7 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
         changed && <p className="error small">These notes were changed elsewhere since you opened them. Done saves yours in their place.</p>
       )}
       <div className="modal-actions">
-        <span className="muted small grow">In markdown. Done, Esc or {isMac ? "⌘" : "Ctrl+"}Enter saves them, and Undo takes them back.</span>
+        <span className="muted small grow">Saved as markdown. Done, Esc or {mod}Enter saves them, and Undo takes them back.</span>
         <span className="buttons">
           <button onClick={onClose} disabled={saving}>
             Cancel

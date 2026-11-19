@@ -25,6 +25,7 @@ import { WhiteboardDiagram } from "./canvas/WhiteboardDiagram.js";
 import { WireframeDiagram } from "./canvas/WireframeDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
 import { FlowchartDiagram } from "./canvas/FlowchartDiagram.js";
+import { NotesOpener } from "./canvas/nodes.js";
 import { EntityDiagram } from "./canvas/EntityDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
 import { canOpenFolders, exportToFolder, FolderHost, folderList, pickFolder } from "./folders.js";
@@ -346,6 +347,29 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     setMenu(renamedSelection({ kind: "arrow", from, to, ...kind, ...at }, current));
   };
   const closeMenu = useCallback(() => setMenu(null), []);
+
+  const afterEdits = state.afterEdits;
+  /**
+   * Opens notes from the diagram's chip on a box or on a sticky note of the open view. They're
+   * read once the edits made before have landed, such as the notes typed in the details panel,
+   * saved as the chip was pressed. If what they're on is gone by then, the editor doesn't open.
+   */
+  const openNotes = useCallback(
+    (owner: NotesOwner) => {
+      const opened = ++notesOpened.current;
+      void afterEdits((now) => {
+        const at = renamedNotesOwner(owner, current);
+        const text = now ? notesOf(now, at) : undefined;
+        if (!now || text === undefined) return;
+        setDialog((d) => d ?? { kind: "notes", owner: at, name: notesName(now, at), text, opened, ready: true });
+      });
+    },
+    [afterEdits, current],
+  );
+  const notesOpener = useMemo(
+    () => (viewId ? { element: (id: string) => openNotes({ kind: "element", id }), sticky: (id: string) => openNotes({ kind: "sticky", view: viewId, id }) } : null),
+    [openNotes, viewId],
+  );
 
   /** A new note on a box, the frame or an arrow, beside it on the diagram, with its text being typed there. */
   const addStickyOn = (on: StickyTargetData) => {
@@ -762,132 +786,134 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
 
       {/* Under another pane, the diagram keeps its size, so it keeps its zoom too. */}
       <main ref={mainRef} className="main" inert={narrow && pane !== "diagram"}>
-        {view?.level === "sequence" ? (
-          computed ? (
-            <SequenceDiagram
-              key={view.id}
-              ws={ws}
-              computed={computed}
-              selection={selection}
-              onSelect={select}
-              edit={edit}
-              onElementMenu={openElementMenu}
-              onError={(text) => state.notify({ kind: "error", text })}
-              exportItems={exportItems(computed)}
-            />
-          ) : (
-            <div className="canvas-message">This view can't be drawn: {view && scopeProblems(ws, view)[0]?.message}</div>
-          )
-        ) : view?.level === "state" ? (
-          computed ? (
-            <ReactFlowProvider key={view.id}>
-              <StateDiagram
+        <NotesOpener.Provider value={notesOpener}>
+          {view?.level === "sequence" ? (
+            computed ? (
+              <SequenceDiagram
+                key={view.id}
+                ws={ws}
                 computed={computed}
+                selection={selection}
+                onSelect={select}
+                edit={edit}
+                onElementMenu={openElementMenu}
+                onError={(text) => state.notify({ kind: "error", text })}
+                exportItems={exportItems(computed)}
+              />
+            ) : (
+              <div className="canvas-message">This view can't be drawn: {view && scopeProblems(ws, view)[0]?.message}</div>
+            )
+          ) : view?.level === "state" ? (
+            computed ? (
+              <ReactFlowProvider key={view.id}>
+                <StateDiagram
+                  computed={computed}
+                  selection={selection}
+                  onSelect={selectOnCanvas}
+                  edit={edit}
+                  onError={(text) => state.notify({ kind: "error", text })}
+                  exportItems={exportItems(computed)}
+                  snap={snap}
+                  autoLayoutHandle={autoLayout}
+                />
+              </ReactFlowProvider>
+            ) : (
+              <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+            )
+          ) : view?.level === "flowchart" ? (
+            computed ? (
+              <ReactFlowProvider key={view.id}>
+                <FlowchartDiagram
+                  computed={computed}
+                  selection={selection}
+                  onSelect={selectOnCanvas}
+                  edit={edit}
+                  onError={(text) => state.notify({ kind: "error", text })}
+                  exportItems={exportItems(computed)}
+                  snap={snap}
+                  autoLayoutHandle={autoLayout}
+                />
+              </ReactFlowProvider>
+            ) : (
+              <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+            )
+          ) : view?.level === "entity" ? (
+            computed ? (
+              <ReactFlowProvider key={view.id}>
+                <EntityDiagram
+                  computed={computed}
+                  selection={selection}
+                  onSelect={selectOnCanvas}
+                  edit={edit}
+                  onError={(text) => state.notify({ kind: "error", text })}
+                  exportItems={exportItems(computed)}
+                  snap={snap}
+                  autoLayoutHandle={autoLayout}
+                />
+              </ReactFlowProvider>
+            ) : (
+              <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+            )
+          ) : view?.level === "deployment" ? (
+            computed ? (
+              <ReactFlowProvider key={view.id}>
+                <DeploymentDiagram ws={ws} computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
+              </ReactFlowProvider>
+            ) : (
+              <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+            )
+          ) : view?.level === "event" ? (
+            computed ? (
+              <ReactFlowProvider key={view.id}>
+                <EventDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
+              </ReactFlowProvider>
+            ) : (
+              <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+            )
+          ) : view?.level === "whiteboard" ? (
+            computed ? (
+              <ReactFlowProvider key={view.id}>
+                <WhiteboardDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
+              </ReactFlowProvider>
+            ) : (
+              <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+            )
+          ) : view?.level === "wireframe" ? (
+            computed ? (
+              <ReactFlowProvider key={view.id}>
+                <WireframeDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
+              </ReactFlowProvider>
+            ) : (
+              <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+            )
+          ) : view ? (
+            <ReactFlowProvider key={view.id}>
+              <Canvas
+                ws={ws}
+                view={view}
+                diagnostics={diagnostics}
                 selection={selection}
                 onSelect={selectOnCanvas}
                 edit={edit}
+                onElementMenu={openElementMenu}
+                onArrowMenu={openArrowMenu}
                 onError={(text) => state.notify({ kind: "error", text })}
-                exportItems={exportItems(computed)}
+                renames={shownRenames}
+                exportItems={computed ? exportItems(computed) : []}
+                editSticky={isNew && selection?.kind === "sticky" ? selection.id : null}
                 snap={snap}
                 autoLayoutHandle={autoLayout}
               />
             </ReactFlowProvider>
           ) : (
-            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
-          )
-        ) : view?.level === "flowchart" ? (
-          computed ? (
-            <ReactFlowProvider key={view.id}>
-              <FlowchartDiagram
-                computed={computed}
-                selection={selection}
-                onSelect={selectOnCanvas}
-                edit={edit}
-                onError={(text) => state.notify({ kind: "error", text })}
-                exportItems={exportItems(computed)}
-                snap={snap}
-                autoLayoutHandle={autoLayout}
-              />
-            </ReactFlowProvider>
-          ) : (
-            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
-          )
-        ) : view?.level === "entity" ? (
-          computed ? (
-            <ReactFlowProvider key={view.id}>
-              <EntityDiagram
-                computed={computed}
-                selection={selection}
-                onSelect={selectOnCanvas}
-                edit={edit}
-                onError={(text) => state.notify({ kind: "error", text })}
-                exportItems={exportItems(computed)}
-                snap={snap}
-                autoLayoutHandle={autoLayout}
-              />
-            </ReactFlowProvider>
-          ) : (
-            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
-          )
-        ) : view?.level === "deployment" ? (
-          computed ? (
-            <ReactFlowProvider key={view.id}>
-              <DeploymentDiagram ws={ws} computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
-            </ReactFlowProvider>
-          ) : (
-            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
-          )
-        ) : view?.level === "event" ? (
-          computed ? (
-            <ReactFlowProvider key={view.id}>
-              <EventDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
-            </ReactFlowProvider>
-          ) : (
-            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
-          )
-        ) : view?.level === "whiteboard" ? (
-          computed ? (
-            <ReactFlowProvider key={view.id}>
-              <WhiteboardDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
-            </ReactFlowProvider>
-          ) : (
-            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
-          )
-        ) : view?.level === "wireframe" ? (
-          computed ? (
-            <ReactFlowProvider key={view.id}>
-              <WireframeDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
-            </ReactFlowProvider>
-          ) : (
-            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
-          )
-        ) : view ? (
-          <ReactFlowProvider key={view.id}>
-            <Canvas
-              ws={ws}
-              view={view}
-              diagnostics={diagnostics}
-              selection={selection}
-              onSelect={selectOnCanvas}
-              edit={edit}
-              onElementMenu={openElementMenu}
-              onArrowMenu={openArrowMenu}
-              onError={(text) => state.notify({ kind: "error", text })}
-              renames={shownRenames}
-              exportItems={computed ? exportItems(computed) : []}
-              editSticky={isNew && selection?.kind === "sticky" ? selection.id : null}
-              snap={snap}
-              autoLayoutHandle={autoLayout}
-            />
-          </ReactFlowProvider>
-        ) : (
-          <div className="canvas-message">
-            <p>There are no views yet.</p>
-            <button className="primary" onClick={() => setDialog({ kind: "newView" })}>
-              Create a view
-            </button>
-          </div>
-        )}
+            <div className="canvas-message">
+              <p>There are no views yet.</p>
+              <button className="primary" onClick={() => setDialog({ kind: "newView" })}>
+                Create a view
+              </button>
+            </div>
+          )}
+        </NotesOpener.Provider>
         {usagesOf && <Usages ws={ws} id={usagesOf} viewId={viewId} onGo={goToUsage} onClose={() => setUsagesOf(null)} />}
         {agent && host instanceof DesktopHost && (
           <AskAI

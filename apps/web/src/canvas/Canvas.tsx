@@ -57,7 +57,7 @@ import {
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
-import { classHeight, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { classHeight, FrameNotes, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -1122,6 +1122,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+        <FrameNotes frame={nodes.find((n): n is FrameFlowNode => n.type === "frame")} />
         <SnapGuides guides={guides} />
         {stickyLines.length > 0 && (
           <ViewportPortal>

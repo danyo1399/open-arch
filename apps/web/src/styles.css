@@ -233,11 +233,13 @@ textarea {
 /* Phones and tablets zoom in on a text box with smaller text when it gets focus, and stay
    zoomed in. Any touch screen, even with a trackpad as well. That includes the text box for
    editing a sticky note on the diagram, so notes' text is 16px there too (see .sticky), and a
-   note keeps its size when you start editing it. */
+   note keeps its size when you start editing it. The notes editor's formatted notes are
+   typed in, so they're 16px too. */
 @media (any-pointer: coarse) {
   input,
   select,
-  textarea {
+  textarea,
+  .notes-formatted .ProseMirror {
     font-size: 16px;
   }
 }
@@ -1694,6 +1696,54 @@ button.heading {
   padding: 0 5px;
 }
 
+/* The chip on the corner of a box or sticky note with notes, which opens them. It sits over the
+   corner, like a problem's badge, so it never covers the text; with a badge there too, it's to
+   its left. Bigger on a touch screen. */
+.notes-button {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.notes-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.c4-badge ~ .notes-button {
+  right: 16px;
+}
+/* A frame's is a corner with no size, drawn over the diagram (see FrameNotes). */
+.frame-notes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: all;
+}
+@media (any-pointer: coarse) {
+  .notes-button {
+    width: 30px;
+    height: 30px;
+    top: -13px;
+    right: -13px;
+  }
+  .c4-badge ~ .notes-button {
+    right: 14px;
+  }
+}
+
 .react-flow__handle.handle-source {
   width: 12px;
   height: 12px;
@@ -2895,6 +2945,225 @@ button.heading {
 }
 .notes-editor .error {
   margin: 8px 0 0;
+}
+/* The title, and beside it the switch between the notes formatted and as markdown. */
+.notes-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+.modal .notes-head h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.segmented {
+  display: inline-flex;
+}
+.segmented button {
+  border-radius: 0;
+}
+.segmented button + button {
+  margin-left: -1px;
+}
+.segmented button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.segmented button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.segmented button[aria-pressed="true"],
+.segmented button[aria-pressed="true"]:hover:not(:disabled) {
+  position: relative;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.notes-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.notes-toolbar button {
+  padding: 3px 9px;
+  font-size: 13px;
+}
+.notes-toolbar button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--hover);
+}
+.notes-toolbar .tool-bold {
+  font-weight: 700;
+}
+.notes-toolbar .tool-italic {
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.notes-toolbar .tool-strike {
+  text-decoration: line-through;
+}
+.notes-link {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.notes-link input {
+  flex: 1;
+  min-width: 0;
+}
+.notes-loading {
+  margin: 0 0 8px;
+}
+/* The notes as they read, in a box like the markdown's, that the text fills, so a click below
+   the last line still puts the cursor in it. */
+.notes-formatted {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.notes-formatted:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.notes-formatted > div,
+.notes-formatted .milkdown {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.notes-formatted .ProseMirror {
+  flex: 1;
+  padding: 8px 12px;
+  outline: none;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.notes-formatted .ProseMirror > :first-child {
+  margin-top: 0;
+}
+.notes-formatted p {
+  margin: 0 0 10px;
+}
+.notes-formatted h1,
+.notes-formatted h2,
+.notes-formatted h3,
+.notes-formatted h4,
+.notes-formatted h5,
+.notes-formatted h6 {
+  margin: 18px 0 8px;
+  line-height: 1.25;
+}
+.notes-formatted h1 {
+  font-size: 24px;
+}
+.notes-formatted h2 {
+  font-size: 19px;
+}
+.notes-formatted h3 {
+  font-size: 16px;
+}
+.notes-formatted h4,
+.notes-formatted h5,
+.notes-formatted h6 {
+  font-size: 14px;
+}
+.notes-formatted ul,
+.notes-formatted ol {
+  margin: 0 0 10px;
+  padding-left: 24px;
+}
+.notes-formatted li > p {
+  margin: 0 0 4px;
+}
+/* A task in a list, as GitHub draws one, with a box ticked when it's done. */
+.notes-formatted li[data-item-type="task"] {
+  list-style: none;
+  position: relative;
+}
+.notes-formatted li[data-item-type="task"]::before {
+  content: "☐";
+  position: absolute;
+  left: -20px;
+}
+.notes-formatted li[data-item-type="task"][data-checked="true"]::before {
+  content: "☑";
+}
+.notes-formatted blockquote {
+  margin: 0 0 10px;
+  padding: 0 0 0 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.notes-formatted code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--hover);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.notes-formatted pre {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  background: var(--hover);
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.notes-formatted pre code {
+  background: none;
+  padding: 0;
+}
+.notes-formatted a {
+  color: var(--accent);
+}
+.notes-formatted hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+.notes-formatted table {
+  border-collapse: collapse;
+  margin: 0 0 10px;
+}
+.notes-formatted th,
+.notes-formatted td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  vertical-align: top;
+}
+.notes-formatted th p,
+.notes-formatted td p {
+  margin: 0;
+}
+/* Raw HTML in the notes, shown as the text it is. */
+.notes-formatted [data-type="html"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  color: var(--muted);
+}
+.notes-formatted .notes-picture {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+/* A float with no height, so the cursor stays at the line's start, before it. */
+.notes-formatted .notes-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--muted);
+  pointer-events: none;
 }
 .notes-editor .modal-actions {
   align-items: center;

@@ -154,8 +154,12 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     if (v.description) lines.push("", v.description);
     if (v.notes) lines.push("", v.notes);
     lines.push("", "```mermaid", renderMermaid(cv), "```");
-    // The diagram's sticky notes, as quotes in reading order, each starting with what it's on.
-    if (v.stickies.length) lines.push("", "## Sticky notes", ...v.stickies.flatMap((s) => ["", ...s.text.split(/\r?\n/).map((l, i) => `> ${i === 0 ? stickyOn(ws, s) : ""}${l}`.trimEnd())]));
+    // The diagram's sticky notes, as quotes in reading order, each starting with what it's on,
+    // with the note's own notes after its text, in the same quote.
+    if (v.stickies.length) {
+      const quote = (text: string, first = "") => text.split(/\r?\n/).map((l, i) => `> ${i === 0 ? first : ""}${l}`.trimEnd());
+      lines.push("", "## Sticky notes", ...v.stickies.flatMap((s) => ["", ...quote(s.text, stickyOn(ws, s)), ...(s.notes ? [">", ...quote(s.notes)] : [])]));
+    }
     if (v.level === "state") {
       const name = (id: string) => cell(v.states.find((s) => s.id === id)?.name ?? id);
       lines.push("", "## States", "");

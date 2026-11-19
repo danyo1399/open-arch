@@ -1,5 +1,5 @@
 {
-  "openarch": 18,
+  "openarch": 19,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -337,7 +337,7 @@
         { "id": "look", "from": [80, 186], "to": "slow", "color": "red" }
       ],
       "stickies": {
-        "nothing-decided": { "text": "Nothing here is decided yet. Once it is, the change goes in the model, and on the container view.", "at": [700, 230] }
+        "nothing-decided": { "text": "Nothing here is decided yet. Once it is, the change goes in the model, and on the container view.", "at": [700, 230], "notes": "To decide either idea, we need to know:\n\n- how often product pages change, for **idea 1**\n- whether the payment provider can call us back when a payment goes through, for **idea 2**" }
       }
     },
     "landscape": {

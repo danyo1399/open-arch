@@ -52,7 +52,7 @@ afterAll(() => {
 beforeEach(() => userSettings.setSnap(SNAP_DEFAULTS));
 
 const doc: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -65,7 +65,7 @@ const doc: OpenArchDocument = {
 
 /** A state view, with a note: the states and the note snap too. */
 const states: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: {},
   views: {
@@ -81,7 +81,7 @@ const states: OpenArchDocument = {
 
 /** Views laid out automatically, each with a note: there, only the note snaps. */
 const deployment: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, web: { kind: "container", name: "Web", parent: "shop" } },
   views: {
@@ -94,7 +94,7 @@ const deployment: OpenArchDocument = {
   },
 };
 const events: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: {},
   views: {
@@ -111,7 +111,7 @@ const events: OpenArchDocument = {
   },
 };
 const screens: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: {},
   views: {
@@ -142,6 +142,10 @@ async function designer(model = doc) {
       });
     }
   };
+  await settle();
+  // A view laid out automatically draws nothing until its layout is worked out, which takes
+  // longer while other tests run alongside. Its boxes are measured once they're drawn.
+  for (let tries = 0; !host.querySelector(".react-flow__node") && tries < 50; tries++) await settle();
   await settle();
   const node = (id: string) => host.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)!;
   /** Where a point on the diagram is on the screen. The canvas is at the page's top left, as nothing here has a size. */

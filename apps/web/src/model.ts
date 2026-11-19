@@ -125,14 +125,18 @@ export function relationshipRef(element: ArchElement, position: number): { from:
 }
 
 /**
- * What has notes: an element, a relationship or a view. A relationship is named as operations
- * name one, by its place among the element's relationships to the same target. An edit elsewhere
- * can put another relationship in that place, so `look` is how those relationships looked once
- * the notes editor knew which one it's on (see notesOwnerAsIs). Once they look different, it's
- * taken as gone, rather than saving over another relationship's notes. `look` is null when the
- * editor lost track of which one it's on before it knew.
+ * What has notes: an element, a relationship, a view or a sticky note on a view. A relationship
+ * is named as operations name one, by its place among the element's relationships to the same
+ * target. An edit elsewhere can put another relationship in that place, so `look` is how those
+ * relationships looked once the notes editor knew which one it's on (see notesOwnerAsIs). Once
+ * they look different, it's taken as gone, rather than saving over another relationship's
+ * notes. `look` is null when the editor lost track of which one it's on before it knew.
  */
-export type NotesOwner = { kind: "element"; id: string } | { kind: "relationship"; from: string; to: string; index: number; look?: string | null } | { kind: "view"; id: string };
+export type NotesOwner =
+  | { kind: "element"; id: string }
+  | { kind: "relationship"; from: string; to: string; index: number; look?: string | null }
+  | { kind: "view"; id: string }
+  | { kind: "sticky"; view: string; id: string };
 
 /** An element's relationships to a target. */
 const relationshipsTo = (ws: Workspace, from: string, to: string) => ws.elements.get(from)?.uses.filter((r) => r.to === to) ?? [];
@@ -177,13 +181,22 @@ function relationshipAt(ws: Workspace, owner: Extract<NotesOwner, { kind: "relat
  * as no longer there.
  */
 export function notesOf(ws: Workspace, owner: NotesOwner): string | undefined {
-  const found = owner.kind === "view" ? ws.views.get(owner.id) : owner.kind === "element" ? ws.elements.get(owner.id) : relationshipAt(ws, owner);
+  const found =
+    owner.kind === "view"
+      ? ws.views.get(owner.id)
+      : owner.kind === "element"
+        ? ws.elements.get(owner.id)
+        : owner.kind === "sticky"
+          ? ws.views.get(owner.view)?.stickies.find((s) => s.id === owner.id)
+          : relationshipAt(ws, owner);
   return found && (found.notes ?? "");
 }
 
-/** The same owner after renames: `to` gives an element's or view's new ID. */
+/** The same owner after renames: `to` gives an element's or view's new ID. A sticky note's ID stays as it is, but its view's follows. */
 export function renamedNotesOwner(owner: NotesOwner, to: (id: string) => string): NotesOwner {
-  return owner.kind === "relationship" ? { ...owner, from: to(owner.from), to: to(owner.to) } : { ...owner, id: to(owner.id) };
+  if (owner.kind === "relationship") return { ...owner, from: to(owner.from), to: to(owner.to) };
+  if (owner.kind === "sticky") return { ...owner, view: to(owner.view) };
+  return { ...owner, id: to(owner.id) };
 }
 
 /** The edit that gives it these notes. Empty notes are taken off. */
@@ -191,12 +204,23 @@ export function notesOp(owner: NotesOwner, text: string): Operation {
   const notes = text || null;
   if (owner.kind === "view") return { op: "update-view", id: owner.id, notes };
   if (owner.kind === "element") return { op: "update-element", id: owner.id, notes };
+  if (owner.kind === "sticky") return { op: "update-sticky", view: owner.view, id: owner.id, notes };
   return { op: "update-relationship", from: owner.from, to: owner.to, index: owner.index, notes };
 }
 
-/** What the notes editor calls it: an element's name, a view's title, or a relationship's two ends. */
+/** A sticky note's text, as the notes editor names it: its first line, in quotes, cut short when it's long. */
+export function stickyName(text: string): string {
+  const line = text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? "";
+  return `“${line.length > 40 ? `${line.slice(0, 39).trimEnd()}…` : line}”`;
+}
+
+/** What the notes editor calls it: an element's name, a view's title, a relationship's two ends, or a sticky note's text. */
 export function notesName(ws: Workspace, owner: NotesOwner): string {
   if (owner.kind === "view") return ws.views.get(owner.id)?.title ?? owner.id;
+  if (owner.kind === "sticky") {
+    const sticky = ws.views.get(owner.view)?.stickies.find((s) => s.id === owner.id);
+    return sticky ? stickyName(sticky.text) : owner.id;
+  }
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   if (owner.kind === "element") return name(owner.id);
   return `${name(owner.from)} ${relationshipAt(ws, owner)?.bidirectional ? "↔" : "→"} ${name(owner.to)}`;

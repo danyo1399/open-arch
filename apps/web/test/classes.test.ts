@@ -8,7 +8,7 @@ import { classHeight, splitMembers } from "../src/canvas/nodes.js";
 import { RoutedEdge, type ArrowEdge } from "../src/canvas/RoutedEdge.js";
 
 const code: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },

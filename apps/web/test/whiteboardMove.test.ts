@@ -50,7 +50,7 @@ afterAll(() => {
 });
 
 const shop: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: {},
   views: {

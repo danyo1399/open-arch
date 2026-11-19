@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { applyOperations, loadWorkspace, serializeDocument, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { act, createElement } from "react";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Designer } from "../src/Designer.js";
 import type { WorkspaceHost } from "../src/hosts.js";
 import { button, click, mount } from "./dom.js";
@@ -83,7 +83,7 @@ class FileHost implements WorkspaceHost {
 }
 
 const doc: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },
@@ -135,6 +135,17 @@ async function designer(text = serializeDocument(doc)) {
     /** What the editor says, and its box. */
     title: () => host.querySelector("dialog.notes-editor h2")?.textContent,
     box: () => host.querySelector<HTMLTextAreaElement>("dialog.notes-editor textarea")!,
+    /** Once the editor's formatted notes have loaded, shows them as markdown, and gives back their box. */
+    markdown: async () => {
+      await act(() => vi.waitFor(() => expect(host.querySelector("dialog.notes-editor .ProseMirror")).not.toBeNull()));
+      await click(button(host.querySelector("dialog.notes-editor")!, "Markdown"));
+      return host.querySelector<HTMLTextAreaElement>("dialog.notes-editor textarea")!;
+    },
+    /** The editor's formatted notes, once they've loaded. */
+    formatted: async () => {
+      await act(() => vi.waitFor(() => expect(host.querySelector("dialog.notes-editor .ProseMirror")).not.toBeNull()));
+      return host.querySelector<HTMLElement>("dialog.notes-editor .ProseMirror")!;
+    },
   };
 }
 
@@ -145,7 +156,7 @@ describe("writing notes in the bigger editor", () => {
     await click(button(d.panel(), "Expand"));
     expect(d.editor()?.open).toBe(true);
     expect(d.title()).toBe("Notes on API");
-    expect(d.box().value).toBe("Takes orders.");
+    expect((await d.markdown()).value).toBe("Takes orders.");
 
     d.box().value = "Takes orders.\n\n## Refunds\n\nAnd gives refunds.";
     await click(button(d.editor()!, "Done"));
@@ -175,7 +186,7 @@ describe("writing notes in the bigger editor", () => {
     expect(Object.keys(d.file.doc.elements)).toContain("orders-api");
     expect(d.title()).toBe("Notes on Orders API");
 
-    d.box().value = "Takes orders, now by its new name.";
+    (await d.markdown()).value = "Takes orders, now by its new name.";
     await click(button(d.editor()!, "Done"));
     await d.settle();
     expect(d.editor()).toBeNull();
@@ -186,7 +197,7 @@ describe("writing notes in the bigger editor", () => {
     const d = await designer();
     await d.select("API");
     await click(button(d.panel(), "Expand"));
-    d.box().value = "Takes orders, whatever it's called.";
+    (await d.markdown()).value = "Takes orders, whatever it's called.";
     d.file.change([
       { op: "update-element", id: "api", name: "Orders API" },
       { op: "rename", id: "api", to: "orders-api" },
@@ -204,7 +215,7 @@ describe("writing notes in the bigger editor", () => {
     const d = await designer();
     await d.select("API");
     await click(button(d.panel(), "Expand"));
-    d.box().value = "Long notes, half written.";
+    (await d.markdown()).value = "Long notes, half written.";
     d.file.change([{ op: "remove-element", id: "api" }]);
     await d.settle();
     expect(d.title()).toBe("Notes on API");
@@ -232,7 +243,7 @@ describe("writing notes in the bigger editor", () => {
     expect(d.file.doc.elements.web!.uses![0]!.description).toBe("Calls over REST");
     expect(d.editor()!.textContent).not.toContain("changed or deleted elsewhere");
 
-    d.box().value = "Every call is authenticated.";
+    (await d.markdown()).value = "Every call is authenticated.";
     await click(button(d.editor()!, "Done"));
     await d.settle();
     expect(d.editor()).toBeNull();
@@ -243,7 +254,7 @@ describe("writing notes in the bigger editor", () => {
     const d = await designer();
     await click(d.host.querySelector('.react-flow__edge[data-id="web->api"]')!);
     await click([...d.panel().querySelectorAll("button")].filter((b) => b.textContent === "Expand")[0]!);
-    d.box().value = "Uses REST.";
+    (await d.markdown()).value = "Uses REST.";
     // The reload is queued before the save, and Done is pressed before the editor hears of it.
     await act(async () => {
       d.file.change([{ op: "remove-relationship", from: "web", to: "api", index: 0 }]);
@@ -260,7 +271,7 @@ describe("writing notes in the bigger editor", () => {
     const d = await designer();
     await d.select("API");
     await click(button(d.panel(), "Expand"));
-    d.box().value = "Takes orders, renamed as it saved.";
+    (await d.markdown()).value = "Takes orders, renamed as it saved.";
     // The reload is queued before the save, and Done is pressed before the editor hears of it.
     await act(async () => {
       d.file.change([
@@ -283,7 +294,7 @@ describe("writing notes in the bigger editor", () => {
       expands[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
     await d.settle();
-    expect(d.box().value).toBe("");
+    expect((await d.markdown()).value).toBe("");
     d.box().value = "Uses REST.";
     await click(button(d.editor()!, "Done"));
     await d.settle();
@@ -313,7 +324,7 @@ describe("writing notes in the bigger editor", () => {
     expect(d.editor()!.textContent).not.toContain("changed or deleted elsewhere");
 
     d.file.delay = 0;
-    d.box().value = "Every call is authenticated.";
+    (await d.markdown()).value = "Every call is authenticated.";
     await click(button(d.editor()!, "Done"));
     await d.settle();
     expect(d.editor()).toBeNull();
@@ -331,7 +342,7 @@ describe("writing notes in the bigger editor", () => {
       expand.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
     await d.settle();
-    expect(d.box().value).toBe("");
+    expect((await d.markdown()).value).toBe("");
     expect(d.editor()!.textContent).toContain("Web → API was changed or deleted elsewhere, so these notes can't be saved.");
     d.box().value = "Uses REST.";
     await click(button(d.editor()!, "Done"));
@@ -349,7 +360,7 @@ describe("writing notes in the bigger editor", () => {
     await click([...d.panel().querySelectorAll("button")].filter((b) => b.textContent === "Expand")[0]!);
     await d.settle();
     expect(button(d.editor()!, "Done").disabled).toBe(false);
-    d.box().value = "Uses REST.";
+    (await d.markdown()).value = "Uses REST.";
     await click(button(d.editor()!, "Done"));
     await d.settle();
     expect(d.editor()?.open).toBe(true);
@@ -376,7 +387,7 @@ describe("writing notes in the bigger editor", () => {
     // The second relationship's notes save to it.
     await click(expands[1]!);
     expect(d.title()).toBe("Notes on Web → API");
-    expect(d.box().value).toBe("Over a queue.");
+    expect((await d.markdown()).value).toBe("Over a queue.");
     d.box().value = "Over a queue, in order.";
     await click(button(d.editor()!, "Done"));
     await d.settle();
@@ -387,7 +398,7 @@ describe("writing notes in the bigger editor", () => {
 
     // The first relationship is deleted elsewhere while its notes are open, so the second takes its place.
     await click(expands[0]!);
-    d.box().value = "Uses REST.";
+    (await d.markdown()).value = "Uses REST.";
     d.file.change([{ op: "remove-relationship", from: "web", to: "api", index: 0 }]);
     await d.settle();
     expect(d.editor()!.textContent).toContain("Web → API was changed or deleted elsewhere, so these notes can't be saved.");
@@ -395,5 +406,132 @@ describe("writing notes in the bigger editor", () => {
     await d.settle();
     expect(d.editor()?.open).toBe(true);
     expect(d.file.doc.elements.web!.uses).toEqual([{ to: "api", description: "Sends events to", notes: "Over a queue, in order." }]);
+  });
+});
+
+describe("the chip on a box or sticky note with notes", () => {
+  /** The shop, with a sticky note with notes on its container view, one without, and a sequence view. */
+  const noted = (): OpenArchDocument => {
+    const model = structuredClone(doc);
+    model.views.containers!.stickies = {
+      why: { text: "Why it's split.\nIn two.", at: [400, 0], notes: "The **API** scales on its own." },
+      plain: { text: "Nothing more.", at: [400, 200] },
+    };
+    model.views.calls = { title: "Web calls API", level: "sequence", steps: [{ from: "web", to: "api" }], stickies: { steps: { text: "One step.", notes: "Just the one." } } };
+    return model;
+  };
+  const chip = (host: HTMLElement, node: string) => host.querySelector<HTMLButtonElement>(`.react-flow__node[data-id="${node}"] .notes-button`);
+
+  it("is on the boxes with notes, and opens them formatted, without selecting the box", async () => {
+    const d = await designer();
+    expect(chip(d.host, "web")).toBeNull();
+    const api = chip(d.host, "api")!;
+    expect(api.getAttribute("aria-label")).toBe("Notes on API");
+    await click(api);
+    await d.settle();
+    expect(d.title()).toBe("Notes on API");
+    expect((await d.formatted()).textContent).toBe("Takes orders.");
+    expect(d.host.querySelector(".react-flow__node.selected")).toBeNull();
+    expect(d.panel().textContent).not.toContain("Takes orders.");
+
+    // Changed as markdown, the notes save, and the chip stays.
+    (await d.markdown()).value = "Takes orders and refunds.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.file.doc.elements.api!.notes).toBe("Takes orders and refunds.");
+    expect(chip(d.host, "api")).not.toBeNull();
+
+    // An element whose notes are taken off loses its chip; one given notes elsewhere gets one.
+    d.file.change([
+      { op: "update-element", id: "api", notes: null },
+      { op: "update-element", id: "web", notes: "The shop's website." },
+    ]);
+    await d.settle();
+    expect(chip(d.host, "api")).toBeNull();
+    expect(chip(d.host, "web")).not.toBeNull();
+  });
+
+  it("is on the frame round a view's boxes, when what it's round has notes", async () => {
+    const d = await designer(serializeDocument({ ...doc, elements: { ...doc.elements, shop: { kind: "system", name: "Shop", notes: "Sells things." } } }));
+    const frame = d.host.querySelector<HTMLButtonElement>(".frame-notes .notes-button")!;
+    expect(frame.getAttribute("aria-label")).toBe("Notes on Shop");
+    await click(frame);
+    await d.settle();
+    expect(d.title()).toBe("Notes on Shop");
+  });
+
+  it("opens the notes as they are once what was typed in the details panel has saved", async () => {
+    const d = await designer();
+    await d.select("API");
+    const notes = d.panel().querySelector<HTMLTextAreaElement>('textarea[aria-label="Notes"]')!;
+    // Leaving the Notes box, by pressing the chip, saves what's in it; the chip is pressed before that lands.
+    await act(async () => {
+      notes.value = "Takes orders, typed just now.";
+      notes.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      chip(d.host, "api")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect((await d.formatted()).textContent).toBe("Takes orders, typed just now.");
+    expect(d.editor()!.textContent).not.toContain("changed elsewhere");
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.file.doc.elements.api!.notes).toBe("Takes orders, typed just now.");
+  });
+
+  it("is on the sticky notes with notes, and opens them by the note's first line", async () => {
+    const d = await designer(serializeDocument(noted()));
+    expect(chip(d.host, "sticky:plain")).toBeNull();
+    const why = chip(d.host, "sticky:why")!;
+    expect(why.getAttribute("aria-label")).toBe("Notes on “Why it's split.”");
+    await click(why);
+    await d.settle();
+    expect(d.title()).toBe("Notes on “Why it's split.”");
+    expect((await d.formatted()).querySelector("strong")!.textContent).toBe("API");
+    // Pressing it doesn't start editing the note's text either.
+    expect(d.host.querySelector(".sticky.editing")).toBeNull();
+    (await d.markdown()).value = "The API scales on its own, and so does the web app.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.file.doc.views.containers!.stickies!.why).toEqual({ text: "Why it's split.\nIn two.", at: [400, 0], notes: "The API scales on its own, and so does the web app." });
+  });
+
+  it("is beside a sticky note's text in its details, as Notes, which Expand opens", async () => {
+    const d = await designer(serializeDocument(noted()));
+    await click(d.host.querySelector('.react-flow__node[data-id="sticky:plain"]')!);
+    const notes = d.panel().querySelector<HTMLTextAreaElement>('textarea[aria-label="Notes"]')!;
+    expect(notes.value).toBe("");
+    await click(button(d.panel(), "Expand"));
+    expect(d.title()).toBe("Notes on “Nothing more.”");
+    (await d.markdown()).value = "Well, a little.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.file.doc.views.containers!.stickies!.plain!.notes).toBe("Well, a little.");
+    expect(chip(d.host, "sticky:plain")).not.toBeNull();
+
+    // Deleted elsewhere while its notes are open, they aren't saved.
+    await click(chip(d.host, "sticky:plain")!);
+    await d.settle();
+    (await d.markdown()).value = "More.";
+    d.file.change([{ op: "remove-sticky", view: "containers", id: "plain" }]);
+    await d.settle();
+    expect(d.editor()!.textContent).toContain("“Nothing more.” was changed or deleted elsewhere, so these notes can't be saved.");
+  });
+
+  it("is on a sequence's boxes and notes too", async () => {
+    const d = await designer(serializeDocument(noted()));
+    const row = [...d.host.querySelectorAll<HTMLButtonElement>(".sidebar .row-main")].find((b) => b.textContent?.includes("Web calls API"))!;
+    await click(row);
+    await d.settle();
+    const heads = [...d.host.querySelectorAll(".sequence-head")];
+    expect(heads.map((h) => !!h.querySelector(".notes-button"))).toEqual([false, true]);
+    await click(heads[1]!.querySelector(".notes-button")!);
+    await d.settle();
+    expect(d.title()).toBe("Notes on API");
+    await click(button(d.editor()!, "Cancel"));
+    await click(d.host.querySelector<HTMLButtonElement>(".sequence-notes .notes-button")!);
+    await d.settle();
+    expect(d.title()).toBe("Notes on “One step.”");
+    expect((await d.formatted()).textContent).toBe("Just the one.");
   });
 });

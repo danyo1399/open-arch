@@ -35,7 +35,7 @@ import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
-import { FrameNode, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { FrameNode, FrameNotes, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -660,6 +660,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+        <FrameNotes frame={frame} />
         <SnapGuides guides={guides} />
         <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
           <SnapButtons snap={snap} />

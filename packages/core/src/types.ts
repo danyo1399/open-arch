@@ -247,7 +247,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 18;
+export const FORMAT_VERSION = 19;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -605,6 +605,8 @@ export interface StickyData {
   color?: StickyColor;
   /** Top-left corner. Without it, the designer puts the note beside what it's on, or else beside the diagram. */
   at?: [number, number];
+  /** Longer documentation, as markdown, for more than the note's text should say. */
+  notes?: string;
 }
 
 /**
@@ -910,6 +912,7 @@ export interface Sticky {
   on?: StickyTarget;
   color: StickyColor;
   at?: [number, number];
+  notes?: string;
 }
 
 /** What a sticky note is on (see StickyTargetData), with a relationship's kind always given. */

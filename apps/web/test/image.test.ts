@@ -1,6 +1,7 @@
+// @vitest-environment happy-dom
 import { unzlibSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { diagramBounds, pageSize, pdfOf, rgbOf, sharpness } from "../src/image.js";
+import { diagramBounds, inPicture, pageSize, pdfOf, rgbOf, sharpness } from "../src/image.js";
 
 describe("diagramBounds", () => {
   it("is the box round every part, in the diagram's own coordinates, with room round it", () => {
@@ -14,6 +15,16 @@ describe("diagramBounds", () => {
 
   it("is null for a diagram with nothing in it", () => {
     expect(diagramBounds([], { x: 0, y: 0 }, 1)).toBeNull();
+  });
+});
+
+describe("inPicture", () => {
+  it("leaves out the grips for dragging and the chips that open notes", () => {
+    const part = (className: string) => Object.assign(document.createElement("div"), { className });
+    expect(inPicture(part("c4"))).toBe(true);
+    expect(inPicture(part("sticky-text"))).toBe(true);
+    expect(inPicture(document.createTextNode("Web"))).toBe(true);
+    for (const name of ["react-flow__handle handle-source", "arrow-grip", "notes-button nodrag nopan"]) expect(inPicture(part(name))).toBe(false);
   });
 });
 

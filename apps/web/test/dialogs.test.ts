@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 import { buildWorkspace, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { act, createElement, useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NewViewDialog, NotesEditor } from "../src/panels/dialogs.js";
 import { button, choose, click, key, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: { customer: { kind: "person", name: "Customer" }, shop: { kind: "system", name: "Shop" } },
   views: {},
@@ -87,11 +87,15 @@ describe("NewViewDialog for a wireframe view", () => {
   });
 });
 
+/** Whether the keys for shortcuts are ⌘ rather than Ctrl, as ProseMirror decides. */
+const mac = /Mac|iP(hone|[oa]d)/.test(navigator.platform);
+
 /**
  * The notes editor for the Orders API, starting from `text`, with the notes saved as `saved`.
  * It keeps what it saves and how often it closed; `saves` says whether a save goes through.
+ * It's shown as markdown, in its text box, unless `formatted`, once that has loaded.
  */
-function notesEditor(text: string, saved: string | undefined = text, saves: boolean | Promise<boolean> = true) {
+async function notesEditor(text: string, saved: string | undefined = text, saves: boolean | Promise<boolean> = true, formatted = false) {
   const saving: string[] = [];
   const closes: true[] = [];
   let setSaved: (saved: string | undefined) => void = () => {};
@@ -107,10 +111,14 @@ function notesEditor(text: string, saved: string | undefined = text, saves: bool
     });
   }
   const host = mount(createElement(Editor));
+  await loaded(host);
+  if (!formatted) await click(button(host, "Markdown"));
   return {
     host,
     dialog: host.querySelector("dialog")!,
     box: host.querySelector("textarea")!,
+    /** The formatted notes. */
+    notes: () => host.querySelector<HTMLElement>(".notes-formatted .ProseMirror")!,
     saving,
     closes,
     /** The notes saved now, as an edit from elsewhere, or the box's own, would leave them. */
@@ -118,16 +126,99 @@ function notesEditor(text: string, saved: string | undefined = text, saves: bool
   };
 }
 
+/** Waits for the formatted notes to load. */
+async function loaded(host: HTMLElement) {
+  await act(() => vi.waitFor(() => expect(host.querySelector(".notes-formatted .ProseMirror")).not.toBeNull()));
+}
+
+/** Selects all of the formatted notes, as Ctrl+A (⌘A on a Mac) does. */
+async function selectAll(notes: HTMLElement) {
+  await act(async () => void notes.dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: !mac, metaKey: mac, bubbles: true, cancelable: true })));
+}
+
 describe("NotesEditor", () => {
-  it("opens over the page, on the text from the box, named for whose notes they are", () => {
-    const { host, dialog, box } = notesEditor("Takes **orders**.");
+  it("opens over the page, on the text from the box, named for whose notes they are", async () => {
+    const { host, dialog, box } = await notesEditor("Takes **orders**.");
     expect(dialog.open).toBe(true);
     expect(host.querySelector("h2")!.textContent).toBe("Notes on Orders API");
     expect(box.value).toBe("Takes **orders**.");
   });
 
+  it("shows the notes formatted first, as they read, and as markdown after the switch, and back, as they are now", async () => {
+    const { host, notes, saving, closes } = await notesEditor("## Refunds\n\nTakes **orders**.\n\n- One", undefined, true, true);
+    expect(button(host, "Formatted").getAttribute("aria-pressed")).toBe("true");
+    expect(notes().querySelector("h2")!.textContent).toBe("Refunds");
+    expect(notes().querySelector("strong")!.textContent).toBe("orders");
+    expect(notes().querySelector("li")!.textContent).toBe("One");
+    expect(host.querySelector("textarea")).toBeNull();
+
+    await click(button(host, "Markdown"));
+    const box = host.querySelector("textarea")!;
+    expect(box.value).toBe("## Refunds\n\nTakes **orders**.\n\n- One");
+    expect(host.querySelector(".notes-toolbar")).toBeNull();
+    box.value = "Takes *refunds*.";
+    await click(button(host, "Formatted"));
+    await loaded(host);
+    expect(notes().querySelector("em")!.textContent).toBe("refunds");
+    await click(button(host, "Done"));
+    expect(saving).toEqual(["Takes *refunds*."]);
+    expect(closes).toHaveLength(1);
+  });
+
+  it("saves notes changed in the formatted view as markdown, and keeps the text as it was when they aren't", async () => {
+    const same = await notesEditor("+ Plus bullets\n\n| a |\n|---|\n| 1 |", "", true, true);
+    await click(button(same.host, "Done"));
+    // Saved as they were opened, not as the formatted view would write them.
+    expect(same.saving).toEqual(["+ Plus bullets\n\n| a |\n|---|\n| 1 |"]);
+
+    const { host, notes, saving } = await notesEditor("Takes orders.", undefined, true, true);
+    await selectAll(notes());
+    await click(host.querySelector('.notes-toolbar button[aria-label^="Bold"]')!);
+    expect(button(host.querySelector(".notes-toolbar")!, "B").getAttribute("aria-pressed")).toBe("true");
+    expect(notes().querySelector("strong")!.textContent).toBe("Takes orders.");
+    await act(async () => void notes().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: !mac, metaKey: mac, bubbles: true, cancelable: true })));
+    expect(saving).toEqual(["**Takes orders.**"]);
+  });
+
+  it("saves on Esc and Ctrl+Enter in the formatted view too, which the editor would keep for itself", async () => {
+    for (const press of [{ key: "Escape" }, { key: "Enter", ctrlKey: !mac, metaKey: mac }]) {
+      const { host, notes, saving, closes } = await notesEditor("Takes orders.", "", true, true);
+      const event = new KeyboardEvent("keydown", { ...press, bubbles: true, cancelable: true });
+      await act(async () => void notes().dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+      expect(saving).toEqual(["Takes orders."]);
+      expect(closes).toHaveLength(1);
+      host.remove();
+    }
+  });
+
+  it("links the text selected to the address typed, and takes the link off", async () => {
+    const { host, notes, saving } = await notesEditor("See the docs.", undefined, true, true);
+    await selectAll(notes());
+    await click(button(host, "Link"));
+    const address = host.querySelector<HTMLInputElement>('input[aria-label="Link address"]')!;
+    expect(button(host, "Add link").disabled).toBe(true);
+    await type(address, "https://example.com/docs");
+    await click(button(host, "Add link"));
+    expect(host.querySelector('input[aria-label="Link address"]')).toBeNull();
+    expect(notes().querySelector("a")!.getAttribute("href")).toBe("https://example.com/docs");
+
+    // In the link, the button offers to change it or take it off; Esc puts it away and leaves the editor open.
+    await click(button(host, "Link"));
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Link address"]')!.value).toBe("https://example.com/docs");
+    const esc = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    await act(async () => void host.querySelector('input[aria-label="Link address"]')!.dispatchEvent(esc));
+    expect(esc.defaultPrevented).toBe(true);
+    expect(host.querySelector('input[aria-label="Link address"]')).toBeNull();
+    await click(button(host, "Link"));
+    await click(button(host, "Remove link"));
+    expect(notes().querySelector("a")).toBeNull();
+    await click(button(host, "Done"));
+    expect(saving).toEqual([]);
+  });
+
   it("saves what was written when Done is pressed, and closes", async () => {
-    const { host, box, saving, closes } = notesEditor("Takes orders.");
+    const { host, box, saving, closes } = await notesEditor("Takes orders.");
     box.value = "Takes orders.\n\nAnd refunds them.";
     await click(button(host, "Done"));
     expect(saving).toEqual(["Takes orders.\n\nAnd refunds them."]);
@@ -135,14 +226,14 @@ describe("NotesEditor", () => {
   });
 
   it("closes without saving when nothing changed", async () => {
-    const { host, saving, closes } = notesEditor("Takes orders.");
+    const { host, saving, closes } = await notesEditor("Takes orders.");
     await click(button(host, "Done"));
     expect(saving).toEqual([]);
     expect(closes).toHaveLength(1);
   });
 
   it("saves on Esc and Ctrl+Enter too, so a stray key doesn't lose what was written", async () => {
-    const esc = notesEditor("");
+    const esc = await notesEditor("");
     esc.box.value = "Written.";
     const cancel = new Event("cancel", { cancelable: true });
     await act(async () => void esc.dialog.dispatchEvent(cancel));
@@ -150,7 +241,7 @@ describe("NotesEditor", () => {
     expect(esc.saving).toEqual(["Written."]);
     expect(esc.closes).toHaveLength(1);
 
-    const enter = notesEditor("");
+    const enter = await notesEditor("");
     enter.box.value = "Written.";
     await act(async () => void enter.box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, metaKey: true, bubbles: true })));
     expect(enter.saving).toEqual(["Written."]);
@@ -158,7 +249,7 @@ describe("NotesEditor", () => {
   });
 
   it("leaves the notes as they were on Cancel", async () => {
-    const { host, box, saving, closes } = notesEditor("Takes orders.");
+    const { host, box, saving, closes } = await notesEditor("Takes orders.");
     box.value = "Something else.";
     await click(button(host, "Cancel"));
     expect(saving).toEqual([]);
@@ -166,7 +257,7 @@ describe("NotesEditor", () => {
   });
 
   it("stays open with the text when a save doesn't go through, even if the dialog is closed anyway", async () => {
-    const { host, dialog, box, saving, closes } = notesEditor("Takes orders.", "Takes orders.", false);
+    const { host, dialog, box, saving, closes } = await notesEditor("Takes orders.", "Takes orders.", false);
     box.value = "Takes refunds.";
     await click(button(host, "Done"));
     expect(closes).toEqual([]);
@@ -179,8 +270,8 @@ describe("NotesEditor", () => {
     expect(closes).toEqual([]);
   });
 
-  it("says when the notes are changed elsewhere while it's open, but not when the box's own text is saved", () => {
-    const { host, saved } = notesEditor("Typed in the box.", "Saved before.");
+  it("says when the notes are changed elsewhere while it's open, but not when the box's own text is saved", async () => {
+    const { host, saved } = await notesEditor("Typed in the box.", "Saved before.");
     const warning = "These notes were changed elsewhere since you opened them. Done saves yours in their place.";
     expect(host.textContent).not.toContain(warning);
     saved("Typed in the box.");
@@ -190,7 +281,7 @@ describe("NotesEditor", () => {
   });
 
   it("says when what the notes are on is no longer in the model, and keeps the text rather than saving it", async () => {
-    const { host, dialog, box, saving, closes, saved } = notesEditor("Takes orders.");
+    const { host, dialog, box, saving, closes, saved } = await notesEditor("Takes orders.");
     saved(undefined);
     expect(host.textContent).toContain("Orders API was changed or deleted elsewhere, so these notes can't be saved. Copy them to keep them.");
     await click(button(host, "Done"));
@@ -205,18 +296,31 @@ describe("NotesEditor", () => {
 
   it("can't be changed or closed while a save runs, so it closes on what was saved", async () => {
     let finish: (ok: boolean) => void = () => {};
-    const { host, dialog, box, saving, closes } = notesEditor("Takes orders.", "Takes orders.", new Promise<boolean>((resolve) => (finish = resolve)));
+    const { host, dialog, box, saving, closes } = await notesEditor("Takes orders.", "Takes orders.", new Promise<boolean>((resolve) => (finish = resolve)));
     box.value = "Takes refunds.";
     await click(button(host, "Done"));
     expect(box.readOnly).toBe(true);
     expect(button(host, "Done").disabled).toBe(true);
     expect(button(host, "Cancel").disabled).toBe(true);
+    expect(button(host, "Formatted").disabled).toBe(true);
     // Esc, and the browser closing it, wait for the save too.
     await act(async () => void dialog.dispatchEvent(new Event("cancel", { cancelable: true })));
     await act(async () => dialog.close());
     expect(saving).toEqual(["Takes refunds."]);
     expect(dialog.open).toBe(true);
     expect(closes).toEqual([]);
+    await act(async () => finish(true));
+    expect(closes).toHaveLength(1);
+  });
+
+  it("can't be changed in the formatted view while a save runs", async () => {
+    let finish: (ok: boolean) => void = () => {};
+    const { host, notes, closes } = await notesEditor("Takes orders.", "", new Promise<boolean>((resolve) => (finish = resolve)), true);
+    expect(notes().getAttribute("contenteditable")).toBe("true");
+    await click(button(host, "Done"));
+    expect(notes().getAttribute("contenteditable")).toBe("false");
+    expect([...host.querySelectorAll<HTMLButtonElement>(".notes-toolbar button")].every((b) => b.disabled)).toBe(true);
+    expect(button(host, "Markdown").disabled).toBe(true);
     await act(async () => finish(true));
     expect(closes).toHaveLength(1);
   });

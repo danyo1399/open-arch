@@ -7,7 +7,7 @@ import { MemoryHost } from "../src/hosts.js";
 import { button, choose, click, key, mount } from "./dom.js";
 
 const doc: OpenArchDocument = {
-  openarch: 18,
+  openarch: 19,
   name: "Shop",
   elements: {},
   views: {

@@ -31,6 +31,11 @@ flowchart TB
 ## Sticky notes
 
 > Nothing here is decided yet. Once it is, the change goes in the model, and on the container view.
+>
+> To decide either idea, we need to know:
+>
+> - how often product pages change, for **idea 1**
+> - whether the payment provider can call us back when a payment goes through, for **idea 2**
 
 ## Shapes
 

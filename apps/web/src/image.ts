@@ -155,8 +155,8 @@ export function nextPaint(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }
 
-/** Grips and dots for dragging, which are for the designer, not the picture. */
-const skip = (node: Node) => !(node instanceof Element && (node.classList.contains("react-flow__handle") || node.classList.contains("arrow-grip")));
+/** Whether a part of the diagram is in its picture: grips and dots for dragging, and the chips that open notes, are for the designer, not the picture. */
+export const inPicture = (node: Node) => !(node instanceof Element && ["react-flow__handle", "arrow-grip", "notes-button"].some((name) => node.classList.contains(name)));
 
 /**
  * The diagram in `container` as a file of this format. Call it with nothing selected: the
@@ -167,7 +167,7 @@ export async function diagramImage(container: HTMLElement, format: ImageFormat, 
   // package.json: later versions lose the arrows' and lifelines' styles, so they don't show.
   const { toCanvas, toSvg } = await import("html-to-image");
   const target = targetIn(container);
-  const options = { width: target.width, height: target.height, style: target.style, backgroundColor: BACKGROUND, filter: skip };
+  const options = { width: target.width, height: target.height, style: target.style, backgroundColor: BACKGROUND, filter: inPicture };
   target.element.classList.add("light-colors");
   try {
     if (format === "svg") {

@@ -10,6 +10,7 @@ import { ContextMenu, MenuButton, menuPoint, type MenuItem } from "../panels/Con
 import type { Edit } from "../state.js";
 import type { Selection } from "./Canvas.js";
 import { dropNumber, lifelineAt, SEQ, sequenceLayout, stepChoices, stepTargets, type StepChoice } from "./sequenceLayout.js";
+import { ElementNotes, StickyNotes } from "./nodes.js";
 
 interface SequenceProps {
   ws: Workspace;
@@ -216,6 +217,7 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
                   [{kindLabel(n)}
                   {n.technology ? `: ${n.technology}` : ""}]
                 </div>
+                <ElementNotes element={n} />
               </div>
             );
           })}
@@ -242,6 +244,7 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
                   onClick={() => onSelect({ kind: "sticky", id: s.id })}
                 >
                   <div className="sticky-text">{s.text}</div>
+                  <StickyNotes sticky={s} />
                 </div>
               ))}
             </div>

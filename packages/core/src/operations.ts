@@ -143,9 +143,9 @@ export type Operation =
   | { op: "hide-in-view"; view: string; id: string }
   | { op: "set-layout"; view: string; positions: Record<string, Position | null> }
   /** `on`: the element or relationship the note is on, on views of boxes. */
-  | { op: "add-sticky"; view: string; id: string; text: string; on?: StickyTargetData; color?: StickyColor; at?: [number, number] }
+  | { op: "add-sticky"; view: string; id: string; text: string; on?: StickyTargetData; color?: StickyColor; at?: [number, number]; notes?: string }
   /** `on`: null takes the note off what it's on. */
-  | { op: "update-sticky"; view: string; id: string; text?: string; on?: StickyTargetData | null; color?: StickyColor; at?: [number, number] | null }
+  | { op: "update-sticky"; view: string; id: string; text?: string; on?: StickyTargetData | null; color?: StickyColor; at?: [number, number] | null; notes?: string | null }
   | { op: "remove-sticky"; view: string; id: string }
   | { op: "add-step"; view: string; from: string; to: string; description?: string; technology?: string; reply?: boolean; step?: number }
   | { op: "update-step"; view: string; step: number; from?: string; to?: string; description?: string | null; technology?: string | null; reply?: boolean; newStep?: number }
@@ -427,8 +427,8 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "show-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "hide-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "set-layout": { required: ["view", "positions"], fields: { view: "string", positions: "positions" } },
-  "add-sticky": { required: ["view", "id", "text"], fields: { view: "string", id: "string", text: "string", on: "target", color: "string", at: "point" } },
-  "update-sticky": { required: ["view", "id"], fields: { view: "string", id: "string", text: "string", on: "nullable-target", color: "string", at: "nullable-point" } },
+  "add-sticky": { required: ["view", "id", "text"], fields: { view: "string", id: "string", text: "string", on: "target", color: "string", at: "point", notes: "string" } },
+  "update-sticky": { required: ["view", "id"], fields: { view: "string", id: "string", text: "string", on: "nullable-target", color: "string", at: "nullable-point", notes: "nullable-string" } },
   "remove-sticky": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "add-step": {
     required: ["view", "from", "to"],
@@ -1440,7 +1440,13 @@ function addSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "add-stic
   const on = op.on && stickyTarget(doc, view, op.view, op.on);
   view.stickies = {
     ...view.stickies,
-    [op.id]: clean<StickyData>({ text: op.text.trim(), on, color: op.color === "yellow" ? undefined : op.color, at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])] }),
+    [op.id]: clean<StickyData>({
+      text: op.text.trim(),
+      on,
+      color: op.color === "yellow" ? undefined : op.color,
+      at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])],
+      notes: op.notes?.trim(),
+    }),
   };
   return `added sticky note ${op.id} to view ${op.view}${on ? `, on ${stickyTargetText(on)}` : ""}`;
 }
@@ -1448,7 +1454,9 @@ function addSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "add-stic
 function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "update-sticky" }>): string {
   const view = requireView(doc, op.view);
   const sticky = requireSticky(view, op.view, op.id);
-  if (op.text === undefined && op.on === undefined && op.color === undefined && op.at === undefined) throw new OpError("Say what to change: text, on, color or at.");
+  if (op.text === undefined && op.on === undefined && op.color === undefined && op.at === undefined && op.notes === undefined) {
+    throw new OpError("Say what to change: text, on, color, at or notes.");
+  }
   if (op.text !== undefined) {
     if (!op.text.trim()) throw new OpError("A sticky note needs some text. Remove it with remove-sticky instead.");
     sticky.text = op.text.trim();
@@ -1462,6 +1470,8 @@ function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "updat
   }
   if (op.at === null) delete sticky.at;
   else if (op.at !== undefined) sticky.at = [Math.round(op.at[0]), Math.round(op.at[1])];
+  if (op.notes === null || (op.notes !== undefined && !op.notes.trim())) delete sticky.notes;
+  else if (op.notes !== undefined) sticky.notes = op.notes.trim();
   return `updated sticky note ${op.id} in view ${op.view}`;
 }
 

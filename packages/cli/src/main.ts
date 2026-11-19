@@ -86,6 +86,7 @@ wireframe view, its screens in order, each with its widgets and the screens they
 a whiteboard view, its shapes from the back to the front, and its arrows, for a flowchart
 view, its lanes, its blocks in order, and its flows, or for an entity view, its entities in
 order, each with its attributes, and its links with how many of each end there can be.
+Then the view's sticky notes, with their notes.
 A class's members, a relationship's kind when it isn't an association, a container's
 libraries and the containers a library is built into are shown too.
 `,
@@ -304,7 +305,7 @@ An empty value removes a field.
   "hide-in-view": writer(`Usage: open-arch hide-in-view <view> <id>...\n\nHides elements from a view, without removing them from the model.\n`, {}),
   "add-sticky": writer(
     `Usage: open-arch add-sticky <view> <id> --text <text> [--element <id> | --from <id> --to <id> [--kind <kind>]]
-                            [--color <yellow|pink|blue|green>] [--at <x,y>]
+                            [--color <yellow|pink|blue|green>] [--at <x,y>] [--notes <markdown>]
 
 Adds a sticky note to a view: text for people reading the diagram, such as what to notice or
 why it's drawn this way. It isn't part of the model. The id must be unique within the view.
@@ -315,18 +316,21 @@ a relationship: the designer draws a line from the note to the box or arrow that
   --kind <kind>          That relationship's kind, when it isn't an association
   --at <x,y>             Top-left corner (default: the designer puts it beside what it's on,
                          or else beside the diagram)
+  --notes <markdown>     More than the note should say: the designer opens them from the note,
+                         and the docs show them after its text (or --notes-file <path>, - for stdin)
 `,
-    { text: s, element: s, from: s, to: s, kind: s, color: s, at: s },
+    { text: s, element: s, from: s, to: s, kind: s, color: s, at: s, notes: s, "notes-file": s },
   ),
   "update-sticky": writer(
     `Usage: open-arch update-sticky <view> <id> [--text <text>] [--element <id> | --from <id> --to <id> [--kind <kind>] | --detach]
-                               [--color <yellow|pink|blue|green>] [--at <x,y>]
+                               [--color <yellow|pink|blue|green>] [--at <x,y>] [--notes <markdown>]
 
 --element, or --from and --to, put the note on an element or a relationship (see add-sticky),
 and --detach takes it off.
 --at "" lets the designer place it again.
+--notes takes markdown, or use --notes-file <path> (- for stdin), and --notes "" removes them.
 `,
-    { text: s, element: s, from: s, to: s, kind: s, detach: b, color: s, at: s },
+    { text: s, element: s, from: s, to: s, kind: s, detach: b, color: s, at: s, notes: s, "notes-file": s },
   ),
   "remove-sticky": writer(`Usage: open-arch remove-sticky <view> <id>\n`, {}),
   "add-step": writer(
