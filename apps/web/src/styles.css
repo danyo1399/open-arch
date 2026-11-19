@@ -3016,6 +3016,9 @@ button.heading {
   flex: 1;
   min-width: 0;
 }
+.notes-editor .notes-link-error {
+  margin: -2px 0 8px;
+}
 .notes-loading {
   margin: 0 0 8px;
 }

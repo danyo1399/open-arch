@@ -479,6 +479,26 @@ describe("the chip on a box or sticky note with notes", () => {
     expect(d.file.doc.elements.api!.notes).toBe("Takes orders, typed just now.");
   });
 
+  it("opens nothing when what it's on is deleted before the edits made first have landed", async () => {
+    const d = await designer(serializeDocument(noted()));
+    // The reloads are queued before the presses, which come before the designer hears of them.
+    await act(async () => {
+      d.file.change([{ op: "remove-element", id: "api" }]);
+      chip(d.host, "api")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(chip(d.host, "api")).toBeNull();
+
+    await act(async () => {
+      d.file.change([{ op: "remove-sticky", view: "containers", id: "why" }]);
+      chip(d.host, "sticky:why")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.host.querySelector('.react-flow__node[data-id="sticky:why"]')).toBeNull();
+  });
+
   it("is on the sticky notes with notes, and opens them by the note's first line", async () => {
     const d = await designer(serializeDocument(noted()));
     expect(chip(d.host, "sticky:plain")).toBeNull();

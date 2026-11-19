@@ -2,7 +2,7 @@
 import { buildWorkspace, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { act, createElement, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { NewViewDialog, NotesEditor } from "../src/panels/dialogs.js";
+import { linkable, NewViewDialog, NotesEditor } from "../src/panels/dialogs.js";
 import { button, choose, click, key, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
@@ -136,6 +136,13 @@ async function selectAll(notes: HTMLElement) {
   await act(async () => void notes.dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: !mac, metaKey: mac, bubbles: true, cancelable: true })));
 }
 
+describe("linkable", () => {
+  it("is web, mail, phone and FTP addresses, and ones relative to the page, but not other schemes", () => {
+    for (const href of ["https://example.com", "HTTP://example.com", "mailto:a@example.com", "tel:+441234", "ftp://example.com/f", "docs/setup.md", "#top", "?q=1", "/root", ""]) expect(linkable(href)).toBe(true);
+    for (const href of ["javascript:alert(1)", "JavaScript:alert(1)", " java\tscript:alert(1)", "data:text/html,x", "vbscript:x", "file:///etc/passwd"]) expect(linkable(href)).toBe(false);
+  });
+});
+
 describe("NotesEditor", () => {
   it("opens over the page, on the text from the box, named for whose notes they are", async () => {
     const { host, dialog, box } = await notesEditor("Takes **orders**.");
@@ -215,6 +222,24 @@ describe("NotesEditor", () => {
     expect(notes().querySelector("a")).toBeNull();
     await click(button(host, "Done"));
     expect(saving).toEqual([]);
+  });
+
+  it("links only to addresses the notes can link to", async () => {
+    const { host, notes, saving } = await notesEditor("See the docs.", undefined, true, true);
+    await selectAll(notes());
+    await click(button(host, "Link"));
+    const address = host.querySelector<HTMLInputElement>('input[aria-label="Link address"]')!;
+    await type(address, "javascript:alert(1)");
+    expect(button(host, "Add link").disabled).toBe(true);
+    expect(host.textContent).toContain("A link goes to a web, email, phone or FTP address, or to a path like docs/setup.md.");
+    // Enter doesn't add it either.
+    await act(async () => void address.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(notes().querySelector("a")).toBeNull();
+    await type(address, "docs/setup.md");
+    expect(host.textContent).not.toContain("A link goes to");
+    await click(button(host, "Add link"));
+    await click(button(host, "Done"));
+    expect(saving).toEqual(["[See the docs.](docs/setup.md)"]);
   });
 
   it("can't make code a link", async () => {

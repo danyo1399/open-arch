@@ -34,6 +34,16 @@ interface NotesEditorProps {
   onClose(): void;
 }
 
+/** The kinds of address the formatted view links to, as Milkdown does: it shows any other, such as javascript:, as text that goes nowhere. */
+const LINK_SCHEMES = ["http:", "https:", "mailto:", "tel:", "ftp:"];
+
+/** Whether an address can be a link in notes: one of those, or one with no scheme, relative to the page the notes are on. */
+export function linkable(href: string): boolean {
+  // Browsers skip spaces and control characters in a scheme, so "java script:" is still one.
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href.replace(/[\u0000-\u0020]/g, ""))?.[1];
+  return !scheme || LINK_SCHEMES.includes(`${scheme.toLowerCase()}:`);
+}
+
 /** The formatted view's toolbar: what each button does, what it shows, and what it says it does. */
 const TOOLS: { format: Format; label: string; title: string; className?: string }[] = [
   { format: "bold", label: "B", title: `Bold (${mod}B)`, className: "tool-bold" },
@@ -234,7 +244,7 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
           className="notes-link"
           onSubmit={(e) => {
             e.preventDefault();
-            setLink(linking.href.trim() || null);
+            if (linkable(linking.href)) setLink(linking.href.trim() || null);
           }}
         >
           <input
@@ -252,7 +262,7 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
               editor?.view.focus();
             }}
           />
-          <button type="submit" className="primary" disabled={!linking.href.trim()}>
+          <button type="submit" className="primary" disabled={!linking.href.trim() || !linkable(linking.href)}>
             {linking.had ? "Change link" : "Add link"}
           </button>
           {linking.had && (
@@ -261,6 +271,11 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
             </button>
           )}
         </form>
+      )}
+      {view === "formatted" && linking && !linkable(linking.href) && (
+        <p className="error small notes-link-error" role="alert">
+          A link goes to a web, email, phone or FTP address, or to a path like docs/setup.md.
+        </p>
       )}
       {view === "formatted" ? (
         <>
