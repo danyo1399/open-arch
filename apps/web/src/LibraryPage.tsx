@@ -17,7 +17,8 @@ const edited = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeSty
 
 /** A new workspace in a folder gets the file and docs folder `open-arch init` would make there. */
 const NEW_FILE = `architecture${FILE_EXTENSION}`;
-const NEW_DOCS = "docs/architecture";
+/** As `open-arch init` and the desktop app do, the docs go beside the new file. */
+const NEW_DOCS = ".";
 
 export function LibraryPage({ library, folders = defaultFolders, onOpen }: { library: WorkspaceLibrary; folders?: FolderList; onOpen(host: WorkspaceHost): void }) {
   const [records, setRecords] = useState<StoredWorkspace[] | null>(null);
@@ -245,7 +246,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
           }
         >
           <p>
-            There's no {FILE_EXTENSION} file in {creating.name}, or in the folders below it. Create {NEW_FILE} there, with its docs in {NEW_DOCS}/?
+            There's no {FILE_EXTENSION} file in {creating.name}, or in the folders below it. Create {NEW_FILE} there, with its docs beside it?
           </p>
         </Modal>
       )}

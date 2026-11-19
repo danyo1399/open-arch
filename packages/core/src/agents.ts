@@ -4,6 +4,8 @@
  * in an exported zip and in a folder opened from its start page.
  */
 
+import { GENERATED_MARKER } from "./export.js";
+
 const SECTION_START = "<!-- open-arch:start -->";
 const SECTION_END = "<!-- open-arch:end -->";
 
@@ -18,16 +20,19 @@ export function agentsSection(workspace: string, docs: string | undefined, versi
   const breaks = /[\r\n\u2028\u2029]/;
   if (breaks.test(workspace)) throw new LineBreakInPath(workspace, "workspace");
   if (docs && breaks.test(docs)) throw new LineBreakInPath(docs, "docs");
-  // Docs at the top of the project, beside AGENTS.md, have the path "".
-  const docsFolder = docs === undefined ? undefined : code(`${docs || "."}/`);
+  // Docs at the top of the project, beside AGENTS.md, have the path "". Their folder is the
+  // project's own, so the section names the pages rather than telling agents to leave it all alone.
+  const atTop = docs === "";
+  const where = docs === undefined ? "" : atTop ? " Readable docs generated from it are at the top of the project: `README.md` and the pages in `elements/` and `views/`." : ` Readable docs generated from it are in ${code(`${docs}/`)}.`;
+  const leave = docs === undefined ? code(workspace) : atTop ? `${code(workspace)} or a page generated from it (one that starts with \`${GENERATED_MARKER}\`)` : `${code(workspace)} or ${code(`${docs}/`)}`;
   return [
     SECTION_START,
     "## Architecture",
     "",
-    `This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in ${code(workspace)}.${docsFolder ? ` Readable docs generated from it are in ${docsFolder}.` : ""}`,
+    `This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in ${code(workspace)}.${where}`,
     "",
     "- Load the `open-arch` skill before reading or changing the architecture. If your tool doesn't support skills, read `.agents/skills/open-arch/SKILL.md`.",
-    `- Never edit ${code(workspace)}${docsFolder ? ` or ${docsFolder}` : ""} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.`,
+    `- Never edit ${leave} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.`,
     SECTION_END,
     "",
   ].join(eol);

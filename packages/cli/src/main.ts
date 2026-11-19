@@ -47,8 +47,8 @@ const COMMANDS: Record<string, Command> = {
   init: {
     usage: `Usage: open-arch init [file] [--name <name>] [--docs <folder>] [--no-skills] [--no-agents-md]
 
-Creates an empty workspace file (default: architecture.openarch) with a docs folder
-(default: docs/architecture, relative to the file). Also installs the open-arch agent skill
+Creates an empty workspace file (default: architecture.openarch) and writes its docs beside it
+(--docs names another folder, relative to the file). Also installs the open-arch agent skill
 into .agents/skills/ and .claude/skills/ and adds an open-arch section to AGENTS.md, at the
 repository root. Safe to run again: it keeps the file and refreshes the skill and the section.
 If AGENTS.md can't be read, isn't UTF-8 text, or has a section that can't be told apart from

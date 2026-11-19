@@ -27,7 +27,7 @@ export function init(io: Io, opts: InitOptions): number {
   } else {
     mkdirSync(dirname(file), { recursive: true });
     const doc = emptyDocument(opts.name?.trim() || nameFromFileName(basename(projectRoot(io.cwd, dirname(file)))) || "Architecture");
-    doc.export = { docs: (opts.docs ?? "docs/architecture").replace(/\\/g, "/") };
+    doc.export = { docs: (opts.docs ?? ".").replace(/\\/g, "/") };
     writeWorkspaceFile(file, doc);
     io.out(`created ${shown}\n`);
     const docs = syncDocs(file, buildWorkspace(doc));

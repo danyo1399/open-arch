@@ -65,7 +65,7 @@ The web build is plain static files (`apps/web/dist`) with relative paths, so it
 
 ### Working in a folder
 
-In Chrome and Edge, the web app can work on a .openarch file in a folder on your computer, such as a Git repository, as the desktop app does. **Open folder…**, on the start page, asks for the folder, and the browser asks whether the page may change the files in it. The designer looks for .openarch files in the folder and two levels of folders below it, as the CLI does, skipping hidden folders and `node_modules`. One opens straight away; with several, you pick one; with none, it offers to create `architecture.openarch` there, with its docs in `docs/architecture`, as `open-arch init` would.
+In Chrome and Edge, the web app can work on a .openarch file in a folder on your computer, such as a Git repository, as the desktop app does. **Open folder…**, on the start page, asks for the folder, and the browser asks whether the page may change the files in it. The designer looks for .openarch files in the folder and two levels of folders below it, as the CLI does, skipping hidden folders and `node_modules`. One opens straight away; with several, you pick one; with none, it offers to create `architecture.openarch` there, with its docs beside it, as `open-arch init` would.
 
 Every change is saved to the file, and the docs folder the workspace names is rewritten. So they're there to commit and push with Git. As with the CLI, only pages open-arch generated from this file, or from one no longer beside it (say before a rename), are overwritten or removed, and stale ones are only looked for at the docs folder's top and in its `views/` and `elements/`. So two workspaces whose files are in the same folder can keep their docs there too, beside their files. Workspaces in different folders need docs folders of their own. The docs folder has to be inside the folder you opened: open the folder that holds both.
 
@@ -389,7 +389,7 @@ VITE_SHARE_SERVER=http://localhost:8787 pnpm --filter @open-arch/web dev
 open-arch init
 ```
 
-This creates `architecture.openarch`, generates its docs into `docs/architecture/`, installs the agent skill, and adds a section to `AGENTS.md` telling agents to use it. Then open the file in the desktop app, or ask an agent to model the system. In Chrome or Edge, the web app can open the folder and edit the file there too, with **Open folder…**. Other browsers can't change the file itself: import it there, then export it back over the file when you're done.
+This creates `architecture.openarch`, generates its docs beside it (`README.md`, `elements/` and `views/`; `--docs <folder>` puts them in another folder), installs the agent skill, and adds a section to `AGENTS.md` telling agents to use it. Then open the file in the desktop app, or ask an agent to model the system. In Chrome or Edge, the web app can open the folder and edit the file there too, with **Open folder…**. Other browsers can't change the file itself: import it there, then export it back over the file when you're done.
 
 ## Development
 

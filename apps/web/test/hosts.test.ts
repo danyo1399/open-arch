@@ -65,7 +65,7 @@ describe("hosts", () => {
     const text = JSON.stringify({ openarch: 17, name: "A", export: { docs: "." }, elements: {}, views: {} });
     const files = unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text));
     expect(Object.keys(files)).toContain("a/README.md");
-    expect(strFromU8(files["a/AGENTS.md"]!)).toContain("Readable docs generated from it are in `./`.");
+    expect(strFromU8(files["a/AGENTS.md"]!)).toContain("Readable docs generated from it are at the top of the project: `README.md` and the pages in `elements/` and `views/`.");
   });
 
   it("zips the docs beside the file, with no folder of their own, when the workspace names no docs folder, or one outside its folder", () => {
