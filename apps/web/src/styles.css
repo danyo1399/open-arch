@@ -3023,8 +3023,12 @@ button.heading {
   margin: 0 0 8px;
 }
 /* The notes as they read, in a box like the markdown's, that the text fills, so a click below
-   the last line still puts the cursor in it. */
+   the last line still puts the cursor in it. Each box inside, down to the text, grows to fill
+   the one it's in. A height of 100% wouldn't do it: the boxes in between have no height of
+   their own, so the text would stop at its last line, and a click below it would leave it. */
 .notes-formatted {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -3040,10 +3044,10 @@ button.heading {
 .notes-formatted .milkdown {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  flex: 1 0 auto;
 }
 .notes-formatted .ProseMirror {
-  flex: 1;
+  flex: 1 0 auto;
   padding: 8px 12px;
   outline: none;
   line-height: 1.5;

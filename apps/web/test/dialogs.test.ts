@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 import { buildWorkspace, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, createElement, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { linkable, NewViewDialog, NotesEditor } from "../src/panels/dialogs.js";
@@ -170,6 +172,27 @@ describe("NotesEditor", () => {
     await click(button(host, "Done"));
     expect(saving).toEqual(["Takes *refunds*."]);
     expect(closes).toHaveLength(1);
+  });
+
+  it("fills its box with the formatted notes, so a click below the last line stays in them", async () => {
+    // This page has no layout, so it reads the stylesheet. From the text up to the box with the
+    // border, each box grows to fill the one it's in. A height of 100% wouldn't: the boxes in
+    // between have no height of their own, so a click below the last line would leave the notes.
+    const style = document.createElement("style");
+    style.textContent = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+    document.head.append(style);
+    try {
+      const { notes } = await notesEditor("Takes orders.", undefined, true, true);
+      let inner: HTMLElement = notes();
+      while (!inner.classList.contains("notes-formatted")) {
+        const outer = inner.parentElement!;
+        expect(getComputedStyle(outer)).toMatchObject({ display: "flex", flexDirection: "column" });
+        expect(getComputedStyle(inner).flexGrow).toBe("1");
+        inner = outer;
+      }
+    } finally {
+      style.remove();
+    }
   });
 
   it("saves notes changed in the formatted view as markdown, and keeps the text as it was when they aren't", async () => {
