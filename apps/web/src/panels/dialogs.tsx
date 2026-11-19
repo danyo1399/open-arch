@@ -161,6 +161,11 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
     setView(next);
   };
   const editor = richReady ? rich.current : null;
+  // Code is only code, so it can't be a link; the box for its address goes while the cursor's in code.
+  const canLink = !!editor && !saving && !formats.has("code") && !formats.has("codeBlock");
+  useEffect(() => {
+    if (!canLink) setLinking(null);
+  }, [canLink]);
   const setLink = (href: string | null) => {
     editor?.link(href);
     setLinking(null);
@@ -213,7 +218,7 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
             title="Link"
             aria-label="Link"
             aria-pressed={linking !== null}
-            disabled={!editor || saving}
+            disabled={!canLink}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               const here = editor?.linkHere() ?? null;

@@ -673,7 +673,6 @@ function relLabel(r: { description?: string; technology?: string; tags?: Tags; b
   return [kind, r.description ?? (kind ? "" : "(no description)"), r.technology ? `[${r.technology}]` : "", r.bidirectional ? "(both ways)" : "", tags ? `(tags: ${tags})` : ""].filter(Boolean).join(" ");
 }
 
-/** Multi-line text, each line indented. */
 /** A view's sticky notes, each with its color, where it is, what it's on if `on` says, its text and its notes. */
 function stickyLines(stickies: Sticky[], on: (s: Sticky) => string = () => ""): string[] {
   if (!stickies.length) return [];
@@ -688,6 +687,7 @@ function stickyLines(stickies: Sticky[], on: (s: Sticky) => string = () => ""): 
   ];
 }
 
+/** Multi-line text, each line indented. */
 function indented(text: string, indent: string): string[] {
   return text.split("\n").map((l) => `${indent}${l}`.trimEnd());
 }

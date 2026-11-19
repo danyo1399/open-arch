@@ -217,6 +217,23 @@ describe("NotesEditor", () => {
     expect(saving).toEqual([]);
   });
 
+  it("can't make code a link", async () => {
+    // The cursor starts at the top, here in a code block.
+    const block = await notesEditor("```\nlet x\n```", undefined, true, true);
+    expect(button(block.host, "Link").disabled).toBe(true);
+    block.host.remove();
+
+    const { host, notes } = await notesEditor("Plain words.", undefined, true, true);
+    await selectAll(notes());
+    expect(button(host, "Link").disabled).toBe(false);
+    // With the box for an address open, making the text code puts it away.
+    await click(button(host, "Link"));
+    expect(host.querySelector('input[aria-label="Link address"]')).not.toBeNull();
+    await click(host.querySelector('.notes-toolbar button[aria-label^="Code, in"]')!);
+    expect(button(host, "Link").disabled).toBe(true);
+    expect(host.querySelector('input[aria-label="Link address"]')).toBeNull();
+  });
+
   it("saves what was written when Done is pressed, and closes", async () => {
     const { host, box, saving, closes } = await notesEditor("Takes orders.");
     box.value = "Takes orders.\n\nAnd refunds them.";

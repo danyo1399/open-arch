@@ -518,6 +518,51 @@ describe("the chip on a box or sticky note with notes", () => {
     expect(d.editor()!.textContent).toContain("“Nothing more.” was changed or deleted elsewhere, so these notes can't be saved.");
   });
 
+  it("is on a deployment view's boxes, and on the frame round a state view, a flowchart and an entity view", async () => {
+    const model = structuredClone(doc);
+    model.views = {
+      ...model.views,
+      production: { title: "Production", level: "deployment", nodes: { server: { name: "Server", runs: ["api", "web"] } } },
+      "api-states": { title: "API states", level: "state", scope: "api", initial: "up", states: { up: { name: "Up", at: [0, 0] } } },
+      "api-flow": { title: "API flow", level: "flowchart", scope: "api", blocks: [{ id: "go", kind: "start", text: "Go", at: [0, 0] }] },
+      "api-data": { title: "API data", level: "entity", scope: "api", entities: [{ id: "order", name: "Order", at: [0, 0] }], links: [] },
+    };
+    const d = await designer(serializeDocument(model));
+    /** Opens a view from the Views list, once its boxes are drawn: some are laid out a moment after it opens. */
+    const open = async (title: string) => {
+      await click([...d.host.querySelectorAll<HTMLButtonElement>(".sidebar .row-main")].find((b) => b.textContent?.startsWith(title))!);
+      for (let tries = 0; !d.host.querySelector(".react-flow__node") && tries < 50; tries++) await d.settle();
+      await d.settle();
+    };
+    /** Presses the chip, and says whose notes the editor opened on, closing it. */
+    const press = async (chip: HTMLButtonElement | null) => {
+      expect(chip?.getAttribute("aria-label")).toBe("Notes on API");
+      await click(chip!);
+      await d.settle();
+      const title = d.title();
+      await click(button(d.editor()!, "Cancel"));
+      return title;
+    };
+
+    await open("Production");
+    expect(chip(d.host, "server/web")).toBeNull();
+    expect(await press(chip(d.host, "server/api"))).toBe("Notes on API");
+
+    await open("API states");
+    expect(await press(d.host.querySelector(".frame-notes .notes-button"))).toBe("Notes on API");
+
+    await open("API flow");
+    expect(await press(d.host.querySelector(".frame-notes .notes-button"))).toBe("Notes on API");
+
+    await open("API data");
+    expect(await press(d.host.querySelector(".frame-notes .notes-button"))).toBe("Notes on API");
+
+    // What it's round has no notes, so the frame has no chip.
+    d.file.change([{ op: "update-element", id: "api", notes: null }]);
+    await d.settle();
+    expect(d.host.querySelector(".frame-notes .notes-button")).toBeNull();
+  });
+
   it("is on a sequence's boxes and notes too", async () => {
     const d = await designer(serializeDocument(noted()));
     const row = [...d.host.querySelectorAll<HTMLButtonElement>(".sidebar .row-main")].find((b) => b.textContent?.includes("Web calls API"))!;
