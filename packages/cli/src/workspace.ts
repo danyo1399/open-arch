@@ -93,6 +93,29 @@ export function docsFolder(file: string, doc: OpenArchDocument): string | undefi
   return resolve(dirname(file), ...docs.split("/"));
 }
 
+/**
+ * Whether a new workspace in `dir` has the folder to itself, so its docs can go beside it: a
+ * folder that isn't there yet, or holds nothing but hidden things, such as the skill an earlier
+ * init put in .agents/, and isn't a Git repository's top.
+ */
+export function isFreeFolder(dir: string): boolean {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return !existsSync(dir);
+  }
+  return !names.includes(".git") && names.every((name) => name.startsWith("."));
+}
+
+/**
+ * The docs folder of a new workspace in `dir`: beside the file when it has the folder to itself,
+ * or else docs/architecture, so its pages don't mix with what's there, such as a README.md.
+ */
+export function newDocsFolder(dir: string): string {
+  return isFreeFolder(dir) ? "." : "docs/architecture";
+}
+
 export interface DocsResult {
   dir: string;
   written: string[];

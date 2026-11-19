@@ -65,7 +65,7 @@ describe("hosts", () => {
     const text = JSON.stringify({ openarch: 17, name: "A", export: { docs: "." }, elements: {}, views: {} });
     const files = unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text));
     expect(Object.keys(files)).toContain("a/README.md");
-    expect(strFromU8(files["a/AGENTS.md"]!)).toContain("Readable docs generated from it are at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the project has its own.");
+    expect(strFromU8(files["a/AGENTS.md"]!)).toContain("Readable docs generated from it are beside it, at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the folder has its own.");
   });
 
   it("zips the docs beside the file, with no folder of their own, when the workspace names no docs folder, or one outside its folder", () => {
@@ -97,7 +97,9 @@ describe("hosts", () => {
       const zipped = unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text, { folder: "repo", path: "arch/a.openarch" }));
       const files = Object.keys(zipped);
       expect(files).toContain(`${where}README.md`);
-      expect(strFromU8(zipped["repo/AGENTS.md"]!)).toContain(`in \`arch/a.openarch\`. Readable docs generated from it are in \`${where.slice("repo/".length)}\`.`);
+      // Docs beside the file are named page by page, as their folder can hold other things.
+      const section = where === "repo/arch/" ? "beside it: the pages in `arch/elements/` and `arch/views/`, and `arch/README.md` unless the folder has its own." : `in \`${where.slice("repo/".length)}\`.`;
+      expect(strFromU8(zipped["repo/AGENTS.md"]!)).toContain(`in \`arch/a.openarch\`. Readable docs generated from it are ${section}`);
       expect(files).toContain("repo/arch/a.openarch");
       expect(files).toContain("repo/AGENTS.md");
       for (const target of SKILL_TARGETS) expect(files).toContain(`repo/${target}/SKILL.md`);

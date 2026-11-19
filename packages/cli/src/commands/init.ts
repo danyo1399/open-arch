@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { agentsSection, buildWorkspace, emptyDocument, FILE_EXTENSION, lineEnding, LineBreakInPath, nameFromFileName, withAgentsSection } from "@open-arch/core";
 import { skillDir } from "@open-arch/skill";
 import { CliError, VERSION, type Io } from "../io.js";
-import { displayPath, readWorkspaceFile, SKILL_TARGETS, syncDocs, writeWorkspaceFile } from "../workspace.js";
+import { displayPath, isFreeFolder, newDocsFolder, readWorkspaceFile, SKILL_TARGETS, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { describeDocs } from "./export.js";
 
 export interface InitOptions {
@@ -25,13 +25,15 @@ export function init(io: Io, opts: InitOptions): number {
   if (existsSync(file)) {
     io.out(`kept ${shown}\n`);
   } else {
+    // Worked out before the file is made, while its folder still holds only what was there.
+    const docs = opts.docs ?? newDocsFolder(dirname(file));
     mkdirSync(dirname(file), { recursive: true });
     const doc = emptyDocument(opts.name?.trim() || nameFromFileName(basename(projectRoot(io.cwd, dirname(file)))) || "Architecture");
-    doc.export = { docs: (opts.docs ?? ".").replace(/\\/g, "/") };
+    doc.export = { docs: docs.replace(/\\/g, "/") };
     writeWorkspaceFile(file, doc);
     io.out(`created ${shown}\n`);
-    const docs = syncDocs(file, buildWorkspace(doc));
-    if (docs) io.out(describeDocs(io, docs) + "\n");
+    const written = syncDocs(file, buildWorkspace(doc));
+    if (written) io.out(describeDocs(io, written) + "\n");
   }
 
   const project = projectRoot(io.cwd, dirname(file));
@@ -69,7 +71,7 @@ export function init(io: Io, opts: InitOptions): number {
     } catch (error) {
       const inPlace = opts.noSkills ? "The workspace and its docs are" : "The workspace, its docs and the skill are";
       // A path with a line break is fixed by renaming it, not by changing AGENTS.md.
-      // Naming the file, as init without one means architecture.openarch, and would make a new workspace.
+      // The file is named, as init without one may mean another architecture.openarch, and make a new workspace.
       const fix = !(error instanceof LineBreakInPath)
         ? `run \`open-arch init ${shown}\` again once AGENTS.md is fixed`
         : error.of === "docs"
@@ -85,13 +87,13 @@ export function init(io: Io, opts: InitOptions): number {
 }
 
 /**
- * The file init makes when none is named: architecture.openarch here, but at the top of a Git
- * repository in a folder of its own, architecture/, so its docs don't mix with the repository's
- * own README.md. One made here before is kept.
+ * The file init makes when none is named: architecture.openarch, here if it has the folder to
+ * itself (isFreeFolder), or else in a folder of its own, architecture/, so its docs can go beside
+ * it without mixing with what's here, such as a repository's README.md. One made here before is kept.
  */
 function defaultFile(cwd: string): string {
   const here = join(cwd, `architecture${FILE_EXTENSION}`);
-  return existsSync(here) || !existsSync(join(cwd, ".git")) ? here : join(cwd, "architecture", `architecture${FILE_EXTENSION}`);
+  return existsSync(here) || isFreeFolder(cwd) ? here : join(cwd, "architecture", `architecture${FILE_EXTENSION}`);
 }
 
 /** The repository root above `dir`, else the current folder if `dir` is inside it, else `dir`. */

@@ -6,14 +6,17 @@
 import { readFileSync } from "node:fs";
 import { basename, dirname, relative } from "node:path";
 import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type OpenArchDocument, type Workspace } from "@open-arch/core";
-import { docsFolder, syncDocs, writeWorkspaceFile } from "open-arch/workspace";
+import { docsFolder, newDocsFolder, syncDocs, writeWorkspaceFile } from "open-arch/workspace";
 import type { DocsSummary, OpenedFile, SaveSummary } from "../../web/src/bridge.js";
 import type { AgentSetup } from "./agent-setup.js";
 
-/** A new, empty workspace for `file`: named after it, with its docs in the file's own folder. */
+/**
+ * A new, empty workspace for `file`: named after it, with its docs in the file's own folder if it
+ * has the folder to itself, as `open-arch init` does, or else in docs/architecture beside it.
+ */
 export function newDocument(file: string): OpenArchDocument {
   const doc = emptyDocument(nameFromFileName(basename(file, FILE_EXTENSION)) || "Architecture");
-  doc.export = { docs: "." };
+  doc.export = { docs: newDocsFolder(dirname(file)) };
   return doc;
 }
 

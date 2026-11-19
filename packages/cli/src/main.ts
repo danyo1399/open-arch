@@ -47,11 +47,13 @@ const COMMANDS: Record<string, Command> = {
   init: {
     usage: `Usage: open-arch init [file] [--name <name>] [--docs <folder>] [--no-skills] [--no-agents-md]
 
-Creates an empty workspace file and writes its docs beside it (--docs names another folder,
-relative to the file). The file is architecture.openarch, but at the top of a Git repository
-it's architecture/architecture.openarch, in a folder of its own, unless the repository's top
-has an architecture.openarch already. Also installs the open-arch agent skill into .agents/skills/ and .claude/skills/ and adds an open-arch section to AGENTS.md, at the
-repository root. Safe to run again: it keeps the file and refreshes the skill and the section.
+Creates an empty workspace file, architecture.openarch, and writes its docs. Without a file
+named, it goes here if this folder is empty but for hidden things like .agents/, or else in a
+folder of its own, architecture/: say, at the top of a Git repository. Its docs go beside it
+when it has its folder to itself, and otherwise in docs/architecture beside it, apart from
+what's there. --docs names another folder, relative to the file. Also installs the open-arch
+agent skill into .agents/skills/ and .claude/skills/ and adds an open-arch section to
+AGENTS.md, at the repository root. Safe to run again: it keeps the file and refreshes the skill and the section.
 If AGENTS.md can't be read, isn't UTF-8 text, or has a section that can't be told apart from
 the rest of it (a marker without its pair, the markers out of order, more than one section),
 init leaves AGENTS.md alone and exits 1. So it does when the path of the workspace or its docs

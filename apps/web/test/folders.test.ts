@@ -418,7 +418,7 @@ describe("keeping the AGENTS.md section", () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A", "."));
     expect(await new FolderHost("1", root, "a.openarch").save(workspace("B", "."))).toMatchObject({ docs: { written: 1 } });
-    expect(root.files()["AGENTS.md"]).toContain("Readable docs generated from it are at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the project has its own.");
+    expect(root.files()["AGENTS.md"]).toContain("Readable docs generated from it are beside it, at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the folder has its own.");
     expect(Object.keys(root.files())).toContain("README.md");
   });
 
@@ -893,7 +893,7 @@ describe("exporting a workspace to a folder", () => {
     await exportToFolder(root, loadWorkspace(workspace("A")), "a.openarch");
     expect(loadWorkspace(root.files()["a.openarch"]!).doc.export).toEqual({ docs: "." });
     expect(root.files()["README.md"]).toContain("from a.openarch.");
-    expect(root.files()["AGENTS.md"]).toContain("Readable docs generated from it are at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the project has its own.");
+    expect(root.files()["AGENTS.md"]).toContain("Readable docs generated from it are beside it, at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the folder has its own.");
     const host = new FolderHost("1", root, "a.openarch");
     await host.load();
     await host.save(workspace("A2", "."));

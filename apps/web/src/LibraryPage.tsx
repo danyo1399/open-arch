@@ -1,7 +1,7 @@
 /** The web app's start page: the workspaces kept in this browser, and the ways to add one. */
 import { emptyDocument, FILE_EXTENSION, nameFromFileName, serializeDocument } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { allowed, canOpenFolders, findWorkspaces, folderList as defaultFolders, FolderHost, newWorkspacePath, pickFolder, type FolderHandle, type FolderList, type StoredFolder } from "./folders.js";
+import { allowed, canOpenFolders, findWorkspaces, folderList as defaultFolders, FolderHost, newWorkspace, pickFolder, type FolderHandle, type FolderList, type StoredFolder } from "./folders.js";
 import { BrowserHost, browserKey, SharedHost, type WorkspaceHost } from "./hosts.js";
 import { InstallPrompt } from "./InstallPrompt.js";
 import { importFiles, workspaceTitle, type StoredWorkspace, type WorkspaceLibrary } from "./library.js";
@@ -15,8 +15,6 @@ import { StartPage } from "./Start.js";
 
 const edited = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-/** A new workspace in a folder gets the file (newWorkspacePath) and docs folder `open-arch init` would make there: as the desktop app does too, the docs go beside the file. */
-const NEW_DOCS = ".";
 
 export function LibraryPage({ library, folders = defaultFolders, onOpen }: { library: WorkspaceLibrary; folders?: FolderList; onOpen(host: WorkspaceHost): void }) {
   const [records, setRecords] = useState<StoredWorkspace[] | null>(null);
@@ -28,8 +26,8 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
   const [opened, setOpened] = useState<StoredFolder[] | null>(null);
   /** A folder with several workspaces in it, to pick one from. */
   const [choosing, setChoosing] = useState<{ root: FolderHandle; paths: string[] } | null>(null);
-  /** A folder with no workspace in it, to make one in, at `path`. */
-  const [creating, setCreating] = useState<{ root: FolderHandle; path: string } | null>(null);
+  /** A folder with no workspace in it, to make one in, at `path`, with its docs in `docs`, as `open-arch init` would. */
+  const [creating, setCreating] = useState<{ root: FolderHandle; path: string; docs: string } | null>(null);
 
   const refresh = useCallback(() => library.list().then(setRecords, (e: unknown) => setError(problemText(e))), [library]);
 
@@ -68,7 +66,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
       if (!root) return;
       const paths = await findWorkspaces(root);
       if (paths.length === 1) return openInFolder(root, paths[0]!);
-      if (paths.length === 0) setCreating({ root, path: await newWorkspacePath(root) });
+      if (paths.length === 0) setCreating({ root, ...(await newWorkspace(root)) });
       else setChoosing({ root, paths });
     });
 
@@ -78,13 +76,13 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
       await openInFolder(record.root, record.path);
     });
 
-  const createInFolder = (root: FolderHandle, path: string) =>
+  const createInFolder = (root: FolderHandle, path: string, docsFolder: string) =>
     attempt(async () => {
       const doc = emptyDocument(nameFromFileName(root.name) || "Architecture");
-      doc.export = { docs: NEW_DOCS };
+      doc.export = { docs: docsFolder };
       const { docs, skillError, agentsError } = await new FolderHost("new", root, path).create(serializeDocument(doc));
       // Opened, the designer would hide what went wrong, so it's said here, and the list has it to open.
-      const problems = [docs?.error && `couldn't write its docs beside it: ${docs.error}`, skillError && `couldn't add the agent skill: ${skillError}`, agentsError && `couldn't add its section to AGENTS.md: ${agentsError}`].filter(Boolean);
+      const problems = [docs?.error && `couldn't write its docs ${docsFolder === "." ? "beside it" : `in ${docs.dir}/`}: ${docs.error}`, skillError && `couldn't add the agent skill: ${skillError}`, agentsError && `couldn't add its section to AGENTS.md: ${agentsError}`].filter(Boolean);
       const problem = problems.length ? problems.join(" It also ") : null;
       if (problem) {
         await folders.add(root, path);
@@ -233,9 +231,9 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
               <button
                 className="primary"
                 onClick={() => {
-                  const { root, path } = creating;
+                  const { root, path, docs } = creating;
                   setCreating(null);
-                  createInFolder(root, path);
+                  createInFolder(root, path, docs);
                 }}
               >
                 Create {creating.path}
@@ -244,7 +242,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
           }
         >
           <p>
-            There's no {FILE_EXTENSION} file in {creating.root.name}, or in the folders below it. Create {creating.path} there, with its docs beside it?
+            There's no {FILE_EXTENSION} file in {creating.root.name}, or in the folders below it. Create {creating.path} there, with its docs {creating.docs === "." ? "beside it" : `in ${creating.docs}/ beside it`}?
           </p>
         </Modal>
       )}

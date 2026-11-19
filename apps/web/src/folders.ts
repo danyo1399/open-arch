@@ -217,23 +217,31 @@ export async function writeSkill(dir: FolderHandle): Promise<string[]> {
 }
 
 /**
- * Where a new workspace goes in a folder with none, as `open-arch init` puts it: architecture.openarch,
- * but at the top of a Git repository in a folder of its own, architecture/, so its docs, beside it,
- * don't mix with the repository's own README.md. A Git repository's top has .git, a folder, or a
- * file in a worktree.
+ * Where a new workspace goes in a folder with none, and its docs folder, as `open-arch init` puts
+ * them: architecture.openarch at the folder's top if it has the folder to itself (isFreeFolder), or
+ * else in a folder of its own, architecture/. Its docs go beside it when it has its folder to
+ * itself, and otherwise in docs/architecture, so its pages don't mix with what's there.
  */
-export async function newWorkspacePath(root: FolderHandle): Promise<string> {
+export async function newWorkspace(root: FolderHandle): Promise<{ path: string; docs: string }> {
   const file = `architecture${FILE_EXTENSION}`;
-  const has = async (get: () => Promise<unknown>) =>
-    get().then(
-      () => true,
-      (error) => {
-        if (isMissing(error) || isNamed(error, "TypeMismatchError")) return false;
-        throw error;
-      },
-    );
-  const inRepository = (await has(() => root.getDirectoryHandle(".git"))) || (await has(() => root.getFileHandle(".git")));
-  return inRepository ? `architecture/${file}` : file;
+  if (await isFreeFolder(root)) return { path: file, docs: "." };
+  let own: FolderHandle | null;
+  try {
+    own = await root.getDirectoryHandle("architecture");
+  } catch (error) {
+    if (!isMissing(error) && !isNamed(error, "TypeMismatchError")) throw error;
+    own = null;
+  }
+  return { path: `architecture/${file}`, docs: own === null || (await isFreeFolder(own)) ? "." : "docs/architecture" };
+}
+
+/**
+ * Whether a new workspace has the folder to itself: it holds nothing but hidden things, such as
+ * the skill in .agents/, and isn't a Git repository's top, with its .git.
+ */
+async function isFreeFolder(dir: FolderHandle): Promise<boolean> {
+  for await (const entry of dir.values()) if (entry.name === ".git" || !entry.name.startsWith(".")) return false;
+  return true;
 }
 
 /** Whether a file is at this path in the folder. A path that can't be in it isn't. */

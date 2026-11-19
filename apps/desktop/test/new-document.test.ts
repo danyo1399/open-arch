@@ -1,9 +1,21 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { newDocument } from "../src/saving.js";
 
 describe("a new desktop workspace", () => {
-  it("is named after its file, with its docs in the file's own folder", () => {
-    expect(newDocument("/repo/payments-platform.openarch")).toMatchObject({ name: "Payments Platform", export: { docs: "." } });
-    expect(newDocument("/repo/-.openarch").name).toBe("Architecture");
+  it("is named after its file, with its docs in the file's own folder when it has the folder to itself", () => {
+    const dir = mkdtempSync(join(tmpdir(), "open-arch-new-"));
+    try {
+      mkdirSync(join(dir, ".agents"));
+      expect(newDocument(join(dir, "payments-platform.openarch"))).toMatchObject({ name: "Payments Platform", export: { docs: "." } });
+      expect(newDocument(join(dir, "-.openarch")).name).toBe("Architecture");
+      // In a folder with other things in it, such as a README.md, the docs get a folder of their own.
+      writeFileSync(join(dir, "README.md"), "# Mine\n");
+      expect(newDocument(join(dir, "shop.openarch")).export).toEqual({ docs: "docs/architecture" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
