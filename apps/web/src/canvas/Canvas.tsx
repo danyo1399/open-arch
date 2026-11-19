@@ -20,6 +20,7 @@ import {
   type StickyTargetData,
   type ViewDef,
   type ViewEdge,
+  type ViewLevel,
   type Workspace,
 } from "@open-arch/core";
 import {
@@ -37,7 +38,7 @@ import {
   type FitViewOptions,
   type NodeChange,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import {
   arrowRelation,
@@ -162,6 +163,8 @@ interface CanvasProps {
   editSticky?: string | null;
   /** What boxes and notes snap to as they're dragged, and its buttons. */
   snap: SnapControl;
+  /** Given the diagram's Auto layout, for the top bar's More menu on a narrow screen. */
+  autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
 /**
@@ -263,14 +266,34 @@ export interface AutoLayout {
   busy: boolean;
 }
 
+/** Levels whose views are laid out automatically all the time, or, on a whiteboard, never: they have no Auto layout. */
+const NO_AUTO_LAYOUT: readonly ViewLevel[] = ["sequence", "deployment", "event", "wireframe", "whiteboard"];
+
+/** Whether a view has Auto layout, and anything to lay out: a view of boxes with a box in it, a state view with a state, or a flowchart with a block. */
+export function canAutoLayout(cv: ComputedView): boolean {
+  const { view } = cv;
+  if (view.level === "state") return view.states.length > 0;
+  if (view.level === "flowchart") return view.blocks.length > 0;
+  return !NO_AUTO_LAYOUT.includes(view.level) && cv.nodes.length > 0;
+}
+
 /**
  * What the toolbar's Auto layout button does. `layOutAll` has ELK work out where everything on
  * the diagram goes, and gives the edit that puts it all there, as one step for Undo. Then the
  * diagram is fitted to the canvas, with `fit`. It's busy while ELK works, and a second click
  * then does nothing. When ELK can't lay it out, as when its file can't be loaded, `onError`
- * says so, and nothing moves.
+ * says so, and nothing moves. Nothing moves either when the diagram is closed before ELK is
+ * done, as when another view is opened: the person isn't there to see it, so a later Undo
+ * would take back what they never saw. `handle` is given it, for the top bar's More menu on a
+ * narrow screen, where the toolbar has no room for its button.
  */
-export function useAutoLayout(layOutAll: () => Promise<Edit>, edit: (edit: Edit) => Promise<boolean>, onError: (text: string) => void, fit: () => void): AutoLayout {
+export function useAutoLayout(
+  layOutAll: () => Promise<Edit>,
+  edit: (edit: Edit) => Promise<boolean>,
+  onError: (text: string) => void,
+  fit: () => void,
+  handle?: RefObject<AutoLayout | null>,
+): AutoLayout {
   const [busy, setBusy] = useState(false);
   // A ref too, as two clicks can come before the first one's render.
   const working = useRef(false);
@@ -287,7 +310,7 @@ export function useAutoLayout(layOutAll: () => Promise<Edit>, edit: (edit: Edit)
     setBusy(true);
     void layOutAll()
       .then(
-        (change) => edit(change).then((ok) => ok && mounted.current && requestAnimationFrame(() => requestAnimationFrame(fit))),
+        (change) => mounted.current && edit(change).then((ok) => ok && mounted.current && requestAnimationFrame(() => requestAnimationFrame(fit))),
         () => onError("Couldn't lay out the diagram automatically, so nothing moved. Reload the page to try again."),
       )
       .finally(() => {
@@ -295,7 +318,16 @@ export function useAutoLayout(layOutAll: () => Promise<Edit>, edit: (edit: Edit)
         if (mounted.current) setBusy(false);
       });
   };
-  return { run, busy };
+  const layout = { run, busy };
+  // Each render's, so the menu runs it with what's drawn now.
+  useEffect(() => {
+    if (!handle) return;
+    handle.current = layout;
+    return () => {
+      if (handle.current === layout) handle.current = null;
+    };
+  });
+  return layout;
 }
 
 /** The toolbar's Auto layout button. `empty` when there's nothing on the diagram to lay out. */
@@ -521,7 +553,7 @@ export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<strin
   return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky, snap }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky, snap, autoLayoutHandle }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -838,6 +870,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     edit,
     onError,
     () => fitDiagram(),
+    autoLayoutHandle,
   );
 
   /** The box a moving end would go to, or the box or frame a note's dot would put the note on, outlined while it's over it. */

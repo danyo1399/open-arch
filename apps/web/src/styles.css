@@ -1093,7 +1093,8 @@ button.heading {
 .toolbar > .menu {
   position: static;
 }
-/* A phone has no room for it beside + Add: the top bar's More menu has it instead. */
+/* A phone has no room for these beside + Add: the top bar's More menu has them instead. */
+.app.narrow .toolbar > .auto-layout,
 .app.narrow .export-button {
   display: none;
 }

@@ -17,7 +17,7 @@ import {
 } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Canvas, type Selection } from "./canvas/Canvas.js";
+import { Canvas, canAutoLayout, type AutoLayout, type Selection } from "./canvas/Canvas.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
@@ -162,6 +162,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   /** Every rename applied, in order. */
   const renames = useRef<Rename[]>([]);
   const mainRef = useRef<HTMLElement>(null);
+  /** The open diagram's Auto layout, which the More menu has on a narrow screen. */
+  const autoLayout = useRef<AutoLayout | null>(null);
   /** How many of them this render's IDs reflect. */
   const [renamesSeen, setRenamesSeen] = useState(0);
   /** How the Views list is sorted, and the views pinned to its top: this person's, not the file's. */
@@ -579,12 +581,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     { label: "Save as PDF…", onSelect: () => saveImage(cv, "pdf", PDF_FILE) },
   ];
   // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu. The diagram's
-  // toolbar has no room for its Export menu there either, so that's in this menu too.
+  // toolbar has no room for its Auto layout button or Export menu there either, so they're in
+  // this menu too.
   const moreItems: MenuItem[] = [
     ...(desktop ? [] : providers.map((provider) => ({ label: provider.exportLabel, onSelect: () => exportTo(provider) }))),
     ...(syncsDocs ? [] : [{ label: "Export zip", onSelect: exportZip }]),
     ...(canExportToFolder ? [{ label: "Export to folder…", onSelect: exportToFolderNow }] : []),
     ...(canShare ? [{ label: "Share a link…", onSelect: () => setDialog({ kind: "share" }) }] : []),
+    ...(computed && canAutoLayout(computed) ? [{ label: "Auto layout", onSelect: () => autoLayout.current?.run() }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
     ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
@@ -766,7 +770,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ) : view?.level === "state" ? (
           computed ? (
             <ReactFlowProvider key={view.id}>
-              <StateDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
+              <StateDiagram
+                computed={computed}
+                selection={selection}
+                onSelect={selectOnCanvas}
+                edit={edit}
+                onError={(text) => state.notify({ kind: "error", text })}
+                exportItems={exportItems(computed)}
+                snap={snap}
+                autoLayoutHandle={autoLayout}
+              />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
@@ -774,7 +787,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         ) : view?.level === "flowchart" ? (
           computed ? (
             <ReactFlowProvider key={view.id}>
-              <FlowchartDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
+              <FlowchartDiagram
+                computed={computed}
+                selection={selection}
+                onSelect={selectOnCanvas}
+                edit={edit}
+                onError={(text) => state.notify({ kind: "error", text })}
+                exportItems={exportItems(computed)}
+                snap={snap}
+                autoLayoutHandle={autoLayout}
+              />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
@@ -827,6 +849,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
               exportItems={computed ? exportItems(computed) : []}
               editSticky={isNew && selection?.kind === "sticky" ? selection.id : null}
               snap={snap}
+              autoLayoutHandle={autoLayout}
             />
           </ReactFlowProvider>
         ) : (

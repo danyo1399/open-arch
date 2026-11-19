@@ -2,9 +2,10 @@
 import "fake-indexeddb/auto";
 import { applyOperations, buildWorkspace, computeView, loadWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { NODE_W, type Point } from "../src/canvas/autoLayout.js";
-import { AutoLayoutButton, autoLayoutOps, layoutNodes, useAutoLayout } from "../src/canvas/Canvas.js";
+import { AutoLayoutButton, autoLayoutOps, canAutoLayout, layoutNodes, useAutoLayout } from "../src/canvas/Canvas.js";
 import { autoLayoutBlockOps } from "../src/canvas/FlowchartDiagram.js";
 import { blockWidth, LANE } from "../src/canvas/flowchartLayout.js";
 import { classHeight } from "../src/canvas/nodes.js";
@@ -79,6 +80,22 @@ describe("layoutNodes", () => {
       { id: "api", inside: true, height: undefined },
       { id: "web", inside: true, height: 150 },
     ]);
+  });
+});
+
+describe("canAutoLayout", () => {
+  it("is for views of boxes, state views and flowcharts with something on them, not views always laid out automatically", () => {
+    const ws = buildWorkspace({
+      ...shop,
+      views: {
+        ...shop.views,
+        nothing: { title: "Nothing", level: "flowchart", blocks: [] },
+        production: { title: "Production", level: "deployment", nodes: { server: { name: "Server", runs: ["web"] } } },
+      },
+    });
+    const can = (id: string) => canAutoLayout(computeView(ws, ws.views.get(id)!));
+    expect(["containers", "order-states", "returns"].map(can)).toEqual([true, true, true]);
+    expect(["empty", "nothing", "production"].map(can)).toEqual([false, false, false]);
   });
 });
 
@@ -187,6 +204,23 @@ describe("useAutoLayout", () => {
     expect(edit).not.toHaveBeenCalled();
     expect(fit).not.toHaveBeenCalled();
     expect(button(host, "Auto layout").disabled).toBe(false);
+  });
+
+  it("moves nothing when the diagram is closed before ELK is done, as when another view is opened", async () => {
+    let done!: (edit: Edit) => void;
+    const edit = vi.fn(async () => true);
+    const fit = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    act(() => root.render(createElement(Harness, { layOutAll: () => new Promise<Edit>((resolve) => (done = resolve)), edit, onError: () => {}, fit })));
+    await click(button(host, "Auto layout"));
+    act(() => root.unmount());
+    host.remove();
+    await act(async () => done([]));
+    await frames();
+    expect(edit).not.toHaveBeenCalled();
+    expect(fit).not.toHaveBeenCalled();
   });
 
   it("doesn't fit the diagram when the edit was refused", async () => {
@@ -317,5 +351,35 @@ describe("the Auto layout button", () => {
   it("can't be clicked on a view with nothing to lay out", async () => {
     const d = await designer("empty");
     expect(button(d.host, "Auto layout").disabled).toBe(true);
+  });
+});
+
+describe("Auto layout on a narrow screen", () => {
+  const real = window.matchMedia;
+  beforeAll(() => {
+    window.matchMedia = ((query: string) => ({ matches: true, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+  });
+  afterAll(() => {
+    window.matchMedia = real;
+  });
+  /** The top bar's More menu's items. */
+  const more = async (host: HTMLElement) => {
+    await click(host.querySelector('button[aria-label="More"]')!);
+    return [...document.querySelectorAll<HTMLElement>('.context-menu [role="menuitem"]')];
+  };
+
+  it("is in the top bar's More menu, as the diagram's toolbar has no room for it", async () => {
+    const d = await designer("order-states");
+    const item = (await more(d.host)).find((i) => i.textContent?.trim() === "Auto layout");
+    expect(item).toBeDefined();
+    await click(item!);
+    await d.settle();
+    const at = (await d.saved()).states.map((s) => s.at!);
+    expect(apart(at, NODE_W, NODE.height)).toBe(true);
+  });
+
+  it("isn't offered on a view with nothing to lay out", async () => {
+    const d = await designer("empty");
+    expect((await more(d.host)).map((i) => i.textContent?.trim())).not.toContain("Auto layout");
   });
 });

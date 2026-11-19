@@ -27,13 +27,13 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueStateId } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type Selection } from "./Canvas.js";
+import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { FrameNode, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
@@ -133,6 +133,8 @@ interface StateDiagramProps {
   exportItems: MenuItem[];
   /** What states and notes snap to as they're dragged, and its buttons. */
   snap: SnapControl;
+  /** Given the diagram's Auto layout, for the top bar's More menu on a narrow screen. */
+  autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
 /**
@@ -159,7 +161,7 @@ function newStickyId(stickies: Sticky[]): string {
   for (let i = 2; ; i++) if (!taken.has(`note-${i}`)) return `note-${i}`;
 }
 
-export function StateDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap }: StateDiagramProps) {
+export function StateDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap, autoLayoutHandle }: StateDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, TransitionEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -422,6 +424,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     edit,
     onError,
     () => fitDiagram(),
+    autoLayoutHandle,
   );
 
   // Fit the diagram to the window once, after its states have been measured.

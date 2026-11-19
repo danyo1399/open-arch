@@ -27,13 +27,13 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { idFromName, newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type Selection } from "./Canvas.js";
+import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { FrameNode, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
@@ -321,9 +321,11 @@ interface FlowchartDiagramProps {
   exportItems: MenuItem[];
   /** What blocks and notes snap to as they're dragged, and its buttons. */
   snap: SnapControl;
+  /** Given the diagram's Auto layout, for the top bar's More menu on a narrow screen. */
+  autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
-export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap }: FlowchartDiagramProps) {
+export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap, autoLayoutHandle }: FlowchartDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -604,6 +606,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     edit,
     onError,
     () => fitDiagram(),
+    autoLayoutHandle,
   );
 
   // Fit the diagram to the window once, after its blocks have been measured.
