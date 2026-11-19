@@ -38,7 +38,7 @@ afterEach(() => {
 describe("reading", () => {
   it("checks the example cleanly; its file is formatted and its docs are current", () => {
     const dir = example();
-    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 13 views, no problems.\n" });
+    expect(cli(dir, "check")).toMatchObject({ code: 0, out: "OK: shop.openarch, 17 elements, 14 views, no problems.\n" });
     expect(cli(dir, "fmt", "--check").code).toBe(0);
     expect(cli(dir, "export", "--check")).toMatchObject({ code: 0 });
   });
@@ -557,6 +557,89 @@ Flows:
     expect(cli(dir, "check").code).toBe(0);
   });
 
+  it("adds an entity view, its entities, attributes and links, and shows them with how many of each end there can be", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "people", "--level", "entity", "--scope", "orders-db").out).toContain("added view people");
+    expect(JSON.parse(read(dir)).views.people.title).toBe("Orders DB entities");
+    expect(cli(dir, "add-entity", "people", "person", "--description", "Someone we know", "--at", "0,0").out).toContain("added entity person to view people");
+    expect(cli(dir, "add-entity", "people", "team", "--name", "Team").code).toBe(0);
+    expect(cli(dir, "add-entity", "people", "badge", "--position", "1").out).toContain("added entity badge to view people, as entity 1");
+    expect(cli(dir, "add-attribute", "people", "person", "id", "--type", "uuid", "--key", "pk").out).toContain("added attribute id to entity person in view people");
+    expect(cli(dir, "add-attribute", "people", "person", "team_id", "--type", "uuid", "--key", "fk").code).toBe(0);
+    expect(cli(dir, "add-attribute", "people", "person", "email", "--type", "text", "--key", "uk,pk", "--description", "Work email", "--position", "2").out).toContain(
+      "added attribute email to entity person in view people, as attribute 2",
+    );
+    expect(cli(dir, "add-link", "people", "team", "person", "--text", "has").out).toContain("added link 1 to view people: team -> person");
+    expect(cli(dir, "add-link", "people", "person", "badge", "--cardinality", "one,zero-or-one").code).toBe(0);
+    expect(cli(dir, "add-link", "people", "person", "person", "--cardinality", "zero-or-one,zero-or-more", "--text", "manages", "--link", "1").out).toContain("added link 1 to view people: person -> person");
+    expect(cli(dir, "show", "people").out).toBe(`people: Orders DB entities
+  level:        entity view of orders-db (Orders DB)
+
+Entities:
+  1. badge "Badge"
+       (no attributes)
+  2. person "Person"  Someone we know  (at 0, 0)
+       id       uuid  pk
+       email    text  pk,uk  Work email
+       team_id  uuid  fk
+  3. team "Team"
+       (no attributes)
+
+Links (how many of from, then of to):
+  1.  person -> person  zero-or-one to zero-or-more  "manages"
+  2.  team -> person    one to zero-or-more          "has"
+  3.  person -> badge   one to zero-or-one
+`);
+    const json = JSON.parse(cli(dir, "show", "people", "--json").out);
+    expect(json.entities[1].attributes[1]).toEqual({ name: "email", position: 2, type: "text", keys: ["pk", "uk"], description: "Work email" });
+    expect(json.links[0]).toEqual({ link: 1, from: "person", to: "person", cardinality: ["zero-or-one", "zero-or-more"], text: "manages" });
+    expect(read(dir, "docs/views/people.md")).toContain('  person |o--o{ person : "manages"\n');
+    expect(read(dir, "docs/elements/orders-db.md")).toContain("- [Orders DB entities](../views/people.md) (its data)");
+    expect(cli(dir, "show", "orders-db").out).toContain("people (its data)");
+
+    expect(cli(dir, "update-entity", "people", "team", "--name", "Squad", "--new-id", "squad", "--description", "Who works together", "--at", "10,20", "--position", "1").out).toContain(
+      "renamed entity team to squad in view people, and moved it to entity 1",
+    );
+    expect(cli(dir, "update-entity", "people", "person", "--description", "", "--at", "").code).toBe(0);
+    expect(cli(dir, "update-attribute", "people", "person", "email", "--new-name", "mail", "--type", "", "--key", "uk", "--position", "3").out).toContain(
+      "renamed attribute email to mail of entity person in view people, and moved it to attribute 3",
+    );
+    expect(cli(dir, "update-attribute", "people", "person", "id", "--key", "", "--description", "Ours").code).toBe(0);
+    expect(cli(dir, "update-link", "people", "2", "--cardinality", "one,one-or-more", "--text", "", "--move-to", "3").out).toContain("moved link 2 to 3 in view people");
+    expect(cli(dir, "update-link", "people", "1", "--cardinality", "").code).toBe(0);
+    const view = JSON.parse(read(dir)).views.people;
+    expect(view.entities[0]).toEqual({ id: "squad", name: "Squad", description: "Who works together", attributes: [], at: [10, 20] });
+    expect(view.entities[2]).toEqual({
+      id: "person",
+      name: "Person",
+      attributes: [
+        { name: "id", type: "uuid", description: "Ours" },
+        { name: "team_id", type: "uuid", keys: ["fk"] },
+        { name: "mail", keys: ["uk"], description: "Work email" },
+      ],
+    });
+    expect(view.links).toEqual([
+      { from: "person", to: "person", text: "manages" },
+      { from: "person", to: "badge", cardinality: ["one", "zero-or-one"] },
+      { from: "squad", to: "person", cardinality: ["one", "one-or-more"] },
+    ]);
+    expect(cli(dir, "remove-link", "people", "1").out).toContain("removed link 1 from view people");
+    expect(cli(dir, "remove-attribute", "people", "person", "mail").out).toContain("removed attribute mail from entity person in view people");
+    expect(cli(dir, "remove-entity", "people", "person").out).toContain("removed entity person from view people and 2 links to or from it");
+    expect(cli(dir, "add-link", "people", "squad", "nobody").err).toContain('View "people" has no entity "nobody". Its entities: squad, badge.');
+    expect(cli(dir, "add-link", "people", "squad", "badge", "--cardinality", "one").err).toContain('--cardinality needs how many of each end there can be, from\'s then to\'s, e.g. --cardinality one,zero-or-more, not "one".');
+    expect(cli(dir, "add-link", "people", "squad", "badge", "--cardinality", "one,lots").err).toContain('Unknown cardinality "lots".');
+    expect(cli(dir, "add-attribute", "people", "squad", "x", "--key", "primary").err).toContain('Unknown key "primary".');
+    expect(cli(dir, "add-attribute", "people", "squad").err).toContain("Missing <name>.");
+    expect(cli(dir, "add-entity", "people", "x", "--position", "x").err).toContain("--position must be an entity's number: 1 is the first.");
+    expect(cli(dir, "remove-link", "people", "x").err).toContain("<n> must be a link's number");
+    expect(cli(dir, "add-entity", "place-order", "x").err).toContain('View "place-order" is a sequence view. Only entity views have entities, attributes and links.');
+    expect(cli(dir, "add-view", "--help").out).toContain("An entity view shows the data something keeps, as an entity-relationship diagram (ERD)");
+    expect(cli(dir, "add-link", "--help").out).toContain("Drawn in crow's foot notation");
+    expect(cli(dir, "--help").out).toContain("add-link <view> <from> <to>");
+    expect(cli(dir, "check").code).toBe(0);
+  });
+
   it("applies a batch of screens and widgets from JSON, all or nothing", () => {
     const dir = example();
     const ops = [
@@ -756,22 +839,22 @@ Flows:
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 17', '"openarch": 1')
+      .replace('"openarch": 18', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 17, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 18, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])("reads a version %i file, and writes it back as version 17", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17])("reads a version %i file, and writes it back as version 18", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 17', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 18', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 17,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 18,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -858,7 +941,7 @@ describe("init", () => {
   it("export leaves the docs of another workspace in the same folder alone", () => {
     const project = tempDir();
     for (const [name, title] of [["a.openarch", "A"], ["b.openarch", "B"]]) {
-      writeFileSync(join(project, name), JSON.stringify({ openarch: 17, name: title, export: { docs: "." }, elements: {}, views: {} }));
+      writeFileSync(join(project, name), JSON.stringify({ openarch: 18, name: title, export: { docs: "." }, elements: {}, views: {} }));
     }
     expect(cli(project, "export", "--file", "a.openarch").code).toBe(0);
     const result = cli(project, "export", "--file", "b.openarch");
@@ -922,7 +1005,7 @@ describe("init", () => {
 
     const older = tempDir();
     mkdirSync(join(older, ".git"));
-    writeFileSync(join(older, "architecture.openarch"), JSON.stringify({ openarch: 17, name: "Old", elements: {}, views: {} }));
+    writeFileSync(join(older, "architecture.openarch"), JSON.stringify({ openarch: 18, name: "Old", elements: {}, views: {} }));
     expect(cli(older, "init").out).toContain("kept architecture.openarch");
     expect(existsSync(join(older, "architecture"))).toBe(false);
   });
@@ -964,7 +1047,7 @@ describe("init", () => {
     // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
     expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
     expect(created.out).toContain("created architecture/architecture.openarch");
-    expect(JSON.parse(read(project, "architecture/architecture.openarch"))).toEqual({ openarch: 17, name: "Payments", export: { docs: "." }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture/architecture.openarch"))).toEqual({ openarch: 18, name: "Payments", export: { docs: "." }, elements: {}, views: {} });
     // At the repository's top, the workspace gets a folder of its own, with its docs beside it, apart from the repository's README.md.
     expect(read(project, "architecture/README.md")).toContain("# Payments");
     expect(read(project, "README.md")).toBe("# My project\n");

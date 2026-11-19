@@ -15,6 +15,7 @@ An online shop, used as the open-arch example.
 - [From order to delivery](views/order-events.md) – What happens in the business when a customer orders, as an event storm.
 - [Order Repository classes](views/order-repository-classes.md) – The classes that store orders, and how they fit together.
 - [Order states](views/order-states.md) – What an order goes through, from being placed to being delivered.
+- [Orders data](views/orders-data.md) – What the Orders DB keeps about each order, and who placed it.
 - [Placing an order](views/place-order.md) – What happens, in order, when a customer places an order.
 - [Production](views/production.md) – Where the shop runs for customers.
 - [Shop containers](views/shop-containers.md) – What runs inside the shop.

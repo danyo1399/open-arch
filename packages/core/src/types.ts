@@ -17,9 +17,11 @@ export type ElementKind = (typeof ELEMENT_KINDS)[number];
  * lines drawn with a pen, each where it's put, none of them part of the model. A flowchart view
  * draws the steps of a process: where it starts and ends, what's done, the decisions on the
  * way, and the arrows from one to the next, in a swimlane for each actor, team or system if it
- * has them.
+ * has them. An entity view draws the data something keeps, as an entity-relationship diagram:
+ * its entities, like a database's tables, each with its attributes, and the links between them,
+ * with how many of each end there can be.
  */
-export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event", "wireframe", "whiteboard", "flowchart"] as const;
+export const VIEW_LEVELS = ["landscape", "context", "container", "component", "class", "sequence", "state", "deployment", "event", "wireframe", "whiteboard", "flowchart", "entity"] as const;
 export type ViewLevel = (typeof VIEW_LEVELS)[number];
 
 export const STICKY_COLORS = ["yellow", "pink", "blue", "green"] as const;
@@ -214,13 +216,38 @@ export const BLOCK_KIND_LABELS: Record<BlockKind, string> = {
   database: "Database",
 };
 
+/**
+ * What an attribute of an entity is, as a key:
+ * - pk: its primary key, or part of it, which tells one of the entity from another
+ * - fk: a foreign key, which names one of another entity, like an order's customer
+ * - uk: unique: no two of the entity have the same, like a customer's email
+ */
+export const ATTRIBUTE_KEYS = ["pk", "fk", "uk"] as const;
+export type AttributeKey = (typeof ATTRIBUTE_KEYS)[number];
+
+/** Each kind of key, as the designer and the docs name it in full. */
+export const ATTRIBUTE_KEY_LABELS: Record<AttributeKey, string> = { pk: "Primary key", fk: "Foreign key", uk: "Unique" };
+
+/**
+ * How many of an entity there can be at one end of a link, for each one at the other end, as
+ * crow's foot notation draws it: exactly one, zero or one, one or more, or zero or more.
+ */
+export const CARDINALITIES = ["one", "zero-or-one", "one-or-more", "zero-or-more"] as const;
+export type Cardinality = (typeof CARDINALITIES)[number];
+
+/** Each cardinality, as the designer and the docs name it. */
+export const CARDINALITY_LABELS: Record<Cardinality, string> = { one: "Exactly one", "zero-or-one": "Zero or one", "one-or-more": "One or more", "zero-or-more": "Zero or more" };
+
+/** A link's cardinality when it doesn't say: one of `from` to zero or more of `to`, like a customer and their orders. */
+export const DEFAULT_CARDINALITY: readonly [Cardinality, Cardinality] = ["one", "zero-or-more"];
+
 /** Name/value pairs. A tag can have an empty value, which makes it a plain label. */
 export type Tags = Record<string, string>;
 
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 17;
+export const FORMAT_VERSION = 18;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -318,6 +345,46 @@ export interface ViewData {
   blocks?: BlockData[];
   /** Flowchart views only: the arrows from one block to the next. */
   flows?: FlowData[];
+  /** Entity views only: the entities, in reading order. */
+  entities?: EntityData[];
+  /** Entity views only: the links between two entities, or from one to itself. */
+  links?: EntityLinkData[];
+}
+
+/** One entity of an entity view: a thing whose data is kept, like a database's table. */
+export interface EntityData {
+  /** Unique among the view's entities. */
+  id: string;
+  name: string;
+  description?: string;
+  /** What's kept about it, like a table's columns, in order. */
+  attributes?: AttributeData[];
+  /** Top-left corner. Without it, the designer lays the entity out. */
+  at?: [number, number];
+}
+
+/** One attribute of an entity: something kept about it, like a table's column. */
+export interface AttributeData {
+  /** Unique among its entity's attributes. */
+  name: string;
+  /** What it holds, like "uuid", "text" or "decimal(10,2)". */
+  type?: string;
+  /** The keys it's part of: the primary key, a foreign key, or unique. */
+  keys?: AttributeKey[];
+  description?: string;
+}
+
+/** A link between two entities of an entity view, or from one to itself: a relationship, in an ERD's terms. */
+export interface EntityLinkData {
+  from: string;
+  to: string;
+  /**
+   * How many of each end there can be: of `from` for each `to`, drawn at `from`'s end, then of
+   * `to` for each `from`, drawn at `to`'s end. Default: ["one", "zero-or-more"].
+   */
+  cardinality?: [Cardinality, Cardinality];
+  /** What it says, like "places". */
+  text?: string;
 }
 
 /** One block of a flowchart view: where the process starts or ends, a step, a decision, and so on. */
@@ -624,6 +691,47 @@ export interface ViewDef {
   blocks: Block[];
   /** Flowchart views only, in the file's order; empty on other views. */
   flows: Flow[];
+  /** Entity views only, in the file's order; empty on other views. */
+  entities: Entity[];
+  /** Entity views only, in the file's order; empty on other views. */
+  links: EntityLink[];
+}
+
+export interface Entity {
+  id: string;
+  /** Where it lives in the document, e.g. `views.orders-data.entities[0]`. */
+  path: string;
+  /** Its place in the file's order: 1 is the first. */
+  number: number;
+  name: string;
+  description?: string;
+  /** In order. */
+  attributes: Attribute[];
+  at?: [number, number];
+}
+
+export interface Attribute {
+  /** Where it lives in the document, e.g. `views.orders-data.entities[0].attributes[1]`. */
+  path: string;
+  /** Its place in its entity: 1 is the first. */
+  number: number;
+  name: string;
+  type?: string;
+  /** Each once, in the order of ATTRIBUTE_KEYS. */
+  keys: AttributeKey[];
+  description?: string;
+}
+
+export interface EntityLink {
+  /** Where it lives in the document, e.g. `views.orders-data.links[0]`. */
+  path: string;
+  /** Its number: 1 is the first. */
+  number: number;
+  from: string;
+  to: string;
+  /** At `from`'s end, then at `to`'s. */
+  cardinality: [Cardinality, Cardinality];
+  text?: string;
 }
 
 export interface Block {

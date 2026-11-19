@@ -34,11 +34,12 @@ const loadElk = loadOnce(() => import("elkjs/lib/elk.bundled.js").then(({ defaul
  * can't be loaded: offline, or when the app was updated after the page was opened, since each
  * update gives the file a new name and the old one is gone.
  */
-/** A box to lay out: whether it's inside the frame, and how tall it is, when that isn't NODE_H, as for a class with members. */
+/** A box to lay out: whether it's inside the frame, and how tall and wide it is, when that isn't NODE_H or NODE_W, as for a class with members or an entity. */
 export interface LayoutNode {
   id: string;
   inside: boolean;
   height?: number;
+  width?: number;
 }
 
 export async function layOut(
@@ -74,7 +75,7 @@ export function gridLayout(nodes: { id: string; inside: boolean }[]): Record<str
 
 /** `options`: more of ELK's layout options, for the whole diagram. */
 export async function elkLayout(nodes: LayoutNode[], edges: { from: string; to: string }[], options: Record<string, string> = {}): Promise<Record<string, Point>> {
-  const box = (n: LayoutNode): ElkNode => ({ id: n.id, width: NODE_W, height: n.height ?? NODE_H });
+  const box = (n: LayoutNode): ElkNode => ({ id: n.id, width: n.width ?? NODE_W, height: n.height ?? NODE_H });
   const inside = nodes.filter((n) => n.inside);
   const children: ElkNode[] = nodes.filter((n) => !n.inside).map(box);
   // The spaces between boxes, which ELK takes from each box's parent: the frame needs them too.

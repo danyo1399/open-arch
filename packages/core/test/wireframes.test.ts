@@ -161,7 +161,7 @@ describe("wireframe views", () => {
     const old = shop();
     const parsed = parseDocument(JSON.stringify({ ...old, openarch: 12 }));
     expect(parsed.diagnostics).toEqual([]);
-    expect(parsed.doc).toEqual({ ...old, openarch: 17 });
+    expect(parsed.doc).toEqual({ ...old, openarch: 18 });
   });
 
   it("refuse fields of other views, and report malformed screens and widgets", () => {

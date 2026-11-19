@@ -92,6 +92,10 @@ export type Selection =
   /** A flowchart view's block, and its flow, by its number: 1 is the first. */
   | { kind: "block"; id: string }
   | { kind: "flow"; number: number }
+  /** An entity view's entity, an attribute of one, by its entity and its name, and a link, by its number: 1 is the first. */
+  | { kind: "entity"; id: string }
+  | { kind: "attribute"; entity: string; name: string }
+  | { kind: "link"; number: number }
   | { kind: "several"; elements: string[]; stickies: string[] }
   | { kind: "workspace" }
   | null;

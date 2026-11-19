@@ -3,10 +3,14 @@ import {
   ARROW_HEADS,
   ARROW_SIDES,
   arrowName,
+  ATTRIBUTE_KEY_LABELS,
+  ATTRIBUTE_KEYS,
   BLOCK_KIND_LABELS,
   BLOCK_KINDS,
   CARD_KIND_LABELS,
   CARD_KINDS,
+  CARDINALITIES,
+  CARDINALITY_LABELS,
   describeElement,
   ELEMENT_SHAPES,
   endShape,
@@ -36,13 +40,18 @@ import {
   type Arrow,
   type ArrowHeads,
   type ArrowSide,
+  type Attribute,
+  type AttributeKey,
   type Block,
   type BlockKind,
   type Card,
   type CardKind,
+  type Cardinality,
   type ComputedView,
   type Connection,
   type DeploymentNode,
+  type Entity,
+  type EntityLink,
   type Flow,
   type Lane,
   type NewElements,
@@ -156,6 +165,9 @@ export function Properties(props: PropertiesProps) {
   else if (shown.kind === "transition") body = <TransitionProperties {...props} view={shown.view} transition={shown.transition} />;
   else if (shown.kind === "block") body = <BlockProperties {...props} view={shown.view} block={shown.block} />;
   else if (shown.kind === "flow") body = <FlowProperties {...props} view={shown.view} flow={shown.flow} />;
+  else if (shown.kind === "entity") body = <EntityProperties {...props} view={shown.view} entity={shown.entity} />;
+  else if (shown.kind === "attribute") body = <AttributeProperties {...props} view={shown.view} entity={shown.entity} attribute={shown.attribute} />;
+  else if (shown.kind === "link") body = <LinkProperties {...props} view={shown.view} link={shown.link} />;
   else if (shown.kind === "node") body = <NodeProperties {...props} view={shown.view} node={shown.node} />;
   else if (shown.kind === "connection") body = <ConnectionProperties {...props} view={shown.view} connection={shown.connection} />;
   else if (shown.kind === "instance") body = <InstanceProperties {...props} view={shown.view} node={shown.node} element={shown.element} />;
@@ -858,6 +870,223 @@ function FlowProperties({ view, flow, edit, onSelect }: PropertiesProps & { view
         </button>
         <button className="danger" onClick={() => void edit([{ op: "remove-flow", view: view.id, flow: flow.number }]).then(() => onSelect(null))}>
           Delete flow
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** An attribute as lists name it: its keys, its name and its type. */
+function attributeLabel(a: Attribute): string {
+  return `${a.keys.length ? `${a.keys.map((k) => k.toUpperCase()).join(", ")} ` : ""}${a.name}${a.type ? `: ${a.type}` : ""}`;
+}
+
+/** An entity's name, by its ID, or the ID when the view has no such entity. */
+function entityName(view: ViewDef, id: string): string {
+  return view.entities.find((e) => e.id === id)?.name ?? id;
+}
+
+function EntityProperties({ view, entity, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; entity: Entity }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-entity" }>, "op" | "view" | "id">) => void edit([{ op: "update-entity", view: view.id, id: entity.id, ...fields }]);
+  const others = view.entities.map((e) => e.id);
+  // An ID made from the name keeps following it, as a screen's does; the selection follows the ID.
+  const rename = (name: string) => {
+    const base = idFromName(name);
+    const newId = base && followsName(entity.id, entity.name) ? uniqueAmong(others, base, entity.id) : entity.id;
+    void edit([{ op: "update-entity", view: view.id, id: entity.id, name, ...(newId !== entity.id && { newId }) }]).then((ok) => ok && newId !== entity.id && onSelect({ kind: "entity", id: newId }));
+  };
+  const changeId = (text: string) => {
+    const newId = idFromName(text);
+    if (!newId || newId === entity.id) return;
+    void edit([{ op: "update-entity", view: view.id, id: entity.id, newId }]).then((ok) => ok && onSelect({ kind: "entity", id: newId }));
+  };
+  // The box empties once the attribute is added, ready for the next.
+  const addAttribute = (text: string) => {
+    const name = text.trim();
+    if (name) void edit([{ op: "add-attribute", view: view.id, entity: entity.id, name }]);
+    return false;
+  };
+  const out = view.links.filter((l) => l.from === entity.id);
+  const into = view.links.filter((l) => l.to === entity.id && l.from !== entity.id);
+  const linkItem = (l: EntityLink, other: string, arrow: string) => (
+    <li key={l.number}>
+      <button className="link" onClick={() => onSelect({ kind: "link", number: l.number })}>
+        {arrow} {other === entity.id ? "itself" : entityName(view, other)}
+      </button>{" "}
+      {l.text && <span className="muted small">{l.text}</span>}
+    </li>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Entity</span>
+      </header>
+      <Field label="Name" value={entity.name} onCommit={(n) => (n.trim() ? rename(n) : false)} autoFocus={isNew} placeholder="What's kept, e.g. Order" />
+      <Field label="ID" value={entity.id} onCommit={changeId} hint={idHint(followsName(entity.id, entity.name))} />
+      <Field label="Description" value={entity.description ?? ""} multiline placeholder="One sentence, shown under its name" onCommit={(description) => set({ description: description || null })} />
+      <h3>Attributes</h3>
+      {entity.attributes.length === 0 && <p className="muted small">None yet. Name one below, or use + Add with the entity selected.</p>}
+      <ul className="plain">
+        {entity.attributes.map((a) => (
+          <li key={a.name}>
+            <button className="link" onClick={() => onSelect({ kind: "attribute", entity: entity.id, name: a.name })}>
+              {attributeLabel(a)}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <Field label="Add an attribute" value="" placeholder="Its name, e.g. email" onCommit={addAttribute} hint="Press Enter to add it, then name the next." />
+      <h3>Links</h3>
+      {out.length + into.length === 0 && <p className="muted small">None yet. Drag from the dot under this entity to another to add one.</p>}
+      <ul className="plain">
+        {out.map((l) => linkItem(l, l.to, "→"))}
+        {into.map((l) => linkItem(l, l.from, "←"))}
+      </ul>
+      <label className="field">
+        <span className="field-label">Add a link to</span>
+        <select
+          value=""
+          onChange={(e) => {
+            const to = e.target.value;
+            if (!to) return;
+            const number = view.links.length + 1;
+            void edit([{ op: "add-link", view: view.id, from: entity.id, to }]).then((ok) => ok && onSelect({ kind: "link", number }));
+          }}
+        >
+          <option value="">Choose an entity…</option>
+          {view.entities.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.id === entity.id ? `${e.name} (itself)` : e.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="actions">
+        {entity.at && <button onClick={() => set({ at: null })}>Lay out again</button>}
+        <button className="danger" onClick={() => void edit([{ op: "remove-entity", view: view.id, id: entity.id }]).then(() => onSelect(null))}>
+          Delete entity
+        </button>
+      </div>
+      {out.length + into.length > 0 && <p className="muted small">Deleting the entity deletes its links too.</p>}
+    </>
+  );
+}
+
+/** What each kind of key means, beside its box to tick. */
+const KEY_HINTS: Record<AttributeKey, string> = {
+  pk: "It tells one from another, alone or with the other primary key attributes.",
+  fk: "It names one of another entity, like an order's customer.",
+  uk: "No two have the same.",
+};
+
+function AttributeProperties({ view, entity, attribute, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; entity: Entity; attribute: Attribute }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-attribute" }>, "op" | "view" | "entity" | "name">) =>
+    void edit([{ op: "update-attribute", view: view.id, entity: entity.id, name: attribute.name, ...fields }]);
+  // The selection follows the new name.
+  const rename = (text: string) => {
+    const name = text.trim();
+    if (!name) return false;
+    if (name === attribute.name) return;
+    void edit([{ op: "update-attribute", view: view.id, entity: entity.id, name: attribute.name, newName: name }]).then((ok) => ok && onSelect({ kind: "attribute", entity: entity.id, name }));
+  };
+  const toggle = (key: AttributeKey, on: boolean) => set({ keys: ATTRIBUTE_KEYS.filter((k) => (k === key ? on : attribute.keys.includes(k))) });
+  const count = entity.attributes.length;
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Attribute {attribute.number}</span>
+        <span className="muted small">
+          of {count}, in{" "}
+          <button className="link" onClick={() => onSelect({ kind: "entity", id: entity.id })}>
+            {entity.name}
+          </button>
+        </span>
+      </header>
+      <Field label="Name" value={attribute.name} onCommit={rename} autoFocus={isNew} placeholder="What's kept, e.g. email" />
+      <Field label="Type" value={attribute.type ?? ""} placeholder="What it holds, e.g. text or uuid" onCommit={(type) => set({ type: type.trim() || null })} />
+      <fieldset className="field">
+        <legend className="field-label">Keys</legend>
+        {ATTRIBUTE_KEYS.map((key) => (
+          <label key={key} className="check" title={KEY_HINTS[key]}>
+            <input type="checkbox" checked={attribute.keys.includes(key)} onChange={(e) => toggle(key, e.target.checked)} /> {ATTRIBUTE_KEY_LABELS[key]} ({key.toUpperCase()})
+          </label>
+        ))}
+      </fieldset>
+      <Field label="Description" value={attribute.description ?? ""} multiline placeholder="What it means, if its name doesn't say" onCommit={(description) => set({ description: description || null })} />
+      <div className="actions">
+        <button disabled={attribute.number === 1} onClick={() => set({ position: attribute.number - 1 })}>
+          Move up
+        </button>
+        <button disabled={attribute.number === count} onClick={() => set({ position: attribute.number + 1 })}>
+          Move down
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-attribute", view: view.id, entity: entity.id, name: attribute.name }]).then(() => onSelect({ kind: "entity", id: entity.id }))}>
+          Delete attribute
+        </button>
+      </div>
+    </>
+  );
+}
+
+function LinkProperties({ view, link, edit, onSelect }: PropertiesProps & { view: ViewDef; link: EntityLink }) {
+  const set = (fields: Omit<Extract<Operation, { op: "update-link" }>, "op" | "view" | "link">) => void edit([{ op: "update-link", view: view.id, link: link.number, ...fields }]);
+  const count = view.links.length;
+  const move = (to: number) => void edit([{ op: "update-link", view: view.id, link: link.number, newLink: to }]).then((ok) => ok && onSelect({ kind: "link", number: to }));
+  const [fromName, toName] = [entityName(view, link.from), entityName(view, link.to)];
+  const end = (field: "from" | "to", label: string) => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={link[field]} onChange={(e) => set({ [field]: e.target.value })}>
+        {!view.entities.some((e) => e.id === link[field]) && <option value={link[field]}>{link[field]} (not an entity)</option>}
+        {view.entities.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  // How many of one end there can be, for each one of the other.
+  const howMany = (i: 0 | 1, label: string, hint: string) => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select
+        value={link.cardinality[i]}
+        onChange={(e) => {
+          const next: [Cardinality, Cardinality] = [...link.cardinality];
+          next[i] = e.target.value as Cardinality;
+          set({ cardinality: next });
+        }}
+      >
+        {CARDINALITIES.map((c) => (
+          <option key={c} value={c}>
+            {CARDINALITY_LABELS[c]}
+          </option>
+        ))}
+      </select>
+      <span className="field-hint">{hint}</span>
+    </label>
+  );
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">Link {link.number}</span>
+        <span className="muted small">of {count}</span>
+      </header>
+      {end("from", "From")}
+      {howMany(0, `How many ${fromName}`, `For each ${toName}. Drawn at the ${fromName} end.`)}
+      {end("to", "To")}
+      {howMany(1, `How many ${toName}`, `For each ${fromName}. Drawn at the ${toName} end.`)}
+      <Field label="Text" value={link.text ?? ""} autoFocus={!link.text} placeholder="What it says, e.g. places" onCommit={(text) => set({ text: text || null })} />
+      <div className="actions">
+        <button disabled={link.number === 1} onClick={() => move(link.number - 1)}>
+          Move up
+        </button>
+        <button disabled={link.number === count} onClick={() => move(link.number + 1)}>
+          Move down
+        </button>
+        <button className="danger" onClick={() => void edit([{ op: "remove-link", view: view.id, link: link.number }]).then(() => onSelect(null))}>
+          Delete link
         </button>
       </div>
     </>
@@ -1871,8 +2100,29 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
         view.level !== "event" &&
         view.level !== "wireframe" &&
         view.level !== "whiteboard" &&
-        view.level !== "flowchart" && <NewElementsField view={view} edit={edit} />}
-      {view.level === "flowchart" ? (
+        view.level !== "flowchart" &&
+        view.level !== "entity" && <NewElementsField view={view} edit={edit} />}
+      {view.level === "entity" ? (
+        <>
+          <dl className="facts">
+            <dt>Level</dt>
+            <dd>entity</dd>
+            {scope && (
+              <>
+                <dt>The data of</dt>
+                <dd>{scope.name}</dd>
+              </>
+            )}
+            <dt>Entities</dt>
+            <dd>{view.entities.length}</dd>
+            <dt>Links</dt>
+            <dd>{view.links.length}</dd>
+          </dl>
+          <p className="muted small">
+            An entity view is an entity-relationship diagram: the things whose data is kept, with their attributes, and how they're linked. Use + Add to add an entity, and with one selected, its attributes. Drag from the dot under an entity to another to link them, then select the link to say how many of each there can be. Select an entity, an attribute or a link to change it.
+          </p>
+        </>
+      ) : view.level === "flowchart" ? (
         <>
           <dl className="facts">
             <dt>Level</dt>

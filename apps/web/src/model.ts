@@ -13,6 +13,7 @@ import {
   VIEW_LEVELS,
   type ArchElement,
   type Arrow,
+  type Attribute,
   type Block,
   type Card,
   type ComputedView,
@@ -20,6 +21,8 @@ import {
   type DeploymentNode,
   type ElementData,
   type ElementDescription,
+  type Entity,
+  type EntityLink,
   type Flow,
   type Lane,
   type Operation,
@@ -229,6 +232,7 @@ export const LEVEL_NAMES: Record<ViewLevel, string> = {
   wireframe: "Wireframe view",
   whiteboard: "Whiteboard view",
   flowchart: "Flowchart view",
+  entity: "Entity view",
 };
 
 /**
@@ -256,7 +260,7 @@ function canShowAsBox(ws: Workspace, view: ViewDef, element: ArchElement): boole
  */
 export function viewAction(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, id: string): "show" | "hide" | null {
   const element = ws.elements.get(id);
-  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, an event view its cards, a wireframe view its screens, a whiteboard its shapes and a flowchart its blocks, so they have nothing to show or hide.
+  // A sequence view shows the elements in its steps, a state view its states, a deployment view what its nodes run, an event view its cards, a wireframe view its screens, a whiteboard its shapes, a flowchart its blocks and an entity view its entities, so they have nothing to show or hide.
   if (
     !view ||
     !computed ||
@@ -268,6 +272,7 @@ export function viewAction(ws: Workspace, view: ViewDef | null, computed: Comput
     view.level === "wireframe" ||
     view.level === "whiteboard" ||
     view.level === "flowchart" ||
+    view.level === "entity" ||
     computed.boundary?.id === id
   )
     return null;
@@ -615,6 +620,9 @@ export type Shown =
   | { kind: "board"; view: ViewDef; shapes: Shape[]; arrows: Arrow[]; stickies: Sticky[] }
   | { kind: "block"; view: ViewDef; block: Block }
   | { kind: "flow"; view: ViewDef; flow: Flow }
+  | { kind: "entity"; view: ViewDef; entity: Entity }
+  | { kind: "attribute"; view: ViewDef; entity: Entity; attribute: Attribute }
+  | { kind: "link"; view: ViewDef; link: EntityLink }
   | { kind: "several"; view: ViewDef; elements: ArchElement[]; stickies: Sticky[] }
   | { kind: "view"; view: ViewDef }
   | { kind: "workspace" };
@@ -673,6 +681,12 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
   if (view && block) return { kind: "block", view, block };
   const flow = selection?.kind === "flow" ? view?.flows[selection.number - 1] : undefined;
   if (view && flow) return { kind: "flow", view, flow };
+  const entity = selection?.kind === "entity" || selection?.kind === "attribute" ? view?.entities.find((e) => e.id === (selection.kind === "entity" ? selection.id : selection.entity)) : undefined;
+  if (view && entity && selection?.kind === "entity") return { kind: "entity", view, entity };
+  const attribute = selection?.kind === "attribute" ? entity?.attributes.find((a) => a.name === selection.name) : undefined;
+  if (view && entity && attribute) return { kind: "attribute", view, entity, attribute };
+  const link = selection?.kind === "link" ? view?.links[selection.number - 1] : undefined;
+  if (view && link) return { kind: "link", view, link };
   return selection?.kind === "workspace" || !view ? { kind: "workspace" } : { kind: "view", view };
 }
 
@@ -855,6 +869,16 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "add-flow":
       case "update-flow":
       case "remove-flow":
+      // So are an entity view's entities, their attributes and its links.
+      case "add-entity":
+      case "update-entity":
+      case "remove-entity":
+      case "add-attribute":
+      case "update-attribute":
+      case "remove-attribute":
+      case "add-link":
+      case "update-link":
+      case "remove-link":
         return { ...op, view: follow(op.view) };
       case "add-step":
         return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };

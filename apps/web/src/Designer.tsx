@@ -25,6 +25,7 @@ import { WhiteboardDiagram } from "./canvas/WhiteboardDiagram.js";
 import { WireframeDiagram } from "./canvas/WireframeDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
 import { FlowchartDiagram } from "./canvas/FlowchartDiagram.js";
+import { EntityDiagram } from "./canvas/EntityDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
 import { canOpenFolders, exportToFolder, FolderHost, folderList, pickFolder } from "./folders.js";
 import { BrowserHost, canCopyImages, copyImage, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
@@ -116,6 +117,9 @@ export function detailsName(ws: Workspace, view: ViewDef | null, computed: Compu
   if (shown.kind === "transition") return `Transition ${shown.transition.number}`;
   if (shown.kind === "block") return shown.block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? shown.block.id;
   if (shown.kind === "flow") return `Flow ${shown.flow.number}`;
+  if (shown.kind === "entity") return shown.entity.name;
+  if (shown.kind === "attribute") return shown.attribute.name;
+  if (shown.kind === "link") return `Link ${shown.link.number}`;
   if (shown.kind === "node") return shown.node.name;
   if (shown.kind === "connection") return `Connection ${shown.connection.number}`;
   if (shown.kind === "instance") return `${shown.element.name} in ${shown.node.name}`;
@@ -232,6 +236,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (selection?.kind === "transition" && ws && selection.number > (ws.views.get(viewId ?? "")?.transitions.length ?? 0)) setSelection(null);
     if (selection?.kind === "block" && ws && !ws.views.get(viewId ?? "")?.blocks.some((b) => b.id === selection.id)) setSelection(null);
     if (selection?.kind === "flow" && ws && selection.number > (ws.views.get(viewId ?? "")?.flows.length ?? 0)) setSelection(null);
+    if (selection?.kind === "entity" && ws && !ws.views.get(viewId ?? "")?.entities.some((e) => e.id === selection.id)) setSelection(null);
+    if (selection?.kind === "attribute" && ws && !ws.views.get(viewId ?? "")?.entities.some((e) => e.id === selection.entity && e.attributes.some((a) => a.name === selection.name))) setSelection(null);
+    if (selection?.kind === "link" && ws && selection.number > (ws.views.get(viewId ?? "")?.links.length ?? 0)) setSelection(null);
     if (selection?.kind === "node" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.id)) setSelection(null);
     if (selection?.kind === "connection" && ws && selection.number > (ws.views.get(viewId ?? "")?.connections.length ?? 0)) setSelection(null);
     if (selection?.kind === "instance" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.node && n.runs.includes(selection.element))) setSelection(null);
@@ -384,6 +391,10 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     // And a flowchart's block, with its flows, and a flow.
     if (selection?.kind === "block" && view) void edit([{ op: "remove-block", view: view.id, id: selection.id }]).then(() => select(null));
     if (selection?.kind === "flow" && view) void edit([{ op: "remove-flow", view: view.id, flow: selection.number }]).then(() => select(null));
+    // And an entity view's entity, with its attributes and links, an attribute, and a link.
+    if (selection?.kind === "entity" && view) void edit([{ op: "remove-entity", view: view.id, id: selection.id }]).then(() => select(null));
+    if (selection?.kind === "attribute" && view) void edit([{ op: "remove-attribute", view: view.id, entity: selection.entity, name: selection.name }]).then(() => select({ kind: "entity", id: selection.entity }));
+    if (selection?.kind === "link" && view) void edit([{ op: "remove-link", view: view.id, link: selection.number }]).then(() => select(null));
     // A node, with what's inside it, and a connection are only this view's, and Undo brings them back.
     if (selection?.kind === "node" && view) void edit([{ op: "remove-node", view: view.id, id: selection.id }]).then(() => select(null));
     if (selection?.kind === "connection" && view) void edit([{ op: "remove-connection", view: view.id, connection: selection.number }]).then(() => select(null));
@@ -797,6 +808,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
                 snap={snap}
                 autoLayoutHandle={autoLayout}
               />
+            </ReactFlowProvider>
+          ) : (
+            <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
+          )
+        ) : view?.level === "entity" ? (
+          computed ? (
+            <ReactFlowProvider key={view.id}>
+              <EntityDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
             </ReactFlowProvider>
           ) : (
             <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

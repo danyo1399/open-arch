@@ -2023,6 +2023,125 @@ button.heading {
   box-shadow: inset 0 0 0 1px var(--class-line);
 }
 
+/* An entity view's entity: a table in the same light colours as a class, its name at the top and a
+   row for each attribute, with its keys, its name and its type (see EntityNode and entityLayout.ts,
+   whose sizes these match). A row is one line: a long name or type is cut short, and the row's
+   tooltip says it in full. */
+.entity-box {
+  position: relative;
+  background: var(--class);
+  border: 1.5px solid var(--class-line);
+  border-radius: 4px;
+  color: #0b1f33;
+  box-shadow: var(--shadow);
+  outline: 3px solid transparent;
+  outline-offset: 2px;
+}
+.entity-box.selected {
+  outline-color: var(--accent);
+}
+.entity-head {
+  padding: 8px;
+  text-align: center;
+  background: color-mix(in srgb, var(--class-line) 16%, var(--class));
+  border-bottom: 1.5px solid var(--class-line);
+  border-radius: 3px 3px 0 0;
+}
+.entity-name {
+  font-weight: 650;
+  font-size: 14px;
+  line-height: 18px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.entity-desc {
+  font-size: 12px;
+  line-height: 16px;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.entity-attrs {
+  padding: 3px 0;
+}
+.entity-attr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  padding: 0 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.entity-attr:hover {
+  background: color-mix(in srgb, var(--class-line) 10%, transparent);
+}
+.entity-attr.selected {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.entity-keys {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+.entity-key {
+  width: 20px;
+  border-radius: 3px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  color: #fff;
+}
+.entity-key-pk {
+  background: #b0821f;
+}
+.entity-key-fk {
+  background: #3f74b5;
+}
+.entity-key-uk {
+  background: #7a5aa6;
+}
+/* The name takes the room, with the type at the right. When both are long, both are cut short. */
+.entity-attr-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entity-attr-type {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #52627a;
+}
+.entity-empty {
+  height: 22px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 22px;
+  font-style: italic;
+  color: #52627a;
+}
+/* A link's crow's feet (see CrowFootMarker): drawn in the line's colour, the circle filled with the
+   canvas's, so the line doesn't show through it. */
+.crow-foot {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.crow-foot circle {
+  fill: var(--canvas);
+}
+.crow-foot.selected {
+  stroke: var(--accent);
+}
+
 /* A flowchart view's block, in its kind's shape (see BlockNode), in the same light colours as a
    state, with a start or end in green and a decision in amber. A plain step is a box, a start or
    end a pill and a subprocess a box with a second line down each side; the other kinds are drawn

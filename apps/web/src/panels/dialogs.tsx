@@ -184,6 +184,7 @@ const LEVEL_TEXT: Record<ViewLevel, string> = {
   wireframe: "Wireframe: an app's screens, and how one leads to another",
   whiteboard: "Whiteboard: a freehand sketch of an idea, to share it",
   flowchart: "Flowchart: the steps and decisions of a process",
+  entity: "Entity: an entity-relationship diagram (ERD) of the data something keeps",
 };
 
 export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCreate(op: Operation, id: string): void; onClose(): void }) {
@@ -191,14 +192,15 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
   const scopeKinds = SCOPE_KINDS[level];
   // A state view's scope is optional, and can be any element: the one whose states it shows. A
   // wireframe view's is optional too: the system or container whose screens it shows. So is a
-  // flowchart's: any element, whose process it shows.
-  const optional = level === "state" || level === "wireframe" || level === "flowchart";
+  // flowchart's: any element, whose process it shows. And an entity view's: the system, container,
+  // component or library whose data it shows.
+  const optional = level === "state" || level === "wireframe" || level === "flowchart" || level === "entity";
   const scopeKind = scopeKinds.length && !optional ? kindList(scopeKinds) : undefined;
   const scopes = [...ws.elements.values()].filter((e) => scopeKinds.includes(e.kind)).sort((a, b) => a.name.localeCompare(b.name));
   const [scope, setScope] = useState<string>("");
   const scopeId = optional ? scopes.find((s) => s.id === scope)?.id : scopeKind ? (scopes.some((s) => s.id === scope) ? scope : scopes[0]?.id) : undefined;
   const scopeName = scopeId ? ws.elements.get(scopeId)?.name : undefined;
-  // A sequence, a deployment, event or whiteboard view, and a state, wireframe or flowchart view of nothing in particular, have no scope to name them after, so they need a title.
+  // A sequence, a deployment, event or whiteboard view, and a state, wireframe, flowchart or entity view of nothing in particular, have no scope to name them after, so they need a title.
   const defaultTitle = level === "sequence" || level === "deployment" || level === "event" || level === "whiteboard" || (optional && !scopeName) ? undefined : scopeName ? `${scopeName} ${LEVEL_TITLE[level]}` : "System landscape";
   const [title, setTitle] = useState("");
   const finalTitle = title.trim() || defaultTitle;
@@ -251,7 +253,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       {optional && (
         <label className="field">
-          <span className="field-label">{level === "wireframe" ? "The screens of" : level === "flowchart" ? "The process of" : "The states of"}</span>
+          <span className="field-label">{level === "wireframe" ? "The screens of" : level === "flowchart" ? "The process of" : level === "entity" ? "The data of" : "The states of"}</span>
           <select value={scopeId ?? ""} onChange={(e) => setScope(e.target.value)}>
             <option value="">Nothing in particular</option>
             {scopes.map((s) => (
@@ -264,7 +266,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       <label className="field">
         <span className="field-label">Title</span>
-        <input value={title} placeholder={defaultTitle ?? (level === "deployment" ? "e.g. Production" : level === "wireframe" ? "e.g. Checkout" : level === "whiteboard" ? "e.g. Ideas for faster checkout" : level === "flowchart" ? "e.g. Handling a return" : "e.g. Placing an order")} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+        <input value={title} placeholder={defaultTitle ?? (level === "deployment" ? "e.g. Production" : level === "wireframe" ? "e.g. Checkout" : level === "whiteboard" ? "e.g. Ideas for faster checkout" : level === "flowchart" ? "e.g. Handling a return" : level === "entity" ? "e.g. Orders data" : "e.g. Placing an order")} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
       </label>
       {level === "class" && <p className="muted small">A class view draws the component's or library's classes as a UML class diagram, with their attributes and methods, and how they relate.</p>}
       {level === "state" && <p className="muted small">A state view shows the states something can be in, like an order that's placed, paid or delivered, and the transitions between them.</p>}
@@ -281,6 +283,11 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       {level === "flowchart" && (
         <p className="muted small">
           A flowchart shows the steps of a process: where it starts and ends, what's done, the decisions on the way, and the arrows from one to the next. Choose the element whose process it is, if you like.
+        </p>
+      )}
+      {level === "entity" && (
+        <p className="muted small">
+          An entity view is an entity-relationship diagram (ERD): the things whose data is kept, like a database's tables, each with its attributes, and the links between them, with how many of each there can be. Choose the element whose data it is, like a database, if you like.
         </p>
       )}
       {level === "deployment" && (

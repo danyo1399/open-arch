@@ -100,9 +100,11 @@ export function show(io: Io, opts: ShowOptions): number {
             ? " (its screens)"
             : v.as === "process"
               ? " (its process)"
-              : v.as === "deployed"
-                ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})`
-                : "";
+              : v.as === "data"
+                ? " (its data)"
+                : v.as === "deployed"
+                  ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})`
+                  : "";
     lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => `${v.view.id}${how(v)}`).join(", ")}` : "  (none)");
     print(json, lines.join("\n") + "\n");
     return 0;
@@ -139,6 +141,10 @@ export function show(io: Io, opts: ShowOptions): number {
     }
     if (view.level === "flowchart") {
       print(flowchartJson(cv), flowchartText(ws, cv));
+      return 0;
+    }
+    if (view.level === "entity") {
+      print(entityJson(cv), entityText(ws, cv));
       return 0;
     }
     const json = {
@@ -573,6 +579,55 @@ function flowchartText(ws: Workspace, cv: ComputedView): string {
     "",
     "Flows:",
     ...(view.flows.length ? table(view.flows.map((f) => [`  ${f.number}.`, `${f.from} -> ${f.to}`, f.text ? quoted(f.text) : ""])) : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function entityJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    notes: view.notes,
+    entities: view.entities.map((e) => ({
+      id: e.id,
+      position: e.number,
+      name: e.name,
+      description: e.description,
+      at: e.at,
+      attributes: e.attributes.map((a) => ({ name: a.name, position: a.number, type: a.type, keys: a.keys, description: a.description })),
+    })),
+    links: view.links.map((l) => ({ link: l.number, from: l.from, to: l.to, cardinality: l.cardinality, text: l.text })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function entityText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  const quoted = (text: string) => JSON.stringify(text.split(/\r?\n/).join(" / "));
+  // Each entity on a line, with its attributes under it, a line each: name, type, keys and description.
+  const entities = view.entities.flatMap((e) => [
+    [`  ${e.number}.`, e.id, [quoted(e.name), e.description ?? "", e.at ? `(at ${e.at.join(", ")})` : ""].filter(Boolean).join("  ")].join(" ").trimEnd(),
+    ...(e.attributes.length ? table(e.attributes.map((a) => [`       ${a.name}`, a.type ?? "", a.keys.join(","), a.description ?? ""])) : ["       (no attributes)"]),
+  ]);
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        entity view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Entities:",
+    ...(entities.length ? entities : ["  (none)"]),
+    "",
+    "Links (how many of from, then of to):",
+    ...(view.links.length ? table(view.links.map((l) => [`  ${l.number}.`, `${l.from} -> ${l.to}`, `${l.cardinality[0]} to ${l.cardinality[1]}`, l.text ? quoted(l.text) : ""])) : ["  (none)"]),
     ...(view.stickies.length
       ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
       : []),
