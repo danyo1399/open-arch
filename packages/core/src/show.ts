@@ -90,7 +90,7 @@ export function showElement(ws: Workspace, element: ArchElement): Shown {
         : v.as === "screens"
           ? " (its screens)"
           : v.as === "process"
-            ? " (its process)"
+            ? ` (its process${v.lanes ? `, and lane ${v.lanes.map((l) => l.id).join(", ")}` : ""})`
             : v.as === "data"
               ? " (its data)"
               : v.as === "deployed"

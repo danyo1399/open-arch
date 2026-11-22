@@ -263,8 +263,8 @@ and its arrows with add-arrow. It takes no scope, include or exclude.
 A flowchart view shows the steps of a process: where it starts and ends, what's done, the
 decisions on the way, and the arrows from one to the next. Add its blocks with add-block and
 the flows between them with add-flow, and with add-lane, a lane, a column for the blocks of
-one actor, team or system, which can be for an element of the model. Its scope, if any, is the element of any kind whose
-process it is. It takes no include or exclude.
+one actor, team or system, which can be for an element of the model. Its scope, if any, is
+the element of any kind whose process it is. It takes no include or exclude.
 An entity view shows the data something keeps, as an entity-relationship diagram (ERD): its
 entities, like a database's tables, each with its attributes, and the links between them,
 with how many of each end there can be. Add its entities with add-entity, their attributes

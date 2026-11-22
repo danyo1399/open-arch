@@ -22,6 +22,7 @@ export interface ElementDescription {
    * shows the states of, as the app a wireframe view shows the screens of, as what a flowchart
    * shows the process of, as what an entity view shows the data of, running in a deployment
    * view's nodes, which `runsIn` lists, or as what a flowchart's lanes are for, which `lanes` lists.
+   * A flowchart of the element's process lists its lanes for the element too.
    */
   views: { view: ViewDef; as: "box" | "frame" | "states" | "screens" | "process" | "data" | "deployed" | "lane"; runsIn?: DeploymentNode[]; lanes?: Lane[] }[];
 }
@@ -47,7 +48,7 @@ export function describeElement(ws: Workspace, id: string): ElementDescription |
   const views: ElementDescription["views"] = [];
   for (const cv of computeAllViews(ws)) {
     const lanes = cv.view.level === "flowchart" ? cv.view.lanes.filter((l) => l.element === id) : [];
-    if (cv.boundary?.id === id) views.push({ view: cv.view, as: OWN_AS[cv.view.level] ?? "frame" });
+    if (cv.boundary?.id === id) views.push({ view: cv.view, as: OWN_AS[cv.view.level] ?? "frame", ...(lanes.length && { lanes }) });
     else if (lanes.length) views.push({ view: cv.view, as: "lane", lanes });
     else if (cv.deployment) {
       const runsIn = cv.deployment.nodes.filter((n) => cv.deployment!.instances.some((i) => i.node === n.id && i.element.id === id));
