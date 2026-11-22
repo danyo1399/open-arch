@@ -200,10 +200,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   /**
    * Which opening of a view this is: a number that tells the diagram that's open from the next
    * view opened, and stays the same when its view is only given a new ID. So a rename doesn't
-   * make the diagram of a view whose right-click menus wait for the edits before them again,
-   * which would lose a menu waiting for that rename to land: every kind of view's but a
-   * whiteboard's and the views of boxes. Set while rendering, so no render pairs a view with
-   * another's number.
+   * make the view's diagram again, which would lose a right-click menu waiting for that rename to
+   * land. Set while rendering, so no render pairs a view with another's number.
    */
   const [opening, setOpening] = useState({ view: viewId, seen: renamesSeen, number: 0 });
   if (opening.view !== viewId || opening.seen !== renamesSeen) {
@@ -1027,8 +1025,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             )
           ) : view?.level === "whiteboard" ? (
             computed ? (
-              <ReactFlowProvider key={view.id}>
-                <WhiteboardDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
+              <ReactFlowProvider key={`${view.level}:${opening.number}`}>
+                <WhiteboardDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} menus={menus!} exportItems={exportItems(computed)} snap={snap} />
               </ReactFlowProvider>
             ) : (
               <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
@@ -1042,7 +1040,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
               <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
             )
           ) : view ? (
-            <ReactFlowProvider key={view.id}>
+            <ReactFlowProvider key={`${view.level}:${opening.number}`}>
               <Canvas
                 ws={ws}
                 view={view}
@@ -1050,6 +1048,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
                 selection={selection}
                 onSelect={selectOnCanvas}
                 edit={edit}
+                menus={menus!}
                 onElementMenu={openElementMenu}
                 onArrowMenu={openArrowMenu}
                 onError={(text) => state.notify({ kind: "error", text })}

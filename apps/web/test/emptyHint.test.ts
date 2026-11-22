@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { Canvas } from "../src/canvas/Canvas.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, click, mount } from "./dom.js";
+import { button, click, menusFor, mount } from "./dom.js";
 
 /**
  * An empty view shows a hint over the diagram, near the top, where the + Add menu opens. The menu
@@ -29,6 +29,7 @@ describe("the hint on an empty view", () => {
           diagnostics: [],
           selection: null,
           onSelect() {},
+          menus: menusFor("landscape"),
           edit: async (e: Edit) => {
             edits.push(typeof e === "function" ? e(ws) : e);
             return true;

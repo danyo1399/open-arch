@@ -7,7 +7,7 @@ import type { Selection } from "../src/canvas/Canvas.js";
 import { WhiteboardDiagram } from "../src/canvas/WhiteboardDiagram.js";
 import { SNAP_DEFAULTS, type SnapSettings } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { mount } from "./dom.js";
+import { menusFor, mount } from "./dom.js";
 
 /**
  * React Flow drags nodes only once it has measured them, and this page has no layout. So, as in
@@ -85,6 +85,7 @@ async function board(saves: boolean, snap: SnapSettings = { ...SNAP_DEFAULTS, gu
           edits.push(typeof e === "function" ? e(ws) : e);
           return saves;
         },
+        menus: menusFor("ideas"),
         exportItems: [],
         snap: { settings: snap, set() {} },
       }),

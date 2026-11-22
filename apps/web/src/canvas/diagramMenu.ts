@@ -12,7 +12,7 @@
  * designer don't: they write a whole version of the file, where a block with the same ID needn't
  * be the same block. Through one of those, everything but the diagram itself is lost.
  */
-import { allWidgets, applyOperations, buildWorkspace, cardArrows, isInside, OpError, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { allWidgets, applyOperations, buildWorkspace, cardArrows, endShape, isInside, OpError, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import type { Selection } from "./Canvas.js";
 
 /** The things of a view that have an ID of their own, as a selection names their kind, and where the view keeps each. */
@@ -27,6 +27,8 @@ const ID_PARTS = {
   // Wherever it is: on a screen, or inside a row or a panel.
   widget: (view: ViewDef) => allWidgets(view),
   node: (view: ViewDef) => view.nodes,
+  shape: (view: ViewDef) => view.shapes,
+  boardArrow: (view: ViewDef) => view.arrows,
 } satisfies Record<string, (view: ViewDef) => readonly { id: string }[]>;
 export type IdPart = keyof typeof ID_PARTS;
 
@@ -60,11 +62,19 @@ const isNumbered = (kind: string): kind is NumberedPart => Object.hasOwn(NUMBERE
  *
  * A container or system running in a deployment view's node goes by the node and by its own ID,
  * an element's of the model.
+ *
+ * Several of a whiteboard's shapes, arrows and notes selected together are one target: `board`.
+ * It's there while every one of them is.
  */
-export type MenuFor = Extract<Selection, { kind: IdPart | NumberedPart | "attribute" | "cardArrow" | "instance" }> | { kind: "diagram" };
+export type MenuFor = Extract<Selection, { kind: IdPart | NumberedPart | "attribute" | "cardArrow" | "instance" | "board" }> | { kind: "diagram" };
 
 /** The kinds that go by more than an ID or a number of their own. */
-const isComposite = (kind: string): kind is "attribute" | "cardArrow" | "instance" => kind === "attribute" || kind === "cardArrow" || kind === "instance";
+const isComposite = (kind: string): kind is "attribute" | "cardArrow" | "instance" | "board" => kind === "attribute" || kind === "cardArrow" || kind === "instance" || kind === "board";
+
+/** The kinds of thing several selected together on a whiteboard can be, and the list of the selection each is in. */
+const BOARD_LISTS = { shape: "shapes", boardArrow: "arrows", sticky: "stickies" } as const satisfies Partial<Record<IdPart, string>>;
+type BoardKind = keyof typeof BOARD_LISTS;
+const isBoardKind = (kind: string): kind is BoardKind => Object.hasOwn(BOARD_LISTS, kind);
 
 /** What a right-click is for: `on` is what the click selects, or null for the background. Null for a selection no menu is for. */
 export function menuOn(on: Selection): MenuFor | null {
@@ -78,6 +88,7 @@ export function menuThere(view: ViewDef, on: MenuFor): boolean {
   if (on.kind === "attribute") return !!view.entities.find((e) => e.id === on.entity)?.attributes.some((a) => a.name === on.name);
   if (on.kind === "cardArrow") return cardArrows(view).some((a) => a.from === on.from && a.to === on.to);
   if (on.kind === "instance") return !!view.nodes.find((n) => n.id === on.node)?.runs.includes(on.element);
+  if (on.kind === "board") return (Object.keys(BOARD_LISTS) as BoardKind[]).every((kind) => on[BOARD_LISTS[kind]].every((id) => ID_PARTS[kind](view).some((x) => x.id === id)));
   if ("number" in on) return Number.isInteger(on.number) && on.number >= 1 && on.number <= NUMBERED[on.kind](view).length;
   return ID_PARTS[on.kind](view).some((x) => x.id === on.id);
 }
@@ -87,13 +98,14 @@ export function selectionFor(on: MenuFor): Selection {
   return on.kind === "diagram" ? null : on;
 }
 
-/** Whether a menu's target is what's selected. */
+/** Whether a menu's target is what's selected. Several selected together are the same several in any order. */
 export function isSelected(on: MenuFor, selection: Selection): boolean {
   const a: Record<string, unknown> | null = selectionFor(on);
   const b: Record<string, unknown> | null = selection;
   if (!a || !b) return a === b;
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  return [...keys].every((key) => a[key] === b[key]);
+  const same = (x: unknown, y: unknown) => (Array.isArray(x) && Array.isArray(y) ? x.length === y.length && x.every((item) => y.includes(item)) : x === y);
+  return [...keys].every((key) => same(a[key], b[key]));
 }
 
 /**
@@ -137,6 +149,8 @@ const RENAMES: Partial<Record<Operation["op"], IdPart>> = {
   "update-screen": "screen",
   "update-widget": "widget",
   "update-node": "node",
+  "update-shape": "shape",
+  "update-arrow": "boardArrow",
 };
 
 /**
@@ -144,7 +158,7 @@ const RENAMES: Partial<Record<Operation["op"], IdPart>> = {
  * the numbered lists it deletes from too: a block's flows go with it, a state's transitions and
  * an entity's links, the ones with it at either end. `holds` are the things with an ID of their
  * own that go with it, as the view had them before: the widgets on a screen, the ones inside a
- * row or a panel, and the nodes inside a node.
+ * row or a panel, the nodes inside a node, and the arrows with an end on a whiteboard's shape.
  *
  * An entity's attributes go with it too, a card's arrows, and what runs in a node. Those go by
  * the entity's ID, the cards' and the node's, so they're followed by that (see `followed`), and
@@ -160,6 +174,8 @@ const REMOVES: Partial<Record<Operation["op"], { what: IdPart; loses?: NumberedP
   "remove-screen": { what: "screen", holds: { what: "widget", of: (was, id) => allWidgets(was).filter((w) => w.screen === id) } },
   "remove-widget": { what: "widget", holds: { what: "widget", of: (was, id) => allWidgets(was).filter((w) => w.id === id).flatMap((w) => allWidgets(w)) } },
   "remove-node": { what: "node", holds: { what: "node", of: (was, id) => was.nodes.filter((n) => isInsideNode(was, n.id, id)) } },
+  "remove-shape": { what: "shape", holds: { what: "boardArrow", of: (was, id) => was.arrows.filter((a) => endShape(a.from) === id || endShape(a.to) === id) } },
+  "remove-arrow": { what: "boardArrow" },
 };
 
 /** Whether a deployment view's node is inside another, however deep. */
@@ -348,6 +364,14 @@ type InView = Exclude<MenuRename, { kind: "view" | "view-gone" | "element-gone" 
 
 /** One thing of a view after something an edit did to the view, or null once it's deleted or lost. */
 function followed(on: Exclude<MenuFor, { kind: "diagram" }>, r: InView): MenuFor | null {
+  if (on.kind === "board") {
+    // Several selected together: lost with any one of them, and followed to each one's new ID.
+    if (r.kind === "gone") return isBoardKind(r.what) && on[BOARD_LISTS[r.what]].includes(r.id) ? null : on;
+    if (r.kind === "kinds-lost") return r.kinds.some((kind) => isBoardKind(kind) && on[BOARD_LISTS[kind]].length > 0) ? null : on;
+    if (!isBoardKind(r.kind)) return on;
+    const { id, to } = r as { id: string; to: string };
+    return { ...on, [BOARD_LISTS[r.kind]]: on[BOARD_LISTS[r.kind]].map((had) => (had === id ? to : had)) };
+  }
   if (r.kind === "gone") {
     // An entity's attributes go with it, a card's arrows, and what runs in a node.
     if (on.kind === "attribute") return r.what === "entity" && on.entity === r.id ? null : on;

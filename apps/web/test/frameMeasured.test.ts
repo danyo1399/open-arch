@@ -117,6 +117,7 @@ describe("the frame round a diagram", () => {
         selection,
         onSelect: setSelection,
         edit: async () => true,
+        menus: menusFor("containers"),
         onElementMenu() {},
         onArrowMenu() {},
         onError() {},
