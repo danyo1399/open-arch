@@ -9,6 +9,7 @@ import { Designer } from "../src/Designer.js";
 import { FolderHost } from "../src/folders.js";
 import { BrowserHost, DesktopHost, MemoryHost, workspaceZip, type WorkspaceHost } from "../src/hosts.js";
 import { browserLibrary } from "../src/library.js";
+import { canUndo } from "../src/panels/AskAI.js";
 import { button, checkbox, click, mount, type } from "./dom.js";
 import { FakeFolder } from "./fakeFolder.js";
 import { fakeModel, toolAnswers } from "./llm.js";
@@ -86,7 +87,17 @@ async function designer(script: Parameters<typeof fakeModel>[0] = [], file: Work
     });
     await act(async () => void box.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
   };
-  return { host, file, kept, model, panel, field, configure, ask, send, log };
+  /** Renames the workspace in its details, as a change made by hand. */
+  const rename = async (to: string) => {
+    await click(host.querySelector(".ws-name")!);
+    const name = host.querySelector<HTMLInputElement>(".properties input")!;
+    await type(name, to);
+    await act(async () => void name.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    await until(() => host.querySelector(".ws-name")!.textContent === to);
+  };
+  /** Whether the panel offers to undo what the AI changed. */
+  const offersUndo = () => [...panel().querySelectorAll("button")].some((b) => b.textContent?.trim() === "Undo AI change");
+  return { host, file, kept, model, panel, field, configure, ask, send, log, rename, offersUndo };
 }
 
 describe("Ask AI in the web designer", () => {
@@ -144,6 +155,74 @@ describe("Ask AI in the web designer", () => {
     await click(button(panel(), "Undo AI change"));
     await until(() => log().at(-1) === "Undid the AI's change.");
     expect(await file.load()).toBe(serializeDocument(shop));
+  });
+
+  it("offers to undo only what the AI changed, and only while the workspace is as the AI left it", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    const { host, file, ask, rename, offersUndo, panel } = await designer([
+      { text: "A customer buys from the shop." },
+      { calls: [{ name: "change_model", args: { operations: [{ op: "update-element", id: "shop", description: "Sells things." }] } }] },
+      { text: "Described." },
+      { text: "It sells things." },
+    ]);
+    await click(button(host, "Ask AI"));
+    // A question changes nothing, and a change made by hand after it isn't the AI's to undo.
+    await ask("Who uses the shop?");
+    expect(offersUndo()).toBe(false);
+    await rename("Shop, by hand");
+    expect(offersUndo()).toBe(false);
+    expect(panel().textContent).not.toContain("The AI changed the model.");
+
+    // The AI's change is offered to undo.
+    await ask("Describe the shop");
+    await until(offersUndo);
+    expect(panel().textContent).toContain("The AI changed the model.");
+    const left = await file.load();
+    expect(loadWorkspace(left).elements.get("shop")?.description).toBe("Sells things.");
+
+    // Once the person changes something too, undoing the AI's change would take theirs with it: Undo and History are the way back.
+    await rename("Shop, renamed again");
+    expect(offersUndo()).toBe(false);
+    // Their change taken back, the workspace is as the AI left it again.
+    await click(button(host, "Undo"));
+    await until(offersUndo);
+    expect(await file.load()).toBe(left);
+
+    // A question after it leaves nothing of the AI's to undo from that request.
+    await ask("What does the shop do?");
+    expect(offersUndo()).toBe(false);
+    expect(await file.load()).toBe(left);
+  });
+
+  it("puts the workspace back as it was before the request, the person's earlier changes kept", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    const { host, file, ask, rename, offersUndo, log, panel } = await designer([{ calls: [{ name: "change_model", args: { operations: [{ op: "update-element", id: "shop", description: "Sells things." }] } }] }, { text: "Described." }]);
+    await click(button(host, "Ask AI"));
+    await rename("Shop, by hand");
+    const before = await file.load();
+    await ask("Describe the shop");
+    await until(offersUndo);
+    await click(button(panel(), "Undo AI change"));
+    await until(() => log().at(-1) === "Undid the AI's change.");
+    expect(await file.load()).toBe(before);
+    expect(loadWorkspace(before).doc.name).toBe("Shop, by hand");
+    expect(offersUndo()).toBe(false);
+  });
+
+  it("keeps a running request's log and its Stop when the settings are forgotten in another tab", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    const { host, send, log, panel } = await designer([(_asked, signal) => new Promise<Response>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason)))]);
+    await click(button(host, "Ask AI"));
+    await send("Describe the shop");
+    localStorage.removeItem("open-arch.ai");
+    await act(async () => void window.dispatchEvent(new Event("storage")));
+    // Still the request, which can be stopped: not a form over it.
+    expect(panel().querySelector(".ask-ai-settings")).toBeNull();
+    expect(log()).toEqual(["Describe the shop"]);
+    await click(button(panel(), "Stop"));
+    await until(() => !!panel().querySelector(".ask-ai-settings"));
+    // With the request over, it asks for the settings there aren't.
+    expect(panel().querySelector<HTMLFormElement>("form:not(.ask-ai-settings)")!.hidden).toBe(true);
   });
 
   it("keeps the settings in the browser's local storage only: nothing of them is in the workspace, its zip or what's sent to the model", async () => {
@@ -332,6 +411,24 @@ describe("Ask AI in the web designer", () => {
   });
 });
 
+describe("what Undo AI change is offered for", () => {
+  it("is the agent's own change, where the agent says what it changed", () => {
+    expect(canUndo(null, "a")).toBe(false);
+    // As its change left it.
+    expect(canUndo({ before: "a", after: "b" }, "b")).toBe(true);
+    // Changed again since, by someone else.
+    expect(canUndo({ before: "a", after: "b" }, "c")).toBe(false);
+    // Back as it was before the request: nothing to undo.
+    expect(canUndo({ before: "a", after: "b" }, "a")).toBe(false);
+    expect(canUndo({ before: "a", after: "a" }, "a")).toBe(false);
+  });
+
+  it("is any change since the request was sent, where the agent doesn't say, as the desktop app's doesn't", () => {
+    expect(canUndo({ before: "a" }, "a")).toBe(false);
+    expect(canUndo({ before: "a" }, "b")).toBe(true);
+  });
+});
+
 describe("Ask AI in the desktop app", () => {
   /** The agent's edit to the file on disk, which the app tells the designer about. */
   let edited: (text: string) => void = () => {};
@@ -379,6 +476,8 @@ describe("Ask AI in the desktop app", () => {
     await act(async () => edited(serializeDocument({ ...shop, name: "Shop, tidied" })));
     await until(() => host.querySelector(".ws-name")!.textContent === "Shop, tidied");
     expect(host.querySelector(".toast")).toBeNull();
+    // What changed since the request was sent is taken to be the agent's, which doesn't say what it changed.
+    expect([...panel().querySelectorAll("button")].map((b) => b.textContent?.trim())).toContain("Undo AI change");
     await click(panel().querySelector('button[aria-label="Close Ask AI"]')!);
     expect(host.querySelector(".toast")!.textContent).toContain("The workspace changed outside this window, so it was reloaded.");
   });

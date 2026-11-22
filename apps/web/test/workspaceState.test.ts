@@ -269,8 +269,8 @@ describe("the open workspace", () => {
       { op: "add-relationship", from: "customer", to: "shop" },
     ];
     let done = await act(() => state().change(ops));
-    // What each operation did, and the warnings they brought.
-    expect(done).toEqual({ ok: true, summary: ["added system shop", "added person customer", "added relationship customer -> shop"], warnings: [expect.objectContaining({ rule: "relationship-description", severity: "warning" })] });
+    // What each operation did, the warnings they brought, and the file as they left it.
+    expect(done).toEqual({ ok: true, summary: ["added system shop", "added person customer", "added relationship customer -> shop"], warnings: [expect.objectContaining({ rule: "relationship-description", severity: "warning" })], text: host.file });
     expect(host.file).toContain('"customer"');
     expect(state().ws?.elements.has("shop")).toBe(true);
     expect(heard).toEqual([ops]);

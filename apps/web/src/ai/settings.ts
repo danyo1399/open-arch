@@ -49,6 +49,8 @@ export function settingsProblem(settings: AiSettings): string | null {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return "The address must start with https:// or http://.";
   if (!settings.model.trim()) return "Give the model to ask, such as gpt-5.";
+  // A request's header takes plain characters only, and the browser refuses to send any other without saying which.
+  if (/[^\x21-\x7e]/.test(settings.apiKey.trim())) return "The API key has a character a request can't carry, such as a space, a line break or a curly quote. Copy the key again, on its own.";
   return null;
 }
 

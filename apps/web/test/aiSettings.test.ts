@@ -85,6 +85,12 @@ describe("Ask AI's settings, in the web app", () => {
     expect(settingsProblem({ ...settings, baseUrl: "api.openai.com/v1" })).toBe("The address must be a full web address, such as https://api.openai.com/v1.");
     expect(settingsProblem({ ...settings, baseUrl: "ftp://api.openai.com/v1" })).toBe("The address must start with https:// or http://.");
     expect(settingsProblem({ ...settings, model: " " })).toBe("Give the model to ask, such as gpt-5.");
+    // A key the browser would refuse to send, without saying it's the key: one pasted with something that isn't part of it.
+    for (const apiKey of ["sk-secret…", "“sk-secret”", "sk secret", "sk-sec\nret", "sk-sécret", "sk-secret\u200b"]) {
+      expect(settingsProblem({ ...settings, apiKey }), apiKey).toBe("The API key has a character a request can't carry, such as a space, a line break or a curly quote. Copy the key again, on its own.");
+    }
+    // Spaces and line breaks round it are taken off when it's kept, so they're no problem.
+    expect(settingsProblem({ ...settings, apiKey: "  sk-secret_.~+/=-\n" })).toBeNull();
   });
 
   it("tidy an address down to where the API is", () => {

@@ -34,7 +34,7 @@ function host(doc: OpenArchDocument = shop(), folder?: FakeFolder): ToolHost & {
       try {
         const result = applyOperations(loadWorkspace(state.text).doc, ops);
         state.text = serializeDocument(result.doc);
-        return { ok: true, summary: result.summary, warnings: result.warnings };
+        return { ok: true, summary: result.summary, warnings: result.warnings, text: state.text };
       } catch (error) {
         if (!(error instanceof OpError)) throw error;
         return { ok: false, error: error.message };
@@ -159,12 +159,15 @@ describe("the tools Ask AI's model can call", () => {
     expect(changed.did).toBe("Changed the model: added container cache; added relationship web-app -> cache");
     expect(changed.answer).toMatch(/^Changed:\n- added container cache\n- added relationship web-app -> cache\n\nWarnings from this change:\nelements\.web-app\.uses\[0\]: warning \[relationship-description\] /);
     expect(loadWorkspace(on.text).elements.get("cache")?.technology).toBe("Redis");
+    // It says what it left the workspace as, so only its own change is offered to undo.
+    expect(changed.changed).toBe(on.text);
 
     // One wrong operation in a list refuses all of it.
     const before = on.text;
     const refused = await call(on, "change_model", { operations: [{ op: "add-element", id: "queue", kind: "container", parent: "shop" }, { op: "add-relationship", from: "queue", to: "nowhere" }] });
     expect(refused.answer).toMatch(/^Refused, so nothing changed: Operation 2 \(add-relationship\): /);
     expect(refused.did).toMatch(/^Tried a change that was refused: Operation 2 /);
+    expect(refused.changed).toBeUndefined();
     expect(on.text).toBe(before);
   });
 
@@ -206,6 +209,14 @@ describe("the tools Ask AI's model can call", () => {
     for (const [name, fields] of OPERATION_FIELDS) expect(fields.length, name).toBeGreaterThan(0);
     expect(RULES).toContain("- IDs are lowercase kebab-case");
     expect(RULES.split("\n").every((line) => line.startsWith("- "))).toBe(true);
+    // Each part of the skill the guides are cut from is there, by its own heading: one renamed would leave the model without it.
+    expect(RULES.split("\n").length).toBeGreaterThanOrEqual(4);
+    const recipes = recipesGuide().split("\n\nRules:\n")[0]!;
+    expect(recipes.match(/^- \*\*/gm)!.length).toBeGreaterThanOrEqual(15);
+    for (const recipe of ["Add an element", "Add a relationship", "Add a diagram", "Show what happens in order", "Show where things run", "Sketch an app's screens", "Show what data is kept"]) expect(recipes, recipe).toContain(`- **${recipe}`);
+    const operations = operationsGuide();
+    expect(operations.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(OPERATION_NAMES.length);
+    expect(operations).toMatch(/\nExample:\n\[\n  \{ "op": "add-element", [^]+\]$/);
   });
 
   it("find, read and search the folder's files when there's one to read, and say so when there isn't", async () => {
@@ -219,7 +230,7 @@ describe("the tools Ask AI's model can call", () => {
     expect(await call(on, "search_files", { text: "STRIPE" })).toEqual({ answer: "src/checkout.ts:1: export const pay = () => stripe.charge();", did: "Searched the files for “STRIPE”" });
     // What it's not shown, it can't read by asking for it by name either.
     const hidden = await call(on, "read_file", { path: ".env" });
-    expect(hidden.answer).toBe('".env" is in .env, which isn\'t read: hidden files and folders, and node_modules, are left out.');
+    expect(hidden.answer).toBe('".env" isn\'t read, because of .env: hidden files and folders, node_modules, and files named as keys and secrets usually are, are left out.');
     expect(hidden.did).toBe(`Couldn't read file: ${hidden.answer}`);
     expect((await call(on, "read_file", { path: "src/checkout.ts", from: 0 })).answer).toBe('"from" must be a whole number, 1 or more.');
     expect((await call(on, "read_file", {})).answer).toBe('Give "path".');

@@ -94,8 +94,9 @@ describe("the files a model can read, in a folder opened from the start page", (
     for (const path of [".env", ".git/config", "src/.cache/payment.ts", "node_modules/stripe/index.js", "src/../.env"]) {
       const error = await refused(path);
       expect(error, path).toBeInstanceOf(FileProblem);
-      expect(error.message, path).toMatch(/isn't read: hidden files and folders, and node_modules, are left out\.$/);
+      expect(error.message, path).toMatch(/isn't read, because of \S+: hidden files and folders, node_modules, and files named as keys and secrets usually are, are left out\.$/);
     }
+    expect((await refused("src/.cache/payment.ts")).message).toContain("because of .cache:");
     expect((await refused("../other/secret.txt")).message).toBe('The path "../other/secret.txt" is outside the folder. Give one inside it, like src/main.ts.');
     expect((await refused("src/gone.ts")).message).toBe("There's no file src/gone.ts. Use find_files to see what's there.");
     expect((await refused("gone/main.ts")).message).toBe("There's no folder gone. Use find_files to see what's there.");
@@ -113,6 +114,17 @@ describe("the files a model can read, in a folder opened from the start page", (
     expect((await refused("logo.png")).message).toBe("logo.png can't be read: it's bigger than 1 MB, or it isn't text.");
     await expect(findFiles(root, { folder: "../other" })).rejects.toThrow('The folder "../other" is outside the folder.');
     await expect(findFiles(root, { folder: ".git" })).rejects.toThrow(FileProblem);
+  });
+
+  it("leave out files named as keys and secrets usually are, whatever the capitals, and keep the ones that only look alike", async () => {
+    const root = new FakeFolder("ops");
+    const secret = ["id_rsa", "deploy/id_ed25519", "certs/server.pem", "certs/Server.KEY", "store.p12", "store.pfx", "store.jks", "app.keystore", "vault.kdbx", "prod.env", "Credentials.json", "secrets.yaml", "config/secret.yml", "secrets.json", "terraform.tfstate", "terraform.tfstate.backup", "prod.tfvars", "Node_Modules/pkg/index.js"];
+    const plain = ["id_rsa.pub", "keys.md", "src/secrets.ts", "src/secret-santa.json", "env.d.ts", "monkey.txt", "credentials.md", "main.tf", "pem.go"];
+    for (const path of [...secret, ...plain]) root.put(path, "token = hunter2\n");
+    expect((await findFiles(root, {})).split("\n").sort()).toEqual([...plain].sort());
+    expect((await searchFiles(root, { text: "hunter2" })).split("\n").map((line) => line.split(":")[0]).sort()).toEqual([...plain].sort());
+    for (const path of secret) await expect(readFile(root, { path }), path).rejects.toThrow(/isn't read, because of /);
+    for (const path of plain) expect(await readFile(root, { path }), path).toContain("1: token = hunter2");
   });
 
   it("are searched for text, capitals aside, with each line's file and number", async () => {

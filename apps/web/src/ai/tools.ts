@@ -29,6 +29,8 @@ export interface ToolResult {
   answer: string;
   /** What was done, for the log the person reads. */
   did: string;
+  /** The workspace's text after it, when the tool changed the workspace. */
+  changed?: string;
 }
 
 /** The most of a tool's answer the model is given: a longer one is cut, and says so. */
@@ -100,7 +102,7 @@ const FILE_TOOLS: ToolSpec[] = [
     function: {
       name: "find_files",
       description:
-        "List the files in the folder the workspace was opened from, by path. Hidden files and folders, and node_modules, are left out. With a pattern, only the files whose path matches: * is any run of characters in a name, ** any run of folders, ? one character; a pattern without those is text the path has to contain.",
+        "List the files in the folder the workspace was opened from, by path. Hidden files and folders, node_modules, and files named as keys and secrets usually are, are left out. With a pattern, only the files whose path matches: * is any run of characters in a name, ** any run of folders, ? one character; a pattern without those is text the path has to contain.",
       parameters: {
         type: "object",
         properties: { pattern: { ...text, description: "Like *.ts, src/**/*.test.ts or checkout." }, folder: { ...text, description: "A folder to look in, like src/api. Leave out for the whole folder." } },
@@ -277,7 +279,7 @@ async function changeModel(host: ToolHost, args: Args): Promise<ToolResult> {
   const done = await host.change(ops);
   if (!done.ok) return { answer: `Refused, so nothing changed: ${done.error}`, did: `Tried a change that was refused: ${brief(done.error)}` };
   const warnings = done.warnings.length ? ["", "Warnings from this change:", ...done.warnings.map(formatDiagnostic)] : [];
-  return { answer: ["Changed:", ...done.summary.map((line) => `- ${line}`), ...warnings].join("\n"), did: `Changed the model: ${brief(done.summary.join("; "))}` };
+  return { answer: ["Changed:", ...done.summary.map((line) => `- ${line}`), ...warnings].join("\n"), did: `Changed the model: ${brief(done.summary.join("; "))}`, changed: done.text };
 }
 
 /**
