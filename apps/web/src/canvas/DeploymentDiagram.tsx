@@ -477,6 +477,7 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
     const run = runnable.flatMap((e) => item(`${e.name} [${kindLabel(e)}]`, { runs: [...node.runs, e.id] }));
     // Infrastructure runs nothing and holds no nodes, so a node that does can't become it.
     const kind = node.infrastructure ? item("Make it a deployment node", { infrastructure: false }) : item("Make it infrastructure", { infrastructure: true });
+    const shapes = ELEMENT_SHAPES.filter((shape) => shape !== node.shape).flatMap((shape) => item(SHAPE_LABELS[shape], { shape: shape === "box" ? null : shape }));
     return withDelete(
       edits,
       [
@@ -493,7 +494,7 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
             ]),
         ...(run.length ? [{ label: "Run here", items: run }] : []),
         ...connectTo(node.id),
-        { label: "Shape", items: ELEMENT_SHAPES.filter((shape) => shape !== node.shape).map((shape) => ({ label: SHAPE_LABELS[shape], onSelect: set({ shape: shape === "box" ? null : shape }) })) },
+        ...(shapes.length ? [{ label: "Shape", items: shapes }] : []),
         ...(inside.length ? [{ label: "Move inside", items: inside }] : []),
         ...kind,
       ],
@@ -504,9 +505,10 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
 
   /** A container or system running in a node: what's done with it there, then what the designer's menu for the element has. */
   const instanceMenu = (node: DeploymentNode, element: string): MenuItem[] => {
-    const stop = () => void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element) }]).then((ok) => ok && select({ kind: "node", id: node.id }));
+    const stop: DeploymentOffer = { op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element) };
+    const here: MenuItem[] = [...(offers(stop) ? [{ label: "Stop running it here", onSelect: () => void edit([stop]).then((ok) => ok && select({ kind: "node", id: node.id })) }] : []), ...connectTo(element)];
     const [first, ...rest] = elementItems(element);
-    return [{ label: "Stop running it here", onSelect: stop }, ...connectTo(element), ...(first ? [{ ...first, divider: true }, ...rest] : [])];
+    return [...here, ...(first ? [{ ...first, divider: here.length > 0 }, ...rest] : [])];
   };
 
   const connectionMenu = (connection: ViewConnection): MenuItem[] => {

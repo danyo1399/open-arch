@@ -102,43 +102,73 @@ describe("what a deployment view's menus can offer", () => {
 
   it("is the view as the edit would leave it that's checked, with nothing changed", () => {
     const before = JSON.stringify(view);
-    expect(deploymentAfter(view, { op: "add-connection", view: "production", from: "edge", to: "db" }).connections.at(-1)).toMatchObject({ number: 4, from: "edge", to: "db" });
-    expect(deploymentAfter(view, { op: "update-connection", view: "production", connection: 2, to: "db" }).connections.map((c) => `${c.from} -> ${c.to}`)).toEqual(["lb -> web", "lb -> db", "edge -> lb"]);
-    const node = (op: DeploymentOffer) => deploymentAfter(view, op).nodes.find((n) => n.id === "server")!;
+    const after = (op: DeploymentOffer) => deploymentAfter(ws, view, op);
+    const joins = (v: typeof view) => v.connections.map((c) => `${c.number}: ${c.from} -> ${c.to}`);
+    expect(after({ op: "add-connection", view: "production", from: "edge", to: "db" }).connections.at(-1)).toMatchObject({ number: 4, from: "edge", to: "db" });
+    expect(joins(after({ op: "update-connection", view: "production", connection: 2, to: "db" }))).toEqual(["1: lb -> web", "2: lb -> db", "3: edge -> lb"]);
+    const node = (op: DeploymentOffer) => after(op).nodes.find((n) => n.id === "server")!;
     expect(node({ op: "update-node", view: "production", id: "server", parent: "edge" }).parent).toBe("edge");
     expect("parent" in node({ op: "update-node", view: "production", id: "server", parent: null })).toBe(false);
     expect(node({ op: "update-node", view: "production", id: "server", runs: ["web", "api", "db"] })).toMatchObject({ parent: "region", runs: ["web", "api", "db"], infrastructure: false });
     expect(node({ op: "update-node", view: "production", id: "server", infrastructure: true }).infrastructure).toBe(true);
+    // A node that stops running the web app takes the connection to it, and the ones after move up.
+    expect(joins(after({ op: "update-node", view: "production", id: "server", runs: ["api"] }))).toEqual(["1: lb -> server", "2: edge -> lb"]);
+    expect(joins(after({ op: "update-node", view: "production", id: "server", runs: null }))).toEqual(["1: lb -> server", "2: edge -> lb"]);
+    expect(joins(after({ op: "update-node", view: "production", id: "server", shape: "queue" }))).toEqual(["1: lb -> web", "2: lb -> server", "3: edge -> lb"]);
     expect(JSON.stringify(view)).toBe(before);
   });
 
-  it("is what core makes when asked, for every edit a menu might offer, in a view with errors of its own too", () => {
-    // The second has a connection core would refuse to add: the edits that leave it be are still made.
-    const broken = structuredClone(doc);
-    broken.views.production!.connections!.push({ from: "region", to: "lb" });
-    // And things no node can run: a person, and a component of a container.
-    broken.elements.buyer = { kind: "person", name: "Buyer" };
-    broken.elements.orders = { kind: "component", name: "Orders", parent: "api" };
-    for (const model of [doc, broken]) {
-      const workspace = buildWorkspace(model);
-      const production = workspace.views.get("production")!;
-      const ends = connectionEnds(workspace, production).map((end) => end.id);
-      const offers: DeploymentOffer[] = [
-        ...production.nodes.flatMap((n) => [
-          ...production.nodes.filter((p) => p.id !== n.parent).map((p): DeploymentOffer => ({ op: "update-node", view: "production", id: n.id, parent: p.id })),
-          { op: "update-node", view: "production", id: n.id, parent: null } as const,
-          { op: "update-node", view: "production", id: n.id, infrastructure: !n.infrastructure } as const,
-          ...[...workspace.elements.keys()].filter((e) => !n.runs.includes(e)).map((e): DeploymentOffer => ({ op: "update-node", view: "production", id: n.id, runs: [...n.runs, e] })),
-        ]),
-        ...ends.flatMap((from) => ends.map((to): DeploymentOffer => ({ op: "add-connection", view: "production", from, to }))),
-        ...production.connections.flatMap((c) => ends.flatMap((end): DeploymentOffer[] => [
-          { op: "update-connection", view: "production", connection: c.number, from: end },
-          { op: "update-connection", view: "production", connection: c.number, to: end },
-        ])),
-      ];
-      expect(offers.length).toBeGreaterThan(150);
-      for (const op of offers) expect(deploymentOffers(workspace, production, op), JSON.stringify(op)).toBe(made(model, op));
-    }
+  /** Every edit a menu might offer on a view, and more that it never would: each node moved, made the other kind, given a shape, and told to run one more thing or one less; each connection there could be, and each end moved. */
+  function everyOffer(workspace: ReturnType<typeof buildWorkspace>): DeploymentOffer[] {
+    const production = workspace.views.get("production")!;
+    const ends = [...connectionEnds(workspace, production).map((end) => end.id), "no-such-end"];
+    return [
+      ...production.nodes.flatMap((n) => [
+        ...production.nodes.filter((p) => p.id !== n.parent).map((p): DeploymentOffer => ({ op: "update-node", view: "production", id: n.id, parent: p.id })),
+        { op: "update-node", view: "production", id: n.id, parent: null } as const,
+        { op: "update-node", view: "production", id: n.id, infrastructure: !n.infrastructure } as const,
+        { op: "update-node", view: "production", id: n.id, shape: n.shape === "queue" ? null : "queue" } as const,
+        ...[...workspace.elements.keys()].filter((e) => !n.runs.includes(e)).map((e): DeploymentOffer => ({ op: "update-node", view: "production", id: n.id, runs: [...n.runs, e] })),
+        ...n.runs.map((e): DeploymentOffer => ({ op: "update-node", view: "production", id: n.id, runs: n.runs.filter((r) => r !== e) })),
+      ]),
+      ...ends.flatMap((from) => ends.map((to): DeploymentOffer => ({ op: "add-connection", view: "production", from, to }))),
+      ...production.connections.flatMap((c) => ends.flatMap((end): DeploymentOffer[] => [
+        { op: "update-connection", view: "production", connection: c.number, from: end },
+        { op: "update-connection", view: "production", connection: c.number, to: end },
+      ])),
+    ];
+  }
+
+  /** The model with something wrong in its deployment view already, as a file written by hand can have. */
+  const broken = (change: (view: NonNullable<OpenArchDocument["views"][string]>, model: OpenArchDocument) => void) => {
+    const model = structuredClone(doc);
+    // Things no node can run: a person, and a component of a container.
+    model.elements.buyer = { kind: "person", name: "Buyer" };
+    model.elements.orders = { kind: "component", name: "Orders", parent: "api" };
+    change(model.views.production!, model);
+    return model;
+  };
+
+  it.each([
+    ["nothing wrong", doc],
+    ["a connection that joins a node and one inside it", broken((v) => v.connections!.push({ from: "region", to: "lb" }))],
+    ["a node that runs something that's no element, and a person", broken((v) => (v.nodes!.server!.runs = ["web", "ghost", "buyer"]))],
+    ["infrastructure that runs something", broken((v) => (v.nodes!.lb!.runs = ["cache"]))],
+    ["infrastructure that holds a node", broken((v) => (v.nodes!.edge!.parent = "lb"))],
+    ["nodes inside one another", broken((v) => (v.nodes!.region!.parent = "data"))],
+    ["a node inside one the view doesn't have", broken((v) => (v.nodes!.edge!.parent = "nowhere"))],
+    // Telling a node what it runs drops the first, which renumbers the second, and core takes the error under its new number for a new one.
+    ["a connection to what nothing runs, then one between a node and one inside it", broken((v) => v.connections!.push({ from: "lb", to: "cache" }, { from: "region", to: "lb" }))],
+    ["a connection from something to itself, and one between two elements", broken((v) => v.connections!.push({ from: "lb", to: "lb" }, { from: "web", to: "db" }))],
+  ] as const)("is what core makes when asked, for every edit a menu might offer: with %s", (_, model) => {
+    const workspace = buildWorkspace(model);
+    const production = workspace.views.get("production")!;
+    const offers = everyOffer(workspace);
+    expect(offers.length).toBeGreaterThan(150);
+    const [offered, refused] = [offers.filter((op) => made(model, op)), offers.filter((op) => !made(model, op))];
+    // Some of each, so both answers are compared.
+    expect(Math.min(offered.length, refused.length)).toBeGreaterThan(10);
+    for (const op of offers) expect(deploymentOffers(workspace, production, op), JSON.stringify(op)).toBe(made(model, op));
   });
 
   it("have for a connection's ends the view's nodes, then what they run, by name", () => {
@@ -175,6 +205,26 @@ describe("a node's right-click menu", () => {
     // The region can't go inside the edge node: Routes would then join that and a node inside it.
     await d.rightClick(d.node("region")!);
     expect(d.labels()).toEqual(["Add inside", "Run here", "Add connection to", "Shape", "Delete node and what's inside"]);
+  });
+
+  it("doesn't offer what update-node would refuse for what's already wrong with the node, in a file written by hand", async () => {
+    const wrong = structuredClone(doc);
+    wrong.elements.buyer = { kind: "person", name: "Buyer" };
+    // The server is told to run a person, and the load balancer, which is infrastructure, runs the cache.
+    wrong.views.production!.nodes!.server!.runs = ["web", "api", "buyer"];
+    wrong.views.production!.nodes!.lb!.runs = ["cache"];
+    const d = await designer(wrong);
+    // Whatever more it's told to run, it's refused for the person: there's nothing to offer under Run here.
+    await d.rightClick(d.node("server")!);
+    expect(d.labels()).toEqual(["Add inside", "Add connection to", "Shape", "Move inside", "Delete node"]);
+    // Nor can what it runs be stopped, as what's left would still name the person.
+    await d.rightClick(d.node("server/web")!);
+    expect(d.labels()).toEqual(["Add connection to", "Find usages", "New view", "Delete from model…"]);
+    // Infrastructure that runs something can't be changed until it's made a deployment node: not its shape, nor where it is.
+    await d.rightClick(d.node("lb")!);
+    expect(d.labels()).toEqual(["Add connection to", "Make it a deployment node", "Delete node"]);
+    await d.pick("Make it a deployment node");
+    expect(await node(d, "lb")).toMatchObject({ infrastructure: false, runs: ["cache"] });
   });
 
   it("adds a node inside it, and selects it to give it a name", async () => {

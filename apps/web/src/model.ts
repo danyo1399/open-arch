@@ -10,6 +10,7 @@ import {
   LEVEL_TITLE,
   nodeKindLabel,
   representative,
+  RUNNABLE_KINDS,
   SCOPE_KINDS,
   stickyAnchor,
   STICKY_TARGET_LEVELS,
@@ -24,6 +25,7 @@ import {
   type Connection,
   type DeploymentNode,
   type ElementData,
+  type ElementKind,
   type ElementDescription,
   type Entity,
   type EntityLink,
@@ -574,15 +576,17 @@ export function connectionEnds(ws: Workspace, view: ViewDef): { id: string; labe
   return [...view.nodes.map((n) => ({ id: n.id, label: `${n.name} [${nodeKindLabel(n)}]` })), ...run.map((e) => ({ id: e.id, label: `${e.name} [${kindLabel(e)}]` }))];
 }
 
-/** The edits a deployment view's menus offer that its rules can refuse: a node changed, or a connection added or changed. */
+/** The edits a deployment view's menus offer: a node changed, or a connection added or changed. */
 export type DeploymentOffer = Extract<Operation, { op: "update-node" | "add-connection" | "update-connection" }>;
 
 /**
  * A deployment view as one of the edits its menus offer would leave it: a node moved inside
- * another or out to the top, given more to run, or made infrastructure or not, and a connection
- * added at the end, or with an end moved. Anything else an operation says is left as it is.
+ * another or out to the top, told what it runs, or made infrastructure or not, and a connection
+ * added at the end, or with an end moved. A node told what it runs takes the connections to
+ * what no node runs any more, as update-node does, and the ones after are renumbered. Anything
+ * else an operation says is left as it is.
  */
-export function deploymentAfter(view: ViewDef, op: DeploymentOffer): ViewDef {
+export function deploymentAfter(ws: Workspace, view: ViewDef, op: DeploymentOffer): ViewDef {
   if (op.op === "add-connection") {
     const number = view.connections.length + 1;
     return { ...view, connections: [...view.connections, { path: `${view.path}.connections[${number - 1}]`, number, from: op.from, to: op.to }] };
@@ -593,9 +597,44 @@ export function deploymentAfter(view: ViewDef, op: DeploymentOffer): ViewDef {
   const change = (node: DeploymentNode): DeploymentNode => {
     const { parent, ...rest } = node;
     const inside = op.parent === undefined ? parent : (op.parent ?? undefined);
-    return { ...rest, ...(inside !== undefined && { parent: inside }), runs: op.runs ?? node.runs, infrastructure: op.infrastructure ?? node.infrastructure };
+    return { ...rest, ...(inside !== undefined && { parent: inside }), runs: op.runs === undefined ? node.runs : (op.runs ?? []), infrastructure: op.infrastructure ?? node.infrastructure };
   };
-  return { ...view, nodes: view.nodes.map((n) => (n.id === op.id ? change(n) : n)) };
+  const nodes = view.nodes.map((n) => (n.id === op.id ? change(n) : n));
+  if (op.runs === undefined) return { ...view, nodes };
+  const run = new Set(nodes.flatMap((n) => n.runs));
+  const loose = (end: string) => !nodes.some((n) => n.id === end) && ws.elements.has(end) && !run.has(end);
+  const connections = view.connections.filter((c) => !loose(c.from) && !loose(c.to)).map((c, at) => ({ ...c, number: at + 1, path: `${view.path}.connections[${at}]` }));
+  return { ...view, nodes, connections };
+}
+
+/**
+ * Whether the operation's own rules let an edit a deployment view's menu offers be made, as
+ * update-node, add-connection and update-connection check them. They look at what the edit
+ * leaves, whatever was wrong before it: every thing a node is told to run, not only what's new,
+ * and a node that's infrastructure, whichever of its fields the edit changes.
+ */
+function deploymentRules(ws: Workspace, view: ViewDef, op: DeploymentOffer): boolean {
+  const node = (id: string) => view.nodes.find((n) => n.id === id);
+  if (op.op !== "update-node") {
+    const was = op.op === "update-connection" ? view.connections[op.connection - 1] : undefined;
+    if (op.op === "update-connection" && !was) return false;
+    const [from, to] = [op.from ?? was!.from, op.to ?? was!.to];
+    // Each end is a node, or something one runs. Not something to itself, and not two elements, whose arrows are the model's.
+    const run = new Set(view.nodes.flatMap((n) => n.runs));
+    return [from, to].every((end) => node(end) || run.has(end)) && from !== to && !!(node(from) || node(to));
+  }
+  const changed = node(op.id);
+  if (!changed) return false;
+  if (op.parent != null && op.parent !== changed.parent) {
+    // Inside a node that isn't infrastructure, and isn't itself or inside it.
+    if (!node(op.parent) || node(op.parent)!.infrastructure) return false;
+    for (let at: string | undefined = op.parent, steps = 0; at !== undefined && steps <= view.nodes.length; at = node(at)?.parent, steps++) if (at === op.id) return false;
+  }
+  // What it's told to run is all containers and systems of the model.
+  const runs = op.runs === undefined ? changed.runs : (op.runs ?? []);
+  if (op.runs !== undefined && !runs.every((id) => RUNNABLE_KINDS.includes(ws.elements.get(id)?.kind as ElementKind))) return false;
+  // Infrastructure runs nothing and holds no nodes.
+  return !((op.infrastructure ?? changed.infrastructure) && (runs.length > 0 || view.nodes.some((n) => n.parent === op.id)));
 }
 
 /** The errors a view's own checks find in it, each by its rule and what it says, as an edit compares them. */
@@ -605,23 +644,31 @@ function viewErrors(ws: Workspace, view: ViewDef): string[] {
     .map((d) => `${d.rule}\u0000${d.message}`);
 }
 
-/** The errors each view has as it stands, so a menu drawn again doesn't work them out again. */
+/**
+ * The errors each view has as it stands, so a menu drawn again doesn't work them out again. They
+ * depend on the model too, so this is right only because a view is made again with each
+ * workspace: one view is never the view of two.
+ */
 const errorsNow = new WeakMap<ViewDef, string[]>();
 
 /**
- * Whether a deployment view's menu can offer an edit: whether it would leave the view with no
- * error it doesn't have already, which is when the edit is made. The view's rules are all its
- * own: what a node can be inside or run, where a connection can go, and that none joins a node
- * and something inside it. That last one can refuse a move or a connection for another
- * connection, which nothing about the two ends says. So the view is checked as the edit would
- * leave it, by the checks an edit runs, but this one view only: asking core to try the whole
- * edit would check every view of the workspace, for each thing a menu might offer.
+ * Whether a deployment view's menu can offer an edit: whether core would make it. Core refuses
+ * one for the operation's own rules (see deploymentRules), or for leaving the workspace with an
+ * error it didn't have. The second can refuse a move or a connection that looks fine, for
+ * another connection: none can join a node and something inside it. So the view is checked as
+ * the edit would leave it (see deploymentAfter), by the checks an edit runs, and its errors
+ * compared as an edit compares them, by rule and message.
+ *
+ * Only this view is checked. These edits change nothing else, and every rule about a deployment
+ * view's nodes and connections is the view's own. Asking core to try the whole edit would check
+ * every view of the workspace, twice, for each thing a menu might offer.
  */
 export function deploymentOffers(ws: Workspace, view: ViewDef, op: DeploymentOffer): boolean {
+  if (!deploymentRules(ws, view, op)) return false;
   let had = errorsNow.get(view);
   if (!had) errorsNow.set(view, (had = viewErrors(ws, view)));
   const left = [...had];
-  return viewErrors(ws, deploymentAfter(view, op)).every((error) => {
+  return viewErrors(ws, deploymentAfter(ws, view, op)).every((error) => {
     const at = left.indexOf(error);
     if (at >= 0) left.splice(at, 1);
     return at >= 0;
