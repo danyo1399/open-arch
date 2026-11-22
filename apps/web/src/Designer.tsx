@@ -181,6 +181,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const [askOpen, setAskOpen] = useState(false);
   /** What Ask AI did while it was hidden, for its button to show. */
   const [askNews, setAskNews] = useState<AskNews | null>(null);
+  /** Whether the desktop app's agent is working on a request. */
+  const [agentRunning, setAgentRunning] = useState(false);
   /** Whether the web app's Ask AI is working on a request. */
   const asking = useRef(false);
   /** Whether a Save is under way that opens the copy it keeps, as a workspace of its own. */
@@ -636,8 +638,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     onHide: () => setAskOpen(false),
     onNews: setAskNews,
   };
-  // While the desktop app's Ask AI is open, its agent's edits reload the file again and again, and the panel already says what it changed.
-  const message = state.message?.kind === "info" && askOpen && fileAgent ? null : state.message;
+  // While the desktop app's agent works, its edits reload the file again and again, and the panel says what it changed: while it's open,
+  // while the request runs with it hidden, and until a request that finished with it hidden has been read there.
+  const message = state.message?.kind === "info" && fileAgent && (askOpen || agentRunning || askNews === "finished") ? null : state.message;
   const syncsDocs = savesDocs(host, state.storage);
   const status =
     state.storage === "file"
@@ -1072,7 +1075,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
           )}
         </NotesOpener.Provider>
         {usagesOf && <Usages ws={ws} id={usagesOf} viewId={viewId} onGo={goToUsage} onClose={() => setUsagesOf(null)} />}
-        {fileAgent && <AskAI agent={fileAgent} {...ask} />}
+        {fileAgent && <AskAI agent={fileAgent} onRunning={setAgentRunning} {...ask} />}
         {!desktop && <BrowserAskAI host={host} storage={state.storage} change={state.change} afterEdits={state.afterEdits} fetch={askFetch} onRunning={(running) => (asking.current = running)} hold={() => (saving.current ? "The workspace is being saved. Ask again once the copy it keeps has opened." : null)} {...ask} />}
       </main>
 

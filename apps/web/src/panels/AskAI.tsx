@@ -142,20 +142,22 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
   // A request that's running keeps its log and its Stop button, whatever else there is to show.
   const setup = running ? undefined : wanted;
   const logEnd = useRef<HTMLDivElement>(null);
-  /** What happened while the panel was hidden. A request's events come in long after it was sent, so they read whether it's shown now. */
-  const [news, setNews] = useState<AskNews | null>(null);
+  /** Whether a request finished while the panel was hidden, and it hasn't been shown since. A request ends long after it was sent, so it reads whether it's shown then. */
+  const [finishedUnseen, setFinishedUnseen] = useState(false);
   const shown = useRef(open);
   shown.current = open;
-  const tell = (what: AskNews) => {
-    if (!shown.current) setNews((now) => (now === "finished" ? now : what));
-  };
-  // Showing the panel shows what happened.
+  // Showing the panel shows how it finished.
   useEffect(() => {
-    if (open) setNews(null);
+    if (open) setFinishedUnseen(false);
   }, [open]);
+  // What to show on the Ask AI button while the panel is hidden. It waits for as long as an approval it asked for has no answer, here or elsewhere, so hiding the panel again without answering still says so.
+  const waiting = running && log.some((e) => e.kind === "permission" && !e.answer);
+  const news: AskNews | null = open ? null : finishedUnseen ? "finished" : waiting ? "waiting" : null;
   const onNewsNow = useRef(onNews);
   onNewsNow.current = onNews;
   useEffect(() => onNewsNow.current?.(news), [news]);
+  // Without the panel, there's nothing to show on the button.
+  useEffect(() => () => onNewsNow.current?.(null), []);
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "end" });
@@ -186,10 +188,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
       changes.current = afterChange(changes.current, event);
       setUndoable(changes.current === "mixed" ? null : changes.current);
     }
-    else if (event.type === "permission") {
-      add({ kind: "permission", id: event.id, text: event.description });
-      tell("waiting");
-    }
+    else if (event.type === "permission") add({ kind: "permission", id: event.id, text: event.description });
     else if (event.type === "permission-replied") setAnswer(event.id, "answered", true);
     else if (event.type === "error") add({ kind: "error", text: problemText(event.message) });
     else {
@@ -224,7 +223,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
       setRunning(false);
       onRunning?.(false);
       // An answer or an error: either way it's finished, and there's something to read.
-      tell("finished");
+      if (!shown.current) setFinishedUnseen(true);
     }
   };
 

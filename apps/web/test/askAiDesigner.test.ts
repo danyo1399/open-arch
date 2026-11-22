@@ -171,6 +171,23 @@ describe("Ask AI in the web designer", () => {
     expect(model.asked[0]!.body.messages[1]).toEqual({ role: "user", content: "(In the designer, the view `context` (level `context`) is open, and the workspace is selected.)\n\nWhat is this?" });
   });
 
+  it("carries on with a request while it's hidden, and shows on its button when it's finished", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    let answer = (_response: Response) => {};
+    const { host, send, log, panel } = await designer([() => new Promise<Response>((resolve) => (answer = resolve))]);
+    const news = () => button(host, "Ask AI").querySelector(".ask-ai-news");
+    await click(button(host, "Ask AI"));
+    await send("Which system is there?");
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+    expect(news()).toBeNull();
+    await act(async () => answer(reply({ text: "It's shop." })));
+    await until(() => !!news());
+    expect(news()!.classList.contains("ask-ai-news-finished")).toBe(true);
+    await click(button(host, "Ask AI"));
+    expect(log()).toEqual(["Which system is there?", "It's shop."]);
+    expect(news()).toBeNull();
+  });
+
   it("offers to undo only what the AI changed, and only while the workspace is as the AI left it", async () => {
     localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
     const { host, file, ask, rename, offersUndo, panel } = await designer([
@@ -691,8 +708,19 @@ describe("Ask AI in the desktop app", () => {
     expect(askButton().title).toBe("Ask AI is waiting for you to approve something.");
     await click(askButton());
     expect(news()).toBeNull();
+    // Looked at, and hidden again without an answer: it's still waiting.
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+    expect(news()!.classList.contains("ask-ai-news-waiting")).toBe(true);
+    // Answered elsewhere, such as in OpenCode itself: nothing's waiting.
+    await act(async () => emit({ type: "permission-replied", id: "p1" }));
+    expect(news()).toBeNull();
+    // Another, which is answered here.
+    await act(async () => emit({ type: "permission", id: "p2", description: "run cat" }));
+    expect(news()!.classList.contains("ask-ai-news-waiting")).toBe(true);
+    await click(askButton());
     await click(button(panel(), "Approve"));
     await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+    expect(news()).toBeNull();
 
     // It finishes while it's hidden: the button says so, until it's opened to read the answer.
     await act(async () => {
@@ -704,7 +732,7 @@ describe("Ask AI in the desktop app", () => {
     expect(askButton().getAttribute("aria-description")).toBe("Ask AI has finished. Open it to read the answer.");
     await click(askButton());
     expect(panel().hidden).toBe(false);
-    expect(log()).toEqual(["Tidy up", "The AI asks to: run lsApproved", "Tidied."]);
+    expect(log()).toEqual(["Tidy up", "The AI asks to: run lsAnswered", "The AI asks to: run catApproved", "Tidied."]);
     expect(news()).toBeNull();
     expect(askButton().title).toBe("Ask an AI agent to change the model");
   });
@@ -743,6 +771,34 @@ describe("Ask AI in the desktop app", () => {
     } finally {
       window.matchMedia = real;
     }
+  });
+
+  it("doesn't say the file was reloaded while its agent works with the panel hidden, nor before the answer is read", async () => {
+    let finish = () => {};
+    const agent: AgentBridge = {
+      run: (_path, _prompt, _context, onEvent) =>
+        new Promise<void>((resolve) => {
+          finish = () => {
+            onEvent({ type: "done", summary: "Renamed it." });
+            resolve();
+          };
+        }),
+      reply: async () => {},
+      cancel: async () => {},
+    };
+    const bridge = desktop(agent);
+    const { host, send, panel } = await designer([], new DesktopHost(bridge, "/work/shop.openarch", "shop.openarch"));
+    await click(button(host, "Ask AI"));
+    await send("Rename it");
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+    await act(async () => edited(serializeDocument({ ...shop, name: "Shop, renamed" })));
+    await until(() => host.querySelector(".ws-name")!.textContent === "Shop, renamed");
+    expect(host.querySelector(".toast")).toBeNull();
+    await act(async () => finish());
+    expect(button(host, "Ask AI").querySelector(".ask-ai-news")).not.toBeNull();
+    expect(host.querySelector(".toast")).toBeNull();
+    await click(button(host, "Ask AI"));
+    expect(host.querySelector(".toast")).toBeNull();
   });
 
   it("doesn't show news on its button for a request that finished while it was open", async () => {
