@@ -23,7 +23,8 @@ interface BrowserAskAIProps {
   context: AgentContext;
   contextLabel: string;
   text: string;
-  restore(text: string): Promise<boolean>;
+  restore(text: string, from?: string): Promise<boolean>;
+  onRunning?(running: boolean): void;
   open: boolean;
   onClose(): void;
   /** The page's `fetch`, unless a test gives its own. */
@@ -37,18 +38,15 @@ export function BrowserAskAI({ host, storage, change, afterEdits, fetch: send, .
   const [editing, setEditing] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const folder = host instanceof FolderHost && storage === "file" ? host.root : undefined;
-  // The agent reads these as it works, so it's the same one whatever changes. The workspace's
-  // edits are the ones there are when a tool runs: after Save, they go to where it's kept now.
-  const edits = useRef({ change, afterEdits });
-  edits.current = { change, afterEdits };
+  // The agent reads these as it works, so it's the same one whatever changes: the settings, and whether it may read the folder.
   const setup = useRef<AgentSetup | null>(null);
   setup.current = {
     settings: ai.settings,
     fetch: send,
     host: {
       fileName: host.name,
-      workspace: () => new Promise<Workspace | null>((resolve) => void edits.current.afterEdits(resolve)),
-      change: (ops) => edits.current.change(ops),
+      workspace: () => new Promise<Workspace | null>((resolve) => void afterEdits(resolve)),
+      change,
       folder: ai.readsFiles ? folder : undefined,
     },
   };
@@ -102,19 +100,20 @@ export function BrowserAskAI({ host, storage, change, afterEdits, fetch: send, .
         )
       }
       note={
-        folder && (
-          <>
+        <>
+          {storage === "memory" && <p className="small muted">This workspace is only in this tab. Save opens the copy it keeps, which ends this conversation.</p>}
+          {folder && (
             <label className="check small" title="It can find, read and search the files in this folder, but not change them. Hidden files and folders, such as .env and .git, node_modules, and files named as keys and secrets usually are, such as id_rsa and secrets.yaml, are left out. What it reads is sent to the model's server.">
               <input type="checkbox" checked={ai.readsFiles} onChange={(e) => keep(() => ai.setReadsFiles(e.target.checked))} />
               Let the AI read the files in {folder.name}
             </label>
-            {problem && !editing && ai.settings && (
-              <p className="error small" role="alert">
-                {problem}
-              </p>
-            )}
-          </>
-        )
+          )}
+          {folder && problem && !editing && ai.settings && (
+            <p className="error small" role="alert">
+              {problem}
+            </p>
+          )}
+        </>
       }
     />
   );

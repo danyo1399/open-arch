@@ -76,7 +76,13 @@ interface AskAIProps {
   contextLabel: string;
   /** The file's text now. */
   text: string;
-  restore(text: string): Promise<boolean>;
+  /**
+   * Puts the file back as `text`. With `from`, only if the file is still that when it's done,
+   * so a change made meanwhile isn't written over. Resolves to false if it wasn't put back.
+   */
+  restore(text: string, from?: string): Promise<boolean>;
+  /** Hears when a request starts running, and when it ends. */
+  onRunning?(running: boolean): void;
   open: boolean;
   onClose(): void;
   /** What the box is for, where it isn't only for changes. */
@@ -107,7 +113,7 @@ function formatted(text: string): ReactNode[] {
   });
 }
 
-export function AskAI({ agent, context, contextLabel, text, restore, open, onClose, asks = CHANGES, setup: wanted, actions, note }: AskAIProps) {
+export function AskAI({ agent, context, contextLabel, text, restore, onRunning, open, onClose, asks = CHANGES, setup: wanted, actions, note }: AskAIProps) {
   const [prompt, setPrompt] = useState("");
   const [log, setLog] = useState<Entry[]>([]);
   const [running, setRunning] = useState(false);
@@ -166,6 +172,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
     if (!request || busy.current) return;
     busy.current = true;
     setRunning(true);
+    onRunning?.(true);
     setPrompt("");
     changes.current = null;
     // An agent that says what it changes has changed nothing yet. Any other is taken to have made whatever changes from here.
@@ -178,6 +185,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
     } finally {
       busy.current = false;
       setRunning(false);
+      onRunning?.(false);
     }
   };
 
@@ -191,8 +199,10 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
     }
   };
 
+  // Where the agent said what its change left, only that is replaced: a change by hand that's
+  // still being saved as the button is pressed isn't written over, and the offer goes with it.
   const undo = async () => {
-    if (undoable && (await restore(undoable.before))) {
+    if (undoable && (await restore(undoable.before, undoable.after))) {
       setUndoable(null);
       add({ kind: "progress", text: "Undid the AI's change." });
     }

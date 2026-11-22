@@ -138,7 +138,7 @@ export class BrowserAgent {
     let calls = 0;
     try {
       for (let round = 0; round < ROUNDS_LIMIT; round++) {
-        // Read each time round, so it follows a change made while it works: the settings, the workspace saved somewhere else, a folder it may now read.
+        // Read each time round, so it follows a change made while it works: the settings, or a folder it may now read.
         const { settings, host, fetch: send } = this.setup();
         if (!settings) throw new Error(NOT_SET_UP);
         const reply = await chat(settings, [{ role: "system", content: systemPrompt(host) }, ...messages], toolSpecs(host), {
@@ -158,6 +158,8 @@ export class BrowserAgent {
         messages.push({ role: "assistant", content: reply.content || null, tool_calls: reply.toolCalls });
         let room = ROUND_LIMIT;
         for (const call of reply.toolCalls) {
+          // Stopped as the reply came in: none of its calls are made.
+          stop.signal.throwIfAborted();
           const result = await runTool(host, call.function.name, call.function.arguments, stop.signal);
           calls++;
           onEvent({ type: "progress", text: result.did });
