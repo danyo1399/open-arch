@@ -336,11 +336,12 @@ describe("a menu's target, followed through the edits that land before it opens"
       { op: "rename", id: "api", to: "gateway" },
       { op: "remove-element", id: "gateway" },
     ];
+    // The workspace the edit started from has no such element, so it alone says nothing went.
     expect(menuRenamesIn(renamed, buildWorkspace(scoped))).toEqual([
       { kind: "view", id: "api", to: "gateway" },
       { kind: "view-gone", id: "returns" },
     ]);
-    // The workspace the edit started from has no such element, so it alone says nothing went.
+    // The delete alone, told with the workspace the rename left, loses the same view.
     expect(menuRenamesIn([renamed[1]!], buildWorkspace(applyOperations(buildWorkspace(scoped).doc, [renamed[0]!]).doc))).toEqual([{ kind: "view-gone", id: "returns" }]);
     expect(followMenu({ kind: "diagram" }, "returns", menuRenamesIn(renamed, buildWorkspace(scoped))).on).toBeNull();
     expect(followMenu({ kind: "diagram" }, "data", menuRenamesIn(renamed, buildWorkspace(scoped))).on).toEqual({ kind: "diagram" });
@@ -362,7 +363,7 @@ describe("a menu's target, followed through the edits that land before it opens"
     ];
     expect(menuRenamesIn(odd, buildWorkspace(doc))).toEqual([
       { kind: "gone", what: "block", view: "returns", id: "asked" },
-      { kind: "lists-lost", lists: ["flow"], view: "returns" },
+      { kind: "kinds-lost", kinds: ["flow"], view: "returns" },
     ]);
     expect(followMenu({ kind: "flow", number: 4 }, "returns", menuRenamesIn(odd, buildWorkspace(doc))).on).toBeNull();
     expect(followMenu({ kind: "block", id: "refund" }, "returns", menuRenamesIn(odd, buildWorkspace(doc))).on).toEqual({ kind: "block", id: "refund" });
@@ -376,7 +377,22 @@ describe("a menu's target, followed through the edits that land before it opens"
     expect(undone).toEqual([{ kind: "lost" }, { kind: "view", id: "returns", to: "refunds" }]);
     expect(menuRenamesIn([])).toEqual([{ kind: "lost" }]);
     // What has the same ID, name or number after it needn't be the same one.
-    for (const on of [{ kind: "block", id: "refund" }, { kind: "lane", id: "staff" }, { kind: "sticky", id: "note" }, { kind: "flow", number: 2 }, { kind: "state", id: "paid" }, { kind: "transition", number: 1 }, { kind: "entity", id: "order" }, { kind: "attribute", entity: "order", name: "id" }, { kind: "link", number: 1 }] as const) {
+    const all = [
+      { kind: "block", id: "refund" },
+      { kind: "lane", id: "staff" },
+      { kind: "sticky", id: "note" },
+      { kind: "flow", number: 2 },
+      { kind: "state", id: "paid" },
+      { kind: "transition", number: 1 },
+      { kind: "entity", id: "order" },
+      { kind: "attribute", entity: "order", name: "id" },
+      { kind: "link", number: 1 },
+      { kind: "card", id: "order-placed" },
+      { kind: "cardArrow", from: "place-order", to: "order-placed" },
+      { kind: "screen", id: "cart" },
+      { kind: "widget", id: "pay" },
+    ] as const;
+    for (const on of all) {
       expect(followMenu(on, "returns", undone), on.kind).toEqual({ on: null, view: "refunds" });
       // Nothing after brings it back.
       expect(followMenu(on, "returns", [...undone, { kind: "block", view: "refunds", id: "refund", to: "pay-back" }]).on, on.kind).toBeNull();
@@ -421,5 +437,197 @@ describe("a menu's target, followed through the edits that land before it opens"
     expect(followMenu({ kind: "diagram" }, "other", gone)).toEqual({ on: { kind: "diagram" }, view: "returns" });
     // In an edit that does more, too.
     expect(menuRenamesIn([{ op: "update-view", id: "other", title: "Others" }, { op: "remove-element", id: "api" }], buildWorkspace(scoped))).toEqual([{ kind: "view-gone", id: "returns" }]);
+  });
+});
+
+/** An event view in two lanes, and a wireframe view of two screens, one with a row that has a panel in it. */
+const boards: OpenArchDocument = {
+  openarch: 20,
+  name: "Shop",
+  elements: {},
+  views: {
+    ordering: {
+      title: "Ordering",
+      level: "event",
+      lanes: [
+        { id: "customer", name: "Customer" },
+        { id: "shop", name: "Shop" },
+      ],
+      cards: [
+        { id: "place-order", kind: "command", name: "Place order", lane: "customer" },
+        { id: "order-placed", kind: "event", name: "Order placed", lane: "shop", from: ["place-order"] },
+        { id: "take-payment", kind: "command", name: "Take payment", lane: "shop", from: ["order-placed", "place-order"] },
+      ],
+      stickies: { note: { text: "Read me" } },
+    },
+    checkout: {
+      title: "Checkout",
+      level: "wireframe",
+      screens: [
+        {
+          id: "cart",
+          name: "Cart",
+          widgets: [
+            { id: "title", kind: "heading", text: "Your cart" },
+            {
+              id: "actions",
+              kind: "row",
+              widgets: [
+                { id: "pay", kind: "button", text: "Pay", to: "payment" },
+                { id: "more", kind: "panel", widgets: [{ id: "help", kind: "link", text: "Help" }] },
+              ],
+            },
+          ],
+        },
+        { id: "payment", name: "Payment", widgets: [{ id: "card", kind: "panel", text: "Card" }] },
+      ],
+      stickies: { note: { text: "Read me" } },
+    },
+  },
+};
+
+describe("what an event view's right-click menu is for", () => {
+  const ordering = buildWorkspace(boards).views.get("ordering")!;
+  const arrow = (from: string, to: string) => ({ kind: "cardArrow", from, to }) as const;
+
+  it("is a card, a lane, a note, or an arrow the view draws", () => {
+    for (const on of [{ kind: "card", id: "order-placed" }, { kind: "lane", id: "shop" }, { kind: "sticky", id: "note" }, arrow("place-order", "order-placed")] as const) {
+      expect(menuOn(on)).toEqual(on);
+      expect(menuThere(ordering, on), on.kind).toBe(true);
+      expect(isSelected(on, on)).toBe(true);
+    }
+    expect(menuThere(ordering, { kind: "card", id: "customer" })).toBe(false);
+    // An arrow goes one way: there's none back.
+    expect(menuThere(ordering, arrow("order-placed", "place-order"))).toBe(false);
+    expect(isSelected(arrow("place-order", "order-placed"), arrow("place-order", "take-payment"))).toBe(false);
+  });
+
+  it("follows a card to its new ID, and loses it once it's deleted, whatever takes its ID after", () => {
+    const renamed: Operation[][] = [[{ op: "update-card", view: "ordering", id: "order-placed", name: "Order made", newId: "order-made" }]];
+    expect(landed("ordering", { kind: "card", id: "order-placed" }, renamed, boards)?.on).toEqual({ kind: "card", id: "order-made" });
+    expect(landed("ordering", { kind: "card", id: "take-payment" }, renamed, boards)?.on).toEqual({ kind: "card", id: "take-payment" });
+    // A card moved, or changed some other way, is the same card.
+    expect(landed("ordering", { kind: "card", id: "order-placed" }, [[{ op: "update-card", view: "ordering", id: "order-placed", position: 1, kind: "policy" }]], boards)?.on).toEqual({ kind: "card", id: "order-placed" });
+    const replaced: Operation[][] = [[{ op: "remove-card", view: "ordering", id: "order-placed" }], [{ op: "add-card", view: "ordering", id: "order-placed", kind: "event" }]];
+    expect(landed("ordering", { kind: "card", id: "order-placed" }, replaced, boards)).toBeNull();
+    expect(landed("ordering", { kind: "card", id: "take-payment" }, replaced, boards)?.on).toEqual({ kind: "card", id: "take-payment" });
+  });
+
+  it("follows an arrow by the cards at its ends, and loses it with either of them", () => {
+    const from: Operation[][] = [[{ op: "update-card", view: "ordering", id: "place-order", newId: "order" }]];
+    expect(landed("ordering", arrow("place-order", "order-placed"), from, boards)?.on).toEqual(arrow("order", "order-placed"));
+    const to: Operation[][] = [[{ op: "update-card", view: "ordering", id: "order-placed", newId: "order-made" }]];
+    expect(landed("ordering", arrow("place-order", "order-placed"), to, boards)?.on).toEqual(arrow("place-order", "order-made"));
+    // An arrow between other cards is left alone.
+    expect(landed("ordering", arrow("place-order", "take-payment"), to, boards)?.on).toEqual(arrow("place-order", "take-payment"));
+    for (const id of ["place-order", "order-placed"]) {
+      const gone = menuRenamesIn([{ op: "remove-card", view: "ordering", id }], buildWorkspace(boards));
+      expect(followMenu(arrow("place-order", "order-placed"), "ordering", gone).on, id).toBeNull();
+    }
+    const other = menuRenamesIn([{ op: "remove-card", view: "ordering", id: "take-payment" }], buildWorkspace(boards));
+    expect(followMenu(arrow("place-order", "order-placed"), "ordering", other).on).toEqual(arrow("place-order", "order-placed"));
+    // The same cards in another view are other cards.
+    const elsewhere = menuRenamesIn([{ op: "remove-card", view: "billing", id: "place-order" }], buildWorkspace(boards));
+    expect(followMenu(arrow("place-order", "order-placed"), "ordering", elsewhere).on).toEqual(arrow("place-order", "order-placed"));
+  });
+
+  it("loses an arrow once its card no longer comes from the other, and keeps the ones it still comes from", () => {
+    // Said with a space to trim, as update-card reads it.
+    const one: Operation[][] = [[{ op: "update-card", view: "ordering", id: "take-payment", from: [" order-placed "] }]];
+    expect(landed("ordering", arrow("place-order", "take-payment"), one, boards)).toBeNull();
+    expect(landed("ordering", arrow("order-placed", "take-payment"), one, boards)?.on).toEqual(arrow("order-placed", "take-payment"));
+    // Another card's arrows are left alone.
+    expect(landed("ordering", arrow("place-order", "order-placed"), one, boards)?.on).toEqual(arrow("place-order", "order-placed"));
+    // It doesn't come back with an arrow drawn there after.
+    const again: Operation[][] = [...one, [{ op: "update-card", view: "ordering", id: "take-payment", from: ["order-placed", "place-order"] }]];
+    expect(landed("ordering", arrow("place-order", "take-payment"), again, boards)).toBeNull();
+    for (const from of [null, []]) {
+      const none = menuRenamesIn([{ op: "update-card", view: "ordering", id: "take-payment", from }], buildWorkspace(boards));
+      expect(followMenu(arrow("order-placed", "take-payment"), "ordering", none).on).toBeNull();
+    }
+    // Told which cards it comes from and given a new ID at once: the cards are said under the ID it had.
+    const both: Operation[][] = [[{ op: "update-card", view: "ordering", id: "take-payment", from: ["order-placed"], newId: "pay" }]];
+    expect(landed("ordering", arrow("order-placed", "take-payment"), both, boards)?.on).toEqual(arrow("order-placed", "pay"));
+    expect(landed("ordering", arrow("place-order", "take-payment"), both, boards)).toBeNull();
+    // A card changed without saying where it comes from keeps its arrows.
+    expect(landed("ordering", arrow("place-order", "take-payment"), [[{ op: "update-card", view: "ordering", id: "take-payment", lane: "customer" }]], boards)?.on).toEqual(arrow("place-order", "take-payment"));
+  });
+});
+
+describe("what a wireframe view's right-click menu is for", () => {
+  const checkout = buildWorkspace(boards).views.get("checkout")!;
+  const widget = (id: string) => ({ kind: "widget", id }) as const;
+  const after = (on: Selection, ops: Operation[], from = boards) => followMenu(menuOn(on), "checkout", menuRenamesIn(ops, buildWorkspace(from))).on;
+
+  it("is a screen, a note, or a widget, on a screen or inside a row or a panel", () => {
+    for (const on of [{ kind: "screen", id: "payment" }, widget("title"), widget("pay"), widget("help"), { kind: "sticky", id: "note" }] as const) {
+      expect(menuOn(on)).toEqual(on);
+      expect(menuThere(checkout, on), on.id).toBe(true);
+    }
+    // A screen's ID is no widget's, nor a widget's a screen's.
+    expect(menuThere(checkout, widget("cart"))).toBe(false);
+    expect(menuThere(checkout, { kind: "screen", id: "pay" })).toBe(false);
+  });
+
+  it("follows a screen and a widget to its new ID", () => {
+    expect(landed("checkout", { kind: "screen", id: "cart" }, [[{ op: "update-screen", view: "checkout", id: "cart", name: "Basket", newId: "basket" }]], boards)?.on).toEqual({ kind: "screen", id: "basket" });
+    expect(landed("checkout", widget("help"), [[{ op: "update-widget", view: "checkout", id: "help", newId: "get-help" }]], boards)?.on).toEqual(widget("get-help"));
+    // A widget moved to another screen, or into a panel, is the same widget.
+    expect(landed("checkout", widget("pay"), [[{ op: "update-widget", view: "checkout", id: "pay", in: "card" }]], boards)?.on).toEqual(widget("pay"));
+    // A screen and a widget can share an ID: each is followed as its own kind.
+    expect(after({ kind: "screen", id: "cart" }, [{ op: "update-widget", view: "checkout", id: "cart", newId: "basket" }])).toEqual({ kind: "screen", id: "cart" });
+  });
+
+  it("loses the widgets on a screen that's deleted, and no others", () => {
+    const gone: Operation[] = [{ op: "remove-screen", view: "checkout", id: "cart" }];
+    expect(menuRenamesIn(gone, buildWorkspace(boards))).toEqual([
+      { kind: "gone", what: "screen", view: "checkout", id: "cart" },
+      ...["title", "actions", "pay", "more", "help"].map((id) => ({ kind: "gone", what: "widget", view: "checkout", id })),
+    ]);
+    expect(["title", "actions", "pay", "more", "help", "card"].map((id) => after(widget(id), gone))).toEqual([null, null, null, null, null, widget("card")]);
+    expect(after({ kind: "screen", id: "cart" }, gone)).toBeNull();
+    expect(after({ kind: "screen", id: "payment" }, gone)).toEqual({ kind: "screen", id: "payment" });
+    // Nothing brings one back: a widget added under its ID after is another.
+    const replaced: Operation[][] = [gone, [{ op: "add-widget", view: "checkout", id: "pay", kind: "button", screen: "payment" }]];
+    expect(landed("checkout", widget("pay"), replaced, boards)).toBeNull();
+  });
+
+  it("loses the widgets inside a row or a panel that's deleted, however deep, and no others", () => {
+    const gone: Operation[] = [{ op: "remove-widget", view: "checkout", id: "actions" }];
+    expect(["title", "actions", "pay", "more", "help", "card"].map((id) => after(widget(id), gone))).toEqual([widget("title"), null, null, null, null, widget("card")]);
+    expect(after({ kind: "screen", id: "cart" }, gone)).toEqual({ kind: "screen", id: "cart" });
+    // One with nothing inside it takes nothing with it.
+    expect(menuRenamesIn([{ op: "remove-widget", view: "checkout", id: "pay" }], buildWorkspace(boards))).toEqual([{ kind: "gone", what: "widget", view: "checkout", id: "pay" }]);
+  });
+
+  it("follows the widgets through an edit that does more first, as one of Ask AI's can", () => {
+    // The link is moved out of its panel onto the screen, then the panel deleted: the link isn't in it by then.
+    const out: Operation[] = [
+      { op: "update-widget", view: "checkout", id: "help", in: null },
+      { op: "remove-widget", view: "checkout", id: "more" },
+    ];
+    expect(after(widget("help"), out)).toEqual(widget("help"));
+    expect(after(widget("more"), out)).toBeNull();
+    // The button is moved to the other screen, then that screen deleted: it goes with the one it's on by then.
+    const moved: Operation[] = [
+      { op: "update-widget", view: "checkout", id: "pay", to: null, screen: "payment" },
+      { op: "remove-screen", view: "checkout", id: "payment" },
+    ];
+    expect(["pay", "card", "title"].map((id) => after(widget(id), moved))).toEqual([null, null, widget("title")]);
+  });
+
+  it("loses the view's widgets where the workspace a delete was applied to can't be worked out", () => {
+    // Told of operations that don't go with the workspace it's given: the first can't be applied to it.
+    for (const remove of [{ op: "remove-screen", view: "checkout", id: "payment" }, { op: "remove-widget", view: "checkout", id: "more" }] as const) {
+      const odd: Operation[] = [{ op: "update-view", id: "no-such-view", title: "Nothing" }, remove];
+      expect(menuRenamesIn(odd, buildWorkspace(boards))).toEqual([
+        { kind: "gone", what: remove.op === "remove-screen" ? "screen" : "widget", view: "checkout", id: remove.id },
+        { kind: "kinds-lost", kinds: ["widget"], view: "checkout" },
+      ]);
+      expect(after(widget("title"), odd), remove.op).toBeNull();
+      // The screens are followed as ever, and so is another view.
+      expect(after({ kind: "screen", id: "cart" }, odd)).toEqual({ kind: "screen", id: "cart" });
+      expect(followMenu({ kind: "card", id: "order-placed" }, "ordering", menuRenamesIn(odd, buildWorkspace(boards))).on).toEqual({ kind: "card", id: "order-placed" });
+    }
   });
 });

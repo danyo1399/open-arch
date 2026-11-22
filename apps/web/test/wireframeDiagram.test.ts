@@ -7,7 +7,7 @@ import type { Selection } from "../src/canvas/Canvas.js";
 import { addScreenOp, addWidgetOps, leadOps, WireframeDiagram } from "../src/canvas/WireframeDiagram.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, click, mount } from "./dom.js";
+import { button, click, menusFor, mount } from "./dom.js";
 
 const shop: OpenArchDocument = {
   openarch: 20,
@@ -56,6 +56,7 @@ async function diagram(model: OpenArchDocument = shop, selection: Selection = nu
           edits.push(typeof e === "function" ? e(ws) : e);
           return true;
         },
+        menus: menusFor("checkout"),
         exportItems: [],
         snap: { settings: SNAP_DEFAULTS, set() {} },
       }),

@@ -200,9 +200,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   /**
    * Which opening of a view this is: a number that tells the diagram that's open from the next
    * view opened, and stays the same when its view is only given a new ID. So a rename doesn't
-   * make the diagram of a flowchart, state or entity view again, which would lose a right-click
-   * menu waiting for that rename to land. Set while rendering, so no render pairs a view with
-   * another's number.
+   * make the diagram of a flowchart, state, entity, event or wireframe view again, which would
+   * lose a right-click menu waiting for that rename to land. Set while rendering, so no render
+   * pairs a view with another's number.
    */
   const [opening, setOpening] = useState({ view: viewId, seen: renamesSeen, number: 0 });
   if (opening.view !== viewId || opening.seen !== renamesSeen) {
@@ -1004,8 +1004,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             )
           ) : view?.level === "event" ? (
             computed ? (
-              <ReactFlowProvider key={view.id}>
-                <EventDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
+              <ReactFlowProvider key={`${view.level}:${opening.number}`}>
+                <EventDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} menus={menus!} exportItems={exportItems(computed)} snap={snap} />
               </ReactFlowProvider>
             ) : (
               <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>
@@ -1020,8 +1020,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             )
           ) : view?.level === "wireframe" ? (
             computed ? (
-              <ReactFlowProvider key={view.id}>
-                <WireframeDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} exportItems={exportItems(computed)} snap={snap} />
+              <ReactFlowProvider key={`${view.level}:${opening.number}`}>
+                <WireframeDiagram computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} menus={menus!} exportItems={exportItems(computed)} snap={snap} />
               </ReactFlowProvider>
             ) : (
               <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

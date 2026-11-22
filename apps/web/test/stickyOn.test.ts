@@ -174,7 +174,7 @@ describe("a note put on a block that has a new ID by the time the edit runs", ()
       { kind: "gone", what: "lane", view: "returns", id: "new-process" },
       { kind: "gone", what: "block", view: "returns", id: "asked" },
       { kind: "removed", list: "flow", view: "returns", number: 1 },
-      { kind: "lists-lost", lists: ["flow"], view: "returns" },
+      { kind: "kinds-lost", kinds: ["flow"], view: "returns" },
     ];
     expect(followBlocks(ops, others)).toEqual(ops);
   });

@@ -27,15 +27,17 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { uniqueAmong } from "../model.js";
+import { cardArrowDeleteOps, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, NODE_W, placeStickies, STICKY, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
-import { dropOps, eventLayout, EVT } from "./eventLayout.js";
-import { StickyNode, type StickyFlowNode } from "./nodes.js";
+import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
+import { dropOps, dropSpot, eventLayout, EVT, type EventLayout } from "./eventLayout.js";
+import { diagramItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
+import { NotesOpener, StickyNode, type StickyFlowNode } from "./nodes.js";
 import { pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -116,6 +118,12 @@ export function cardConnectOps(view: ComputedView["view"], source: string, targe
   return [{ op: "update-card", view: view.id, id: to.id, from: [...to.from, source] }];
 }
 
+/** The edit that adds a card of this kind in a lane, if the view has it, at a place along the timeline, or else at the end. */
+function newCardOp(view: ComputedView["view"], kind: CardKind, lane: string | undefined, position?: number): Extract<Operation, { op: "add-card" }> {
+  const id = uniqueAmong(view.cards.map((c) => c.id), `new-${kind}`);
+  return { op: "add-card", view: view.id, id, kind, name: `New ${CARD_KIND_LABELS[kind].toLowerCase()}`, ...(lane !== undefined && view.lanes.some((l) => l.id === lane) && { lane }), ...(position !== undefined && { position }) };
+}
+
 /**
  * The edit that adds a card of this kind: after the selected card and in its lane, or in the
  * selected lane, or else at the end, in the lane of the last card.
@@ -123,9 +131,18 @@ export function cardConnectOps(view: ComputedView["view"], source: string, targe
 export function addCardOp(view: ComputedView["view"], kind: CardKind, selection: Selection): Extract<Operation, { op: "add-card" }> {
   const after = selection?.kind === "card" ? view.cards.find((c) => c.id === selection.id) : undefined;
   const inLane = selection?.kind === "lane" ? view.lanes.find((l) => l.id === selection.id)?.id : undefined;
-  const lane = inLane ?? (after ?? view.cards.at(-1))?.lane;
-  const id = uniqueAmong(view.cards.map((c) => c.id), `new-${kind}`);
-  return { op: "add-card", view: view.id, id, kind, name: `New ${CARD_KIND_LABELS[kind].toLowerCase()}`, ...(lane !== undefined && view.lanes.some((l) => l.id === lane) && { lane }), ...(after && { position: after.number + 1 }) };
+  return newCardOp(view, kind, inLane ?? (after ?? view.cards.at(-1))?.lane, after && after.number + 1);
+}
+
+/**
+ * The edit that adds a card of this kind where a right-click was: at that place along the
+ * timeline, in the lane whose menu it was, or else the lane of the row there, as a card dropped
+ * there goes (see dropSpot).
+ */
+export function addCardAtOp(view: ComputedView["view"], layout: EventLayout, kind: CardKind, at: Point, lane?: Lane): Extract<Operation, { op: "add-card" }> {
+  const spot = dropSpot(view, layout, at);
+  // The place after the last card is the end, which needs no saying.
+  return newCardOp(view, kind, lane ? lane.id : spot.lane, spot.position <= view.cards.length ? spot.position : undefined);
 }
 
 interface EventDiagramProps {
@@ -133,13 +150,15 @@ interface EventDiagramProps {
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   edit(edit: Edit): Promise<boolean>;
+  /** What the right-click menus need from the designer. */
+  menus: MenuHost;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
   /** What sticky notes snap to as they're dragged, and its buttons. */
   snap: SnapControl;
 }
 
-export function EventDiagram({ computed: cv, selection, onSelect, edit, exportItems, snap }: EventDiagramProps) {
+export function EventDiagram({ computed: cv, selection, onSelect, edit, menus, exportItems, snap }: EventDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, CardArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -264,19 +283,21 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, exportIt
     else select(node.data.lane ? { kind: "lane", id: node.data.lane.id } : null);
   };
 
-  const addCard = (kind: CardKind) => {
-    const op = addCardOp(view, kind, selection);
+  /** A new card goes where + Add puts it (see addCardOp), or where a right-click menu says. */
+  const addCard = (kind: CardKind, op = addCardOp(view, kind, selection)) => {
     void edit([op]).then((ok) => ok && onSelect({ kind: "card", id: op.id }, { isNew: true }));
   };
 
-  const addLane = () => {
+  /** A new lane goes at the bottom, or from a lane's right-click menu, after that lane. */
+  const addLane = (after?: Lane) => {
     const id = uniqueAmong(view.lanes.map((l) => l.id), "new-lane");
-    void edit([{ op: "add-lane", view: view.id, id, name: "New lane" }]).then((ok) => ok && onSelect({ kind: "lane", id }, { isNew: true }));
+    void edit([{ op: "add-lane", view: view.id, id, name: "New lane", ...(after && after.number < view.lanes.length && { position: after.number + 1 }) }]).then((ok) => ok && onSelect({ kind: "lane", id }, { isNew: true }));
   };
 
-  const addSticky = () => {
+  /** A new note goes in the middle of the canvas, or from a right-click menu, where that was. */
+  const addSticky = (at?: Point) => {
     const rect = wrapper.current!.getBoundingClientRect();
-    const center = rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    const center = at ?? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
     const id = newStickyId(view.stickies);
     const occupied = nodesRef.current.filter((n) => n.type !== "lane").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
@@ -287,11 +308,89 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, exportIt
     });
   };
 
-  const addItems: MenuAction[] = [
-    ...CARD_KINDS.map((kind) => ({ label: CARD_KIND_LABELS[kind], onSelect: () => addCard(kind) })),
-    { label: "Lane", divider: true, onSelect: addLane },
-    { label: "Sticky note", onSelect: addSticky },
+  /**
+   * What + Add adds, and a right-click menu's Add, which puts it where the click was: a card at
+   * that place along the timeline, in the lane clicked or the lane of the row there, a lane after
+   * the lane clicked, and a note at the point.
+   */
+  const addItems = (clicked?: { at: Point; lane?: Lane }): MenuAction[] => [
+    ...CARD_KINDS.map((kind) => ({ label: CARD_KIND_LABELS[kind], onSelect: () => addCard(kind, clicked && addCardAtOp(view, layout, kind, clicked.at, clicked.lane)) })),
+    { label: "Lane", divider: true, onSelect: () => addLane(clicked?.lane) },
+    { label: "Sticky note", onSelect: () => addSticky(clicked?.at) },
   ];
+
+  const notes = useContext(NotesOpener);
+  const edits: MenuEdits = { edit, select };
+
+  // Each item does what it does in the toolbar or the details, or what a drag on the diagram does.
+  const cardMenu = (card: Card): MenuItem[] => {
+    const set = (fields: Omit<Extract<Operation, { op: "update-card" }>, "op" | "view" | "id">) => () => void edit([{ op: "update-card", view: view.id, id: card.id, ...fields }]);
+    const connect = (from: string, to: string) => () => void edit(cardConnectOps(view, from, to)).then((ok) => ok && select({ kind: "cardArrow", from, to }));
+    const named = (c: Card) => `${c.name} [${CARD_KIND_LABELS[c.kind]}]`;
+    // Only the arrows that can be drawn: none to itself, or where there's one already.
+    const arrowTo = view.cards.filter((c) => cardConnectOps(view, card.id, c.id).length > 0);
+    const arrowFrom = view.cards.filter((c) => cardConnectOps(view, c.id, card.id).length > 0);
+    const lanes: MenuAction[] = [
+      ...view.lanes.filter((l) => l.id !== card.lane).map((l) => ({ label: l.name, onSelect: set({ lane: l.id }) })),
+      ...(card.lane !== undefined ? [{ label: "No lane", onSelect: set({ lane: null }) }] : []),
+    ];
+    return withDelete(
+      edits,
+      [
+        { label: "Add after", items: CARD_KINDS.map((kind) => ({ label: CARD_KIND_LABELS[kind], onSelect: () => addCard(kind, addCardOp(view, kind, { kind: "card", id: card.id })) })) },
+        ...(arrowTo.length ? [{ label: "Add arrow to", items: arrowTo.map((c) => ({ label: named(c), onSelect: connect(card.id, c.id) })) }] : []),
+        ...(arrowFrom.length ? [{ label: "Add arrow from", items: arrowFrom.map((c) => ({ label: named(c), onSelect: connect(c.id, card.id) })) }] : []),
+        { label: "Change kind", items: CARD_KINDS.filter((kind) => kind !== card.kind).map((kind) => ({ label: CARD_KIND_LABELS[kind], onSelect: set({ kind }) })) },
+        ...(lanes.length ? [{ label: "Move to lane", items: lanes }] : []),
+        ...(card.number > 1 ? [{ label: "Move earlier", onSelect: set({ position: card.number - 1 }) }] : []),
+        ...(card.number < view.cards.length ? [{ label: "Move later", onSelect: set({ position: card.number + 1 }) }] : []),
+      ],
+      "Delete card",
+      { op: "remove-card", view: view.id, id: card.id },
+    );
+  };
+
+  const laneMenu = (lane: Lane, at: Point): MenuItem[] => {
+    const move = (position: number) => () => void edit([{ op: "update-lane", view: view.id, id: lane.id, position }]);
+    return withDelete(
+      edits,
+      [
+        { label: "Add", items: addItems({ at, lane }) },
+        ...(lane.number > 1 ? [{ label: "Move up", onSelect: move(lane.number - 1) }] : []),
+        ...(lane.number < view.lanes.length ? [{ label: "Move down", onSelect: move(lane.number + 1) }] : []),
+      ],
+      "Delete lane",
+      { op: "remove-lane", view: view.id, id: lane.id },
+    );
+  };
+
+  /** An arrow's menu deletes it: the card it goes to no longer comes from the other. */
+  const arrowMenu = (from: string, to: string): MenuItem[] => cardArrowDeleteOps(view, from, to).flatMap((op) => withDelete(edits, [], "Delete arrow", op));
+
+  /**
+   * The right-click menus: for a card, an arrow, a lane or a sticky note, which the click selects,
+   * and for the diagram, after a click on the background or the row for cards in no lane. See
+   * useDiagramMenu for how one opens and closes.
+   */
+  const menu = useDiagramMenu({
+    view,
+    selection,
+    select,
+    host: menus,
+    toDiagram: (point) => rf.screenToFlowPosition(point),
+    items: (on, at) => {
+      // Cards go where their order puts them, so there's nothing to lay out again.
+      if (on.kind === "diagram") return diagramItems(addItems({ at }), undefined, exportItems);
+      const card = on.kind === "card" && view.cards.find((c) => c.id === on.id);
+      if (card) return cardMenu(card);
+      const lane = on.kind === "lane" && view.lanes.find((l) => l.id === on.id);
+      if (lane) return laneMenu(lane, at);
+      if (on.kind === "cardArrow") return arrowMenu(on.from, on.to);
+      const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
+      if (!sticky) return [];
+      return stickyItems(edits, view.id, sticky, { editText: () => setEditing(sticky.id), openNotes: notes ? () => notes.sticky(sticky.id) : undefined, back: "Move beside the diagram" });
+    },
+  });
 
   const fitDiagram = useCallback(
     (options: { padding: number; maxZoom?: number } = FIT) => {
@@ -326,6 +425,14 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, exportIt
         onNodeDragStart={(_, node) => node.type !== "lane" && clickNode(node)}
         onEdgeClick={(_, edge) => edge.data && select({ kind: "cardArrow", from: edge.data.arrow.from, to: edge.data.arrow.to })}
         onPaneClick={() => select(null)}
+        onNodeContextMenu={(event, node) => {
+          if (node.type === "sticky") menu.open(event, { kind: "sticky", id: node.data.sticky.id });
+          else if (node.type === "card") menu.open(event, { kind: "card", id: node.id });
+          // The row for cards in no lane is no lane: it's the diagram's menu there.
+          else menu.open(event, node.data.lane ? { kind: "lane", id: node.data.lane.id } : null);
+        }}
+        onEdgeContextMenu={(event, edge) => edge.data && menu.open(event, { kind: "cardArrow", from: edge.data.arrow.from, to: edge.data.arrow.to })}
+        onPaneContextMenu={(event) => menu.open(event, null)}
         nodeClickDistance={4}
         paneClickDistance={4}
         connectionMode={ConnectionMode.Loose}
@@ -352,7 +459,7 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, exportIt
               </span>
             )}
           </div>
-          <MenuButton className="primary" items={addItems}>
+          <MenuButton className="primary" items={addItems()}>
             + Add
           </MenuButton>
           {exportItems.length > 0 && (
@@ -367,6 +474,7 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, exportIt
           This view has no cards yet. Use <strong>+ Add</strong> to add an event or a command, and a lane to put them in. Drag from the dot beside a card to another to add an arrow.
         </div>
       )}
+      {menu.menu}
     </div>
   );
 }

@@ -3,16 +3,16 @@
  *
  * A right-click selects at once, but its menu opens once the edits made before it have landed:
  * text typed in the details is saved as the click takes the focus from it, and that can give a
- * block, a state, an entity, a lane or the view itself a new ID. So what was clicked is followed
- * through those edits by what they did, as the designer is told it, never by guessing from what
- * the diagram looks like after: when there's no telling, there's no menu. An open menu is
- * followed the same way, and closes when what it's for is lost.
+ * block, a state, an entity, a card, a screen, a widget, a lane or the view itself a new ID. So
+ * what was clicked is followed through those edits by what they did, as the designer is told it,
+ * never by guessing from what the diagram looks like after: when there's no telling, there's no
+ * menu. An open menu is followed the same way, and closes when what it's for is lost.
  *
  * An edit says what it did. Undo, Redo, going back in the History and a file changed outside the
  * designer don't: they write a whole version of the file, where a block with the same ID needn't
  * be the same block. Through one of those, everything but the diagram itself is lost.
  */
-import { applyOperations, buildWorkspace, isInside, OpError, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { allWidgets, applyOperations, buildWorkspace, cardArrows, isInside, OpError, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import type { Selection } from "./Canvas.js";
 
 /** The things of a view that have an ID of their own, as a selection names their kind, and where the view keeps each. */
@@ -22,6 +22,10 @@ const ID_PARTS = {
   sticky: (view: ViewDef) => view.stickies,
   state: (view: ViewDef) => view.states,
   entity: (view: ViewDef) => view.entities,
+  card: (view: ViewDef) => view.cards,
+  screen: (view: ViewDef) => view.screens,
+  // Wherever it is: on a screen, or inside a row or a panel.
+  widget: (view: ViewDef) => allWidgets(view),
 } satisfies Record<string, (view: ViewDef) => readonly { id: string }[]>;
 export type IdPart = keyof typeof ID_PARTS;
 
@@ -47,19 +51,22 @@ const isNumbered = (kind: string): kind is NumberedPart => Object.hasOwn(NUMBERE
  * An attribute goes by its entity and its name, as selecting one does. A file written by hand
  * can give an entity two attributes with one name, which the problems list says: there, it's
  * the first of them, as it is in the details.
+ *
+ * An event view's arrow goes by the cards at its ends: there's one at most from a card to another.
  */
-export type MenuFor = Extract<Selection, { kind: IdPart | NumberedPart | "attribute" }> | { kind: "diagram" };
+export type MenuFor = Extract<Selection, { kind: IdPart | NumberedPart | "attribute" | "cardArrow" }> | { kind: "diagram" };
 
 /** What a right-click is for: `on` is what the click selects, or null for the background. Null for a selection no menu is for. */
 export function menuOn(on: Selection): MenuFor | null {
   if (!on) return { kind: "diagram" };
-  return isIdPart(on.kind) || isNumbered(on.kind) || on.kind === "attribute" ? (on as MenuFor) : null;
+  return isIdPart(on.kind) || isNumbered(on.kind) || on.kind === "attribute" || on.kind === "cardArrow" ? (on as MenuFor) : null;
 }
 
 /** Whether a view has what a menu is for. */
 export function menuThere(view: ViewDef, on: MenuFor): boolean {
   if (on.kind === "diagram") return true;
   if (on.kind === "attribute") return !!view.entities.find((e) => e.id === on.entity)?.attributes.some((a) => a.name === on.name);
+  if (on.kind === "cardArrow") return cardArrows(view).some((a) => a.from === on.from && a.to === on.to);
   if ("number" in on) return Number.isInteger(on.number) && on.number >= 1 && on.number <= NUMBERED[on.kind](view).length;
   return ID_PARTS[on.kind](view).some((x) => x.id === on.id);
 }
@@ -84,9 +91,10 @@ export function isSelected(on: MenuFor, selection: Selection): boolean {
  * An edit gave a view a new ID, or deleted it. It gave one of a view's things a new ID (`kind`
  * is which kind of thing), or deleted it (`gone`), after which another can take its ID. It added
  * one to a numbered list at a place that isn't the end, deleted one, or moved one, each of which
- * renumbers the ones after. It gave an attribute a new name, or deleted it. Or it deleted from a
- * view's numbered lists, and which ones couldn't be worked out: `lists-lost`. Or a whole version
- * of the file was written, which says nothing of what's in the views: `lost`.
+ * renumbers the ones after. It gave an attribute a new name, or deleted it. It said which cards a
+ * card comes from, so the arrows to it from any other card are gone: `comes-from`. Or it deleted
+ * some of a view's things of these kinds, and which ones couldn't be worked out: `kinds-lost`. Or
+ * a whole version of the file was written, which says nothing of what's in the views: `lost`.
  */
 export type MenuRename =
   | { kind: "view"; id: string; to: string }
@@ -97,23 +105,40 @@ export type MenuRename =
   | { kind: "moved"; list: NumberedPart; view: string; from: number; to: number }
   | { kind: "attribute"; view: string; entity: string; name: string; to: string }
   | { kind: "attribute-gone"; view: string; entity: string; name: string }
-  | { kind: "lists-lost"; lists: NumberedPart[]; view: string }
+  | { kind: "comes-from"; view: string; card: string; from: string[] }
+  | { kind: "kinds-lost"; kinds: (IdPart | NumberedPart)[]; view: string }
   | { kind: "lost" };
 
 /** The operation that gives each kind of thing a new ID. A sticky note's ID is never changed. */
-const RENAMES: Partial<Record<Operation["op"], IdPart>> = { "update-block": "block", "update-lane": "lane", "update-state": "state", "update-entity": "entity" };
+const RENAMES: Partial<Record<Operation["op"], IdPart>> = {
+  "update-block": "block",
+  "update-lane": "lane",
+  "update-state": "state",
+  "update-entity": "entity",
+  "update-card": "card",
+  "update-screen": "screen",
+  "update-widget": "widget",
+};
 
 /**
- * The operation that deletes each kind of thing, and the numbered lists of its view that it
- * deletes from too: a block's flows go with it, a state's transitions and an entity's links, the
- * ones with it at either end.
+ * The operation that deletes each kind of thing, and what of its view goes with it. `loses` are
+ * the numbered lists it deletes from too: a block's flows go with it, a state's transitions and
+ * an entity's links, the ones with it at either end. `holds` are the things with an ID of their
+ * own that go with it, as the view had them before: the widgets on a screen, and the ones inside
+ * a row or a panel.
+ *
+ * An entity's attributes go with it too, and a card's arrows. Those go by the entity's ID and the
+ * cards', so they're followed by that (see `followed`), and aren't here.
  */
-const REMOVES: Partial<Record<Operation["op"], { what: IdPart; loses: NumberedPart[] }>> = {
+const REMOVES: Partial<Record<Operation["op"], { what: IdPart; loses?: NumberedPart[]; holds?: { what: IdPart; of(was: ViewDef, id: string): readonly { id: string }[] } }>> = {
   "remove-block": { what: "block", loses: ["flow"] },
-  "remove-lane": { what: "lane", loses: [] },
-  "remove-sticky": { what: "sticky", loses: [] },
+  "remove-lane": { what: "lane" },
+  "remove-sticky": { what: "sticky" },
   "remove-state": { what: "state", loses: ["transition"] },
   "remove-entity": { what: "entity", loses: ["link"] },
+  "remove-card": { what: "card" },
+  "remove-screen": { what: "screen", holds: { what: "widget", of: (was, id) => allWidgets(was).filter((w) => w.screen === id) } },
+  "remove-widget": { what: "widget", holds: { what: "widget", of: (was, id) => allWidgets(was).filter((w) => w.id === id).flatMap((w) => allWidgets(w)) } },
 };
 
 /** The operations that add to, change and delete from each numbered list. Each names its number in a field called as the list is, and the number it moves to in `new` and that, as in `newFlow`. */
@@ -128,10 +153,11 @@ const LISTED: Partial<Record<Operation["op"], { list: NumberedPart; does: "add" 
  * is what had it before, unless the edit says otherwise.
  *
  * `before` is the workspace the operations were applied to. It says which views go with an
- * element that's deleted, and which arrows go with a block, a state or an entity, by their
- * numbers. An edit can do more first, as one of Ask AI's can, so the workspace an operation was
- * applied to is `before` with the ones ahead of it applied. Where that can't be worked out, an
- * element that's deleted loses everything, and a block, a state or an entity its view's arrows.
+ * element that's deleted, which arrows go with a block, a state or an entity, by their numbers,
+ * and which widgets go with a screen, a row or a panel. An edit can do more first, as one of Ask
+ * AI's can, so the workspace an operation was applied to is `before` with the ones ahead of it
+ * applied. Where that can't be worked out, an element that's deleted loses everything, a block, a
+ * state or an entity its view's arrows, and a screen, a row or a panel its view's widgets.
  *
  * Without `before`, the change is a whole version of the file, written by Undo, Redo, the
  * History or a change made outside the designer, and `ops` only the renames it made. Everything
@@ -167,18 +193,22 @@ export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[
     const renamed = RENAMES[op.op];
     if (renamed) {
       const { view, id, newId } = op as { view: string; id: string; newId?: string };
-      return newId !== undefined && newId !== id ? [{ kind: renamed, view, id, to: newId }] : [];
+      const out: MenuRename[] = [];
+      // The cards a card comes from are said under the ID it had, as update-card reads them: each trimmed, and none for null.
+      if (op.op === "update-card" && op.from !== undefined) out.push({ kind: "comes-from", view, card: id, from: (op.from ?? []).map((from) => from.trim()) });
+      if (newId !== undefined && newId !== id) out.push({ kind: renamed, view, id, to: newId });
+      return out;
     }
     const removed = REMOVES[op.op];
     if (removed) {
       const { view, id } = op as { view: string; id: string };
-      const was = removed.loses.length ? appliedTo(place)?.views.get(view) : undefined;
+      const { loses = [], holds } = removed;
       const out: MenuRename[] = [{ kind: "gone", what: removed.what, view, id }];
-      for (const list of removed.loses) {
-        if (!was) {
-          out.push({ kind: "lists-lost", lists: [list], view });
-          continue;
-        }
+      if (loses.length === 0 && !holds) return out;
+      const was = appliedTo(place)?.views.get(view);
+      if (!was) return [...out, { kind: "kinds-lost", kinds: [...loses, ...(holds ? [holds.what] : [])], view }];
+      for (const held of holds?.of(was, id) ?? []) out.push({ kind: "gone", what: holds!.what, view, id: held.id });
+      for (const list of loses) {
         // Its arrows go with it. From the last, so each one's number is still its number as the ones after it go.
         const arrows = NUMBERED[list](was);
         for (let number = arrows.length; number >= 1; number--) {
@@ -215,11 +245,14 @@ type InView = Exclude<MenuRename, { kind: "view" | "view-gone" | "lost" }>;
 /** One thing of a view after something an edit did to the view, or null once it's deleted or lost. */
 function followed(on: Exclude<MenuFor, { kind: "diagram" }>, r: InView): MenuFor | null {
   if (r.kind === "gone") {
-    // An entity's attributes go with it.
+    // An entity's attributes go with it, and a card's arrows.
     if (on.kind === "attribute") return r.what === "entity" && on.entity === r.id ? null : on;
+    if (on.kind === "cardArrow") return r.what === "card" && (on.from === r.id || on.to === r.id) ? null : on;
     return on.kind === r.what && on.id === r.id ? null : on;
   }
-  if (r.kind === "lists-lost") return (r.lists as string[]).includes(on.kind) ? null : on;
+  if (r.kind === "kinds-lost") return (r.kinds as string[]).includes(on.kind) ? null : on;
+  // An arrow to the card from one it no longer comes from is gone.
+  if (r.kind === "comes-from") return on.kind === "cardArrow" && on.to === r.card && !r.from.includes(on.from) ? null : on;
   if (r.kind === "added" || r.kind === "removed" || r.kind === "moved") {
     if (on.kind !== r.list) return on;
     // One added at a number takes it, and the ones from there on go up by one.
@@ -235,8 +268,9 @@ function followed(on: Exclude<MenuFor, { kind: "diagram" }>, r: InView): MenuFor
     if (on.kind !== "attribute" || on.entity !== r.entity || on.name !== r.name) return on;
     return r.kind === "attribute" ? { ...on, name: r.to } : null;
   }
-  // A new ID. An attribute goes by its entity's.
+  // A new ID. An attribute goes by its entity's, and an arrow by the cards' at its ends.
   if (on.kind === "attribute") return r.kind === "entity" && on.entity === r.id ? { ...on, entity: r.to } : on;
+  if (on.kind === "cardArrow") return r.kind === "card" ? { ...on, from: on.from === r.id ? r.to : on.from, to: on.to === r.id ? r.to : on.to } : on;
   return on.kind === r.kind && on.id === r.id ? { ...on, id: r.to } : on;
 }
 

@@ -98,6 +98,7 @@ import {
   uniqueId,
   uniqueNodeId,
   uniqueStateId,
+  widgetName,
   viewAction,
   viewLevelsOf,
   whiteboardDeleteOps,
@@ -1652,12 +1653,6 @@ function ScreenProperties({ view, screen, isNew, edit, onSelect }: PropertiesPro
   );
 }
 
-/** A widget as a list names it: its kind, and its text's first line. */
-function widgetName(w: Widget): string {
-  const first = (w.text ?? "").split(/\r?\n/).find((l) => l.trim())?.trim();
-  return first ? `${WIDGET_KIND_LABELS[w.kind]}: ${first}` : WIDGET_KIND_LABELS[w.kind];
-}
-
 /** A row or panel as the details name what's in it: by its text's first line, or else its ID. */
 function holderName(w: Widget): string {
   const first = (w.text ?? "").split(/\r?\n/).find((l) => l.trim())?.trim();
@@ -2197,7 +2192,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{allWidgets(view).length}</dd>
           </dl>
           <p className="muted small">
-            A wireframe view sketches an app's screens: what's on each, top to bottom, and which screen a button or link leads to. Use + Add to add a screen, or a widget to the screen, row or panel selected. Drag a widget to move it, or drag from the dot beside it to another screen to make it lead there. Select a screen or a widget to change it.
+            A wireframe view sketches an app's screens: what's on each, top to bottom, and which screen a button or link leads to. Use + Add to add a screen, or a widget to the screen, row or panel selected. Drag a widget to move it, or drag from the dot beside it to another screen to make it lead there. Select a screen or a widget to change it. Right-click a screen, a widget, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : view.level === "event" ? (
@@ -2211,7 +2206,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.cards.length}</dd>
           </dl>
           <p className="muted small">
-            An event view shows what happens in a business process, as event storming does: commands, events and the other notes, in order along a timeline. Use + Add to add a card, after the one selected, or a lane. Drag a card to move it along the timeline or to another lane, and drag from the dot beside a card to another to add an arrow. Select a card, a lane or an arrow to change it.
+            An event view shows what happens in a business process, as event storming does: commands, events and the other notes, in order along a timeline. Use + Add to add a card, after the one selected, or a lane. Drag a card to move it along the timeline or to another lane, and drag from the dot beside a card to another to add an arrow. Select a card, a lane or an arrow to change it. Right-click a card, an arrow, a lane, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : view.level === "deployment" ? (

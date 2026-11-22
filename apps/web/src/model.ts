@@ -11,6 +11,7 @@ import {
   stickyAnchor,
   STICKY_TARGET_LEVELS,
   VIEW_LEVELS,
+  WIDGET_KIND_LABELS,
   type ArchElement,
   type Arrow,
   type Attribute,
@@ -562,6 +563,12 @@ export function whiteboardSelectionLeft(view: ViewDef | undefined, selection: Se
 /** A flowchart block's text on one line, as lists and menus name it. */
 export function blockText(block: Pick<Block, "id" | "text">): string {
   return block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? block.id;
+}
+
+/** A wireframe's widget as lists and menus name it: its kind, and its text's first line. */
+export function widgetName(w: Pick<Widget, "kind" | "text">): string {
+  const first = (w.text ?? "").split(/\r?\n/).find((l) => l.trim())?.trim();
+  return first ? `${WIDGET_KIND_LABELS[w.kind]}: ${first}` : WIDGET_KIND_LABELS[w.kind];
 }
 
 /** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */

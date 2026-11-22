@@ -205,13 +205,36 @@ export function widgetDropSpot(view: ViewDef, layout: WireframeLayout, widget: W
   // The innermost is the smallest: a row or panel is bigger than anything inside it.
   const area = (w: Widget) => layout.widgets.get(w.id)!.w * layout.widgets.get(w.id)!.h;
   const holder = holders.sort((a, b) => area(a) - area(b))[0];
-  const across = holder?.kind === "row";
   const others = (holder ? holder.widgets : screen.widgets).filter((w) => w.id !== widget.id);
-  const before = others.filter((w) => {
+  return { screen, holder, position: placeAmong(layout, others, at, holder?.kind === "row") };
+}
+
+/** The place among these widgets of one with its middle at this point, 1 being the first: they go top to bottom, or across, in a row. */
+function placeAmong(layout: WireframeLayout, widgets: Widget[], at: { x: number; y: number }, across: boolean): number {
+  const before = widgets.filter((w) => {
     const b = layout.widgets.get(w.id)!;
     return across ? b.x + b.w / 2 < at.x : b.y + b.h / 2 < at.y;
   });
-  return { screen, holder, position: before.length + 1 };
+  return before.length + 1;
+}
+
+/** Where a new widget goes on a screen, for one added where a right-click on the screen was: its place among the screen's own widgets, as one dropped there goes. */
+export function screenSpot(layout: WireframeLayout, screen: Screen, at: { x: number; y: number }): number {
+  return placeAmong(layout, screen.widgets, at, false);
+}
+
+/** Where a new screen goes, for one added where a right-click on the background was: its place among the screens, as one dropped there goes. */
+export function screenPlace(view: ViewDef, layout: WireframeLayout, at: { x: number; y: number }): number {
+  return placeAlong(layout, view.screens, at);
+}
+
+/** The place along the diagram of a screen with its middle at this point, among these, 1 being the first. */
+function placeAlong(layout: WireframeLayout, screens: Screen[], at: { x: number; y: number }): number {
+  const before = screens.filter((s) => {
+    const b = layout.screens.get(s.id)!;
+    return b.x + b.w / 2 < at.x;
+  });
+  return before.length + 1;
 }
 
 /** The edit that moves a widget dropped at this point there: none when it's where it already is, or over no screen. */
@@ -226,10 +249,6 @@ export function widgetDropOps(view: ViewDef, layout: WireframeLayout, widget: Wi
 
 /** The edit that moves a screen dropped with its middle at this point along: none when it's where it already is. */
 export function screenDropOps(view: ViewDef, layout: WireframeLayout, screen: Screen, at: { x: number; y: number }): Operation[] {
-  const others = view.screens.filter((s) => s.id !== screen.id);
-  const position = others.filter((s) => {
-    const b = layout.screens.get(s.id)!;
-    return b.x + b.w / 2 < at.x;
-  }).length + 1;
+  const position = placeAlong(layout, view.screens.filter((s) => s.id !== screen.id), at);
   return position === screen.number ? [] : [{ op: "update-screen", view: view.id, id: screen.id, position }];
 }

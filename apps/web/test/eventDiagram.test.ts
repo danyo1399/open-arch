@@ -7,7 +7,7 @@ import type { Selection } from "../src/canvas/Canvas.js";
 import { EventDiagram } from "../src/canvas/EventDiagram.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, click, mount } from "./dom.js";
+import { button, click, menusFor, mount } from "./dom.js";
 
 const shop: OpenArchDocument = {
   openarch: 20,
@@ -48,6 +48,7 @@ async function diagram(model: OpenArchDocument = shop, selection: Selection = nu
           edits.push(typeof e === "function" ? e(ws) : e);
           return true;
         },
+        menus: menusFor("ordering"),
         exportItems: [],
         snap: { settings: SNAP_DEFAULTS, set() {} },
       }),
