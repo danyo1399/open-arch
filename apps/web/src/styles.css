@@ -2306,8 +2306,9 @@ button.heading {
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
-/* A flowchart's lane: a column behind its blocks, with its name at the top. Lanes share the line
-   between them. The column for blocks in no lane is dashed. (See LaneNode in FlowchartDiagram.) */
+/* A flowchart's lane: a column behind its blocks, with its name at the top, wrapped onto as many
+   lines as it needs. Lanes share the line between them. The column for blocks in no lane is
+   dashed. (See LaneNode and laneHead in FlowchartDiagram.) */
 .flow-lane {
   border: 1.5px solid var(--frame);
   margin-left: -0.75px;
@@ -2328,14 +2329,14 @@ button.heading {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
+  padding: 8px 12px;
   border-bottom: 1.5px solid var(--frame);
   background: color-mix(in srgb, var(--frame) 10%, transparent);
   font-weight: 650;
+  line-height: 18px;
+  text-align: center;
   color: var(--text);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .flow-lane.loose .flow-lane-name {
   border-bottom-style: dashed;

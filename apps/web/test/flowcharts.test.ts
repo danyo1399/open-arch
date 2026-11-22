@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 import { buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, createElement } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
 import { BLOCK_KINDS, type ViewDef } from "@open-arch/core";
-import { addBlockOps, connectOps, FlowchartDiagram, flowchartLayout, moveOps, newBlockPlace, pinOps, tipsOf, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
+import { addBlockOps, connectOps, FlowchartDiagram, flowchartLayout, laneHead, moveOps, newBlockPlace, pinOps, tipsOf, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, onOutline, placeInLanes, routeToOutlines, savedAt, SLANT } from "../src/canvas/flowchartLayout.js";
 import { followRenames, followsName, LEVEL_NAMES, shownInProperties, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
@@ -522,8 +524,9 @@ describe("a flowchart's lanes", () => {
     expect(newBlockPlace(extra, "process", { kind: "block", id: "done" }, around)).toEqual({ at: [0, 450 + blockHeight({ kind: "end", text: "Done" }) + 70], lane: undefined });
     // At the bottom of customer, under asked, down its middle.
     expect(newBlockPlace(extra, "process", { kind: "lane", id: "customer" }, around)).toEqual({ at: [LANE.centre - 90, 44 + 70], lane: "customer" });
-    // In warehouse, which has none yet: at its top.
+    // In warehouse, which has none yet: at its top, under the lanes' names, however tall they are.
     expect(newBlockPlace(extra, "process", { kind: "lane", id: "warehouse" }, around)).toEqual({ at: [LANE.centre - 90, -70 + LANE.head + LANE.pad], lane: "warehouse" });
+    expect(newBlockPlace(extra, "process", { kind: "lane", id: "warehouse" }, { ...around, head: 58 })).toEqual({ at: [LANE.centre - 90, -70 + 58 + LANE.pad], lane: "warehouse" });
     // With nothing selected, in the lane under the middle of the canvas.
     expect(newBlockPlace(extra, "process", null, around)).toEqual({ at: [0, 370], lane: "shop" });
     // In the nearest free spot.
@@ -567,6 +570,80 @@ describe("a flowchart's lanes", () => {
     await new Promise((resolve) => setTimeout(resolve));
     expect(edits.at(-1)!.at(-1)).toEqual({ op: "add-lane", view: "returns", id: "new-lane", name: "New lane", position: 2 });
     expect(selected).toEqual([{ kind: "lane", id: "new-lane" }]);
+  });
+});
+
+describe("a lane's name too long for one line", () => {
+  /**
+   * This page has no layout, so every name would measure nothing. Here each letter is 8 wide, and a
+   * name wraps in its lane, less the 12 either side of it, onto lines 18 tall, with 8 above and
+   * below them and the line under it, as in a browser.
+   */
+  const measure = Element.prototype.getBoundingClientRect;
+  beforeEach(() => {
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (!this.matches(".flow-lane-name")) return measure.call(this);
+      const room = parseFloat((this.parentElement as HTMLElement).style.width) - 24;
+      return { width: room + 24, height: Math.ceil((this.textContent!.length * 8) / room) * 18 + 17.5 } as DOMRect;
+    };
+  });
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = measure;
+  });
+
+  /** The customer's lane is 260 wide, so its name's 45 letters need two lines. */
+  const long = structuredClone(lanedDoc);
+  long.views.returns!.lanes![0]!.name = "Customer, or whoever is returning it for them";
+  /** Where a lane is drawn, and how tall. */
+  const drawn = (host: HTMLElement, id: string) => {
+    const node = host.querySelector<HTMLElement>(`.react-flow__node[data-id="lane:${id}"]`)!;
+    const [x, y] = /translate\(([-\d.]+)px, ?([-\d.]+)px\)/.exec(node.style.transform)!.slice(1).map(Number);
+    return { x, y, height: parseFloat(node.querySelector<HTMLElement>(".flow-lane")!.style.height) };
+  };
+
+  it("is as tall as it needs, wrapped to its lane's width, and no shorter than one line's room", () => {
+    const columns = [
+      { x: 0, w: 260 },
+      { lane: { id: "customer", path: "", number: 1, name: "Customer, or whoever is returning it for them" }, x: 260, w: 260 },
+      { lane: { id: "shop", path: "", number: 2, name: "Shop" }, x: 520, w: 540 },
+    ];
+    expect(laneHead(columns)).toBe(54);
+    // In a lane wide enough for it, it's on one line.
+    expect(laneHead([{ ...columns[1]!, w: 540 }])).toBe(LANE.head);
+    expect(laneHead([])).toBe(LANE.head);
+    // The names it measured aren't left on the page.
+    expect(document.querySelector(".flow-lane-name")).toBeNull();
+  });
+
+  it("isn't cut short: it wraps, a long word too, and none of it is hidden", async () => {
+    // This page has no layout, so it reads the stylesheet.
+    const style = document.createElement("style");
+    style.textContent = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+    document.head.append(style);
+    try {
+      const { host } = await diagram(null, long);
+      const name = getComputedStyle(host.querySelector('.react-flow__node[data-id="lane:customer"] .flow-lane-name')!);
+      expect(name.whiteSpace).not.toBe("nowrap");
+      expect(name.overflowWrap).toBe("anywhere");
+      expect(name.overflow).not.toBe("hidden");
+      expect(name.textOverflow).not.toBe("ellipsis");
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("is drawn in full, with every lane's name as tall, and the lanes that much taller, above the blocks", async () => {
+    const short = await diagram(null, lanedDoc);
+    const { host } = await diagram(null, long);
+    expect(host.querySelector('.react-flow__node[data-id="lane:customer"]')!.textContent).toBe("Customer, or whoever is returning it for them");
+    expect([...host.querySelectorAll<HTMLElement>(".flow-lane-name")].map((n) => n.style.minHeight)).toEqual(["54px", "54px", "54px"]);
+    expect([...short.host.querySelectorAll<HTMLElement>(".flow-lane-name")].map((n) => n.style.minHeight)).toEqual(["40px", "40px", "40px"]);
+    // The highest block is at 0, with the room above it and the names above that: 14 more than a line's.
+    for (const id of ["", "customer", "shop"]) {
+      const [was, now] = [drawn(short.host, id), drawn(host, id)];
+      expect(was.y).toBe(-LANE.head - LANE.pad);
+      expect(now).toEqual({ x: was.x, y: -54 - LANE.pad, height: was.height + 14 });
+    }
   });
 });
 
