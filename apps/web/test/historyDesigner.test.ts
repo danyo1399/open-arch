@@ -96,6 +96,25 @@ describe("History in the designer", () => {
     expect(host.querySelector('.modal [role="alert"]')).toBeNull();
   });
 
+  it("opens without a message that was up already, and doesn't take one for a pick's", async () => {
+    const { host, rename, open, rows } = await designer();
+    await rename("Shop B");
+    // A change that's refused: a workspace needs a name.
+    await click(host.querySelector(".ws-name")!);
+    const name = host.querySelector<HTMLInputElement>(".properties input")!;
+    await type(name, " ");
+    await act(async () => void name.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    await until(() => !!host.querySelector(".toast-error"));
+    expect(host.querySelector(".toast-error")).not.toBeNull();
+
+    await click(open()!);
+    expect(host.querySelector('.modal [role="alert"]')).toBeNull();
+    await click(rows()[1]!);
+    await until(() => rows()[1]!.className === "row active");
+    expect(rows().map((r) => r.className)).toEqual(["row undone", "row active"]);
+    expect(host.querySelector('.modal [role="alert"]')).toBeNull();
+  });
+
   it("has an icon for a button, as tall as the buttons with text beside it, and the brand gives way first when the top bar is tight", async () => {
     // This page has no layout, so it reads the stylesheet.
     const style = document.createElement("style");

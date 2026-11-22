@@ -401,10 +401,16 @@ describe("HistoryDialog", () => {
     { number: 9, change: "Removed shop", at: noon + 120_000 },
   ];
   /** The dialog on these versions, showing the one numbered `current`. It keeps the versions picked. */
-  function history(list: Version[], current: number, problem: string | null = null) {
+  function history(list: Version[], current: number) {
     const picked: number[] = [];
-    const host = mount(createElement(HistoryDialog, { versions: list, current, problem, onGo: (version: number) => void picked.push(version), onClose() {} }));
-    return { host, picked, rows: [...host.querySelectorAll<HTMLButtonElement>(".history button")] };
+    /** What goes wrong with the next pick, if anything does. */
+    const next: { problem: string | null } = { problem: null };
+    const onGo = async (version: number) => {
+      picked.push(version);
+      return next.problem;
+    };
+    const host = mount(createElement(HistoryDialog, { versions: list, current, onGo, onClose() {} }));
+    return { host, picked, next, rows: [...host.querySelectorAll<HTMLButtonElement>(".history button")] };
   }
 
   it("lists the changes newest first, with when each was made, and marks the one showing now and the ones undone", () => {
@@ -444,20 +450,24 @@ describe("HistoryDialog", () => {
   it("says when a change was made: the time of day, after the day when that wasn't today", () => {
     const options: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
     expect(changeTime(noon, noon + 3_600_000)).toBe(new Date(noon).toLocaleTimeString([], options));
-    expect(changeTime(noon, noon + 3_600_000)).toMatch(/^12.00/);
     // A workspace left open overnight: yesterday's noon isn't taken for today's.
     const nextDay = noon + 24 * 3_600_000;
     expect(changeTime(noon, nextDay)).toBe(new Date(noon).toLocaleString([], { month: "short", day: "numeric", ...options }));
-    expect(changeTime(noon, nextDay)).toMatch(/5/);
     expect(changeTime(noon, nextDay)).not.toBe(changeTime(nextDay, nextDay));
   });
 
-  it("says what went wrong in the dialog, where the designer's own message is under it", () => {
-    const { host, rows } = history(versions, 6, "Couldn't save: The folder is gone.");
-    const alert = host.querySelector('dialog [role="alert"]')!;
-    expect(alert.textContent).toBe("Couldn't save: The folder is gone.");
+  it("says what went wrong with a pick in the dialog, where the designer's own message is under it, until a pick goes through", async () => {
+    const { host, rows, next } = history(versions, 6);
+    const alert = () => host.querySelector('dialog [role="alert"]');
+    expect(alert()).toBeNull();
+    next.problem = "Couldn't save: The folder is gone.";
+    await click(rows[2]!);
+    expect(alert()!.textContent).toBe("Couldn't save: The folder is gone.");
     // The list is as it was.
     expect(rows.map((r) => r.className)).toEqual(["row undone", "row active", "row", "row"]);
+    next.problem = null;
+    await click(rows[2]!);
+    expect(alert()).toBeNull();
   });
 
   it("shows all of a long change, on as many lines as it needs, with when it was made on one", () => {

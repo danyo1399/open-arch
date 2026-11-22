@@ -455,18 +455,26 @@ describe("the History list", () => {
     expect(state().ws?.doc.name).toBe("N2");
   });
 
-  it("stays where it is, and says so, when going to a version can't be saved", async () => {
+  it("stays where it is, and says so, to whoever asked too, when going to a version can't be saved", async () => {
     const host = new TestHost("file");
     const state = await workspaceFor(host);
     for (const to of ["B", "C"]) await name(state, to);
     host.save = async () => {
       throw new Error("The folder is gone.");
     };
-    await act(async () => state().goTo(0));
-    await settle();
+    let went: string | null = null;
+    await act(async () => void (went = await state().goTo(0)));
+    expect(went).toBe("Couldn't save: The folder is gone.");
     expect(state().message).toEqual({ kind: "error", text: "Couldn't save: The folder is gone." });
     expect(state().ws?.doc.name).toBe("C");
     expect(state().version).toBe(2);
+    // One that goes through, or goes nowhere, has nothing to say.
+    host.save = async (next) => void (host.file = next);
+    await act(async () => void (went = await state().goTo(0)));
+    expect(went).toBeNull();
+    expect(state().ws?.doc.name).toBe("A");
+    await act(async () => void (went = await state().goTo(99)));
+    expect(went).toBeNull();
   });
 
   it("starts again when the file changes outside this window, from a version with a new number", async () => {

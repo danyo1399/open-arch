@@ -40,8 +40,12 @@ export interface WorkspaceState {
   versions: Version[];
   /** The number of the version showing now. */
   version: number;
-  /** Goes back, or forward, to a version in the list, as one save. Undo and Redo step on from there. */
-  goTo(version: number): void;
+  /**
+   * Goes back, or forward, to a version in the list, as one save. Undo and Redo step on from
+   * there. Resolves to what went wrong when it couldn't be saved, which is the message shown too,
+   * or else to null.
+   */
+  goTo(version: number): Promise<string | null>;
   /** Where edits go: the host's storage, or "memory" once the workspace is deleted outside this window. */
   storage: WorkspaceHost["storage"];
   /** Changes since the workspace was last saved or exported (memory only). */
@@ -326,15 +330,16 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   /**
    * Goes to the version `pick` chooses from the history as it is when this runs: the file as it
    * was with the first so many changes made. A version that isn't in the history by then, such as
-   * one dropped by an edit or a reload that landed first, isn't gone to.
+   * one dropped by an edit or a reload that landed first, isn't gone to. Resolves to what went
+   * wrong when the version couldn't be saved, or else to null.
    */
   const go = useCallback(
     (pick: (h: History) => number) =>
-      void enqueue(async () => {
+      enqueue(async () => {
         const now = current.current;
         const { steps, done } = historyRef.current;
         const to = pick(historyRef.current);
-        if (now === null || to === done || to < 0 || to > steps.length) return;
+        if (now === null || to === done || to < 0 || to > steps.length) return null;
         const back = to < done;
         const target = back ? steps[to]!.before : steps[to - 1]!.after;
         // Every change on the way is taken back or made again, so its renames are too, in that order.
@@ -342,10 +347,12 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         try {
           await write(target, () => applied.current?.(back ? undoRenames(renames) : renames));
         } catch (error) {
-          showSaveProblem(`Couldn't save: ${problemText(error)}`);
-          return;
+          const problem = `Couldn't save: ${problemText(error)}`;
+          showSaveProblem(problem);
+          return problem;
         }
         updateHistory((h) => ({ ...h, done: to }));
+        return null;
       }),
     [enqueue, write],
   );
@@ -371,8 +378,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     edit,
     restore,
     afterEdits,
-    undo: () => go((h) => h.done - 1),
-    redo: () => go((h) => h.done + 1),
+    undo: () => void go((h) => h.done - 1),
+    redo: () => void go((h) => h.done + 1),
     canUndo: history.done > 0,
     canRedo: history.done < history.steps.length,
     versions,
