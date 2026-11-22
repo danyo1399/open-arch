@@ -138,7 +138,7 @@ interface PropertiesProps {
   onNewLibrary(container: string): Promise<void>;
   /** Builds a container with a library, or takes it out. */
   onBuild(container: string, library: string, built: boolean): void;
-  /** Adds a note on a box, the frame or an arrow, beside it on the diagram. */
+  /** Adds a note on a box, the frame or an arrow, or on a flowchart a block, beside it on the diagram. */
   onAddSticky(on: StickyTargetData): void;
   onDeleteView(id: string): void;
   /** Opens notes in the bigger editor, starting from this text. */

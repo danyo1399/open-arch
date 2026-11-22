@@ -755,6 +755,8 @@ Links (how many of from, then of to):
     expect(cli(dir, "add-sticky", "checking-out", "x", "--text", "X", "--block", "paid", "--element", "web-app").err).toContain("Pass --element, --block, or --from and --to, not more than one of them.");
     expect(cli(dir, "update-sticky", "checking-out", "retry", "--block", "paid", "--detach").err).toContain("Pass --element, --block, --from and --to, or --detach, not more than one of them.");
     expect(cli(dir, "add-sticky", "--help").out).toContain("--block <id>           The block it's on, on a flowchart view");
+    expect(cli(dir, "update-block", "--help").out).toContain("--new-id changes its ID, and the flows to and from it, and the sticky notes on it, follow it.");
+    expect(cli(dir, "remove-block", "--help").out).toContain("Removes a block, and the flows to and from it. A sticky note on it stays on the view, on nothing.");
   });
 
   it("adds, changes, moves and removes a sequence view's steps, and shows them", () => {

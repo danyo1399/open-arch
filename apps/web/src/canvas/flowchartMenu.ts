@@ -12,7 +12,7 @@
  * designer don't: they write a whole version of the file, where a block with the same ID needn't
  * be the same block. Through one of those, everything but the diagram itself is lost.
  */
-import { isInside, type Flow, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { isInside, OpError, type Flow, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import type { Selection } from "./Canvas.js";
 
 /**
@@ -175,4 +175,22 @@ export function followMenu(on: MenuFor | null, view: string, renames: MenuRename
     }
   }
   return { on, view };
+}
+
+/**
+ * Operations that put a sticky note on a flowchart's block, made with the IDs a render showed,
+ * moved to the ID the block has after `renames`, what the changes applied since that render did.
+ * A new block's ID follows its text, so text typed just before a note is put on the block gives
+ * it a new ID ahead of the note's edit. The block is followed as a menu's is (see followMenu): by
+ * what the edits did, never by what's in its place after. One that was deleted, or lost through
+ * an Undo or a file changed elsewhere, is refused, with why. The other operations are as they were.
+ */
+export function followBlocks(ops: Operation[], renames: MenuRename[]): Operation[] {
+  if (renames.length === 0) return ops;
+  return ops.map((op): Operation => {
+    if ((op.op !== "add-sticky" && op.op !== "update-sticky") || !op.on || !("block" in op.on)) return op;
+    const { on } = followMenu({ kind: "block", id: op.on.block }, op.view, renames);
+    if (on?.kind !== "block") throw new OpError("The flowchart changed just before, so no note was put on the block. Try again.");
+    return on.id === op.on.block ? op : { ...op, on: { block: on.id } };
+  });
 }
