@@ -312,7 +312,11 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
           }}
         />
       )}
-      {richFailed && view === "markdown" && <p className="muted small">The formatted view couldn't be loaded, so the notes are shown as markdown.</p>}
+      {richFailed && view === "markdown" && (
+        <p className="muted small">
+          The formatted view couldn't be loaded, so the notes are shown as markdown. If a new version of open-arch came out since you opened it, save the notes, then close open-arch and open it again to get the formatted view back.
+        </p>
+      )}
       {saved === undefined ? (
         <p className="error small" role="alert">
           {name} was changed or deleted elsewhere, so these notes can't be saved. Copy them to keep them.

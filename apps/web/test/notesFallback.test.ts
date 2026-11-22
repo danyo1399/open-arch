@@ -17,6 +17,7 @@ describe("the notes editor without its formatted view", () => {
       expect(host.querySelector("textarea")).not.toBeNull();
     });
     expect(host.textContent).toContain("The formatted view couldn't be loaded, so the notes are shown as markdown.");
+    expect(host.textContent).toContain("save the notes, then close open-arch and open it again to get the formatted view back.");
     expect(button(host, "Formatted").disabled).toBe(true);
     expect(button(host, "Markdown").getAttribute("aria-pressed")).toBe("true");
     const box = host.querySelector("textarea")!;
