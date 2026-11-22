@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 import "fake-indexeddb/auto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, createElement } from "react";
 import { unzipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -163,6 +165,15 @@ describe("the designer with a workspace in a folder", () => {
     } finally {
       window.matchMedia = real;
     }
+  });
+
+  it("keeps the file's name in the top bar at every width without the More menu", () => {
+    // The More menu names the file only on a narrow screen (NARROW, in Designer.tsx), where the
+    // top bar doesn't draw it. At any wider one it's the top bar's to show, so no rule may hide it
+    // there: it gives way to the rest with an ellipsis instead, and its start always shows.
+    const css = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+    expect(css).not.toMatch(/\.file-name\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(/\.topbar > \.file-name\s*\{[^}]*min-width: 4em;/);
   });
 
   it("offers to export a zip once the file's gone, as nothing saves them any more", async () => {

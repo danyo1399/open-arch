@@ -55,7 +55,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
   /** Remembers the workspace in the folder, so the list has it next time, and opens it. */
   const openInFolder = async (root: FolderHandle, path: string) => {
     const record = await folders.add(root, path);
-    onOpen(new FolderHost(record.id, root, path, undefined, folders));
+    onOpen(new FolderHost(record.id, root, path, { names: folders }));
   };
 
   /** One workspace in the folder opens straight away. With several, the user picks one; with none, they can make one. */

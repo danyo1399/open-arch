@@ -276,7 +276,7 @@ describe("the open workspace", () => {
   it("reloads a workspace in a folder on the watcher's next check, when a reload fails", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", text("A"));
-    const host = new FolderHost("1", root, "a.openarch", 20);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 20 });
     const state = await workspaceFor(host);
     expect(state().ws?.doc.name).toBe("A");
     const file = root.entries.get("a.openarch") as FakeFile;
@@ -292,7 +292,7 @@ describe("the open workspace", () => {
 
   it("opens a workspace in a folder once its file is back, after it couldn't be opened", async () => {
     const root = new FakeFolder("repo");
-    const host = new FolderHost("1", root, "a.openarch", 20);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 20 });
     const state = await workspaceFor(host);
     expect(state().loadError).toBe("repo/a.openarch isn't there any more.");
     expect(state().ws).toBeNull();

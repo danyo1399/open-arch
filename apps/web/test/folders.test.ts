@@ -112,7 +112,7 @@ describe("a workspace in a folder", () => {
   it("reloads the file when it refuses a save, even when the change kept the file's size and time", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 60_000);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 60_000 });
     const onChange = vi.fn(async () => void (await host.load()));
     const stop = host.watch(onChange);
     await host.load();
@@ -550,7 +550,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     // As the designer does, a change reloads the file.
     const onChange = vi.fn(() => void host.load());
@@ -583,7 +583,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     const onChange = vi.fn();
     const stop = host.watch(onChange);
@@ -601,7 +601,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     const onChange = vi.fn();
     const onRemoved = vi.fn();
@@ -626,7 +626,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     // Changed straight after the load reads it, before the first check.
     (root.entries.get("a.openarch") as FakeFile).afterRead = () => root.put("a.openarch", workspace("B"));
     const loading = host.load();
@@ -642,7 +642,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     const onRemoved = vi.fn();
     const stop = host.watch(() => {}, onRemoved);
@@ -663,7 +663,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     root.put("a.openarch", workspace("B"));
     const onChange = vi.fn(() => void host.load());
@@ -679,7 +679,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     let reloads = 0;
     // The first reload fails, as when the file is moved aside between the check and the load.
@@ -703,7 +703,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     const onChange = vi.fn();
     const onRemoved = vi.fn();
@@ -730,7 +730,7 @@ describe("watching a workspace in a folder", () => {
   it("waits for a file it couldn't load, rather than calling it removed, and asks for it once it's there", async () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await expect(host.load()).rejects.toThrow("isn't there any more");
     const onChange = vi.fn(() => void host.load().catch(() => undefined));
     const onRemoved = vi.fn();
@@ -751,7 +751,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     const onProblem = vi.fn();
     const stop = host.watch(() => {}, undefined, onProblem);
@@ -769,7 +769,7 @@ describe("watching a workspace in a folder", () => {
     vi.useFakeTimers();
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
-    const host = new FolderHost("1", root, "a.openarch", 100);
+    const host = new FolderHost("1", root, "a.openarch", { pollMs: 100 });
     await host.load();
     const onChange = vi.fn();
     const stop = host.watch(onChange);
@@ -822,7 +822,7 @@ describe("the name a workspace in a folder is listed by", () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
     const { names, list } = listed();
-    const host = new FolderHost("f1", root, "a.openarch", 60_000, list);
+    const host = new FolderHost("f1", root, "a.openarch", { names: list, pollMs: 60_000 });
     expect(host.location).toBe("repo/a.openarch");
     await host.load();
     expect(names).toEqual(["f1: A"]);
@@ -842,7 +842,7 @@ describe("the name a workspace in a folder is listed by", () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", "{ not json");
     const { names, list } = listed();
-    const host = new FolderHost("f1", root, "a.openarch", 60_000, list);
+    const host = new FolderHost("f1", root, "a.openarch", { names: list, pollMs: 60_000 });
     expect(await host.load()).toBe("{ not json");
     await expect(host.save("{ still not")).rejects.toThrow("Refusing to save");
     // Changed outside since it was read, so the save is refused, and its name isn't taken.
@@ -856,7 +856,7 @@ describe("the name a workspace in a folder is listed by", () => {
     root.put("a.openarch", workspace("A"));
     const { names, list } = listed();
     list.refuse = true;
-    const host = new FolderHost("f1", root, "a.openarch", 60_000, list);
+    const host = new FolderHost("f1", root, "a.openarch", { names: list, pollMs: 60_000 });
     // The list failing doesn't fail the load.
     expect(loadWorkspace(await host.load()).doc.name).toBe("A");
     await new Promise((resolve) => setTimeout(resolve, 0));

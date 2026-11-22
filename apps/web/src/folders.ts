@@ -355,19 +355,24 @@ export class FolderHost implements WorkspaceHost {
   /** The workspace's name as this host last gave it to `names`, or null before it has. */
   private listedAs: string | null = null;
 
+  private readonly pollMs: number;
+  private readonly names: Pick<FolderList, "rename"> | undefined;
+
   /**
    * `path` is the file's, relative to `root`, with `/` between folders. `names` is the list of
-   * folders opened, when the workspace is in it: the name it's listed by there is kept the
-   * file's, as the file is read and saved.
+   * folders opened, for a workspace that's in it: the name it's listed by there is kept the
+   * file's, as the file is read and saved. Without it, the list isn't told. `pollMs` is how often
+   * the file is checked for changes made outside.
    */
   constructor(
     readonly id: string,
     readonly root: FolderHandle,
     readonly path: string,
-    private readonly pollMs = POLL_MS,
-    private readonly names?: Pick<FolderList, "rename">,
+    { names, pollMs = POLL_MS }: { names?: Pick<FolderList, "rename">; pollMs?: number } = {},
   ) {
     this.name = path.split("/").pop()!;
+    this.names = names;
+    this.pollMs = pollMs;
   }
 
   get key(): string {
@@ -703,5 +708,5 @@ export function folderIdInHash(hash: string): string | null {
 export async function folderInUrl(hash: string, folders: Pick<FolderList, "get" | "rename"> = folderList): Promise<FolderHost | null> {
   const id = folderIdInHash(hash);
   const record = id === null ? undefined : await folders.get(id);
-  return record && (await allowed(record.root, false)) ? new FolderHost(record.id, record.root, record.path, undefined, folders) : null;
+  return record && (await allowed(record.root, false)) ? new FolderHost(record.id, record.root, record.path, { names: folders }) : null;
 }

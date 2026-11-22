@@ -3335,8 +3335,15 @@ button.ws-name {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.file-name {
+/*
+ * When the top bar is tight, the file's name gives way before the workspace's name and the status
+ * do: it shrinks so much faster that they keep their whole width until it's down to its start,
+ * which stays to point at for the whole of it. On a narrow screen it's in the More menu.
+ */
+.topbar > .file-name {
   white-space: nowrap;
+  flex-shrink: 999999;
+  min-width: 4em;
 }
 .storage.unsaved {
   color: #b54708;
@@ -3356,11 +3363,6 @@ button.ws-name {
 }
 .tag-row button.icon {
   font-size: 16px;
-}
-@media (max-width: 900px) {
-  .file-name {
-    display: none;
-  }
 }
 
 /* --- Ask AI (desktop) ------------------------------------------------------ */
