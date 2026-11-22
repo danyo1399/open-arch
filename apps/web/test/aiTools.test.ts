@@ -32,9 +32,10 @@ function host(doc: OpenArchDocument = shop(), folder?: FakeFolder): ToolHost & {
     change: async (ops: Operation[]): Promise<Change> => {
       state.changes.push(ops);
       try {
-        const result = applyOperations(loadWorkspace(state.text).doc, ops);
+        const before = state.text;
+        const result = applyOperations(loadWorkspace(before).doc, ops);
         state.text = serializeDocument(result.doc);
-        return { ok: true, summary: result.summary, warnings: result.warnings, text: state.text };
+        return { ok: true, summary: result.summary, warnings: result.warnings, before, after: state.text };
       } catch (error) {
         if (!(error instanceof OpError)) throw error;
         return { ok: false, error: error.message };
@@ -150,6 +151,7 @@ describe("the tools Ask AI's model can call", () => {
 
   it("change the workspace through operations, all or none, and say what changed and what to fix", async () => {
     const on = host();
+    const opened = on.text;
     const changed = await call(on, "change_model", {
       operations: [
         { op: "add-element", id: "cache", kind: "container", parent: "shop", name: "Cache", technology: "Redis" },
@@ -159,8 +161,8 @@ describe("the tools Ask AI's model can call", () => {
     expect(changed.did).toBe("Changed the model: added container cache; added relationship web-app -> cache");
     expect(changed.answer).toMatch(/^Changed:\n- added container cache\n- added relationship web-app -> cache\n\nWarnings from this change:\nelements\.web-app\.uses\[0\]: warning \[relationship-description\] /);
     expect(loadWorkspace(on.text).elements.get("cache")?.technology).toBe("Redis");
-    // It says what it left the workspace as, so only its own change is offered to undo.
-    expect(changed.changed).toBe(on.text);
+    // It says what the workspace was just before and what it left, so only its own change is offered to undo.
+    expect(changed.changed).toEqual({ before: opened, after: on.text });
 
     // One wrong operation in a list refuses all of it.
     const before = on.text;

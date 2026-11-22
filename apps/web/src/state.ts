@@ -66,8 +66,11 @@ export interface WorkspaceState {
   dismissMessage(): void;
 }
 
-/** What a change did: each operation in a line, the warnings it brought, and the file's text after it. Or why it was refused, with nothing changed. */
-export type Change = { ok: true; summary: string[]; warnings: Diagnostic[]; text: string } | { ok: false; error: string };
+/**
+ * What a change did: each operation in a line, the warnings it brought, and the file's text just
+ * before it and after it. Or why it was refused, with nothing changed.
+ */
+export type Change = { ok: true; summary: string[]; warnings: Diagnostic[]; before: string; after: string } | { ok: false; error: string };
 
 /** A version of the workspace in the History list. */
 export interface Version {
@@ -301,14 +304,14 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[],
         let result: ApplyResult;
         try {
           ops = typeof change === "function" ? change(workspace) : change;
-          if (ops.length === 0) return { ok: true, summary: [], warnings: [], text: before };
+          if (ops.length === 0) return { ok: true, summary: [], warnings: [], before, after: before };
           result = applyOperations(workspace.doc, ops);
           next = serializeDocument(result.doc);
         } catch (error) {
           if (!(error instanceof OpError)) throw error;
           return { ok: false, error: problemText(error), show: true };
         }
-        const done: Change = { ok: true, summary: result.summary, warnings: result.warnings, text: next };
+        const done: Change = { ok: true, summary: result.summary, warnings: result.warnings, before, after: next };
         if (next === before) return done;
         try {
           await write(next, () => applied.current?.(ops, workspace));
