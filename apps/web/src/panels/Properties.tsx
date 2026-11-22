@@ -23,6 +23,7 @@ import {
   PARENT_KINDS,
   RELATIONSHIP_KIND_LABELS,
   RELATIONSHIP_KINDS,
+  RUNNABLE_KINDS,
   SCOPE_KINDS,
   SCREEN_DEVICE_LABELS,
   SCREEN_DEVICES,
@@ -79,7 +80,7 @@ import {
   type WidgetKind,
   type Workspace,
 } from "@open-arch/core";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import {
@@ -1179,18 +1180,20 @@ function endName(ws: Workspace, view: ViewDef, id: string): string {
 }
 
 /**
- * Why a node can't be told to run anything more or less, if it's one the details can say: it's
- * told to run something that's no container or system, as a file written by hand can say, or
- * it's infrastructure, which runs nothing.
+ * Why a node can't be told to run something more or less, for the details to say when an edit to
+ * what it runs is refused: it's told to run something that's no container or system, as a file
+ * written by hand can say; it's infrastructure, which runs nothing; or else the edit would leave
+ * the view with an error it doesn't have, as one that takes a connection with it can, when the
+ * connections after it are renumbered.
  */
-function runsHint(ws: Workspace, node: DeploymentNode): string | undefined {
+function runsHint(ws: Workspace, node: DeploymentNode): string {
   const wrong = unrunnable(ws, node).map((id) => ws.elements.get(id)?.name ?? id);
   if (wrong.length) {
     const names = wrong.length === 1 ? wrong[0] : `${wrong.slice(0, -1).join(", ")} and ${wrong.at(-1)}`;
     return `Nodes run only containers and systems, and ${names} ${wrong.length === 1 ? "isn't one" : "aren't"}. What else it runs can't change while it's told to run ${wrong.length === 1 ? "that" : "those"}.`;
   }
-  if (node.infrastructure && node.runs.length) return "Infrastructure runs nothing, so make it a deployment node first.";
-  return undefined;
+  if (node.infrastructure) return "Infrastructure runs nothing, so make it a deployment node first.";
+  return "What it runs can't change now: that would leave the view with an error it doesn't have. Put right what's under Problems first.";
 }
 
 /**
@@ -1211,7 +1214,9 @@ function NodeProperties({ ws, view, node, isNew, edit, onSelect }: PropertiesPro
     if (!newId || newId === node.id) return;
     void edit([{ op: "update-node", view: view.id, id: node.id, newId }]).then((ok) => ok && onSelect({ kind: "node", id: newId }));
   };
-  const choices = nodeChoices(ws, view, node);
+  // Each choice checks the view as the edit would leave it, so they're worked out again only when the view or the node changes.
+  const choices = useMemo(() => nodeChoices(ws, view, node), [ws, view, node]);
+  const stops = useMemo(() => new Map(node.runs.map((id) => [id, stopRunning(ws, view, node, id)])), [ws, view, node]);
   const fixed = !choices.changeable;
   const choose = (list: DeploymentChoice[], id: string) => {
     const choice = list.find((c) => c.id === id);
@@ -1223,13 +1228,15 @@ function NodeProperties({ ws, view, node, isNew, edit, onSelect }: PropertiesPro
   const canTop = node.parent === undefined || choices.inside.some((c) => c.id === "");
   const parents = view.nodes.filter((n) => n.id === node.parent || choices.inside.some((c) => c.id === n.id));
   const connections = view.connections.filter((c) => c.from === node.id || c.to === node.id);
-  const hint = runsHint(ws, node);
+  // Something it could be told to run, or stop running, is refused: say why, unless the note at the top does.
+  const runnable = [...ws.elements.values()].filter((e) => RUNNABLE_KINDS.includes(e.kind) && !node.runs.includes(e.id)).length;
+  const refused = !fixed && ([...stops.values()].some((stop) => !stop) || (!node.infrastructure && choices.run.length < runnable));
   return (
     <>
       <header className="props-header">
         <span className={`badge badge-${node.infrastructure ? "infrastructure" : "node"}`}>{nodeKindLabel(node)}</span>
       </header>
-      {fixed && <p className="field-hint">Infrastructure runs nothing and holds no nodes, but this one does. Make it a deployment node to change it.</p>}
+      {fixed && <p className="field-hint">Infrastructure runs nothing and holds no nodes, but this one does. Make it a deployment node, or take out what's in it, to change it.</p>}
       <Field label="Name" value={node.name} onCommit={(n) => n.trim() && rename(n)} autoFocus={isNew} disabled={fixed} />
       <Field label="ID" value={node.id} onCommit={changeId} hint={idHint(followsName(node.id, node.name))} disabled={fixed} />
       <Field label="Description" value={node.description ?? ""} multiline placeholder="One sentence, shown when you point at it" onCommit={(description) => set({ description: description || null })} disabled={fixed} />
@@ -1279,7 +1286,7 @@ function NodeProperties({ ws, view, node, isNew, edit, onSelect }: PropertiesPro
           {node.runs.length === 0 && <p className="muted small">Nothing yet. Choose a container or system to run in it.</p>}
           <ul className="plain">
             {node.runs.map((id) => {
-              const stop = stopRunning(ws, view, node, id);
+              const stop = stops.get(id);
               return (
                 <li key={id}>
                   <button className="link" onClick={() => onSelect({ kind: "instance", node: node.id, element: id })}>
@@ -1297,7 +1304,7 @@ function NodeProperties({ ws, view, node, isNew, edit, onSelect }: PropertiesPro
               );
             })}
           </ul>
-          {hint && !fixed && <p className="field-hint">{hint}</p>}
+          {refused && <p className="field-hint">{runsHint(ws, node)}</p>}
           {!node.infrastructure && (
             <label className="field">
               <span className="field-label">Run here</span>
@@ -1359,22 +1366,23 @@ function ConnectionProperties({ ws, view, connection, edit, onSelect }: Properti
   const move = (to: number) => void edit([{ op: "update-connection", view: view.id, connection: connection.number, newConnection: to }]).then((ok) => ok && onSelect({ kind: "connection", number: to }));
   const ends = connectionEnds(ws, view);
   // Where it is now, then only where it can go, as its right-click menu offers (see connectionEndChoices).
+  const choices = useMemo(() => ({ from: connectionEndChoices(ws, view, connection, "from"), to: connectionEndChoices(ws, view, connection, "to") }), [ws, view, connection]);
   const end = (field: "from" | "to", label: string) => {
-    const choices = connectionEndChoices(ws, view, connection, field);
+    const offered = choices[field];
     return (
       <label className="field">
         <span className="field-label">{label}</span>
         <select
           value={connection[field]}
-          disabled={choices.length === 0}
+          disabled={offered.length === 0}
           onChange={(e) => {
-            const choice = choices.find((c) => c.id === e.target.value);
+            const choice = offered.find((c) => c.id === e.target.value);
             if (choice) void edit([choice.op]);
           }}
         >
           {!ends.some((e) => e.id === connection[field]) && <option value={connection[field]}>{connection[field]} (not in this view)</option>}
           {ends
-            .filter((e) => e.id === connection[field] || choices.some((c) => c.id === e.id))
+            .filter((e) => e.id === connection[field] || offered.some((c) => c.id === e.id))
             .map((e) => (
               <option key={e.id} value={e.id}>
                 {e.label}
@@ -1415,7 +1423,6 @@ function InstanceProperties(props: PropertiesProps & { view: ViewDef; node: Depl
   const { ws, view, node, element, edit, onSelect } = props;
   // Only if core would make it, as its right-click menu offers it (see stopRunning).
   const stop = stopRunning(ws, view, node, element.id);
-  const hint = runsHint(ws, node);
   return (
     <>
       <div className="instance-of">
@@ -1429,7 +1436,7 @@ function InstanceProperties(props: PropertiesProps & { view: ViewDef; node: Depl
         <button disabled={!stop} onClick={() => stop && void edit([stop]).then((ok) => ok && onSelect({ kind: "node", id: node.id }))}>
           Stop running it here
         </button>
-        {!stop && hint && <p className="field-hint">{hint}</p>}
+        {!stop && <p className="field-hint">{runsHint(ws, node)}</p>}
       </div>
       <ElementProperties {...props} element={element} />
     </>

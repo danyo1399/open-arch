@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { applyOperations, buildWorkspace, computeView, loadWorkspace, serializeDocument, type DeploymentNode, type OpenArchDocument, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, RUNNABLE_KINDS, loadWorkspace, serializeDocument, type DeploymentNode, type OpenArchDocument, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { STICKY } from "../src/canvas/autoLayout.js";
@@ -289,10 +289,18 @@ describe("a deployment view's details", () => {
       // Its name, and the rest of what's typed, can be changed when core would change it at all.
       const name = details(ws, view, { kind: "node", id: node.id }).host.querySelector<HTMLInputElement>('input[aria-label="Name"]')!;
       expect(name.disabled, node.id).toBe(!made(model, { op: "update-node", view: "production", id: node.id, name: `${node.name} 2` }));
-      // A container or system that runs in it can stop running there if core would let it.
+      // What it could run, or stop running, that's refused, the details say why, unless the note at the top says it can't be changed at all.
+      const { host } = details(ws, view, { kind: "node", id: node.id });
+      const runnable = [...ws.elements.values()].filter((e) => RUNNABLE_KINDS.includes(e.kind) && !node.runs.includes(e.id));
+      const refused = node.runs.some((id) => !stopRunning(ws, view, node, id)) || (!node.infrastructure && runnable.some((e) => !nodeChoices(ws, view, node).run.some((c) => c.id === e.id)));
+      if (refused && !name.disabled) expect(host.querySelector("ul.plain + .field-hint")?.textContent, node.id).toBeTruthy();
+      if (name.disabled) expect(host.textContent, node.id).toContain("Make it a deployment node, or take out what's in it, to change it.");
+      // A container or system that runs in it can stop running there if core would let it, and if not, they say why.
       for (const id of node.runs.filter((r) => ws.elements.has(r))) {
-        const stop = button(details(ws, view, { kind: "instance", node: node.id, element: id }).host, "Stop running it here");
+        const instance = details(ws, view, { kind: "instance", node: node.id, element: id }).host;
+        const stop = button(instance, "Stop running it here");
         expect(stop.disabled, `${node.id}/${id}`).toBe(!stopRunning(ws, view, node, id));
+        expect(!!instance.querySelector(".instance-of .field-hint")?.textContent, `${node.id}/${id}`).toBe(stop.disabled);
       }
     }
     for (const c of view.connections) {
@@ -332,7 +340,7 @@ describe("a deployment view's details", () => {
 
     // Infrastructure that runs something can't be changed until it's made a deployment node.
     const lb = details(ws, view, { kind: "node", id: "lb" });
-    expect(lb.host.textContent).toContain("Infrastructure runs nothing and holds no nodes, but this one does. Make it a deployment node to change it.");
+    expect(lb.host.textContent).toContain("Infrastructure runs nothing and holds no nodes, but this one does. Make it a deployment node, or take out what's in it, to change it.");
     for (const label of ["Name", "ID", "Technology", "Copies"]) expect(lb.host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!.disabled, label).toBe(true);
     expect(lb.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]')!.disabled).toBe(true);
     for (const label of ["Shape", "Inside"]) expect(select(lb.host, label).disabled, label).toBe(true);
@@ -340,6 +348,25 @@ describe("a deployment view's details", () => {
     expect(button(lb.host, "Stop running it here")).toBeTruthy();
     await click(checkbox(lb.host, "Infrastructure, like a load balancer, DNS or a firewall"));
     expect(lb.edits).toEqual([[{ op: "update-node", view: "production", id: "lb", infrastructure: false }]]);
+  });
+
+  it("say why what a node runs can't change, when the change would leave an error the view doesn't have", () => {
+    // Any change to what a node runs takes the connection to the cache, which nothing runs, and the one after is renumbered: core takes its error for a new one.
+    const model = broken((v) => v.connections!.push({ from: "lb", to: "cache" }, { from: "region", to: "lb" }));
+    const ws = buildWorkspace(model);
+    const view = ws.views.get("production")!;
+    const why = "What it runs can't change now: that would leave the view with an error it doesn't have. Put right what's under Problems first.";
+    const server = details(ws, view, { kind: "node", id: "server" });
+    expect(server.host.textContent).not.toContain("Stop running it here");
+    // Only running the cache, which keeps the connection to it.
+    expect([...select(server.host, "Run here").options].map((o) => o.textContent)).toEqual(["Choose a container or system…", "Cache [Container]"]);
+    expect(server.host.querySelector("ul.plain + .field-hint")!.textContent).toBe(why);
+    const web = details(ws, view, { kind: "instance", node: "server", element: "web" });
+    expect(button(web.host, "Stop running it here").disabled).toBe(true);
+    expect(web.host.querySelector(".instance-of .field-hint")!.textContent).toBe(why);
+    // A node whose runs can change says nothing of it.
+    const fine = buildWorkspace(doc);
+    expect(details(fine, fine.views.get("production")!, { kind: "node", id: "server" }).host.querySelector("ul.plain + .field-hint")).toBeNull();
   });
 
   it("offer a node's place, and a connection's ends, only where core would put them", () => {
