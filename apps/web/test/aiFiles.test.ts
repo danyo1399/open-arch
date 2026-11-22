@@ -47,6 +47,20 @@ describe("the files a model can read, in a folder opened from the start page", (
     expect(matches("main.?s", "src/main.ts")).toBe(true);
     expect(matches("main.?s", "src/main.tss")).toBe(false);
     expect(matches("?ain.ts", "/ain.ts")).toBe(false);
+    // A run of folders is whole folders, never the start of a name: a pattern for a file's name doesn't match a longer one.
+    expect(matches("?ain.ts", "main.ts")).toBe(true);
+    expect(matches("?ain.ts", "src/main.ts")).toBe(true);
+    expect(matches("?ain.ts", "xmain.ts")).toBe(false);
+    expect(matches("index.*", "src/index.ts")).toBe(true);
+    expect(matches("index.*", "src/reindex.ts")).toBe(false);
+    expect(matches("test?.ts", "src/test1.ts")).toBe(true);
+    expect(matches("test?.ts", "src/mytest1.ts")).toBe(false);
+    expect(matches("src/**/a.ts", "src/a.ts")).toBe(true);
+    expect(matches("src/**/a.ts", "src/x/y/a.ts")).toBe(true);
+    expect(matches("src/**/a.ts", "src/xa.ts")).toBe(false);
+    expect(matches("src/**/a.ts", "src/x/ya.ts")).toBe(false);
+    expect(matches("**/api/*", "api/main.ts")).toBe(true);
+    expect(matches("**/api/*", "src/myapi/main.ts")).toBe(false);
     expect(matches("*.TS", "Main.ts")).toBe(true);
     // Without a wildcard it's text the path has; with none at all, everything matches.
     expect(matches("api/check", "src/API/checkout.ts")).toBe(true);
@@ -54,6 +68,40 @@ describe("the files a model can read, in a folder opened from the start page", (
     // Characters that mean something in other patterns are only themselves.
     expect(matches("a+(b).[c]*", "a+(b).[c]d")).toBe(true);
     expect(matches("a.b*", "axb")).toBe(false);
+  });
+
+  it("match as the same pattern written out in full does, whatever the pattern and the path", () => {
+    /** The pattern as a regular expression, which says the same thing more slowly: a run of folders is names, each ended by its `/`. */
+    const written = (pattern: string) => {
+      const source = pattern
+        .split(/(\*\*\/|\*\*|\*|\?)/)
+        .map((piece) => (piece === "**/" ? "(?:[^/]+/)*" : piece === "**" ? ".*" : piece === "*" ? "[^/]*" : piece === "?" ? "[^/]" : piece.replace(/[.+^${}()|[\]\\]/g, "\\$&")))
+        .join("");
+      return new RegExp(`^${pattern.includes("/") ? "" : "(?:[^/]+/)*"}${source}$`);
+    };
+    // The same patterns and paths every run: numbers that only look random.
+    let seed = 12345;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const pick = <T,>(from: T[]): T => from[Math.floor(random() * from.length)]!;
+    const several = <T,>(from: T[], most: number): T[] => Array.from({ length: 1 + Math.floor(random() * most) }, () => pick(from));
+    let checked = 0;
+    for (let i = 0; i < 4000; i++) {
+      const pattern = several(["a", "b", ".", "/", "*", "**", "**/", "?"], 6).join("");
+      if (!/[*?]/.test(pattern)) continue;
+      const test = pathTest(pattern);
+      const regex = written(pattern);
+      for (let j = 0; j < 8; j++) {
+        const path = several([0, 1, 2], 4).map(() => several(["a", "b", "."], 3).join("")).join("/"); // prettier-ignore
+        expect(test(path), `${pattern} against ${path}`).toBe(regex.test(path));
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(20_000);
   });
 
   it("match a pattern with many wildcards without taking long", () => {

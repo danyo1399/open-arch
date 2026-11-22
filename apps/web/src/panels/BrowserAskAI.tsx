@@ -25,6 +25,7 @@ interface BrowserAskAIProps {
   text: string;
   restore(text: string, from?: string): Promise<boolean>;
   onRunning?(running: boolean): void;
+  hold?(): string | null;
   open: boolean;
   onClose(): void;
   /** The page's `fetch`, unless a test gives its own. */

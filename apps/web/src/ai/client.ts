@@ -109,9 +109,10 @@ class Calls {
     const name = typeof part.function?.name === "string" ? part.function.name : "";
     // By its number; without one, by its ID; with neither, it's more of the last call.
     let at = typeof part.index === "number" ? this.places.get(part.index) : id ? this.calls.findIndex((c) => c.id === id) : this.calls.length - 1;
-    // Some servers number every call 0. A new ID there starts a new call, and so does a name, with no ID, once the call before has all its arguments.
+    // Some servers number every call 0. A new ID there starts a new call. So does a name, with no ID, once the call
+    // before has all its arguments, or has none and another name: a call that takes none can come with no text for them.
     const last = at !== undefined && at >= 0 ? this.calls[at]! : undefined;
-    if (last && (id ? last.id && last.id !== id : name && last.name && complete(last.args))) at = undefined;
+    if (last && (id ? last.id && last.id !== id : name && last.name && (complete(last.args) || (last.args === "" && name !== last.name)))) at = undefined;
     if (at === undefined || at < 0) {
       at = this.calls.push({ id, name: "", args: "" }) - 1;
       if (typeof part.index === "number") this.places.set(part.index, at);
