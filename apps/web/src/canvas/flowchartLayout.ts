@@ -79,9 +79,10 @@ export function routeToOutlines(points: readonly Readonly<Point>[], from: { kind
 }
 
 /**
- * How a flowchart's lanes are drawn: the height of a lane's name at its top, the room inside a
- * lane round its blocks, the narrowest a lane is, and how far apart blocks placed side by side in
- * one are. Blocks placed in a lane go down its middle, at `centre` from the inside of its left.
+ * How a flowchart's lanes are drawn: the height of a lane's name at its top, when every name fits
+ * on one line (see laneHead in FlowchartDiagram), the room inside a lane round its blocks, the
+ * narrowest a lane is, and how far apart blocks placed side by side in one are. Blocks placed in a
+ * lane go down its middle, at `centre` from the inside of its left.
  */
 export const LANE = { head: 40, pad: 30, minWidth: 260, centre: 110, beside: 260 } as const;
 

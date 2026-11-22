@@ -45,7 +45,8 @@ import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap
 
 type BlockNodeData = { block: Block };
 type BlockFlowNode = Node<BlockNodeData, "block">;
-type LaneNodeData = { column: LaneColumn; height: number; selected: boolean };
+/** `head` is how tall its name is drawn, and `height` the whole column, its name included. */
+type LaneNodeData = { column: LaneColumn; head: number; height: number; selected: boolean };
 type LaneFlowNode = Node<LaneNodeData, "lane">;
 type FlowNode = BlockFlowNode | StickyFlowNode | FrameFlowNode | LaneFlowNode;
 
@@ -131,13 +132,43 @@ function Outline({ kind }: { kind: BlockKind }) {
   );
 }
 
-/** A lane: a column with its name at the top. The column for blocks in no lane says so. */
+/** What a column says at its top: its lane's name, or that its blocks are in no lane. */
+const laneName = (column: LaneColumn) => column.lane?.name ?? "No lane";
+
+/**
+ * How tall the lanes' names are drawn: as tall as the longest one needs, wrapped to its lane's
+ * width, and the same for every lane, so the line under them runs straight across. No less than
+ * LANE.head, which fits a name on one line. Each name is measured in a hidden lane with the same
+ * styles as a drawn one, all of them together, laying the page out once.
+ */
+export function laneHead(columns: readonly LaneColumn[]): number {
+  const holder = document.createElement("div");
+  holder.setAttribute("aria-hidden", "true");
+  holder.style.cssText = "position: absolute; visibility: hidden; left: -10000px; top: 0";
+  const names = columns.map((column) => {
+    const lane = holder.appendChild(document.createElement("div"));
+    lane.className = `flow-lane${column.lane ? "" : " loose"}`;
+    lane.style.width = `${column.w}px`;
+    const name = lane.appendChild(document.createElement("div"));
+    name.className = "flow-lane-name";
+    name.textContent = laneName(column);
+    return name;
+  });
+  document.body.appendChild(holder);
+  try {
+    return Math.max(LANE.head, ...names.map((name) => Math.ceil(name.getBoundingClientRect().height)));
+  } finally {
+    holder.remove();
+  }
+}
+
+/** A lane: a column with its name at the top, on as many lines as it needs. The column for blocks in no lane says so. */
 function LaneNode({ data }: NodeProps<LaneFlowNode>) {
   const { lane } = data.column;
   return (
     <div className={`flow-lane${lane ? "" : " loose"}${data.selected ? " selected" : ""}`} style={{ width: data.column.w, height: data.height }} title={lane?.description}>
-      <div className="flow-lane-name" style={{ height: LANE.head }}>
-        {lane ? lane.name : "No lane"}
+      <div className="flow-lane-name" style={{ minHeight: data.head }}>
+        {laneName(data.column)}
       </div>
     </div>
   );
@@ -280,11 +311,13 @@ function items(view: ViewDef, nodes: FlowNode[]): DrawnItem[] {
   );
 }
 
-/** What's on the diagram round a new block: the lanes as drawn, if any, each block's box, the lanes' top, the middle of the canvas, and where the blocks and notes are. */
+/** What's on the diagram round a new block: the lanes as drawn, if any, each block's box, the lanes' top and how tall their names are, the middle of the canvas, and where the blocks and notes are. */
 export interface Surroundings {
   columns?: LaneColumn[];
   boxes: ReadonlyMap<string, Box>;
   top: number;
+  /** Left out where there are no lanes. */
+  head?: number;
   middle: Point;
   occupied: Point[];
 }
@@ -295,7 +328,7 @@ export interface Surroundings {
  * there. Its `at` is as the file keeps it, so from the inside of its lane's left in a flowchart
  * with lanes.
  */
-export function newBlockPlace(view: ViewDef, kind: BlockKind, selection: Selection, { columns, boxes, top, middle, occupied }: Surroundings): { at: [number, number]; lane?: string } {
+export function newBlockPlace(view: ViewDef, kind: BlockKind, selection: Selection, { columns, boxes, top, head = LANE.head, middle, occupied }: Surroundings): { at: [number, number]; lane?: string } {
   const afterBlock = selection?.kind === "block" ? view.blocks.find((b) => b.id === selection.id) : undefined;
   const after = afterBlock && boxes.get(afterBlock.id);
   const lane = selection?.kind === "lane" ? columns?.find((c) => c.lane?.id === selection.id) : undefined;
@@ -304,7 +337,7 @@ export function newBlockPlace(view: ViewDef, kind: BlockKind, selection: Selecti
   const start = after
     ? { x: after.x + (after.w - width) / 2, y: after.y + after.h + BELOW }
     : lane
-      ? { x: lane.x + LANE.pad + Math.max(0, LANE.centre - width / 2), y: inLane.length ? Math.max(...inLane.map((b) => b.y + b.h)) + BELOW : top + LANE.head + LANE.pad }
+      ? { x: lane.x + LANE.pad + Math.max(0, LANE.centre - width / 2), y: inLane.length ? Math.max(...inLane.map((b) => b.y + b.h)) + BELOW : top + head + LANE.pad }
       : { x: middle.x - width / 2, y: middle.y - 30 };
   const spot = freeSpotAmong(start, occupied);
   if (!columns?.length) return { at: [spot.x, spot.y] };
@@ -421,6 +454,8 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
     return laneColumns(view, placeInLanes(view, saved, auto?.key === graphKey ? auto.positions : {}));
   }, [ready, laned, view, saved, auto, graphKey]);
   const columns = lanesAt?.columns;
+  /** How tall the lanes' names are: more than one line's room when a name is too long for its lane. */
+  const head = useMemo(() => (columns ? laneHead(columns) : LANE.head), [columns]);
   const positions = useMemo(
     () => (!ready ? null : lanesAt ? lanesAt.positions : placeMissing(ids, saved, auto?.key === graphKey ? auto.positions : {})),
     [ready, lanesAt, ids, saved, auto, graphKey],
@@ -491,20 +526,20 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
   const laneNodes = useMemo((): LaneFlowNode[] => {
     if (!columns) return [];
     const all = [...boxes.values()];
-    const top = all.length ? Math.min(...all.map((b) => b.y)) - LANE.head - LANE.pad : 0;
-    const bottom = all.length ? Math.max(...all.map((b) => b.y + b.h)) + LANE.pad : LANE.head + 200;
+    const top = all.length ? Math.min(...all.map((b) => b.y)) - head - LANE.pad : 0;
+    const bottom = all.length ? Math.max(...all.map((b) => b.y + b.h)) + LANE.pad : head + 200;
     return columns.map((column) => ({
       id: laneNodeId(column),
       type: "lane",
       position: { x: column.x, y: Math.round(top) },
-      data: { column, height: Math.round(bottom - top), selected: !!column.lane && selection?.kind === "lane" && selection.id === column.lane.id },
+      data: { column, head, height: Math.round(bottom - top), selected: !!column.lane && selection?.kind === "lane" && selection.id === column.lane.id },
       measured: lanesMeasured.current.get(laneNodeId(column)),
       draggable: false,
       connectable: false,
       selectable: false,
       zIndex: -1,
     }));
-  }, [columns, boxes, selection]);
+  }, [columns, head, boxes, selection]);
 
   /** The frame's size as React Flow last measured it. */
   const frameMeasured = useRef<FrameFlowNode["measured"]>(undefined);
@@ -618,7 +653,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
   const addBlock = (kind: BlockKind, where: { after: Selection } | { at: Point; lane?: string }) => {
     const occupied = nodesRef.current.filter((n) => n.type === "block" || n.type === "sticky").map((n) => n.position);
     const after = "after" in where ? where.after : null;
-    const place = "at" in where ? blockPlaceAt(kind, where.at, { columns, occupied }, where.lane) : newBlockPlace(view, kind, after, { columns, boxes, top: laneNodes[0]?.position.y ?? 0, middle: middle(), occupied });
+    const place = "at" in where ? blockPlaceAt(kind, where.at, { columns, occupied }, where.lane) : newBlockPlace(view, kind, after, { columns, boxes, top: laneNodes[0]?.position.y ?? 0, head, middle: middle(), occupied });
     const { ops, id } = addBlockOps(view, kind, after, place.at, place.lane);
     void edit([...fixPlaced(), ...ops]).then((ok) => ok && onSelect({ kind: "block", id }, { isNew: true }));
   };
