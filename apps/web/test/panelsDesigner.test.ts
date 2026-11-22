@@ -297,29 +297,67 @@ describe("adding a library from a container's details", () => {
     expect(ticks(d)).toEqual(["New library ✓", "New library ✓"]);
   });
 
-  it("keeps the new library in its container when another is ticked straight after the press", async () => {
+  /** Makes the next save slow, as one to a folder can be, and gives what lets it finish. */
+  const slowSave = () => {
+    let finish = () => {};
+    const save = MemoryHost.prototype.save;
+    vi.spyOn(MemoryHost.prototype, "save").mockImplementationOnce(function (this: MemoryHost, text: string) {
+      return new Promise<void>((resolve) => (finish = () => resolve(save.call(this, text))));
+    });
+    return () => act(async () => finish());
+  };
+  /** A designer with a library built into Web, and a new container selected. */
+  const withLibrary = async () => {
     const d = await designer();
     await click(inTree(d, "Web"));
     await click(button(d.host, "+ New library"));
     await d.settle();
     await add(d, "Container in Shop");
-    const tick = () => d.host.querySelector<HTMLInputElement>(".properties fieldset .check input")!;
-    // The save is slow, as one to a folder can be, so there's time for a tick before it lands.
-    let saved = () => {};
-    const save = MemoryHost.prototype.save;
-    vi.spyOn(MemoryHost.prototype, "save").mockImplementationOnce(function (this: MemoryHost, text: string) {
-      return new Promise<void>((resolve) => (saved = () => resolve(save.call(this, text))));
-    });
+    return d;
+  };
+
+  it("keeps the new library in its container when another is ticked while it's still being saved", async () => {
+    const d = await withLibrary();
+    const saved = slowSave();
     await click(button(d.host, "+ New library"));
-    // The tick is off until then: it would save the container's libraries as they were, over the new one.
-    expect(tick().disabled).toBe(true);
-    await act(async () => tick().click());
-    await act(async () => saved());
+    // The tick's edit waits for the save, and is worked out from the container's libraries after it.
+    await act(async () => d.host.querySelector<HTMLInputElement>(".properties fieldset .check input")!.click());
+    await saved();
     await d.settle();
     expect(d.host.querySelector(".properties .badge")!.textContent).toBe("Library");
     expect(ticks(d)).toEqual(["New container ✓", "Web"]);
     await click(inTree(d, "New container"));
-    expect(ticks(d)).toEqual(["New library", "New library ✓"]);
+    expect(ticks(d)).toEqual(["New library ✓", "New library ✓"]);
+  });
+
+  it("keeps it when the container is ticked under another library's Built into meanwhile, and leaves that library open", async () => {
+    const d = await withLibrary();
+    const saved = slowSave();
+    await click(button(d.host, "+ New library"));
+    await click(inTree(d, "New library"));
+    expect(ticks(d)).toEqual(["New container", "Web ✓"]);
+    await act(async () => d.host.querySelector<HTMLInputElement>(".properties fieldset .check input")!.click());
+    await saved();
+    await d.settle();
+    // What was picked during the save is still what's open.
+    expect(ticks(d)).toEqual(["New container ✓", "Web ✓"]);
+    await click(inTree(d, "New container"));
+    expect(ticks(d)).toEqual(["New library ✓", "New library ✓"]);
+  });
+
+  it("keeps it when the container is picked again and ticked meanwhile", async () => {
+    const d = await withLibrary();
+    const saved = slowSave();
+    await click(button(d.host, "+ New library"));
+    // The view's details take the container's place, and then it's back, as it was before the press.
+    await click(inTree(d, "Customer"));
+    await click(inTree(d, "New container"));
+    expect(ticks(d)).toEqual(["New library"]);
+    await act(async () => d.host.querySelector<HTMLInputElement>(".properties fieldset .check input")!.click());
+    await saved();
+    await d.settle();
+    await click(inTree(d, "New container"));
+    expect(ticks(d)).toEqual(["New library ✓", "New library ✓"]);
   });
 
   it("says so, and adds nothing, when the container is gone by the time it's added", async () => {

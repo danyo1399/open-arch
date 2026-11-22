@@ -67,6 +67,7 @@ function panel(selection: Selection) {
     onFindUsages() {},
     onNewView() {},
     onNewLibrary: async () => {},
+    onBuild() {},
     onAddSticky() {},
     onDeleteView() {},
     onEditNotes() {},

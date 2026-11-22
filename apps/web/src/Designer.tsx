@@ -35,6 +35,7 @@ import { useMediaQuery } from "./mediaQuery.js";
 import {
   arrowDeleteOps,
   arrowRemovals,
+  buildOps,
   eventDeleteOps,
   eventSelectionGone,
   wireframeDeleteOps,
@@ -398,6 +399,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     const op = newViewOf(ws, element, level);
     void edit([op]).then((ok) => ok && showView(op.id));
   };
+
+  /**
+   * Builds a container with a library, or takes it out: a tick in either's details. The
+   * container's libraries are saved whole, so they're read from the workspace as it is when the
+   * edit runs, with both IDs as they are by then. Read from the render, they'd leave out a
+   * library added or ticked since, such as a new one whose save is still under way.
+   */
+  const build = (container: string, library: string, built: boolean) => void edit((now) => buildOps(now, current(container), current(library), built));
 
   /**
    * Adds a library built into a container, and opens its details, to name it and tick the other
@@ -989,6 +998,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onAddSticky={addStickyOn}
         onNewView={newViewFor}
         onNewLibrary={newLibraryIn}
+        onBuild={build}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
         // The editor opens at once, over everything, so nothing else is edited while it's open. A
         // relationship's look is taken once the edits made before Expand have landed, such as its

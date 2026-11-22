@@ -4,7 +4,7 @@ import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { addableKinds, addElementOps, withFrame, type Selection } from "../src/canvas/Canvas.js";
 import type { ElementFlowNode, FrameFlowNode } from "../src/canvas/nodes.js";
-import { deletePlan, followRenames, renamesBetween, viewAction } from "../src/model.js";
+import { buildOps, deletePlan, followRenames, renamesBetween, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import type { Edit } from "../src/state.js";
@@ -85,6 +85,18 @@ describe("a library in the model", () => {
     expect(renamesBetween(ws, buildWorkspace(renamed.doc))).toEqual(renames);
   });
 
+  it("is built into a container, or taken out, from the container's libraries when the edit runs", () => {
+    // The web app got a library of its own after the details that sent the tick were drawn.
+    const now = buildWorkspace({ ...shop, elements: { ...shop.elements, web: { ...shop.elements.web!, libraries: ["metrics"] }, metrics: { kind: "library", name: "Metrics" } } });
+    expect(buildOps(now, "web", "logging", true)).toEqual([{ op: "update-element", id: "web", libraries: ["metrics", "logging"] }]);
+    expect(buildOps(now, "web", "metrics", false)).toEqual([{ op: "update-element", id: "web", libraries: [] }]);
+    // Already so, or no such container by then: nothing to do.
+    expect(buildOps(now, "web", "metrics", true)).toEqual([]);
+    expect(buildOps(now, "api", "metrics", false)).toEqual([]);
+    expect(buildOps(now, "gone", "metrics", true)).toEqual([]);
+    expect(buildOps(now, "logging", "metrics", true)).toEqual([]);
+  });
+
   it("says which containers deleting it takes it out of", () => {
     expect(deletePlan(ws, "logging").builtWith.map((e: ArchElement) => e.id)).toEqual(["api"]);
     expect(deletePlan(ws, "api").builtWith).toEqual([]);
@@ -92,12 +104,13 @@ describe("a library in the model", () => {
 });
 
 /**
- * The details panel showing an element of `ws`, keeping the edits it sends and the containers it
- * asks for a new library in. A library is added once `added` resolves.
+ * The details panel showing an element of `ws`, keeping the edits it sends, the containers it
+ * asks for a new library in, and the ticks it asks for. A library is added once `added` resolves.
  */
 function panel(id: string, ws = buildWorkspace(shop), added: Promise<void> = Promise.resolve()) {
   const edits: Operation[][] = [];
   const newLibraries: string[] = [];
+  const built: [container: string, library: string, built: boolean][] = [];
   const view = ws.views.get("components")!;
   const element = createElement(Properties, {
     ws,
@@ -122,43 +135,42 @@ function panel(id: string, ws = buildWorkspace(shop), added: Promise<void> = Pro
       newLibraries.push(container);
       return added;
     },
+    onBuild: (container: string, library: string, with_: boolean) => void built.push([container, library, with_]),
     onAddSticky() {},
     onDeleteView() {},
     onEditNotes() {},
   });
-  return { host: mount(element), edits, newLibraries };
+  return { host: mount(element), edits, newLibraries, built };
 }
 
 describe("a library's details", () => {
   it("builds containers with it, or takes it out of them", async () => {
-    const { host, edits } = panel("logging");
+    const { host, built } = panel("logging");
     expect(checkbox(host, "API").checked).toBe(true);
     await click(checkbox(host, "Web app"));
     await click(checkbox(host, "API"));
-    expect(edits).toEqual([[{ op: "update-element", id: "web", libraries: ["logging"] }], [{ op: "update-element", id: "api", libraries: [] }]]);
+    expect(built).toEqual([
+      ["web", "logging", true],
+      ["api", "logging", false],
+    ]);
     expect(() => checkbox(host, "Outside our organisation (external)")).toThrow();
   });
 
   it("are on a container's too, as its libraries", async () => {
-    const { host, edits } = panel("web");
+    const { host, built } = panel("web");
     await click(checkbox(host, "Logging"));
-    expect(edits).toEqual([[{ op: "update-element", id: "web", libraries: ["logging"] }]]);
+    expect(built).toEqual([["web", "logging", true]]);
   });
 
-  it("ask for a new library in a container, once for a double-click, and take no ticks until it's added", async () => {
+  it("ask for a new library in a container, once for a double-click", async () => {
     let done = () => {};
-    const { host, edits, newLibraries } = panel("web", ws, new Promise<void>((resolve) => (done = resolve)));
+    const { host, newLibraries } = panel("web", ws, new Promise<void>((resolve) => (done = resolve)));
     await click(button(host, "+ New library"));
     expect(button(host, "+ New library").disabled).toBe(true);
     await click(button(host, "+ New library"));
     expect(newLibraries).toEqual(["web"]);
-    // A tick now would save the container's libraries without the new one.
-    expect(checkbox(host, "Logging").disabled).toBe(true);
-    await act(async () => checkbox(host, "Logging").click());
-    expect(edits).toEqual([]);
     await act(async () => done());
     expect(button(host, "+ New library").disabled).toBe(false);
-    expect(checkbox(host, "Logging").disabled).toBe(false);
   });
 
   it("offer a container's first library, in a workspace with none", () => {

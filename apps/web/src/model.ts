@@ -226,6 +226,17 @@ export function notesName(ws: Workspace, owner: NotesOwner): string {
   return `${name(owner.from)} ${relationshipAt(ws, owner)?.bidirectional ? "↔" : "→"} ${name(owner.to)}`;
 }
 
+/**
+ * The edit that builds a container with a library, or takes it out, from the container's libraries
+ * as `ws` has them: the workspace when the edit runs, so that a change to them made just before
+ * isn't lost. Nothing when the container isn't there, or it's already so.
+ */
+export function buildOps(ws: Workspace, container: string, library: string, built: boolean): Operation[] {
+  const c = ws.elements.get(container);
+  if (c?.kind !== "container" || c.libraries.includes(library) === built) return [];
+  return [{ op: "update-element", id: c.id, libraries: built ? [...c.libraries, library] : c.libraries.filter((l) => l !== library) }];
+}
+
 /** What deleting an element would remove, for the confirmation dialog: `builtWith` are the containers built with a library being deleted. */
 export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; views: ViewDef[]; affected: ArchElement[]; builtWith: ArchElement[] } {
   const gone = new Set([id, ...[...ws.elements.keys()].filter((e) => isInside(ws, e, id))]);

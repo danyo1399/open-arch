@@ -134,6 +134,8 @@ interface PropertiesProps {
   onNewView(id: string, level: ViewLevel): void;
   /** Adds a library built into this container, and opens its details. Resolves once it has, or couldn't. */
   onNewLibrary(container: string): Promise<void>;
+  /** Builds a container with a library, or takes it out. */
+  onBuild(container: string, library: string, built: boolean): void;
   /** Adds a note on a box, the frame or an arrow, beside it on the diagram. */
   onAddSticky(on: StickyTargetData): void;
   onDeleteView(id: string): void;
@@ -198,7 +200,7 @@ export function Properties(props: PropertiesProps) {
   );
 }
 
-function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onNewView, onNewLibrary, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
+function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onNewView, onNewLibrary, onBuild, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
@@ -214,12 +216,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
   const parents = [...ws.elements.values()].filter((e) => parentKinds.includes(e.kind)).sort((a, b) => a.name.localeCompare(b.name));
   const libraries = [...ws.elements.values()].filter((e) => e.kind === "library").sort(byName);
   const containers = [...ws.elements.values()].filter((e) => e.kind === "container").sort(byName);
-  /** Builds a container with a library, or takes it out. */
-  const build = (container: ArchElement, library: string, built: boolean) =>
-    void edit([{ op: "update-element", id: container.id, libraries: built ? [...container.libraries, library] : container.libraries.filter((l) => l !== library) }]);
-  // + New library is off until the library is added, so a double-click adds one. So are the
-  // libraries' ticks: one made meanwhile would save the container's libraries as they are in
-  // this render, without the new one.
+  // + New library is off until the library is added, so a double-click adds one.
   const [addingLibrary, setAddingLibrary] = useState(false);
   const newLibrary = () => {
     setAddingLibrary(true);
@@ -287,7 +284,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           <legend className="field-label">Libraries</legend>
           {libraries.map((l) => (
             <label key={l.id} className="check">
-              <input type="checkbox" checked={element.libraries.includes(l.id)} disabled={addingLibrary} onChange={(e) => build(element, l.id, e.target.checked)} />
+              <input type="checkbox" checked={element.libraries.includes(l.id)} onChange={(e) => onBuild(element.id, l.id, e.target.checked)} />
               {l.name}
             </label>
           ))}
@@ -303,7 +300,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           {containers.length === 0 && <span className="muted small">There are no containers yet.</span>}
           {containers.map((c) => (
             <label key={c.id} className="check">
-              <input type="checkbox" checked={c.libraries.includes(element.id)} onChange={(e) => build(c, element.id, e.target.checked)} />
+              <input type="checkbox" checked={c.libraries.includes(element.id)} onChange={(e) => onBuild(c.id, element.id, e.target.checked)} />
               {c.name}
             </label>
           ))}
