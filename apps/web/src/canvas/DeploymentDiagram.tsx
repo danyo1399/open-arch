@@ -45,7 +45,7 @@ import {
 } from "@xyflow/react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { accepts, byName, connectionEnds, uniqueNodeId } from "../model.js";
+import { byName, connectionEnds, deploymentOffers, uniqueNodeId, type DeploymentOffer } from "../model.js";
 import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, NODE_W, placeStickies, STICKY, TOUCH_STICKY, type Point } from "./autoLayout.js";
@@ -449,26 +449,27 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
 
   const notes = useContext(NotesOpener);
   const edits: MenuEdits = { edit, select };
+  /** Whether an edit can be offered: whether the view's rules would let it be made (see deploymentOffers). */
+  const offers = (op: DeploymentOffer) => deploymentOffers(ws, view, op);
   /**
    * The ends a connection from this one can go to: another node, or for a node, something that
-   * runs in one, but nothing it's inside or that's inside it. Core says which, tried on a copy
-   * (see `accepts`), as it does for every item here that it could refuse.
+   * runs in one, but nothing it's inside or that's inside it.
    */
   const connectTo = (from: string): MenuItem[] => {
     const number = view.connections.length + 1;
     const items = connectionEnds(ws, view).flatMap((end) => {
-      const add: Operation = { op: "add-connection", view: view.id, from, to: end.id };
-      return accepts(ws, [add]) ? [{ label: end.label, onSelect: () => void edit([add]).then((ok) => ok && select({ kind: "connection", number })) }] : [];
+      const add: DeploymentOffer = { op: "add-connection", view: view.id, from, to: end.id };
+      return offers(add) ? [{ label: end.label, onSelect: () => void edit([add]).then((ok) => ok && select({ kind: "connection", number })) }] : [];
     });
     return items.length ? [{ label: "Add connection to", items }] : [];
   };
 
   // Each item does what it does in the toolbar or the details, which have them all too.
   const nodeMenu = (node: DeploymentNode): MenuItem[] => {
-    const update = (fields: Omit<Extract<Operation, { op: "update-node" }>, "op" | "view" | "id">): Operation => ({ op: "update-node", view: view.id, id: node.id, ...fields });
+    const update = (fields: Omit<Extract<Operation, { op: "update-node" }>, "op" | "view" | "id">): DeploymentOffer => ({ op: "update-node", view: view.id, id: node.id, ...fields });
     const set = (fields: Parameters<typeof update>[0]) => () => void edit([update(fields)]);
     /** An item that changes the node this way, if it can be changed so. */
-    const item = (label: string, fields: Parameters<typeof update>[0]): MenuAction[] => (accepts(ws, [update(fields)]) ? [{ label, onSelect: set(fields) }] : []);
+    const item = (label: string, fields: Parameters<typeof update>[0]): MenuAction[] => (offers(update(fields)) ? [{ label, onSelect: set(fields) }] : []);
     const holdsNodes = view.nodes.some((n) => n.parent === node.id);
     // Not into infrastructure, itself or a node inside it, nor where a connection would join a node and something inside it.
     const inside: MenuAction[] = [...view.nodes.filter((n) => n.id !== node.parent).flatMap((n) => item(n.name, { parent: n.id })), ...(node.parent !== undefined ? item("Nothing: at the top", { parent: null }) : [])];
@@ -503,7 +504,7 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
 
   /** A container or system running in a node: what's done with it there, then what the designer's menu for the element has. */
   const instanceMenu = (node: DeploymentNode, element: string): MenuItem[] => {
-    const stop = () => void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element) }]).then(() => select({ kind: "node", id: node.id }));
+    const stop = () => void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element) }]).then((ok) => ok && select({ kind: "node", id: node.id }));
     const [first, ...rest] = elementItems(element);
     return [{ label: "Stop running it here", onSelect: stop }, ...connectTo(element), ...(first ? [{ ...first, divider: true }, ...rest] : [])];
   };
@@ -514,7 +515,7 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
     // Only where the connection can go: see connectTo.
     const ends = (end: "from" | "to") =>
       all
-        .filter((e) => e.id !== connection[end] && accepts(ws, [{ op: "update-connection", view: view.id, connection: connection.number, [end]: e.id }]))
+        .filter((e) => e.id !== connection[end] && offers({ op: "update-connection", view: view.id, connection: connection.number, [end]: e.id }))
         .map((e) => ({ label: e.label, onSelect: () => void update({ [end]: e.id }) }));
     const [from, to] = [ends("from"), ends("to")];
     return withDelete(

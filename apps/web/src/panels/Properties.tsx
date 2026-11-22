@@ -1360,7 +1360,7 @@ function InstanceProperties(props: PropertiesProps & { view: ViewDef; node: Depl
           </button>
           {node.instances > 1 ? `, ${node.instances} copies` : ""}.
         </p>
-        <button onClick={() => void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element.id) }]).then(() => onSelect({ kind: "node", id: node.id }))}>
+        <button onClick={() => void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element.id) }]).then((ok) => ok && onSelect({ kind: "node", id: node.id }))}>
           Stop running it here
         </button>
       </div>

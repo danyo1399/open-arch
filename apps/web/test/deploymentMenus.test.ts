@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, loadWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
+import { applyOperations, buildWorkspace, loadWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { act } from "react";
 import { describe, expect, it } from "vitest";
 import { STICKY } from "../src/canvas/autoLayout.js";
 import type { MemoryHost } from "../src/hosts.js";
-import { accepts, connectionEnds } from "../src/model.js";
+import { connectionEnds, deploymentAfter, deploymentOffers, type DeploymentOffer } from "../src/model.js";
 import { button, click, key } from "./dom.js";
 import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
@@ -63,13 +63,21 @@ const slow = async (): Promise<[Open, SlowHost]> => {
 const node = async (d: Open, id: string, view = "production") => (await d.saved(view)).nodes.find((n) => n.id === id);
 const connections = async (d: Open, view = "production") => (await d.saved(view)).connections.map((c) => `${c.from} -> ${c.to}`);
 
-describe("the connections a deployment view can have", () => {
+describe("what a deployment view's menus can offer", () => {
   const ws = buildWorkspace(doc);
   const view = ws.views.get("production")!;
+  const connects = (from: string, to: string) => deploymentOffers(ws, view, { op: "add-connection", view: "production", from, to });
+  /** Whether core makes an edit, tried on a copy. */
+  const made = (model: OpenArchDocument, op: DeploymentOffer) => {
+    try {
+      applyOperations(model, [op]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
-  const connects = (from: string, to: string) => accepts(ws, [{ op: "add-connection", view: "production", from, to }]);
-
-  it("go between two of its nodes, or a node and something one runs, as core says when asked", () => {
+  it("is a connection between two of its nodes, or a node and something one runs", () => {
     expect(connects("lb", "server")).toBe(true);
     expect(connects("lb", "web")).toBe(true);
     expect(connects("web", "lb")).toBe(true);
@@ -82,22 +90,58 @@ describe("the connections a deployment view can have", () => {
     expect(connects("web", "region")).toBe(false);
   });
 
-  it("are asked of core without changing anything, and of each workspace once", () => {
-    const before = serializeDocument(ws.doc);
-    const move: Parameters<typeof accepts>[1] = [{ op: "update-node", view: "production", id: "region", parent: "edge" }];
+  it("isn't a move that would leave another connection joining a node and something inside it", () => {
+    const move: DeploymentOffer = { op: "update-node", view: "production", id: "region", parent: "edge" };
     // Routes joins the edge node and the load balancer, which would then be inside it.
-    expect(accepts(ws, move)).toBe(false);
-    expect(accepts(ws, move)).toBe(false);
-    expect(serializeDocument(ws.doc)).toBe(before);
-    // Another workspace is asked for itself.
+    expect(deploymentOffers(ws, view, move)).toBe(false);
     const free = structuredClone(doc);
     free.views.production!.connections!.pop();
-    expect(accepts(buildWorkspace(free), move)).toBe(true);
-    // More than one operation is one edit: the second here needs the first.
-    expect(accepts(ws, [{ op: "remove-connection", view: "production", connection: 3 }, ...move])).toBe(true);
+    const without = buildWorkspace(free);
+    expect(deploymentOffers(without, without.views.get("production")!, move)).toBe(true);
   });
 
-  it("have for ends the view's nodes, then what they run, by name", () => {
+  it("is the view as the edit would leave it that's checked, with nothing changed", () => {
+    const before = JSON.stringify(view);
+    expect(deploymentAfter(view, { op: "add-connection", view: "production", from: "edge", to: "db" }).connections.at(-1)).toMatchObject({ number: 4, from: "edge", to: "db" });
+    expect(deploymentAfter(view, { op: "update-connection", view: "production", connection: 2, to: "db" }).connections.map((c) => `${c.from} -> ${c.to}`)).toEqual(["lb -> web", "lb -> db", "edge -> lb"]);
+    const node = (op: DeploymentOffer) => deploymentAfter(view, op).nodes.find((n) => n.id === "server")!;
+    expect(node({ op: "update-node", view: "production", id: "server", parent: "edge" }).parent).toBe("edge");
+    expect("parent" in node({ op: "update-node", view: "production", id: "server", parent: null })).toBe(false);
+    expect(node({ op: "update-node", view: "production", id: "server", runs: ["web", "api", "db"] })).toMatchObject({ parent: "region", runs: ["web", "api", "db"], infrastructure: false });
+    expect(node({ op: "update-node", view: "production", id: "server", infrastructure: true }).infrastructure).toBe(true);
+    expect(JSON.stringify(view)).toBe(before);
+  });
+
+  it("is what core makes when asked, for every edit a menu might offer, in a view with errors of its own too", () => {
+    // The second has a connection core would refuse to add: the edits that leave it be are still made.
+    const broken = structuredClone(doc);
+    broken.views.production!.connections!.push({ from: "region", to: "lb" });
+    // And things no node can run: a person, and a component of a container.
+    broken.elements.buyer = { kind: "person", name: "Buyer" };
+    broken.elements.orders = { kind: "component", name: "Orders", parent: "api" };
+    for (const model of [doc, broken]) {
+      const workspace = buildWorkspace(model);
+      const production = workspace.views.get("production")!;
+      const ends = connectionEnds(workspace, production).map((end) => end.id);
+      const offers: DeploymentOffer[] = [
+        ...production.nodes.flatMap((n) => [
+          ...production.nodes.filter((p) => p.id !== n.parent).map((p): DeploymentOffer => ({ op: "update-node", view: "production", id: n.id, parent: p.id })),
+          { op: "update-node", view: "production", id: n.id, parent: null } as const,
+          { op: "update-node", view: "production", id: n.id, infrastructure: !n.infrastructure } as const,
+          ...[...workspace.elements.keys()].filter((e) => !n.runs.includes(e)).map((e): DeploymentOffer => ({ op: "update-node", view: "production", id: n.id, runs: [...n.runs, e] })),
+        ]),
+        ...ends.flatMap((from) => ends.map((to): DeploymentOffer => ({ op: "add-connection", view: "production", from, to }))),
+        ...production.connections.flatMap((c) => ends.flatMap((end): DeploymentOffer[] => [
+          { op: "update-connection", view: "production", connection: c.number, from: end },
+          { op: "update-connection", view: "production", connection: c.number, to: end },
+        ])),
+      ];
+      expect(offers.length).toBeGreaterThan(150);
+      for (const op of offers) expect(deploymentOffers(workspace, production, op), JSON.stringify(op)).toBe(made(model, op));
+    }
+  });
+
+  it("have for a connection's ends the view's nodes, then what they run, by name", () => {
     expect(connectionEnds(ws, view).map((end) => end.label)).toEqual([
       "Edge [Deployment node]",
       "Region [Deployment node]",

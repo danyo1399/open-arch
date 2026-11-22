@@ -1,9 +1,9 @@
 /** Small questions about the model that the designer's UI asks. */
 import {
   allWidgets,
-  applyOperations,
   builtInto,
   computeAllViews,
+  computeView,
   describeElement,
   isInside,
   kindLabel,
@@ -574,31 +574,58 @@ export function connectionEnds(ws: Workspace, view: ViewDef): { id: string; labe
   return [...view.nodes.map((n) => ({ id: n.id, label: `${n.name} [${nodeKindLabel(n)}]` })), ...run.map((e) => ({ id: e.id, label: `${e.name} [${kindLabel(e)}]` }))];
 }
 
-/** What `accepts` has found out about each workspace, so a menu drawn again doesn't ask again. */
-const accepted = new WeakMap<Workspace, Map<string, boolean>>();
+/** The edits a deployment view's menus offer that its rules can refuse: a node changed, or a connection added or changed. */
+export type DeploymentOffer = Extract<Operation, { op: "update-node" | "add-connection" | "update-connection" }>;
 
 /**
- * Whether an edit would be made, as the workspace stands: it's tried on a copy, and nothing is
- * changed. An edit is refused for more than its own operations say, as the checks run on what it
- * would leave: a deployment view's connection can't join a node and something inside it, so
- * moving a node into another can be refused for a connection between the two. A menu asks this
- * of what it's about to offer, so it only offers what can be done.
+ * A deployment view as one of the edits its menus offer would leave it: a node moved inside
+ * another or out to the top, given more to run, or made infrastructure or not, and a connection
+ * added at the end, or with an end moved. Anything else an operation says is left as it is.
  */
-export function accepts(ws: Workspace, ops: Operation[]): boolean {
-  let known = accepted.get(ws);
-  if (!known) accepted.set(ws, (known = new Map()));
-  const key = JSON.stringify(ops);
-  let ok = known.get(key);
-  if (ok === undefined) {
-    try {
-      applyOperations(ws.doc, ops);
-      ok = true;
-    } catch {
-      ok = false;
-    }
-    known.set(key, ok);
+export function deploymentAfter(view: ViewDef, op: DeploymentOffer): ViewDef {
+  if (op.op === "add-connection") {
+    const number = view.connections.length + 1;
+    return { ...view, connections: [...view.connections, { path: `${view.path}.connections[${number - 1}]`, number, from: op.from, to: op.to }] };
   }
-  return ok;
+  if (op.op === "update-connection") {
+    return { ...view, connections: view.connections.map((c) => (c.number === op.connection ? { ...c, from: op.from ?? c.from, to: op.to ?? c.to } : c)) };
+  }
+  const change = (node: DeploymentNode): DeploymentNode => {
+    const { parent, ...rest } = node;
+    const inside = op.parent === undefined ? parent : (op.parent ?? undefined);
+    return { ...rest, ...(inside !== undefined && { parent: inside }), runs: op.runs ?? node.runs, infrastructure: op.infrastructure ?? node.infrastructure };
+  };
+  return { ...view, nodes: view.nodes.map((n) => (n.id === op.id ? change(n) : n)) };
+}
+
+/** The errors a view's own checks find in it, each by its rule and what it says, as an edit compares them. */
+function viewErrors(ws: Workspace, view: ViewDef): string[] {
+  return computeView(ws, view)
+    .diagnostics.filter((d) => d.severity === "error")
+    .map((d) => `${d.rule}\u0000${d.message}`);
+}
+
+/** The errors each view has as it stands, so a menu drawn again doesn't work them out again. */
+const errorsNow = new WeakMap<ViewDef, string[]>();
+
+/**
+ * Whether a deployment view's menu can offer an edit: whether it would leave the view with no
+ * error it doesn't have already, which is when the edit is made. The view's rules are all its
+ * own: what a node can be inside or run, where a connection can go, and that none joins a node
+ * and something inside it. That last one can refuse a move or a connection for another
+ * connection, which nothing about the two ends says. So the view is checked as the edit would
+ * leave it, by the checks an edit runs, but this one view only: asking core to try the whole
+ * edit would check every view of the workspace, for each thing a menu might offer.
+ */
+export function deploymentOffers(ws: Workspace, view: ViewDef, op: DeploymentOffer): boolean {
+  let had = errorsNow.get(view);
+  if (!had) errorsNow.set(view, (had = viewErrors(ws, view)));
+  const left = [...had];
+  return viewErrors(ws, deploymentAfter(view, op)).every((error) => {
+    const at = left.indexOf(error);
+    if (at >= 0) left.splice(at, 1);
+    return at >= 0;
+  });
 }
 
 /** A wireframe's widget as lists and menus name it: its kind, and its text's first line. */

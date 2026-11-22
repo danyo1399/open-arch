@@ -2,7 +2,7 @@
  * Where a sequence view's parts go: a lifeline for each element, left to right in the order
  * they first appear, and a row for each step, top to bottom. Nothing is saved: the steps decide.
  */
-import { isInside, stepRelationships, type ArchElement, type ComputedView, type Operation, type Workspace } from "@open-arch/core";
+import { isInside, stepRelationships, type ArchElement, type ComputedView, type Operation, type Step, type Workspace } from "@open-arch/core";
 import { byName, relationshipRef } from "../model.js";
 
 /** The width of a lifeline's column, its heading box's size, and the height of a step's row. */
@@ -53,6 +53,16 @@ export function dropNumber(layout: SequenceLayout, y: number): number {
  */
 export function stepTargets(ws: Workspace, from: string, reply: boolean): ArchElement[] {
   return [...ws.elements.values()].filter((e) => stepRelationships(ws, from, e.id, reply).length > 0).sort(byName);
+}
+
+/**
+ * The elements either end of a step can move to, as update-step allows: those the model has a
+ * relationship for the step to go along, from the new end or to it, or for a reply, back along.
+ * In alphabetical order.
+ */
+export function stepEnds(ws: Workspace, step: Pick<Step, "from" | "to" | "reply">, end: "from" | "to"): ArchElement[] {
+  const goes = (id: string) => (end === "from" ? stepRelationships(ws, id, step.to, step.reply) : stepRelationships(ws, step.from, id, step.reply)).length > 0;
+  return [...ws.elements.values()].filter((e) => e.id !== step[end] && goes(e.id)).sort(byName);
 }
 
 /** A way to add a step from one element to another: a label for a menu, and its edit. */

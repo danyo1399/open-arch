@@ -11,7 +11,7 @@ import type { Edit } from "../state.js";
 import type { Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
-import { dropNumber, lifelineAt, SEQ, sequenceLayout, stepChoices, stepTargets, type StepChoice } from "./sequenceLayout.js";
+import { dropNumber, lifelineAt, SEQ, sequenceLayout, stepChoices, stepEnds, stepTargets, type StepChoice } from "./sequenceLayout.js";
 import { ElementNotes, NotesOpener, StickyNotes } from "./nodes.js";
 
 interface SequenceProps {
@@ -37,15 +37,6 @@ const DRAG_DISTANCE = 4;
 function newStickyId(ids: string[]): string {
   if (!ids.includes("note")) return "note";
   for (let i = 2; ; i++) if (!ids.includes(`note-${i}`)) return `note-${i}`;
-}
-
-/**
- * The elements either end of a step can move to, as update-step allows: those the model has a
- * relationship for the step to go along, from the new end or to it, or for a reply, back along.
- */
-export function stepEnds(ws: Workspace, step: Pick<Step, "from" | "to" | "reply">, end: "from" | "to") {
-  const goes = (id: string) => (end === "from" ? stepRelationships(ws, id, step.to, step.reply) : stepRelationships(ws, step.from, id, step.reply)).length > 0;
-  return [...ws.elements.values()].filter((e) => e.id !== step[end] && goes(e.id)).sort(byName);
 }
 
 export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, menus, onElementMenu, onError, exportItems }: SequenceProps) {
@@ -326,21 +317,22 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, m
             </div>
           )}
         </div>
-        {choosing && (
-          <ContextMenu
-            x={choosing.x}
-            y={choosing.y}
-            note={choosing.choices[0]!.changesModel ? "The model has no relationship for this call yet." : undefined}
-            items={choosing.choices.map((c) => ({ label: c.label, onSelect: () => addStep(c.ops, choosing.number) }))}
-            onClose={() => setChoosing(null)}
-          />
-        )}
         {cv.steps.length === 0 && (
           <div className="empty-hint">
             This view has no steps yet. Use <strong>+ Add step</strong> to add the first one.
           </div>
         )}
       </div>
+      {/* Menus are drawn outside the steps' area, so a right-click on one isn't one on the background. */}
+      {choosing && (
+        <ContextMenu
+          x={choosing.x}
+          y={choosing.y}
+          note={choosing.choices[0]!.changesModel ? "The model has no relationship for this call yet." : undefined}
+          items={choosing.choices.map((c) => ({ label: c.label, onSelect: () => addStep(c.ops, choosing.number) }))}
+          onClose={() => setChoosing(null)}
+        />
+      )}
       {menu.menu}
     </div>
   );

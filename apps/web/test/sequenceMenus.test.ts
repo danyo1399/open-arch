@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
+import { buildWorkspace, computeView, loadWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
+import { act } from "react";
 import { describe, expect, it } from "vitest";
-import { stepEnds } from "../src/canvas/SequenceDiagram.js";
+import { sequenceLayout, stepEnds } from "../src/canvas/sequenceLayout.js";
 import type { MemoryHost } from "../src/hosts.js";
 import { button, click, key } from "./dom.js";
 import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
@@ -189,6 +190,35 @@ describe("the right-click menus of a sequence view's notes, background and eleme
     expect(d.details()).toBe("Sticky note");
   });
 
+  it("leaves the menu of ways to add a step drawn between two elements alone: a right-click on it isn't one on the background", async () => {
+    const d = await designer();
+    await click(label(d, 2));
+    // The cache is dragged to the buyer, which the model has no relationship for, so there are ways to choose from.
+    const ws = buildWorkspace(doc);
+    const lifeline = sequenceLayout(computeView(ws, ws.views.get("ordering")!)).x;
+    const grip = [...d.host.querySelectorAll<HTMLElement>(".lifeline-grip")].find((g) => g.title.endsWith("from Cache"))!;
+    grip.setPointerCapture = () => {};
+    const at = (id: string) => ({ bubbles: true, button: 0, pointerId: 1, clientX: lifeline.get(id)!, clientY: 150 });
+    await act(async () => {
+      grip.dispatchEvent(new PointerEvent("pointerdown", at("cache")));
+    });
+    await act(async () => {
+      grip.dispatchEvent(new PointerEvent("pointermove", at("buyer")));
+    });
+    await act(async () => {
+      grip.dispatchEvent(new PointerEvent("pointerup", at("buyer")));
+    });
+    expect(d.labels()).toEqual(["Call Buyer, adding a relationship from Cache to Buyer", "Call Buyer, adding a relationship both ways"]);
+    const choices = document.querySelector(".context-menu")!;
+    const event = await d.rightClick(choices.querySelector('[role="menuitem"]')!);
+    expect(event.defaultPrevented).toBe(true);
+    // It's still the one menu, and the step selected before still is.
+    expect(document.querySelector(".context-menu")).toBe(choices);
+    expect(document.querySelectorAll(".context-menu").length).toBe(1);
+    expect(d.labels()).toEqual(["Call Buyer, adding a relationship from Cache to Buyer", "Call Buyer, adding a relationship both ways"]);
+    expect(d.details()).toBe("Step 2of 4");
+  });
+
   it("has the menu an element has on any view on an element's heading, and no other with it", async () => {
     const d = await designer();
     const head = [...d.host.querySelectorAll(".sequence-head")].find((h) => h.textContent!.includes("API"))!;
@@ -223,6 +253,32 @@ describe("a sequence view's right-click menu, opened with the keyboard or after 
     expect(d.details()).toBe("Step 2of 3");
     await d.pick("Delete step");
     expect(await steps(d)).toEqual(["web -> api", "api replies to web"]);
+  });
+
+  it("opens on a step under the number it has once an element is deleted from the model, unless the step went with it", async () => {
+    for (const [clicked, opens] of [
+      [4, true],
+      [3, false],
+    ] as const) {
+      const [d, file] = await slow();
+      const head = [...d.host.querySelectorAll(".sequence-head")].find((h) => h.textContent!.includes("Cache"))!;
+      await d.rightClick(head);
+      await d.pick("Delete from model…");
+      file.hold = true;
+      await click([...d.host.querySelectorAll("button")].find((b) => b.textContent!.trim() === "Delete from model")!);
+      // Remembers, step 3, is the API's call to the cache, and goes with it. The reply after it, step 4, doesn't.
+      await d.rightClick(label(d, clicked));
+      expect(d.menuOpen()).toBe(false);
+      file.release();
+      await d.settle();
+      expect(loadWorkspace(await d.file.load()).elements.has("cache")).toBe(false);
+      expect(await steps(d)).toEqual(["buyer -> web", "web -> api", "api replies to web"]);
+      expect(d.menuOpen(), `step ${clicked}`).toBe(opens);
+      if (!opens) continue;
+      expect(d.details()).toBe("Step 3of 3");
+      await d.pick("Delete step");
+      expect(await steps(d)).toEqual(["buyer -> web", "web -> api"]);
+    }
   });
 
   it("doesn't open on the step that was being deleted", async () => {
