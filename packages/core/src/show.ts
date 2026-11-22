@@ -53,7 +53,7 @@ export function showElement(ws: Workspace, element: ArchElement): Shown {
     usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes })),
     contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
     contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
-    views: d.views.map(({ view, as, runsIn }) => ({ id: view.id, as, runsIn: runsIn?.map((n) => n.id) })),
+    views: d.views.map(({ view, as, runsIn, lanes }) => ({ id: view.id, as, runsIn: runsIn?.map((n) => n.id), lanes: lanes?.map((l) => l.id) })),
   };
   const lines = [`${element.id}: ${element.name}`];
   const field = (label: string, value: string | undefined) => value && lines.push(`  ${(label + ":").padEnd(13)}${value}`);
