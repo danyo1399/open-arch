@@ -120,6 +120,8 @@ describe("the designer with a workspace in a folder", () => {
     expect(status(host)).toBe("Saved · docs in docs/");
     expect(hasButton(host, "Export zip")).toBe(false);
     await click(host.querySelector(".ws-name")!);
+    // Its details name the file as the top bar does.
+    expect(host.querySelector(".properties .props-header code")?.textContent).toBe("repo/a.openarch");
     expect(host.querySelector(".properties")?.textContent).toContain("The first save after opening the workspace also brings the open-arch agent skill up to date in .agents/skills/open-arch/ and .claude/skills/open-arch/ at the top of the project");
     expect(host.querySelector(".properties")?.textContent).toContain("Saves also keep the open-arch section in the project's AGENTS.md");
 
@@ -146,6 +148,21 @@ describe("the designer with a workspace in a folder", () => {
     expect(host.querySelector(".file-name")?.textContent).toBe("repo/a.openarch");
     expect(host.querySelector(".topbar")?.firstElementChild?.className).toContain("ws-name");
     expect(host.querySelector(".topbar")?.textContent?.startsWith("Reporepo/a.openarch")).toBe(true);
+  });
+
+  it("names the file the same way in the More menu on a narrow screen, where the top bar has no room for it", async () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ matches: true, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    try {
+      const root = new FakeFolder("repo");
+      root.put("a.openarch", withDocs);
+      const host = await open(root);
+      expect(host.querySelector(".file-name")).toBeNull();
+      await click(host.querySelector('button[aria-label="More"]')!);
+      expect(document.querySelector(".context-menu")?.textContent).toContain("repo/a.openarch · Saved · docs in docs/");
+    } finally {
+      window.matchMedia = real;
+    }
   });
 
   it("offers to export a zip once the file's gone, as nothing saves them any more", async () => {

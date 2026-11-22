@@ -897,6 +897,11 @@ button.heading {
   gap: 8px;
   margin-bottom: 12px;
 }
+/* A workspace in a folder is named with its path, which is long and has no spaces to wrap at. */
+.props-header .file-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .badge {
   font-size: 12px;
   font-weight: 600;

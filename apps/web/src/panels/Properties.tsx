@@ -116,6 +116,7 @@ interface PropertiesProps {
   /** Saving also keeps the agent skill and AGENTS.md section up to date beside the workspace: on desktop, and for a workspace in a folder. */
   syncsSkill: boolean;
   docs: DocsSummary | null;
+  /** The workspace's file, for display: for one in a folder, with the folder and the path in it. */
   fileName: string;
   edit(edit: Edit): Promise<boolean>;
   onSelect(selection: Selection): void;
@@ -2313,7 +2314,7 @@ function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }
     <>
       <header className="props-header">
         <span className="badge">Workspace</span>
-        <code className="muted small">{fileName}</code>
+        <code className="muted small file-path">{fileName}</code>
       </header>
       <Field label="Name" value={ws.doc.name} onCommit={(name) => void edit([{ op: "update-workspace", name }])} />
       <Field label="Description" value={ws.doc.description ?? ""} multiline onCommit={(description) => void edit([{ op: "update-workspace", description: description || null }])} />

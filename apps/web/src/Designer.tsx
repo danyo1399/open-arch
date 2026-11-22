@@ -538,6 +538,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const designer = desktop || !location.protocol.startsWith("http") ? PUBLIC_DESIGNER : location.origin + location.pathname;
   // A workspace from a folder whose file is gone is zipped as that folder, so the docs are where a save put them.
   const place = host instanceof FolderHost ? { folder: host.root.name, path: host.path } : undefined;
+  // The file, as the top bar, the workspace's details and, on a narrow screen, the More menu name it: a workspace in a folder with the folder and the path in it.
   const fileName = host instanceof FolderHost ? host.location : host.name;
   // Chrome and Edge can write to a folder; the desktop app keeps its files where they are.
   const canExportToFolder = !desktop && canOpenFolders();
@@ -699,7 +700,6 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         </button>
         {!narrow && (
           <>
-            {/* A workspace in a folder is named with the folder and the path in it, to tell it from a file of the same name in another. */}
             <span className="muted small file-name" title={fileName}>
               {fileName}
             </span>
@@ -746,7 +746,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           {narrow ? <Icon d={REDO_ICON} /> : "Redo"}
         </button>
         {narrow ? (
-          <MenuButton items={moreItems} note={`${host.name} · ${status}`} from="right" className="square" title="More" label="More">
+          <MenuButton items={moreItems} note={`${fileName} · ${status}`} from="right" className="square" title="More" label="More">
             <Icon d={MORE_ICON} stroke={3} />
           </MenuButton>
         ) : (
@@ -941,7 +941,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         syncsDocs={syncsDocs}
         syncsSkill={savesSkill(host, state.storage)}
         docs={state.docs}
-        fileName={host.name}
+        fileName={fileName}
         edit={edit}
         onSelect={select}
         onHide={hideFromView}
