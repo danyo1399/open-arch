@@ -21,11 +21,14 @@ export type StickyNodeData = {
   onDone(text: string | null): void;
   /**
    * On views of boxes, the note has a dot under it to drag to a box, the frame or an arrow, and put
-   * the note on it: the dot is being dragged, and is at this point on the diagram.
+   * the note on it, and on a flowchart, to a block: the dot is being dragged, and is at this point
+   * on the diagram.
    */
   onLinkDrag?(at: Point): void;
   /** The dot let go at this point on the diagram, or null when the drag was cancelled. */
   onLinkDrop?(at: Point | null): void;
+  /** What the dot can be dragged to, as its tooltip says: "a box, the frame or an arrow", unless this says. */
+  linkTo?: string;
 };
 export type StickyFlowNode = Node<StickyNodeData, "sticky">;
 
@@ -87,6 +90,48 @@ export function FrameNotes({ frame }: { frame: FrameFlowNode | null | undefined 
       <div className="frame-notes" style={{ transform: `translate(${frame.position.x + frame.data.width}px, ${frame.position.y}px)` }}>
         <ElementNotes element={frame.data.element} />
       </div>
+    </ViewportPortal>
+  );
+}
+
+/** A line from a sticky note to what it's on, between two points on the diagram. */
+export interface StickyLine {
+  /** The note's ID. */
+  id: string;
+  from: Point;
+  to: Point;
+  /** The note is selected, so its line is too. */
+  selected: boolean;
+}
+
+/**
+ * The dotted lines from sticky notes to what they're on (see .sticky-lines in styles.css). It goes
+ * inside the diagram's ReactFlow.
+ */
+export function StickyLines({ lines }: { lines: StickyLine[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <ViewportPortal>
+      <svg className="sticky-lines" aria-hidden="true">
+        {lines.map((l) => (
+          <line key={l.id} className={l.selected ? "selected" : undefined} x1={l.from.x} y1={l.from.y} x2={l.to.x} y2={l.to.y} />
+        ))}
+      </svg>
+    </ViewportPortal>
+  );
+}
+
+/**
+ * The line from a note whose dot is being dragged to where the dot is, `at`, over everything else
+ * at `zIndex`. `line` is null while the dot is over its note. It goes inside the diagram's ReactFlow.
+ */
+export function StickyLinking({ at, line, zIndex }: { at: Point; line: { from: Point; to: Point } | null; zIndex: number }) {
+  return (
+    <ViewportPortal>
+      <svg className="sticky-linking" style={{ zIndex }} aria-hidden="true">
+        {line && <line x1={line.from.x} y1={line.from.y} x2={line.to.x} y2={line.to.y} />}
+        <circle cx={at.x} cy={at.y} r={5} />
+      </svg>
     </ViewportPortal>
   );
 }
@@ -177,12 +222,12 @@ export function FrameNode({ data }: NodeProps<FrameFlowNode>) {
 }
 
 /**
- * The dot under a note, to drag to a box, the frame or an arrow and put the note on it. It keeps
- * the pointer while it's dragged, and reports where it is, as an arrow's grips do; the canvas
- * draws the line being dragged, and puts the note on what it's let go on. A click without a drag
- * selects the note, as a click on the note does.
+ * The dot under a note, to drag to a box, the frame or an arrow, or on a flowchart a block (`to`
+ * says which), and put the note on it. It keeps the pointer while it's dragged, and reports where
+ * it is, as an arrow's grips do; the canvas draws the line being dragged, and puts the note on
+ * what it's let go on. A click without a drag selects the note, as a click on the note does.
  */
-function LinkGrip({ onDrag, onDrop }: { onDrag(at: Point): void; onDrop(at: Point | null): void }) {
+function LinkGrip({ to, onDrag, onDrop }: { to: string; onDrag(at: Point): void; onDrop(at: Point | null): void }) {
   const rf = useReactFlow();
   const drag = useRef<{ pointer: number; x: number; y: number; moving: boolean } | null>(null);
   /** A drag just ended, so the click that follows it isn't a click on the note. */
@@ -207,7 +252,7 @@ function LinkGrip({ onDrag, onDrop }: { onDrag(at: Point): void; onDrop(at: Poin
   return (
     <div
       className="sticky-grip nodrag nopan"
-      title="Drag to a box, the frame or an arrow to put the note on it"
+      title={`Drag to ${to} to put the note on it`}
       onPointerDown={(e) => {
         if (e.button !== 0 || drag.current) return;
         e.stopPropagation();
@@ -278,7 +323,7 @@ export function StickyNode({ data, selected }: NodeProps<StickyFlowNode>) {
         <div className="sticky-text">{sticky.text}</div>
       )}
       {!editing && <StickyNotes sticky={sticky} />}
-      {!editing && data.onLinkDrag && data.onLinkDrop && <LinkGrip onDrag={data.onLinkDrag} onDrop={data.onLinkDrop} />}
+      {!editing && data.onLinkDrag && data.onLinkDrop && <LinkGrip to={data.linkTo ?? "a box, the frame or an arrow"} onDrag={data.onLinkDrag} onDrop={data.onLinkDrop} />}
     </div>
   );
 }

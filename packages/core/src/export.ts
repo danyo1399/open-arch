@@ -22,6 +22,7 @@ import {
   type Relationship,
   type RelationshipKind,
   type Sticky,
+  type ViewDef,
   type Widget,
 } from "./types.js";
 import type { Workspace } from "./workspace.js";
@@ -67,10 +68,20 @@ function link(e: ArchElement, from: "root" | "elements" | "views"): string {
   return `[${e.name}](${href})`;
 }
 
-/** What a sticky note is on, to start its quote: "On [Cache](…): ", or "On [Web App](…) → [Orders DB](…): ". Nothing for a note on nothing. */
-function stickyOn(ws: Workspace, s: Sticky): string {
+/**
+ * What a sticky note is on, to start its quote: "On [Cache](…): ", or "On [Web App](…) →
+ * [Orders DB](…): ", or on a flowchart view, the block's text, 'On "Pack the order": '. Nothing
+ * for a note on nothing.
+ */
+function stickyOn(ws: Workspace, view: ViewDef, s: Sticky): string {
   const on = s.on;
   if (!on) return "";
+  if ("block" in on) {
+    const block = view.blocks.find((b) => b.id === on.block);
+    // On one line, as the table of blocks has it.
+    const text = block?.text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(" / ");
+    return `On "${text ?? on.block}": `;
+  }
   const name = (id: string) => {
     const e = ws.elements.get(id);
     return e ? link(e, "views") : id;
@@ -158,7 +169,7 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     // with the note's own notes after its text, in the same quote.
     if (v.stickies.length) {
       const quote = (text: string, first = "") => text.split(/\r?\n/).map((l, i) => `> ${i === 0 ? first : ""}${l}`.trimEnd());
-      lines.push("", "## Sticky notes", ...v.stickies.flatMap((s) => ["", ...quote(s.text, stickyOn(ws, s)), ...(s.notes ? [">", ...quote(s.notes)] : [])]));
+      lines.push("", "## Sticky notes", ...v.stickies.flatMap((s) => ["", ...quote(s.text, stickyOn(ws, v, s)), ...(s.notes ? [">", ...quote(s.notes)] : [])]));
     }
     if (v.level === "state") {
       const name = (id: string) => cell(v.states.find((s) => s.id === id)?.name ?? id);

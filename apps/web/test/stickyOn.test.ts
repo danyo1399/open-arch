@@ -7,7 +7,7 @@ import { distanceToRoute, edgePoint, midpoint, nearestOnOutline, stickyLine } fr
 import { followRenames, renamesBetween, stickyChoices, stickyTargetFor } from "../src/model.js";
 
 const doc: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -49,7 +49,7 @@ describe("stickyTargetFor", () => {
     // Logging's writer is drawn in each container built with it, so its relationship to the log
     // service is an arrow from each. A note on that relationship has its line to the first.
     const model: OpenArchDocument = {
-      openarch: 19,
+      openarch: 20,
       name: "Logs",
       elements: {
         shop: { kind: "system", name: "Shop" },
@@ -107,6 +107,40 @@ describe("stickyChoices", () => {
   });
 });
 
+describe("stickyChoices on a flowchart", () => {
+  const flow = (on?: { block: string }): OpenArchDocument => ({
+    ...doc,
+    views: {
+      returns: {
+        title: "Returns",
+        level: "flowchart",
+        blocks: [
+          { id: "asked", kind: "start", text: "Return asked for" },
+          { id: "in-time", kind: "decision", text: "\nWithin 30 days?\nOf delivery" },
+          { id: "refund", text: "Refund the card" },
+        ],
+        flows: [{ from: "asked", to: "in-time" }],
+        stickies: { n: { text: "N", ...(on && { on }) } },
+      },
+    },
+  });
+  const choices = (on?: { block: string }) => {
+    const { ws, cv } = computed(flow(on), "returns");
+    return stickyChoices(ws, cv, cv.view.stickies[0]!).map((c) => `${c.group ?? "-"} ${c.label} = ${c.key}`);
+  };
+
+  it("lists the blocks in their order, each by the first line of its text", () => {
+    const blocks = ["Blocks Return asked for = block:asked", "Blocks Within 30 days? = block:in-time", "Blocks Refund the card = block:refund"];
+    expect(choices()).toEqual(blocks);
+    expect(choices({ block: "refund" })).toEqual(blocks);
+  });
+
+  it("lists the block the note is on when the view doesn't have it", () => {
+    expect(choices({ block: "gone" })[0]).toBe("- gone (not in this view) = block:gone");
+    expect(choices({ block: "gone" })).toHaveLength(4);
+  });
+});
+
 describe("renames and sticky notes", () => {
   const renames = [{ op: "rename" as const, id: "web", to: "website" }];
 
@@ -118,6 +152,8 @@ describe("renames and sticky notes", () => {
       { op: "update-sticky", view: "containers", id: "n", on: { from: "customer", to: "website" } },
     ]);
     expect(followRenames([{ op: "update-sticky", view: "containers", id: "n", on: null }], renames)).toEqual([{ op: "update-sticky", view: "containers", id: "n", on: null }]);
+    // A flowchart's block is its view's own, even one with the ID of an element that's renamed.
+    expect(followRenames([{ op: "update-sticky", view: "returns", id: "n", on: { block: "web" } }], renames)).toEqual([{ op: "update-sticky", view: "returns", id: "n", on: { block: "web" } }]);
   });
 
   it("are worked out from a file with an element renamed that a note is on", () => {
@@ -266,7 +302,7 @@ describe("what a note's dot is let go on", () => {
   it("passes over an arrow a note can't be on", () => {
     // Logging's writer is drawn in each container built with it, and a note on its relationship has its line to the first arrow.
     const model: OpenArchDocument = {
-      openarch: 19,
+      openarch: 20,
       name: "Logs",
       elements: {
         shop: { kind: "system", name: "Shop" },

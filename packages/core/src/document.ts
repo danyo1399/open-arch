@@ -188,6 +188,7 @@ const LINK_KEYS = ["from", "to", "cardinality", "text"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
 const STICKY_KEYS = ["text", "on", "color", "at", "notes"];
 const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
+const STICKY_ON_BLOCK_KEYS = ["block"];
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -310,6 +311,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 17) out = { ...out, openarch: 18 };
   // Version 19 added notes to sticky notes, so a version 18 file means the same in it.
   if (out.openarch === 18) out = { ...out, openarch: 19 };
+  // Version 20 let a sticky note be on a flowchart's block, so a version 19 file means the same in it.
+  if (out.openarch === 19) out = { ...out, openarch: 20 };
   return out;
 }
 
@@ -1205,7 +1208,7 @@ function readLink(value: unknown, path: string, report: Report): EntityLinkData 
   return link;
 }
 
-/** `own`: the view's level, when it draws something other than boxes picked from the model, whose notes can't be on anything. */
+/** `own`: the view's level, when it draws something other than boxes picked from the model. Of those, only a flowchart's notes can be on anything: its blocks. */
 function readSticky(id: string, value: unknown, path: string, report: Report, own: OwnLevel | undefined): StickyData | undefined {
   if (!readId(id, path, report)) return undefined;
   if (!isObject(value)) {
@@ -1220,10 +1223,15 @@ function readSticky(id: string, value: unknown, path: string, report: Report, ow
   }
   const sticky: StickyData = { text };
   if (value.on !== undefined) {
-    if (own) {
-      report(`${path}.on`, "field-not-allowed", `Only sticky notes on landscape, context, container, component and class views can be on an element or relationship, and this is ${aOrAn(own)} ${own} view.`, "Remove `on`.");
+    if (own && own !== "flowchart") {
+      report(
+        `${path}.on`,
+        "field-not-allowed",
+        `A sticky note can be on an element or relationship on a landscape, context, container, component or class view, and on a block on a flowchart view. This is ${aOrAn(own)} ${own} view.`,
+        "Remove `on`.",
+      );
     } else {
-      const on = readStickyTarget(value.on, `${path}.on`, report);
+      const on = own === "flowchart" ? readStickyBlock(value.on, `${path}.on`, report) : readStickyTarget(value.on, `${path}.on`, report);
       if (on) sticky.on = on;
     }
   }
@@ -1240,11 +1248,15 @@ function readSticky(id: string, value: unknown, path: string, report: Report, ow
   return sticky;
 }
 
-/** What a sticky note is on: `{ "element": "<id>" }`, or `{ "from": "<id>", "to": "<id>" }` with the relationship's `kind` when it isn't an association. */
+/** What a sticky note on a view of boxes is on: `{ "element": "<id>" }`, or `{ "from": "<id>", "to": "<id>" }` with the relationship's `kind` when it isn't an association. */
 function readStickyTarget(value: unknown, path: string, report: Report): StickyTargetData | undefined {
   const shape = 'Must be an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" }.';
   if (!isObject(value)) {
     report(path, "field-type", shape);
+    return undefined;
+  }
+  if (value.block !== undefined) {
+    report(`${path}.block`, "field-not-allowed", "Only a sticky note on a flowchart view can be on a block.", "Use `element`, or `from` and `to`, or remove `on`.");
     return undefined;
   }
   unknownKeys(value, STICKY_ON_KEYS, path, report);
@@ -1274,6 +1286,30 @@ function readStickyTarget(value: unknown, path: string, report: Report): StickyT
     } else report(`${path}.kind`, "relationship-kind-invalid", `\`kind\` must be one of: ${RELATIONSHIP_KINDS.join(", ")}.`);
   }
   return on;
+}
+
+/** What a sticky note on a flowchart view is on: `{ "block": "<id>" }`, one of the view's blocks. */
+function readStickyBlock(value: unknown, path: string, report: Report): StickyTargetData | undefined {
+  const shape = 'Must be a block of this view, like { "block": "pack-order" }.';
+  if (!isObject(value)) {
+    report(path, "field-type", shape);
+    return undefined;
+  }
+  // An element or a relationship, as on a view of boxes: a flowchart draws neither.
+  const boxes = STICKY_ON_KEYS.filter((key) => value[key] !== undefined);
+  if (boxes.length) {
+    report(`${path}.${boxes[0]}`, "field-not-allowed", "A flowchart view draws its blocks, not elements or relationships: a sticky note on it can only be on a block.", 'Use { "block": "<id>" }, or remove `on`.');
+    return undefined;
+  }
+  unknownKeys(value, STICKY_ON_BLOCK_KEYS, path, report);
+  if (value.block === undefined) {
+    report(path, "field-required", shape);
+    return undefined;
+  }
+  const block = str(value.block, `${path}.block`, report);
+  // A value that isn't a string was reported by str.
+  if (block === "") report(`${path}.block`, "field-required", "`block` is required: the ID of the block the note is on.");
+  return block ? { block } : undefined;
 }
 
 // --- Writing ----------------------------------------------------------------------
@@ -1511,7 +1547,8 @@ function viewText(v: ViewData, indent: string): string {
   }
   if (present(v.stickies, (s) => Object.keys(s).length > 0)) {
     const keys = Object.keys(v.stickies).sort();
-    const on = (t: StickyTargetData) => ("element" in t ? { element: t.element } : { from: t.from, to: t.to, kind: t.kind && t.kind !== "association" ? t.kind : undefined });
+    const on = (t: StickyTargetData) =>
+      "element" in t ? { element: t.element } : "block" in t ? { block: t.block } : { from: t.from, to: t.to, kind: t.kind && t.kind !== "association" ? t.kind : undefined };
     const sticky = (s: StickyData) => inline({ text: s.text, on: s.on && on(s.on), color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)), notes: s.notes || undefined });
     entries.push(["stickies", block(keys.map((k) => [k, sticky(v.stickies![k]!)]), `${indent}  `)]);
   }

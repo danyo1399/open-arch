@@ -65,6 +65,42 @@ export function onOutline(kind: BlockKind, box: Box, p: Readonly<Point>, inward:
   return { ...p };
 }
 
+/**
+ * Where a straight line from `from`, outside a block, to the middle of it meets its outline: a
+ * diamond's edge, a pill's round end or an input or output's slanted side, and the box for the
+ * other kinds, whose outline is their box, or near enough. `from` itself when it's inside the
+ * outline. For the line from a sticky note to the block it's on.
+ */
+export function outlineToward(kind: BlockKind, box: Box, from: Readonly<Point>): Point {
+  const middle = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+  const [dx, dy] = [from.x - middle.x, from.y - middle.y];
+  if (!dx && !dy) return middle;
+  // How far along the way from the middle to `from` each edge is: 1 is `from` itself.
+  const flat = dy ? box.h / 2 / Math.abs(dy) : Infinity;
+  let along: number;
+  if (kind === "decision") {
+    along = 1 / (Math.abs(dx) / (box.w / 2) + Math.abs(dy) / (box.h / 2));
+  } else if (kind === "start" || kind === "end") {
+    // Straight along the top and bottom, between round ends, each half a circle as tall as the block.
+    const r = Math.min(box.h, box.w) / 2;
+    const centre = Math.sign(dx) * (box.w / 2 - r);
+    if (Math.abs(dx) * flat <= Math.abs(centre)) along = flat;
+    else {
+      // Where the line leaves the circle of that end: |along * d - (centre, 0)| = r.
+      const [a, b] = [dx * dx + dy * dy, dx * centre];
+      along = (b + Math.sqrt(Math.max(0, b * b - a * (centre * centre - r * r)))) / a;
+    }
+  } else if (kind === "input-output") {
+    // A side slants SLANT to the left from its top to its bottom, so x + (SLANT / h) * y is the same all down it.
+    const across = dx + (SLANT / box.h) * dy;
+    along = Math.min(flat, across ? (box.w - SLANT) / 2 / Math.abs(across) : Infinity);
+  } else {
+    along = Math.min(flat, dx ? box.w / 2 / Math.abs(dx) : Infinity);
+  }
+  along = Math.min(along, 1);
+  return { x: middle.x + dx * along, y: middle.y + dy * along };
+}
+
 /** A route with its ends moved onto the outlines of the blocks it leaves and enters. */
 export function routeToOutlines(points: readonly Readonly<Point>[], from: { kind: BlockKind; box: Box }, to: { kind: BlockKind; box: Box }): Point[] {
   if (points.length < 2) return points.map((p) => ({ ...p }));

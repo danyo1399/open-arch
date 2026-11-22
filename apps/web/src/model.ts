@@ -597,24 +597,36 @@ export function stickyTargetFor(ws: Workspace, computed: ComputedView | null, se
 export interface StickyChoice {
   key: string;
   label: string;
-  group?: "Boxes" | "Arrows";
+  group?: "Boxes" | "Arrows" | "Blocks";
   on: StickyTargetData;
 }
 
 /** A key for what a note is on, the same for a relationship's kind given or left out as an association. */
 export function stickyKey(on: StickyTargetData): string {
+  if ("block" in on) return `block:${on.block}`;
   return "element" in on ? `element:${on.element}` : `relationship:${on.from}\u0000${on.to}\u0000${on.kind ?? "association"}`;
 }
 
+/** A block's text on one line, as lists name it. */
+export const blockText = (b: Pick<Block, "id" | "text">) => b.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? b.id;
+
 /**
  * What a note on this view can be put on: its boxes and its frame, by name, then its arrows, each
- * as the relationship it stands for first, unless the note is on another of them already. What
- * the note is on is among them even when the view doesn't draw it, so the list can show it.
+ * as the relationship it stands for first, unless the note is on another of them already. On a
+ * flowchart: its blocks, in their order. What the note is on is among them even when the view
+ * doesn't draw it, so the list can show it.
  */
 export function stickyChoices(ws: Workspace, computed: ComputedView, sticky: Sticky): StickyChoice[] {
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   const current = sticky.on && stickyAnchor(ws, computed, sticky.on);
   const choice = (on: StickyTargetData, label: string, group?: StickyChoice["group"]): StickyChoice => ({ key: stickyKey(on), label, group, on });
+  /** What a note is on, as the list names it when the view doesn't draw it. */
+  const named = (on: StickyTargetData) => ("block" in on ? on.block : "element" in on ? name(on.element) : `${name(on.from)} → ${name(on.to)}`);
+  if (computed.view.level === "flowchart") {
+    const blocks = computed.view.blocks.map((b) => choice({ block: b.id }, blockText(b), "Blocks"));
+    if (sticky.on && !current) blocks.unshift(choice(sticky.on, `${named(sticky.on)} (not in this view)`));
+    return blocks;
+  }
   const boxes = [...computed.nodes, ...(computed.boundary ? [computed.boundary] : [])]
     .filter((e) => stickyAnchor(ws, computed, { element: e.id }))
     .sort(byName)
@@ -628,8 +640,7 @@ export function stickyChoices(ws: Workspace, computed: ComputedView, sticky: Sti
   const all = [...boxes, ...arrows];
   if (sticky.on && !all.some((c) => c.key === stickyKey(sticky.on!))) {
     const on = sticky.on;
-    const label = "element" in on ? name(on.element) : `${name(on.from)} → ${name(on.to)}`;
-    all.unshift(choice(on, current?.kind === "box" ? `${label} (drawn as ${name(current.id)})` : `${label} (not in this view)`));
+    all.unshift(choice(on, current?.kind === "box" ? `${named(on)} (drawn as ${name(current.id)})` : `${named(on)} (not in this view)`));
   }
   return all;
 }
@@ -751,8 +762,9 @@ export function undoRenames(renames: Rename[]): Rename[] {
   return [...renames].reverse().map((r) => ({ op: "rename", id: r.to, to: r.id }));
 }
 
-/** What a note is on, with its IDs passed through `to`. */
+/** What a note is on, with its IDs passed through `to`. A flowchart's block is its view's own, so it stays as it is. */
 function followTarget(on: StickyTargetData, to: (id: string) => string): StickyTargetData {
+  if ("block" in on) return on;
   return "element" in on ? { element: to(on.element) } : { ...on, from: to(on.from), to: to(on.to) };
 }
 

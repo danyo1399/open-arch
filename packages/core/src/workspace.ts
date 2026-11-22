@@ -232,6 +232,7 @@ function statesInOrder(states: Record<string, StateData>, initial: string | unde
 
 /** What a sticky note is on, with a relationship's kind always given. */
 function stickyTarget(on: StickyTargetData): StickyTarget {
+  if ("block" in on) return { block: on.block };
   return "element" in on ? { element: on.element } : { from: on.from, to: on.to, kind: on.kind ?? "association" };
 }
 

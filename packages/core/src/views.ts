@@ -803,21 +803,26 @@ function computeEvents(ws: Workspace, view: ViewDef): ComputedView {
   return { view, nodes: [], edges: [], steps: [], diagnostics };
 }
 
-/** The views whose sticky notes can be on an element or a relationship: those that draw the model as boxes and arrows. */
+/**
+ * The views whose sticky notes can be on an element or a relationship: those that draw the model
+ * as boxes and arrows. A flowchart view's notes can be on something too: one of its blocks.
+ */
 export const STICKY_TARGET_LEVELS: readonly ViewLevel[] = ["landscape", "context", "container", "component", "class"];
 
-/** Where a view draws what a sticky note is on: a box, the frame round the view, or an arrow. */
-export type StickyAnchor = { kind: "box"; id: string } | { kind: "frame"; id: string } | { kind: "arrow"; edge: ViewEdge };
+/** Where a view draws what a sticky note is on: a box, the frame round the view, or an arrow, or on a flowchart, a block. */
+export type StickyAnchor = { kind: "box"; id: string } | { kind: "frame"; id: string } | { kind: "arrow"; edge: ViewEdge } | { kind: "block"; id: string };
 
 /**
  * Where a view draws what a sticky note is on, or undefined when it doesn't. An element is drawn
  * as the box that shows it, as a relationship's end is: its own, or the one it's inside, as a
  * component is on a container view. The view's scope is the frame, while it's drawn round
  * anything. A relationship is drawn as the arrow that stands for it: the first, when it's in a
- * library built into several containers.
+ * library built into several containers. A flowchart draws each of its blocks, and nothing else
+ * a note can be on.
  */
 export function stickyAnchor(ws: Workspace, cv: ComputedView, on: StickyTarget): StickyAnchor | undefined {
-  if (!STICKY_TARGET_LEVELS.includes(cv.view.level)) return undefined;
+  if (cv.view.level === "flowchart") return "block" in on && cv.view.blocks.some((b) => b.id === on.block) ? { kind: "block", id: on.block } : undefined;
+  if ("block" in on || !STICKY_TARGET_LEVELS.includes(cv.view.level)) return undefined;
   if ("element" in on) {
     if (!ws.elements.has(on.element)) return undefined;
     if (cv.boundary?.id === on.element) return cv.nodes.some((n) => inFrame(cv.boundary, n)) ? { kind: "frame", id: on.element } : undefined;
@@ -833,8 +838,9 @@ export function stickyAnchor(ws: Workspace, cv: ComputedView, on: StickyTarget):
   return edge && { kind: "arrow", edge };
 }
 
-/** What a sticky note is on, as the CLI writes it: "cache", or "web-app -> orders-db", with the relationship's kind when it isn't an association. */
+/** What a sticky note is on, as the CLI writes it: "cache", or "web-app -> orders-db", with the relationship's kind when it isn't an association, or on a flowchart, "block pack-order". */
 export function stickyTargetText(on: StickyTargetData): string {
+  if ("block" in on) return `block ${on.block}`;
   if ("element" in on) return on.element;
   return `${on.from} -> ${on.to}${on.kind && on.kind !== "association" ? ` (${on.kind})` : ""}`;
 }
