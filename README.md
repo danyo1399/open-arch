@@ -104,7 +104,7 @@ Drag from the dot under a box to another box to add a relationship. To move one,
 
 On every kind of view, right-click something on the diagram for a menu of what you can do with it: a box, a block, a state, an entity or one of its attributes, a card, a screen, a widget, a node, a step, a shape, an arrow, a lane or a sticky note. That selects it too, so its details show. Each kind of view's section says what its menus have. A sticky note's menu edits its text or its notes, changes its colour, moves it back where the designer puts it, or deletes it. Right-click the background for **Add** and **Export**, and **Auto layout** on a view that has it: what you add from there goes where you clicked, unless the view places it itself. The Menu key opens the menu of what has the focus. Everything in these menus is in the toolbar or the details too, for a touch screen.
 
-Except a box's, the frame's and an arrow's on a view of boxes (see [A view of an element](#a-view-of-an-element)), a menu opens once what you changed just before is saved, as text typed in the details is when you click away from it, so it's for the diagram as that leaves it. If what you clicked is gone by then, or an Undo, a Redo or a change made to the file elsewhere landed on the way, no menu opens: right-click again. An open menu closes when one of those lands under it.
+Except the model's menus, for an element or a relationship (see [A view of an element](#a-view-of-an-element)), a menu opens once what you changed just before is saved, as text typed in the details is when you click away from it, so it's for the diagram as that leaves it. If what you clicked is gone by then, or an Undo, a Redo or a change made to the file elsewhere landed on the way, no menu opens: right-click again. An open menu closes when one of those lands under it.
 
 ### Undo and History
 
@@ -132,7 +132,7 @@ A note stays where you put it, and its line follows the box as it moves. One you
 
 ### A view of an element
 
-On a landscape, context, container, component or class view, a box's menu, and an arrow's, are the model's: they find where it's used, show it or hide it in this view, add a sticky note on it, make a view of it, remove a relationship or delete the element. Right-click the frame for the menu of the element it's round. These menus open at once, without waiting for what you changed just before to be saved, and stay open through an Undo.
+On a landscape, context, container, component or class view, a box's menu, and an arrow's, are the model's: they find where it's used, show it or hide it in this view, add a sticky note on it, make a view of it, remove a relationship or delete the element. Right-click the frame for the menu of the element it's round. The same menus are on an element's heading on a sequence view, and on an arrow between two containers on a deployment view. These menus are the model's: they open at once, without waiting for what you changed just before to be saved, and stay open through an Undo, a Redo or a change made to the file elsewhere.
 
 To zoom in on a box, right-click it, or its name in the Model list, and choose **New view**, then the kind of view: a container view of a system, a component view of a container, a class view of a component, and so on. The view is made and opened, named after the element, such as "Orders API components". Change its title in its details. On a touch screen, use **New view** in the element's details.
 
