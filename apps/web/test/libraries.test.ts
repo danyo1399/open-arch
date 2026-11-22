@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { applyOperations, buildWorkspace, computeView, type ArchElement, type OpenArchDocument, type Operation, type Workspace } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, type ArchElement, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { addableKinds, addElementOps, withFrame, type Selection } from "../src/canvas/Canvas.js";
@@ -92,13 +92,12 @@ describe("a library in the model", () => {
 });
 
 /**
- * The details panel showing an element of `ws`, keeping the edits it sends and what it selects.
- * An edit worked out from the workspace gets `now`, the workspace as it is when the edit runs,
- * and lands when `land` resolves.
+ * The details panel showing an element of `ws`, keeping the edits it sends and the containers it
+ * asks for a new library in. A library is added once `added` resolves.
  */
-function panel(id: string, ws = buildWorkspace(shop), { now = ws, land = Promise.resolve() }: { now?: Workspace; land?: Promise<void> } = {}) {
+function panel(id: string, ws = buildWorkspace(shop), added: Promise<void> = Promise.resolve()) {
   const edits: Operation[][] = [];
-  const selected: { selection: Selection; isNew?: boolean }[] = [];
+  const newLibraries: string[] = [];
   const view = ws.views.get("components")!;
   const element = createElement(Properties, {
     ws,
@@ -111,20 +110,23 @@ function panel(id: string, ws = buildWorkspace(shop), { now = ws, land = Promise
     docs: null,
     fileName: "shop.openarch",
     edit: async (e: Edit) => {
-      edits.push(typeof e === "function" ? e(now) : e);
-      await land;
+      edits.push(typeof e === "function" ? e(ws) : e);
       return true;
     },
-    onSelect: (selection: Selection, options?: { isNew?: boolean }) => void selected.push({ selection, ...options }),
+    onSelect() {},
     onHide() {},
     onDelete() {},
     onFindUsages() {},
     onNewView() {},
+    onNewLibrary: (container: string) => {
+      newLibraries.push(container);
+      return added;
+    },
     onAddSticky() {},
     onDeleteView() {},
     onEditNotes() {},
   });
-  return { host: mount(element), edits, selected };
+  return { host: mount(element), edits, newLibraries };
 }
 
 describe("a library's details", () => {
@@ -143,57 +145,23 @@ describe("a library's details", () => {
     expect(edits).toEqual([[{ op: "update-element", id: "web", libraries: ["logging"] }]]);
   });
 
-  it("add a new library to a container, and open it to name it", async () => {
-    const { host, edits, selected } = panel("web");
-    await click(button(host, "+ New library"));
-    expect(edits).toEqual([
-      [
-        { op: "add-element", id: "new-library", kind: "library", name: "New library" },
-        { op: "update-element", id: "web", libraries: ["new-library"] },
-      ],
-    ]);
-    expect(selected).toEqual([{ selection: { kind: "element", id: "new-library" }, isNew: true }]);
-  });
-
-  it("add a container's first library, in a workspace with none", async () => {
-    const { logging: _logging, logger: _logger, ...elements } = shop.elements;
-    const none = buildWorkspace({ ...shop, elements: { ...elements, api: { kind: "container", name: "API", parent: "shop" } } });
-    const { host, edits } = panel("api", none);
-    expect(host.textContent).toContain("Libraries");
-    await click(button(host, "+ New library"));
-    expect(edits[0]![1]).toEqual({ op: "update-element", id: "api", libraries: ["new-library"] });
-  });
-
-  it("add a new library to the container as it is when the edit runs, after a tick made just before", async () => {
-    // The tick's edit, and another new library's, landed after this render.
-    const now = buildWorkspace({ ...shop, elements: { ...shop.elements, web: { ...shop.elements.web!, libraries: ["logging"] }, "new-library": { kind: "library", name: "New library" } } });
-    const { host, edits, selected } = panel("web", ws, { now });
-    await click(button(host, "+ New library"));
-    expect(edits).toEqual([
-      [
-        { op: "add-element", id: "new-library-2", kind: "library", name: "New library" },
-        { op: "update-element", id: "web", libraries: ["logging", "new-library-2"] },
-      ],
-    ]);
-    expect(selected).toEqual([{ selection: { kind: "element", id: "new-library-2" }, isNew: true }]);
-  });
-
-  it("add one library for a double-click, and nothing to a container that's gone by then", async () => {
-    let landed = () => {};
-    const { host, edits, selected } = panel("web", ws, { land: new Promise<void>((resolve) => (landed = resolve)) });
+  it("ask for a new library in a container, once for a double-click", async () => {
+    let done = () => {};
+    const { host, newLibraries } = panel("web", ws, new Promise<void>((resolve) => (done = resolve)));
     await click(button(host, "+ New library"));
     expect(button(host, "+ New library").disabled).toBe(true);
     await click(button(host, "+ New library"));
-    expect(edits).toHaveLength(1);
-    await act(async () => landed());
+    expect(newLibraries).toEqual(["web"]);
+    await act(async () => done());
     expect(button(host, "+ New library").disabled).toBe(false);
-    expect(selected).toHaveLength(1);
+  });
 
-    const { web: _web, ...rest } = shop.elements;
-    const gone = panel("web", ws, { now: buildWorkspace({ ...shop, elements: rest, views: { components: shop.views.components!, containers: shop.views.containers! } }) });
-    await click(button(gone.host, "+ New library"));
-    expect(gone.edits).toEqual([[]]);
-    expect(gone.selected).toEqual([]);
+  it("offer a container's first library, in a workspace with none", () => {
+    const { logging: _logging, logger: _logger, ...elements } = shop.elements;
+    const none = buildWorkspace({ ...shop, elements: { ...elements, api: { kind: "container", name: "API", parent: "shop" } } });
+    const { host } = panel("api", none);
+    expect(host.textContent).toContain("Libraries");
+    expect(button(host, "+ New library").disabled).toBe(false);
   });
 
   it("offer a library as a class's parent", () => {

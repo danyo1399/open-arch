@@ -132,6 +132,8 @@ interface PropertiesProps {
   onFindUsages(id: string): void;
   /** Makes a view of this level of the element, such as a component view of a container, and opens it. */
   onNewView(id: string, level: ViewLevel): void;
+  /** Adds a library built into this container, and opens its details. Resolves once it has, or couldn't. */
+  onNewLibrary(container: string): Promise<void>;
   /** Adds a note on a box, the frame or an arrow, beside it on the diagram. */
   onAddSticky(on: StickyTargetData): void;
   onDeleteView(id: string): void;
@@ -196,7 +198,7 @@ export function Properties(props: PropertiesProps) {
   );
 }
 
-function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onNewView, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
+function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onNewView, onNewLibrary, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
@@ -215,27 +217,11 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
   /** Builds a container with a library, or takes it out. */
   const build = (container: ArchElement, library: string, built: boolean) =>
     void edit([{ op: "update-element", id: container.id, libraries: built ? [...container.libraries, library] : container.libraries.filter((l) => l !== library) }]);
+  // + New library is off until the library is added, so a double-click adds one.
   const [addingLibrary, setAddingLibrary] = useState(false);
-  /**
-   * Adds a library built into this container, and opens its details, to name it and tick the other
-   * containers built with it. Its ID and the container's libraries are worked out from the
-   * workspace as it is when the edit runs, which can be after a tick made just before the press.
-   * The button is off until then, so a double-click adds one library.
-   */
   const newLibrary = () => {
-    let id = "";
     setAddingLibrary(true);
-    void edit((now) => {
-      const container = now.elements.get(element.id);
-      if (container?.kind !== "container") return [];
-      id = uniqueId(now, "new-library");
-      return [
-        { op: "add-element", id, kind: "library", name: "New library" },
-        { op: "update-element", id: container.id, libraries: [...container.libraries, id] },
-      ];
-    })
-      .then((ok) => ok && id && onSelect({ kind: "element", id }, { isNew: true }))
-      .finally(() => setAddingLibrary(false));
+    void onNewLibrary(element.id).finally(() => setAddingLibrary(false));
   };
   const canHide = viewAction(ws, view, computed, element.id) === "hide";
   const noteOn = stickyTargetFor(ws, computed, { kind: "element", id: element.id });

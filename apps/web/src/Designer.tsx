@@ -58,6 +58,7 @@ import {
   selectShapes,
   shownInProperties,
   stickyTargetFor,
+  uniqueId,
   viewAction,
   viewLevelsOf,
   viewList,
@@ -159,6 +160,9 @@ interface DesignerProps {
 export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [viewId, setViewId] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
+  /** What's selected in the latest render, for a press's edit that lands after it. */
+  const selectionNow = useRef(selection);
+  selectionNow.current = selection;
   // Not 0 when what's selected was just created: a number of its own for each, so the details
   // give its name the focus even when what was selected before it was new too.
   const [isNew, setIsNew] = useState(0);
@@ -393,6 +397,29 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     if (!ws || !element) return;
     const op = newViewOf(ws, element, level);
     void edit([op]).then((ok) => ok && showView(op.id));
+  };
+
+  /**
+   * Adds a library built into a container, and opens its details, to name it and tick the other
+   * containers built with it. It's worked out from the workspace as it is when the edit runs: a
+   * library ticked just before the press stays ticked, and a container whose name was typed just
+   * before it is found under its new ID. The library is opened only if the container is still
+   * what's selected, as something else can be picked while a slow save is under way.
+   */
+  const newLibraryIn = (id: string) => {
+    let library = "";
+    return edit((now) => {
+      const container = now.elements.get(current(id));
+      if (container?.kind !== "container") throw new OpError("The container was changed or deleted elsewhere, so no library was added to it.");
+      library = uniqueId(now, "new-library");
+      return [
+        { op: "add-element", id: library, kind: "library", name: "New library" },
+        { op: "update-element", id: container.id, libraries: [...container.libraries, library] },
+      ];
+    }).then((ok) => {
+      const selected = selectionNow.current;
+      if (ok && selected?.kind === "element" && current(selected.id) === current(id)) select({ kind: "element", id: library }, { isNew: true });
+    });
   };
 
   const showInView = (id: string) => view && void edit([{ op: "show-in-view", view: view.id, id }]);
@@ -961,6 +988,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         onFindUsages={findUsages}
         onAddSticky={addStickyOn}
         onNewView={newViewFor}
+        onNewLibrary={newLibraryIn}
         onDeleteView={(id) => setDialog({ kind: "deleteView", id: current(id) })}
         // The editor opens at once, over everything, so nothing else is edited while it's open. A
         // relationship's look is taken once the edits made before Expand have landed, such as its

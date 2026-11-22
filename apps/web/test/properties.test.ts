@@ -47,6 +47,7 @@ function panel(model: OpenArchDocument, viewId: string, selection: Selection, op
     onDelete() {},
     onFindUsages() {},
     onNewView: (id: string, level: ViewLevel) => void made.push({ id, level }),
+    onNewLibrary: async () => {},
     onAddSticky: (on: StickyTargetData) => void added.push(on),
     onDeleteView() {},
     onEditNotes: (owner: NotesOwner, text: string) => void expanded.push({ owner, text }),

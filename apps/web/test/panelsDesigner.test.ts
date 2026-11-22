@@ -7,7 +7,7 @@ import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
 import { panelMax } from "../src/panels/SidePanels.js";
 import { PANEL_LIMITS, PANELS_WAIT, Settings, userSettings } from "../src/settings.js";
-import { button, click, key, mount } from "./dom.js";
+import { button, click, key, mount, type } from "./dom.js";
 
 /**
  * React Flow draws the boxes once it has measured them, and this page has no layout. So, as in
@@ -240,6 +240,74 @@ describe("adding one thing straight after another", () => {
     expect(focused().value).toBe("New library");
     const built = [...d.host.querySelectorAll<HTMLInputElement>(".properties fieldset .check input")].map((c) => c.checked);
     expect(built).toEqual([true, false]);
+  });
+});
+
+describe("adding a library from a container's details", () => {
+  const add = async (d: Awaited<ReturnType<typeof designer>>, what: string) => {
+    await click(button(d.host, "+ Add"));
+    await click([...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')].find((b) => b.textContent === what)!);
+    await d.settle();
+  };
+  /** The details' checkboxes: a library's containers, or a container's libraries. */
+  const ticks = (d: Awaited<ReturnType<typeof designer>>) => [...d.host.querySelectorAll<HTMLLabelElement>(".properties fieldset .check")].map((c) => `${c.textContent}${c.querySelector("input")!.checked ? " ✓" : ""}`);
+  const inTree = (d: Awaited<ReturnType<typeof designer>>, name: string) => [...d.host.querySelectorAll<HTMLElement>(".sidebar .tree .row-main")].find((r) => r.textContent === name)!;
+
+  it("builds a container with it when the container's name was typed just before the press", async () => {
+    const d = await designer();
+    await add(d, "Container in Shop");
+    const name = document.activeElement as HTMLInputElement;
+    await type(name, "Basket");
+    // Leaving the box saves the name, which renames the container, and the press comes with it:
+    // its edit is made with the ID the container had, before a render shows the new one.
+    const press = button(d.host, "+ New library");
+    await act(async () => {
+      name.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      press.focus();
+      press.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(inTree(d, "Basket").title).toBe("basket");
+    expect(d.host.querySelector(".properties .badge")!.textContent).toBe("Library");
+    expect(ticks(d)).toEqual(["Basket ✓", "Web"]);
+    // Its name is typed next.
+    expect((document.activeElement as HTMLInputElement).value).toBe("New library");
+    await type(document.activeElement as HTMLInputElement, "Metrics");
+    await key(document.activeElement!, "Enter");
+    await d.settle();
+    expect(inTree(d, "Metrics").title).toBe("metrics");
+  });
+
+  it("keeps a library ticked just before the press", async () => {
+    const d = await designer();
+    await click(inTree(d, "Web"));
+    await click(button(d.host, "+ New library"));
+    await d.settle();
+    await add(d, "Container in Shop");
+    expect(ticks(d)).toEqual(["New library"]);
+    const tick = d.host.querySelector<HTMLInputElement>(".properties fieldset .check input")!;
+    const press = button(d.host, "+ New library");
+    await act(async () => {
+      tick.click();
+      press.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(ticks(d)).toEqual(["New container ✓", "Web"]);
+    await click(inTree(d, "New container"));
+    expect(ticks(d)).toEqual(["New library ✓", "New library ✓"]);
+  });
+
+  it("says so, and adds nothing, when the container is gone by the time it's added", async () => {
+    const d = await designer();
+    await add(d, "Container in Shop");
+    const press = button(d.host, "+ New library");
+    await act(async () => {
+      button(d.host, "Undo").click();
+      press.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.host.querySelector('[role="alert"]')!.textContent).toContain("so no library was added to it");
+    expect([...d.host.querySelectorAll(".sidebar .tree .row-main")].map((r) => r.textContent)).toEqual(["Customer", "Shop", "Web"]);
   });
 });
 
