@@ -880,6 +880,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
                   selection={selection}
                   onSelect={selectOnCanvas}
                   edit={edit}
+                  afterEdits={afterEdits}
                   onError={(text) => state.notify({ kind: "error", text })}
                   exportItems={exportItems(computed)}
                   snap={snap}

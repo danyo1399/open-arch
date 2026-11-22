@@ -335,15 +335,74 @@ export function canFlow(view: Pick<ViewDef, "flows">, from: string, to: string, 
 }
 
 /**
- * A right-click menu that's open: where it opened on the screen, and that point on the diagram.
- * It's for what's selected, as a right-click selects what it's on, so it follows a block given a
- * new ID meanwhile; or for the diagram, after a right-click on the background.
+ * What a right-click menu is for: a block, a lane or a sticky note, by its ID; a flow, as it was
+ * when the menu opened, as its number is only its place in the list; or the diagram, after a
+ * right-click on the background.
  */
+export type MenuFor = { kind: "block"; id: string } | { kind: "lane"; id: string } | { kind: "sticky"; id: string } | { kind: "flow"; flow: Flow } | { kind: "diagram" };
+
+/**
+ * The ID something has in `now`, a list as it is once edits have landed, from its ID in `was`,
+ * the list as it was drawn: the same one while it's there. Or the ID of what's in its place,
+ * when nothing else in the list came, went or moved: an edit gave it a new ID. Undefined when
+ * it's gone, or when there's no telling which it is.
+ */
+function idNow(was: readonly { id: string }[], now: readonly { id: string }[], id: string): string | undefined {
+  if (now.some((x) => x.id === id)) return id;
+  const at = was.findIndex((x) => x.id === id);
+  const inPlace = at >= 0 && was.length === now.length && was.every((x, i) => i === at || x.id === now[i]!.id);
+  return inPlace ? now[at]!.id : undefined;
+}
+
+/** Whether two flows have the same ends and text, which no two flows of a flowchart do. */
+const sameFlow = (a: Pick<Flow, "from" | "to" | "text">, b: Pick<Flow, "from" | "to" | "text">) => a.from === b.from && a.to === b.to && (a.text ?? "") === (b.text ?? "");
+
+/**
+ * The flow that was flow `number` of `was`, in `now`: the one with its ends and text, at
+ * whatever number it now has, with its ends followed to a block given a new ID. Or the one in its
+ * place, when no other flow changed: an edit gave it other text or ends.
+ */
+function flowNow(was: Pick<ViewDef, "blocks" | "flows">, now: Pick<ViewDef, "blocks" | "flows">, number: number): Flow | undefined {
+  const block = (id: string) => idNow(was.blocks, now.blocks, id) ?? id;
+  const drawn = was.flows.map((f) => ({ from: block(f.from), to: block(f.to), text: f.text }));
+  const flow = drawn[number - 1];
+  if (!flow) return undefined;
+  const there = now.flows[number - 1];
+  if (there && sameFlow(there, flow)) return there;
+  const inPlace = drawn.length === now.flows.length && drawn.every((f, i) => i === number - 1 || sameFlow(f, now.flows[i]!));
+  return now.flows.find((f) => sameFlow(f, flow)) ?? (inPlace ? there : undefined);
+}
+
+/**
+ * What the menu for a right-click is for. `on` is what was clicked, as the click selects it, or
+ * null for the background, in `was`, the flowchart as it was drawn then. `now` is the flowchart
+ * once the edits made before the click have landed, such as text typed in the details, saved as
+ * the click took the focus from it, which can give a block or a lane a new ID. Null when what
+ * was clicked is gone by then.
+ */
+export function menuFor(was: ViewDef, now: ViewDef, on: Selection): MenuFor | null {
+  if (!on) return { kind: "diagram" };
+  if (on.kind === "block" || on.kind === "lane") {
+    const id = on.kind === "block" ? idNow(was.blocks, now.blocks, on.id) : idNow(was.lanes, now.lanes, on.id);
+    return id === undefined ? null : { kind: on.kind, id };
+  }
+  if (on.kind === "sticky") return now.stickies.some((s) => s.id === on.id) ? { kind: "sticky", id: on.id } : null;
+  const flow = on.kind === "flow" ? flowNow(was, now, on.number) : undefined;
+  return flow ? { kind: "flow", flow } : null;
+}
+
+/** What's selected while a menu for this is open: what it's for, or nothing for the diagram's. */
+function selectionFor(on: MenuFor): Selection {
+  if (on.kind === "diagram") return null;
+  return on.kind === "flow" ? { kind: "flow", number: on.flow.number } : on;
+}
+
+/** A right-click menu that's open: where it opened on the screen, that point on the diagram, and what it's for. */
 interface OpenMenu {
   x: number;
   y: number;
   at: Point;
-  on: "selection" | "diagram";
+  on: MenuFor;
 }
 
 interface FlowchartDiagramProps {
@@ -351,6 +410,8 @@ interface FlowchartDiagramProps {
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   edit(edit: Edit): Promise<boolean>;
+  /** Runs `look` once the edits made before have landed, with the workspace as it then is, or null when there's none to read. */
+  afterEdits(look: (ws: Workspace | null) => void): Promise<void>;
   /** A problem drawing the diagram, to tell the person about. */
   onError(text: string): void;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
@@ -361,7 +422,7 @@ interface FlowchartDiagramProps {
   autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
-export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap, autoLayoutHandle }: FlowchartDiagramProps) {
+export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, afterEdits, onError, exportItems, snap, autoLayoutHandle }: FlowchartDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -672,17 +733,46 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
 
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  /** Counts the menus asked for, so only the last one opens, and none once the diagram is closed. */
+  const menusAsked = useRef(0);
+  useEffect(
+    () => () => {
+      menusAsked.current++;
+    },
+    [],
+  );
   /**
    * Opens the right-click menu for a block, a flow, a lane or a sticky note, which it selects, so
    * it's clear what the menu is for; or with none of them, for the diagram, with nothing selected,
    * as after a click on the background.
+   *
+   * The click selects at once, but the menu opens once the edits made before have landed, as the
+   * notes editor does: text typed in the details is saved as the click takes the focus from it,
+   * and can give a block or a lane a new ID. So the menu is made from the flowchart as that
+   * leaves it, for what was clicked, under whatever ID it then has (see menuFor), and an item
+   * picked from it never names an ID that a save still on its way is about to change. An edit
+   * that selects something else as it lands, such as that new ID, doesn't take the menu with it:
+   * what was clicked is selected again. If it's gone by then, no menu opens, and a press
+   * anywhere while the menu waits calls it off.
    */
   const openMenu = (event: ReactMouseEvent | MouseEvent, on: Selection) => {
     event.preventDefault();
     // Opened with the keyboard, it goes under what it's for.
     const point = event.currentTarget instanceof Element ? menuPoint({ clientX: event.clientX, clientY: event.clientY, currentTarget: event.currentTarget }) : { x: event.clientX, y: event.clientY };
+    const at = rf.screenToFlowPosition(point);
     select(on);
-    setMenu({ ...point, at: rf.screenToFlowPosition(point), on: on ? "selection" : "diagram" });
+    const asked = ++menusAsked.current;
+    const callOff = () => {
+      if (menusAsked.current === asked) menusAsked.current++;
+    };
+    window.addEventListener("pointerdown", callOff, true);
+    void afterEdits((now) => {
+      const landed = now?.views.get(view.id);
+      const target = landed ? menuFor(view, landed, on) : null;
+      if (menusAsked.current !== asked || !target) return;
+      select(selectionFor(target));
+      setMenu({ ...point, at, on: target });
+    }).finally(() => window.removeEventListener("pointerdown", callOff, true));
   };
   const notes = useContext(NotesOpener);
 
@@ -772,16 +862,24 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     ...(exportItems.length > 0 ? [{ label: "Export", items: exportItems }] : []),
   ];
 
-  /** The open menu's items: none once what it was for is gone, as when the file changed elsewhere. */
-  const menuItems = (open: OpenMenu): MenuItem[] => {
-    if (open.on === "diagram") return diagramMenu(open.at);
-    const block = selection?.kind === "block" && view.blocks.find((b) => b.id === selection.id);
+  /**
+   * The open menu's items. None, which closes it, once what it's for is gone, as when the file
+   * changed elsewhere, or is no longer what's selected: the menu never acts on anything but what
+   * it was opened on, and what's shown as selected. A flow is the one it was opened on only
+   * while that's still the flow at its number.
+   */
+  const menuItems = ({ on, at }: OpenMenu): MenuItem[] => {
+    if (on.kind === "diagram") return diagramMenu(at);
+    if (on.kind === "flow") {
+      const flow = selection?.kind === "flow" && selection.number === on.flow.number ? view.flows[on.flow.number - 1] : undefined;
+      return flow && sameFlow(flow, on.flow) ? flowMenu(flow) : [];
+    }
+    if (selection?.kind !== on.kind || selection.id !== on.id) return [];
+    const block = on.kind === "block" && view.blocks.find((b) => b.id === on.id);
     if (block) return blockMenu(block);
-    const flow = selection?.kind === "flow" && view.flows[selection.number - 1];
-    if (flow) return flowMenu(flow);
-    const lane = selection?.kind === "lane" && view.lanes.find((l) => l.id === selection.id);
-    if (lane) return laneMenu(lane, open.at);
-    const sticky = selection?.kind === "sticky" && view.stickies.find((s) => s.id === selection.id);
+    const lane = on.kind === "lane" && view.lanes.find((l) => l.id === on.id);
+    if (lane) return laneMenu(lane, at);
+    const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
     return sticky ? stickyMenu(sticky) : [];
   };
   const shown = menu ? menuItems(menu) : [];

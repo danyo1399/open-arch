@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, loadWorkspace, serializeDocument, type Lane, type OpenArchDocument } from "@open-arch/core";
+import { applyOperations, buildWorkspace, loadWorkspace, serializeDocument, type Lane, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { act, createElement } from "react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { STICKY } from "../src/canvas/autoLayout.js";
-import { blockPlaceAt, canFlow } from "../src/canvas/FlowchartDiagram.js";
+import { blockPlaceAt, canFlow, menuFor } from "../src/canvas/FlowchartDiagram.js";
 import type { LaneColumn } from "../src/canvas/flowchartLayout.js";
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
@@ -144,10 +144,11 @@ async function designer(model: OpenArchDocument = doc, file: MemoryHost = new Me
     settle,
     labels,
     node,
+    onScreen,
     /**
      * Right-clicks this, at a point on the diagram when it matters where, and returns the event
      * that asks for a menu. The press comes first, as it does from a mouse: it closes a menu
-     * that's open.
+     * that's open. The menu opens once the edits made before have landed, so this waits a moment.
      */
     rightClick: async (target: Element, at?: { x: number; y: number }) => {
       const point = at ? onScreen(at) : { clientX: 20, clientY: 20 };
@@ -157,8 +158,16 @@ async function designer(model: OpenArchDocument = doc, file: MemoryHost = new Me
       const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ...point });
       await act(async () => {
         target.dispatchEvent(event);
+        await new Promise<void>((resolve) => setTimeout(resolve));
       });
       return event;
+    },
+    /** Asks for this one's menu with the keyboard, as the Menu key does: the event has no point. */
+    menuKey: async (target: Element) => {
+      await act(async () => {
+        target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+        await new Promise<void>((resolve) => setTimeout(resolve));
+      });
     },
     /** Picks these from the open menu, one after another: a submenu, then an item in it. */
     pick: async (...path: string[]) => {
@@ -228,6 +237,82 @@ describe("the flows a flowchart can have", () => {
   it("can be the flow that's being changed", () => {
     expect(canFlow(view, "in-time", "refund", "Yes", view.flows[1])).toBe(true);
     expect(canFlow(view, "in-time", "refund", "Yes", view.flows[2])).toBe(false);
+  });
+});
+
+describe("what a right-click menu is for, once the edits made before the click have landed", () => {
+  const was = buildWorkspace(doc).views.get("returns")!;
+  /** The flowchart after these edits. */
+  const after = (ops: Operation[], from: OpenArchDocument = doc) => buildWorkspace(applyOperations(buildWorkspace(from).doc, ops).doc).views.get("returns")!;
+  const flow = (number: number, from: string, to: string, text?: string) => ({ kind: "flow", flow: expect.objectContaining({ number, from, to, text }) });
+
+  it("is what was clicked, while it's there, or the diagram for the background", () => {
+    expect(menuFor(was, was, { kind: "block", id: "refund" })).toEqual({ kind: "block", id: "refund" });
+    expect(menuFor(was, was, { kind: "sticky", id: "note" })).toEqual({ kind: "sticky", id: "note" });
+    expect(menuFor(was, was, { kind: "flow", number: 2 })).toEqual(flow(2, "in-time", "refund", "Yes"));
+    expect(menuFor(was, was, null)).toEqual({ kind: "diagram" });
+    const lanes = buildWorkspace(laned).views.get("returns")!;
+    expect(menuFor(lanes, lanes, { kind: "lane", id: "shop" })).toEqual({ kind: "lane", id: "shop" });
+    // Whatever else changed, a block that's there under its ID is that block.
+    expect(menuFor(was, after([{ op: "remove-block", view: "returns", id: "asked" }, { op: "update-block", view: "returns", id: "refund", position: 1 }]), { kind: "block", id: "refund" })).toEqual({ kind: "block", id: "refund" });
+  });
+
+  it("follows a block or a lane given a new ID, when nothing else came or went", () => {
+    const renamed = after([{ op: "update-block", view: "returns", id: "say-no", text: "Turn it down", newId: "turn-it-down" }]);
+    expect(menuFor(was, renamed, { kind: "block", id: "say-no" })).toEqual({ kind: "block", id: "turn-it-down" });
+    expect(menuFor(was, renamed, { kind: "block", id: "refund" })).toEqual({ kind: "block", id: "refund" });
+    const lanes = buildWorkspace(laned).views.get("returns")!;
+    const staff = after([{ op: "update-lane", view: "returns", id: "shop", name: "Shop staff", newId: "shop-staff" }], laned);
+    expect(menuFor(lanes, staff, { kind: "lane", id: "shop" })).toEqual({ kind: "lane", id: "shop-staff" });
+  });
+
+  it("is nothing when what was clicked is gone, or there's no telling which it is now", () => {
+    expect(menuFor(was, after([{ op: "remove-block", view: "returns", id: "say-no" }]), { kind: "block", id: "say-no" })).toBeNull();
+    expect(menuFor(was, after([{ op: "remove-sticky", view: "returns", id: "note" }]), { kind: "sticky", id: "note" })).toBeNull();
+    expect(menuFor(was, after([{ op: "remove-flow", view: "returns", flow: 2 }]), { kind: "flow", number: 2 })).toBeNull();
+    // A block went and another came, but not in its place: they aren't taken for the same block.
+    const replaced = after([
+      { op: "remove-block", view: "returns", id: "say-no" },
+      { op: "add-block", view: "returns", id: "escalate", text: "Escalate" },
+    ]);
+    expect(menuFor(was, replaced, { kind: "block", id: "say-no" })).toBeNull();
+    // A new ID and a new block at once: it could be either.
+    const both = after([
+      { op: "update-block", view: "returns", id: "say-no", newId: "turn-it-down" },
+      { op: "add-block", view: "returns", id: "escalate", text: "Escalate" },
+    ]);
+    expect(menuFor(was, both, { kind: "block", id: "say-no" })).toBeNull();
+    const lanes = buildWorkspace(laned).views.get("returns")!;
+    expect(menuFor(lanes, after([{ op: "remove-lane", view: "returns", id: "shop" }], laned), { kind: "lane", id: "shop" })).toBeNull();
+    // What's selected on another kind of view has no menu here.
+    expect(menuFor(was, was, { kind: "element", id: "shop" })).toBeNull();
+  });
+
+  it("follows a flow to its new number, through new text, and through a block's new ID", () => {
+    const moved = after([{ op: "update-flow", view: "returns", flow: 2, newFlow: 4 }]);
+    expect(menuFor(was, moved, { kind: "flow", number: 2 })).toEqual(flow(4, "in-time", "refund", "Yes"));
+    // The flow that took its number isn't it.
+    expect(menuFor(was, moved, { kind: "flow", number: 3 })).toEqual(flow(2, "in-time", "say-no", "No"));
+    expect(menuFor(was, after([{ op: "remove-flow", view: "returns", flow: 1 }]), { kind: "flow", number: 2 })).toEqual(flow(1, "in-time", "refund", "Yes"));
+    // Its own text or ends changed, and no other flow did: it's the one in its place.
+    expect(menuFor(was, after([{ op: "update-flow", view: "returns", flow: 2, text: "Sure" }]), { kind: "flow", number: 2 })).toEqual(flow(2, "in-time", "refund", "Sure"));
+    expect(menuFor(was, after([{ op: "update-flow", view: "returns", flow: 4, to: "asked" }]), { kind: "flow", number: 4 })).toEqual(flow(4, "refund", "asked"));
+    // Every flow of a block given a new ID has a new end, and each is still told from the others.
+    const renamed = after([{ op: "update-block", view: "returns", id: "in-time", newId: "on-time" }]);
+    expect(menuFor(was, renamed, { kind: "flow", number: 2 })).toEqual(flow(2, "on-time", "refund", "Yes"));
+    expect(menuFor(was, renamed, { kind: "flow", number: 3 })).toEqual(flow(3, "on-time", "say-no", "No"));
+    // Its text changed and another flow went: there's no telling which it is.
+    expect(
+      menuFor(
+        was,
+        after([
+          { op: "update-flow", view: "returns", flow: 2, text: "Sure" },
+          { op: "remove-flow", view: "returns", flow: 4 },
+        ]),
+        { kind: "flow", number: 2 },
+      ),
+    ).toBeNull();
+    expect(menuFor(was, was, { kind: "flow", number: 9 })).toBeNull();
   });
 });
 
@@ -492,6 +577,18 @@ describe("the right-click menu of a flowchart's background", () => {
     expect(d.labels()).toEqual(expect.arrayContaining(["Copy as Mermaid", "Save as Markdown…", "Save as PNG…"]));
   });
 
+  it("is the menu for the frame too, which takes no clicks", async () => {
+    const scoped = structuredClone(doc);
+    scoped.views.returns!.scope = "shop";
+    const d = await designer(scoped);
+    const frame = d.node("__frame") as HTMLElement;
+    expect(frame.querySelector(".frame-label")!.textContent).toContain("Shop");
+    // A right-click on it lands on the background behind it.
+    expect(frame.style.pointerEvents).toBe("none");
+    await d.rightClick(d.pane());
+    expect(d.labels()).toEqual(["Add", "Auto layout", "Export"]);
+  });
+
   it("adds a block where it was clicked, on its own, and selects it to give it text", async () => {
     const d = await designer();
     await d.rightClick(d.pane(), { x: 1500, y: 600 });
@@ -538,6 +635,41 @@ describe("the right-click menu of a flowchart's background", () => {
   });
 });
 
+describe("a flowchart's right-click menu, opened with the keyboard", () => {
+  /** Says where this is on the screen, as the page here has no layout: its left edge and its bottom. */
+  const put = (target: Element, left: number, bottom: number) => {
+    target.getBoundingClientRect = () => ({ left, bottom, top: bottom - 100, right: left + 200, x: left, y: bottom - 100, width: 200, height: 100, toJSON() {} }) as DOMRect;
+  };
+
+  it("opens under what it's for, which it selects", async () => {
+    const d = await designer();
+    put(d.node("refund")!, 300, 420);
+    await d.menuKey(d.node("refund")!);
+    expect(d.details()).toBe("Process");
+    expect(d.labels()).toContain("Delete block");
+    const menu = document.querySelector<HTMLElement>(".context-menu")!;
+    expect([menu.style.left, menu.style.top]).toEqual(["300px", "420px"]);
+
+    put(d.flow(2)!, 520, 260);
+    await key(document.activeElement!, "Escape");
+    await d.menuKey(d.flow(2)!);
+    expect(d.details()).toBe("Flow 2of 4");
+    const flowMenu = document.querySelector<HTMLElement>(".context-menu")!;
+    expect([flowMenu.style.left, flowMenu.style.top]).toEqual(["520px", "260px"]);
+  });
+
+  it("adds from a lane's menu at the point it opened at, under the lane", async () => {
+    const d = await designer(laned);
+    // The lane's bottom left corner is at this point on the diagram, with nothing near it.
+    const corner = d.onScreen({ x: 900, y: 1200 });
+    put(d.node("lane:shop")!, corner.clientX, corner.clientY);
+    await d.menuKey(d.node("lane:shop")!);
+    expect(d.details()).toBe("Lane 2of 2");
+    await d.pick("Add", "Sticky note");
+    expect((await d.saved()).stickies.at(-1)).toMatchObject({ text: "New note", at: [900 - STICKY.width / 2, 1150] });
+  });
+});
+
 describe("a flowchart's right-click menu, as the flowchart changes under it", () => {
   /** Types into a text area and leaves it, which saves it. */
   const write = async (box: HTMLTextAreaElement, text: string) => {
@@ -546,23 +678,82 @@ describe("a flowchart's right-click menu, as the flowchart changes under it", ()
       box.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     });
   };
-
-  it("stays on a block whose new text gives it a new ID once a slow save lands", async () => {
+  /** The flowchart in a file whose saves wait, with this block selected and new text typed for it: the save that gives it a new ID is on its way. */
+  const renaming = async (id: string, text: string) => {
     const file = new SlowHost("shop.openarch", serializeDocument(doc));
     const d = await designer(doc, file);
-    await click(d.node("say-no")!);
+    await click(d.node(id)!);
     file.hold = true;
-    // Its ID follows its text, and the save that renames it hasn't landed when the menu opens.
-    await write(d.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Text"]')!, "Turn it down");
+    await write(d.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Text"]')!, text);
+    return { d, file };
+  };
+  const text = (d: Awaited<ReturnType<typeof designer>>) => d.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Text"]')!.value;
+
+  it("waits for a slow save, then opens on the block under the new ID its text gave it", async () => {
+    // Its ID follows its text, and the save that renames it hasn't landed when it's right-clicked.
+    const { d, file } = await renaming("say-no", "Turn it down");
     await d.rightClick(d.node("say-no")!);
-    expect(d.labels()).toContain("Delete block");
+    // No menu yet: an item picked now would name an ID that's about to change.
+    expect(d.menuOpen()).toBe(false);
     file.release();
     await d.settle();
     expect(d.node("say-no")).toBeNull();
     expect(d.node("turn-it-down")).not.toBeNull();
     expect(d.labels()).toContain("Delete block");
+    expect(text(d)).toBe("Turn it down");
     await d.pick("Delete block");
     expect((await d.saved()).blocks.map((b) => b.id)).toEqual(["asked", "in-time", "refund", "done"]);
+  });
+
+  it("is for the block that was right-clicked, not one whose new ID lands meanwhile and selects it", async () => {
+    const { d, file } = await renaming("say-no", "Turn it down");
+    await d.rightClick(d.node("refund")!);
+    expect(d.menuOpen()).toBe(false);
+    file.release();
+    await d.settle();
+    // The save selected the renamed block as it landed; the menu's block is selected again.
+    expect(d.node("turn-it-down")).not.toBeNull();
+    expect(d.menuOpen()).toBe(true);
+    expect(text(d)).toBe("Refund the card");
+    await d.pick("Delete block");
+    expect((await d.saved()).blocks.map((b) => b.id)).toEqual(["asked", "in-time", "turn-it-down", "done"]);
+  });
+
+  it("doesn't open when what was right-clicked is gone once the edits before it have landed", async () => {
+    const file = new SlowHost("shop.openarch", serializeDocument(doc));
+    const d = await designer(doc, file);
+    await click(d.node("refund")!);
+    file.hold = true;
+    await click(button(d.host, "Delete block"));
+    // Still drawn, as its delete hasn't landed.
+    await d.rightClick(d.node("refund")!);
+    file.release();
+    await d.settle();
+    expect(d.node("refund")).toBeNull();
+    expect(d.menuOpen()).toBe(false);
+  });
+
+  it("is called off by a press while it waits", async () => {
+    const { d, file } = await renaming("say-no", "Turn it down");
+    await d.rightClick(d.node("refund")!);
+    await act(async () => {
+      d.pane().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
+    });
+    file.release();
+    await d.settle();
+    expect(d.node("turn-it-down")).not.toBeNull();
+    expect(d.menuOpen()).toBe(false);
+  });
+
+  it("opens only the last one asked for", async () => {
+    const { d, file } = await renaming("say-no", "Turn it down");
+    await d.rightClick(d.node("refund")!);
+    await d.rightClick(d.flow(1)!);
+    file.release();
+    await d.settle();
+    expect(document.querySelectorAll(".context-menu")).toHaveLength(1);
+    expect(d.details()).toBe("Flow 1of 4");
+    expect(d.labels()).toContain("Delete flow");
   });
 
   it("closes when what it's for is gone", async () => {
@@ -576,5 +767,32 @@ describe("a flowchart's right-click menu, as the flowchart changes under it", ()
     await d.settle();
     expect(d.node("new-process")).toBeNull();
     expect(d.menuOpen()).toBe(false);
+  });
+
+  it("closes when a flow's number goes to another flow", async () => {
+    const d = await designer();
+    await d.rightClick(d.flow(2)!);
+    await d.pick("Move down, to flow 3");
+    await d.rightClick(d.flow(3)!);
+    expect(d.labels()).toContain("Delete flow");
+    // Undo puts it back at 2 under the menu, so flow 3 is another flow now.
+    await click(button(d.host, "Undo"));
+    await d.settle();
+    expect((await d.saved()).flows.map((f) => f.text)).toEqual([undefined, "Yes", "No", undefined]);
+    expect(d.menuOpen()).toBe(false);
+  });
+
+  it("closes when something else is selected", async () => {
+    const d = await designer();
+    await d.rightClick(d.node("refund")!);
+    expect(d.menuOpen()).toBe(true);
+    // Selected without a press, which would have closed the menu itself.
+    await click(d.node("asked")!);
+    expect(d.details()).toBe("Start");
+    expect(d.menuOpen()).toBe(false);
+    // The background's menu is for nothing that's selected, so it stays.
+    await d.rightClick(d.pane());
+    await click(d.node("asked")!);
+    expect(d.labels()).toEqual(["Add", "Auto layout", "Export"]);
   });
 });
