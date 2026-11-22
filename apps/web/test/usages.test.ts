@@ -60,6 +60,13 @@ describe("findUsages", () => {
     ]);
   });
 
+  it("lists the lanes of a flowchart of the element's process for it, too", () => {
+    const doc = structuredClone(ws.doc);
+    doc.views.web = { title: "Web", level: "flowchart", scope: "web", lanes: [{ id: "site", name: "Site", element: "web" }], blocks: [], flows: [] };
+    const usage = findUsages(buildWorkspace(doc), "web")!.views.find((v) => v.view.id === "web")!;
+    expect([usage.as, usage.lanes?.map((l) => l.id)]).toEqual(["process", ["site"]]);
+  });
+
   it("is undefined for an element that doesn't exist", () => {
     expect(findUsages(ws, "nope")).toBeUndefined();
   });

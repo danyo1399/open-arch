@@ -11,6 +11,7 @@ import {
   parseOperations,
   renderMermaid,
   serializeDocument,
+  showElement,
   stickyAnchor,
   type OpenArchDocument,
   type Operation,
@@ -840,10 +841,13 @@ describe("flowchart lanes for elements", () => {
   it("list the flowchart in their element's views, in show and on its page in the docs, and the lanes in the view's", () => {
     const ws = buildWorkspace(forElements());
     expect(describeElement(ws, "customer")!.views.find((v) => v.view.id === "returns")).toMatchObject({ as: "lane", lanes: [{ id: "customer" }] });
-    // The element a flowchart is of is drawn as its frame, its process, before its lanes.
-    expect(describeElement(ws, "api")!.views.find((v) => v.view.id === "returns")!.as).toBe("process");
+    // The element a flowchart is of is drawn as its frame, its process, and its lanes are listed with it.
+    expect(describeElement(ws, "api")!.views.find((v) => v.view.id === "returns")).toMatchObject({ as: "process", lanes: [{ id: "shop" }] });
+    expect(describeElement(buildWorkspace(returns()), "api")!.views.find((v) => v.view.id === "returns")!.lanes).toBeUndefined();
     const files = exportDocs(ws, "shop.openarch");
     expect(files.find((f) => f.path === "elements/customer.md")!.content).toContain("- [Returns](../views/returns.md) (its lane, Customer)");
+    expect(files.find((f) => f.path === "elements/api.md")!.content).toContain("- [Returns](../views/returns.md) (its process, and its lane, Shop)");
+    expect(showElement(ws, ws.elements.get("api")!).text).toContain("returns (its process, and lane shop)");
     const page = files.find((f) => f.path === "views/returns.md")!.content;
     expect(page).toContain(
       ["## Lanes", "", "| Lane | Element | Description |", "|---|---|---|", "| Customer | [Customer](../elements/customer.md) |  |", "| Shop | [API](../elements/api.md) | The online shop's staff |"].join("\n"),

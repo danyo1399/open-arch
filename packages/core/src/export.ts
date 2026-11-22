@@ -425,7 +425,7 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
             : as === "screens"
               ? " (its screens)"
               : as === "process"
-                ? " (its process)"
+                ? ` (its process${lanes ? `, and its lane${lanes.length === 1 ? "" : "s"}, ${lanes.map((l) => l.name).join(", ")}` : ""})`
                 : as === "data"
                   ? " (its data)"
                   : as === "deployed"
