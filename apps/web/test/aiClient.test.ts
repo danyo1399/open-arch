@@ -85,6 +85,19 @@ describe("asking a model from the page", () => {
         call({ id: "b", function: { name: "check_model", arguments: "}" } }),
       ]),
     ).toEqual(['a show_model {"id":"shop"}', "b check_model {}"]);
+    // Every call numbered 0 and no IDs, each whole in one piece: a name starts a new call once the one before has all its arguments, even the same name.
+    const unmarked = await names([
+      call({ index: 0, function: { name: "read_file", arguments: '{"path":"a.ts"}' } }),
+      call({ index: 0, function: { name: "read_file", arguments: '{"path":"b.ts"}' } }),
+      call({ index: 0, function: { name: "check_model", arguments: "{}" } }),
+    ]);
+    expect(unmarked.map((c) => c.replace(/^call_\d+ /, ""))).toEqual(['read_file {"path":"a.ts"}', 'read_file {"path":"b.ts"}', "check_model {}"]);
+    // A server that sends the name again with each piece of one call's arguments: still one call, with its name once.
+    const repeated = await names([
+      call({ index: 0, function: { name: "show_model", arguments: '{"id":' } }),
+      call({ index: 0, function: { name: "show_model", arguments: '"shop"}' } }),
+    ]);
+    expect(repeated.map((c) => c.replace(/^call_\d+ /, ""))).toEqual(['show_model {"id":"shop"}']);
     // No IDs at all, and the arguments written out, not as text: each call still gets an ID of its own, which no later reply's call gets too.
     const unnamed = [call({ index: 0, function: { name: "show_model", arguments: { id: "shop" } } }), call({ index: 1, function: { name: "check_model", arguments: {} } })];
     const made = [...(await names(unnamed)), ...(await names(unnamed))];

@@ -18,6 +18,16 @@ export const ROUNDS_LIMIT = 30;
 /** How much of the tools' answers a conversation keeps, in characters: past it, the oldest the model has read are left out, so a long one still fits the model. */
 export const KEPT_LIMIT = 300_000;
 
+/**
+ * How much the answers to one reply's calls can come to, in characters. A reply can call many
+ * tools at once, such as reading thirty files, and what they'd all come to is more than a model
+ * can take: the later answers are cut, so the conversation carries on.
+ */
+export const ROUND_LIMIT = 160_000;
+
+/** How much of an answer is kept whatever else the reply asked for. */
+const ANSWER_START = 500;
+
 const NOT_SET_UP = "Ask AI isn't set up yet: give the server's address, the key and the model in its settings.";
 
 const LEFT_OUT = "(Left out to save room. Call the tool again if you still need it.)";
@@ -81,8 +91,17 @@ function request(prompt: string, context: AgentContext): string {
   return where.length ? `(In the designer, ${where.join(", and ")}.)\n\n${prompt}` : prompt;
 }
 
-/** A tool's answer as the conversation keeps it: a very long one cut, and saying so. */
-const clipped = (answer: string) => (answer.length > ANSWER_LIMIT ? `${answer.slice(0, ANSWER_LIMIT)}\n(Cut short: this is the first ${ANSWER_LIMIT} characters. Ask for less at once.)` : answer);
+/**
+ * A tool's answer as the conversation keeps it. A very long one is cut, and says so. So is one
+ * that the answers to the same reply's other calls leave less room for than it needs, down to
+ * `room` characters: its start is always kept, so a change still says it was made.
+ */
+function fitted(answer: string, room: number): string {
+  if (answer.length > Math.max(room, ANSWER_START) && room < ANSWER_LIMIT) {
+    return `${answer.slice(0, Math.max(room, ANSWER_START))}\n(Cut short: the calls in this reply came to more than can be read at once. Call fewer tools in one reply.)`;
+  }
+  return answer.length > ANSWER_LIMIT ? `${answer.slice(0, ANSWER_LIMIT)}\n(Cut short: this is the first ${ANSWER_LIMIT} characters. Ask for less at once.)` : answer;
+}
 
 /** What the agent needs each time it's asked: read then, so it follows the settings and the workspace as they change. */
 export interface AgentSetup {
@@ -137,12 +156,15 @@ export class BrowserAgent {
           return onEvent({ type: "done", summary: (said || (calls > 0 ? "Done." : "The model gave no answer. Ask again, or try another model.")) + short });
         }
         messages.push({ role: "assistant", content: reply.content || null, tool_calls: reply.toolCalls });
+        let room = ROUND_LIMIT;
         for (const call of reply.toolCalls) {
           const result = await runTool(host, call.function.name, call.function.arguments, stop.signal);
           calls++;
           onEvent({ type: "progress", text: result.did });
-          if (result.changed !== undefined) onEvent({ type: "changed", text: result.changed });
-          messages.push({ role: "tool", tool_call_id: call.id, content: clipped(result.answer) });
+          if (result.changed) onEvent({ type: "changed", ...result.changed });
+          const kept = fitted(result.answer, room);
+          room = Math.max(0, room - kept.length);
+          messages.push({ role: "tool", tool_call_id: call.id, content: kept });
           // Stopped while it ran: what it did is kept, and the calls after it aren't made.
           stop.signal.throwIfAborted();
         }

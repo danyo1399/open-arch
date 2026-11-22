@@ -9,10 +9,10 @@ import { Designer } from "../src/Designer.js";
 import { FolderHost } from "../src/folders.js";
 import { BrowserHost, DesktopHost, MemoryHost, workspaceZip, type WorkspaceHost } from "../src/hosts.js";
 import { browserLibrary } from "../src/library.js";
-import { canUndo } from "../src/panels/AskAI.js";
+import { afterChange, canUndo } from "../src/panels/AskAI.js";
 import { button, checkbox, click, mount, type } from "./dom.js";
 import { FakeFolder } from "./fakeFolder.js";
-import { fakeModel, toolAnswers } from "./llm.js";
+import { fakeModel, reply, toolAnswers } from "./llm.js";
 
 const shop: OpenArchDocument = {
   openarch: 19,
@@ -209,6 +209,59 @@ describe("Ask AI in the web designer", () => {
     expect(offersUndo()).toBe(false);
   });
 
+  it("keeps what the person changed by hand while a request ran, when the AI's change is undone", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    let answer: (response: Response) => void = () => {};
+    const describe = { calls: [{ name: "change_model", args: { operations: [{ op: "update-element", id: "shop", description: "Sells things." }] } }] };
+    const { host, file, send, rename, offersUndo, log, panel } = await designer([() => new Promise<Response>((resolve) => (answer = resolve)), { text: "Described." }]);
+    await click(button(host, "Ask AI"));
+    await send("Describe the shop");
+    // Renamed by hand while the model is still thinking, before its change lands on top.
+    await rename("Shop, by hand");
+    const byHand = await file.load();
+    answer(reply(describe));
+    await until(offersUndo);
+    expect(loadWorkspace(await file.load())).toMatchObject({ doc: { name: "Shop, by hand", elements: { shop: { description: "Sells things." } } } });
+
+    await click(button(panel(), "Undo AI change"));
+    await until(() => log().at(-1) === "Undid the AI's change.");
+    // Back to just before the AI's change, not to when the request was sent: the rename is kept.
+    expect(await file.load()).toBe(byHand);
+    expect(loadWorkspace(byHand).doc.name).toBe("Shop, by hand");
+  });
+
+  it("doesn't offer to undo the AI's changes when the person changed something between two of them", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    let answer: (response: Response) => void = () => {};
+    const change = (description: string) => ({ calls: [{ name: "change_model", args: { operations: [{ op: "update-element", id: "shop", description }] } }] });
+    const { host, file, send, rename, offersUndo, panel } = await designer([change("Sells things."), () => new Promise<Response>((resolve) => (answer = resolve)), { text: "Described, twice." }]);
+    await click(button(host, "Ask AI"));
+    await send("Describe the shop, then say more");
+    await until(() => panel().textContent!.includes("Changed the model: updated shop"));
+    // Between the AI's first change and its second.
+    await rename("Shop, by hand");
+    answer(reply(change("Sells things, to customers.")));
+    await until(() => !!panel().querySelector(".ask-ai-done"));
+    expect(loadWorkspace(await file.load())).toMatchObject({ doc: { name: "Shop, by hand", elements: { shop: { description: "Sells things, to customers." } } } });
+    // No text takes back both of the AI's changes and keeps the rename, so there's nothing to offer: History has each step.
+    expect(offersUndo()).toBe(false);
+    expect(panel().textContent).not.toContain("The AI changed the model.");
+    await click(host.querySelector('.topbar button[aria-label="History"]')!);
+    expect([...host.querySelectorAll(".history button")].map((row) => row.firstElementChild!.textContent)).toEqual(["Updated shop", "Updated workspace", "Updated shop", "Before these changes"]);
+  });
+
+  it("undoes every change the AI made in one request together, when nothing came between them", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    const change = (description: string) => ({ calls: [{ name: "change_model", args: { operations: [{ op: "update-element", id: "shop", description }] } }] });
+    const { host, file, ask, offersUndo, log, panel } = await designer([change("Sells things."), change("Sells things, to customers."), { text: "Described, twice." }]);
+    await click(button(host, "Ask AI"));
+    await ask("Describe the shop, then say more");
+    await until(offersUndo);
+    await click(button(panel(), "Undo AI change"));
+    await until(() => log().at(-1) === "Undid the AI's change.");
+    expect(await file.load()).toBe(serializeDocument(shop));
+  });
+
   it("keeps a running request's log and its Stop when the settings are forgotten in another tab", async () => {
     localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
     const { host, send, log, panel } = await designer([(_asked, signal) => new Promise<Response>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason)))]);
@@ -351,7 +404,7 @@ describe("Ask AI in the web designer", () => {
     await until(() => kept.length === 1);
     const saved = kept[0] as BrowserHost;
     expect(saved).toBeInstanceOf(BrowserHost);
-    answer(await (await import("./llm.js")).reply(change));
+    answer(reply(change));
     await until(() => !!panel().querySelector(".ask-ai-done"));
     // The change is in the copy the browser keeps, which is what's open now, not only in the example left behind.
     expect(loadWorkspace((await browserLibrary.get(saved.id))!.text).doc.description).toBe("Sells things.");
@@ -421,6 +474,16 @@ describe("what Undo AI change is offered for", () => {
     // Back as it was before the request: nothing to undo.
     expect(canUndo({ before: "a", after: "b" }, "a")).toBe(false);
     expect(canUndo({ before: "a", after: "a" }, "a")).toBe(false);
+  });
+
+  it("goes back to just before the agent's first change, through changes that follow on from one another", () => {
+    // The first change in a request.
+    expect(afterChange(null, { before: "b", after: "c" })).toEqual({ before: "b", after: "c" });
+    // The next starts from what the last left: together they're one thing to undo.
+    expect(afterChange({ before: "b", after: "c" }, { before: "c", after: "d" })).toEqual({ before: "b", after: "d" });
+    // One made on top of someone else's change: nothing is offered, for the rest of the request too.
+    expect(afterChange({ before: "b", after: "c" }, { before: "x", after: "y" })).toBe("mixed");
+    expect(afterChange("mixed", { before: "y", after: "z" })).toBe("mixed");
   });
 
   it("is any change since the request was sent, where the agent doesn't say, as the desktop app's doesn't", () => {

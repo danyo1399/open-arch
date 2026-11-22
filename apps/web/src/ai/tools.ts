@@ -29,8 +29,8 @@ export interface ToolResult {
   answer: string;
   /** What was done, for the log the person reads. */
   did: string;
-  /** The workspace's text after it, when the tool changed the workspace. */
-  changed?: string;
+  /** The workspace's text just before it and after it, when the tool changed the workspace. */
+  changed?: { before: string; after: string };
 }
 
 /** The most of a tool's answer the model is given: a longer one is cut, and says so. */
@@ -279,7 +279,7 @@ async function changeModel(host: ToolHost, args: Args): Promise<ToolResult> {
   const done = await host.change(ops);
   if (!done.ok) return { answer: `Refused, so nothing changed: ${done.error}`, did: `Tried a change that was refused: ${brief(done.error)}` };
   const warnings = done.warnings.length ? ["", "Warnings from this change:", ...done.warnings.map(formatDiagnostic)] : [];
-  return { answer: ["Changed:", ...done.summary.map((line) => `- ${line}`), ...warnings].join("\n"), did: `Changed the model: ${brief(done.summary.join("; "))}`, changed: done.text };
+  return { answer: ["Changed:", ...done.summary.map((line) => `- ${line}`), ...warnings].join("\n"), did: `Changed the model: ${brief(done.summary.join("; "))}`, changed: { before: done.before, after: done.after } };
 }
 
 /**

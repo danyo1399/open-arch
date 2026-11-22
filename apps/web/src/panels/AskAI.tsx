@@ -37,10 +37,25 @@ export interface Asker {
 }
 
 /**
- * What Undo AI change puts back: the file's text before the last request, and, from an agent
- * that says when it changes the workspace, the text its last change left.
+ * What Undo AI change puts back. From an agent that says when it changes the workspace: the
+ * file's text just before its first change in the last request, and the text its last change
+ * left. From one that doesn't: the file's text when the request was sent.
  */
 type Undoable = { before: string; after?: string };
+
+/**
+ * What there is to undo once the agent has made another change, given what there was: null
+ * before its first change in the request, and "mixed" once someone else's change came between
+ * two of its own. Its changes follow on from one another: each starts from what the last left.
+ * One that doesn't was made on top of a change by someone else, such as the person, by hand,
+ * while the request ran. Then there's no text to go back to that takes back the agent's changes
+ * and keeps theirs, so nothing is offered for that request.
+ */
+export function afterChange(undoable: Undoable | "mixed" | null, change: { before: string; after: string }): Undoable | "mixed" {
+  if (undoable === null) return change;
+  if (undoable === "mixed" || undoable.after !== change.before) return "mixed";
+  return { before: undoable.before, after: change.after };
+}
 
 /**
  * Whether the workspace is as the agent's change left it, so Undo AI change takes back the
@@ -98,8 +113,8 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
   const [running, setRunning] = useState(false);
   /** What "Undo AI change" puts back, once the last request changed something. */
   const [undoable, setUndoable] = useState<Undoable | null>(null);
-  /** The file as it was when the running request was sent. */
-  const sent = useRef("");
+  /** The changes the agent has said it made in the running request, as one to undo. */
+  const changes = useRef<Undoable | "mixed" | null>(null);
   const busy = useRef(false);
   // A request that's running keeps its log and its Stop button, whatever else there is to show.
   const setup = running ? undefined : wanted;
@@ -129,8 +144,11 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
         const last = l[l.length - 1];
         return last?.kind === "progress" && last.writing ? [...l.slice(0, -1), { ...last, text: last.text + event.text }] : [...l, { kind: "progress", text: event.text, writing: true }];
       });
-    // What the agent says it changed is what there is to undo: back to before this request.
-    else if (event.type === "changed") setUndoable({ before: sent.current, after: event.text });
+    // What the agent says it changed is what there is to undo: back to just before its first change.
+    else if (event.type === "changed") {
+      changes.current = afterChange(changes.current, event);
+      setUndoable(changes.current === "mixed" ? null : changes.current);
+    }
     else if (event.type === "permission") add({ kind: "permission", id: event.id, text: event.description });
     else if (event.type === "permission-replied") setAnswer(event.id, "answered", true);
     else if (event.type === "error") add({ kind: "error", text: problemText(event.message) });
@@ -149,7 +167,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
     busy.current = true;
     setRunning(true);
     setPrompt("");
-    sent.current = text;
+    changes.current = null;
     // An agent that says what it changes has changed nothing yet. Any other is taken to have made whatever changes from here.
     setUndoable(agent.reportsChanges ? null : { before: text });
     add({ kind: "prompt", text: request });
@@ -214,7 +232,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
       {!setup && !running && canUndo(undoable, text) && (
         <div className="ask-ai-undo">
           <span className="small muted grow">The AI changed the model.</span>
-          <button onClick={() => void undo()} title="Put the file back as it was before this request. Undo takes this back.">
+          <button onClick={() => void undo()} title="Put the file back as it was before the AI changed it. Undo takes this back.">
             Undo AI change
           </button>
         </div>

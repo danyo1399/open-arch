@@ -88,6 +88,16 @@ async function refusal(response: Response): Promise<string> {
 /** How many IDs were made up for calls a server gave none, so no two are the same, in one reply or across a conversation. */
 let madeUp = 0;
 
+/** Whether a call's arguments are all there: JSON that can be read. */
+function complete(args: string): boolean {
+  try {
+    JSON.parse(args);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The pieces of tool calls as they stream in, put together. */
 class Calls {
   private readonly calls: { id: string; name: string; args: string }[] = [];
@@ -99,16 +109,17 @@ class Calls {
     const name = typeof part.function?.name === "string" ? part.function.name : "";
     // By its number; without one, by its ID; with neither, it's more of the last call.
     let at = typeof part.index === "number" ? this.places.get(part.index) : id ? this.calls.findIndex((c) => c.id === id) : this.calls.length - 1;
-    // Some servers number every call 0: a new ID there starts a new call.
-    if (at !== undefined && at >= 0 && id && this.calls[at]!.id && this.calls[at]!.id !== id) at = undefined;
+    // Some servers number every call 0. A new ID there starts a new call, and so does a name, with no ID, once the call before has all its arguments.
+    const last = at !== undefined && at >= 0 ? this.calls[at]! : undefined;
+    if (last && (id ? last.id && last.id !== id : name && last.name && complete(last.args))) at = undefined;
     if (at === undefined || at < 0) {
       at = this.calls.push({ id, name: "", args: "" }) - 1;
       if (typeof part.index === "number") this.places.set(part.index, at);
     }
     const call = this.calls[at]!;
     call.id ||= id;
-    // The name comes whole with the call's first piece; a server that sends it again sends the ID again too.
-    if (name) call.name = id || !call.name ? name : call.name + name;
+    // The name comes whole with the call's first piece. A server that sends it again with later pieces sends the same one.
+    if (name && name !== call.name) call.name = id || !call.name ? name : call.name + name;
     const args = part.function?.arguments;
     if (typeof args === "string") call.args += args;
     // Written out, not as text: a server that doesn't stream the arguments.
