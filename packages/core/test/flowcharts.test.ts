@@ -848,6 +848,9 @@ describe("flowchart lanes for elements", () => {
     expect(files.find((f) => f.path === "elements/customer.md")!.content).toContain("- [Returns](../views/returns.md) (its lane, Customer)");
     expect(files.find((f) => f.path === "elements/api.md")!.content).toContain("- [Returns](../views/returns.md) (its process, and its lane, Shop)");
     expect(showElement(ws, ws.elements.get("api")!).text).toContain("returns (its process, and lane shop)");
+    // --json lists them too, for a flowchart with a lane for the element, as for one of its process.
+    expect(showElement(ws, ws.elements.get("api")!).json).toMatchObject({ views: expect.arrayContaining([{ id: "returns", as: "process", runsIn: undefined, lanes: ["shop"] }]) });
+    expect(showElement(ws, ws.elements.get("customer")!).json).toMatchObject({ views: expect.arrayContaining([{ id: "returns", as: "lane", runsIn: undefined, lanes: ["customer"] }]) });
     const page = files.find((f) => f.path === "views/returns.md")!.content;
     expect(page).toContain(
       ["## Lanes", "", "| Lane | Element | Description |", "|---|---|---|", "| Customer | [Customer](../elements/customer.md) |  |", "| Shop | [API](../elements/api.md) | The online shop's staff |"].join("\n"),

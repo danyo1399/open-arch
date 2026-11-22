@@ -345,6 +345,20 @@ describe("a lane's right-click menu", () => {
     expect(d.details()).toBe("Lane 2of 2");
   });
 
+  it("finds, from the element whose process the flowchart is, its lane for that element too", async () => {
+    const ofShop = structuredClone(laned);
+    ofShop.views.returns!.scope = "shop";
+    ofShop.views.returns!.lanes![1]!.element = "shop";
+    const d = await designer(ofShop);
+    await d.rightClick(d.node("lane:shop")!);
+    await d.pick("Show Shop");
+    await click(button(d.host, "Find usages"));
+    const usage = [...d.host.querySelectorAll<HTMLButtonElement>(".usages .row")].find((r) => r.textContent!.startsWith("Returns"))!;
+    expect(usage.textContent).toBe("Returnsflowchart · its process, and its lane, Shop");
+    await click(usage);
+    expect(d.details()).toBe("Lane 2of 2");
+  });
+
   it("is the diagram's on the column for blocks in no lane", async () => {
     const loose = structuredClone(laned);
     delete loose.views.returns!.blocks![3]!.lane;
