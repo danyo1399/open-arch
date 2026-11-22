@@ -159,6 +159,22 @@ describe("a view of boxes' right-click menu, opened with the keyboard or after a
     expect((await d.saved("shop-parts")).stickies.map((s) => s.id)).toEqual(["why"]);
   });
 
+  it("keeps the boxes the layout placed through a new ID for the view, without laying them out again", async () => {
+    const unplaced = structuredClone(doc);
+    delete unplaced.views.containers!.layout;
+    const d = await designer(unplaced);
+    const [pane, web] = [d.pane(), d.node("web")];
+    const at = (web as HTMLElement).style.transform;
+    expect(web).not.toBeNull();
+    await write(d.host.querySelector<HTMLInputElement>('input[aria-label="Title"]')!, "Shop parts");
+    await d.settle();
+    expect((await d.saved("shop-parts")).title).toBe("Shop parts");
+    // The same nodes, where they were: they weren't cleared to be laid out again.
+    expect(d.pane()).toBe(pane);
+    expect(d.node("web")).toBe(web);
+    expect((d.node("web") as HTMLElement).style.transform).toBe(at);
+  });
+
   it("doesn't open on a note deleted just before", async () => {
     const [d, file] = await slow();
     await click(d.node("sticky:loose")!);

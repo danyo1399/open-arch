@@ -290,6 +290,36 @@ describe("the right-click menus of a whiteboard's notes and background", () => {
     expect((await d.saved()).shapes.map((s) => s.text ?? s.kind)).toEqual(["Faster checkout", "Cache the menus", "Orders DB", "pen", "Later"]);
   });
 
+  it("opens a menu on a Ctrl-click on a Mac with a drawing tool picked, and draws nothing", async () => {
+    const was = Object.getOwnPropertyDescriptor(navigator, "platform");
+    Object.defineProperty(navigator, "platform", { configurable: true, get: () => "MacIntel" });
+    try {
+      const d = await designer();
+      await click(d.host.querySelector('[aria-label="Ellipse"]')!);
+      // The Mac sends it as a press of the left button with Ctrl held, then asks for a menu.
+      const point = d.onScreen({ x: 330, y: 30 });
+      await act(async () => {
+        d.node("db")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: true, pointerId: 3, ...point }));
+      });
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ctrlKey: true, ...point });
+      await act(async () => {
+        d.node("db")!.dispatchEvent(event);
+        await new Promise<void>((resolve) => setTimeout(resolve));
+      });
+      await act(async () => {
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, ctrlKey: true, pointerId: 3, ...point }));
+      });
+      await d.settle();
+      expect(event.defaultPrevented).toBe(true);
+      expect(d.details()).toBe("Ellipse3 of 4 from the back");
+      expect(d.labels()).toContain("Fill");
+      expect((await d.saved()).shapes).toHaveLength(4);
+    } finally {
+      if (was) Object.defineProperty(navigator, "platform", was);
+      else delete (navigator as { platform?: string }).platform;
+    }
+  });
+
   it("opens no menu while a stroke is being drawn, as a long press on a touch screen asks for one", async () => {
     const d = await designer();
     await click(d.host.querySelector('[aria-label="Rectangle"]')!);
