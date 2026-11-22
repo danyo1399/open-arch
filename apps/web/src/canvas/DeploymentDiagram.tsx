@@ -6,11 +6,8 @@
  * model; to or from a node, a connection of this view.
  */
 import {
-  ELEMENT_SHAPES,
   kindLabel,
   nodeKindLabel,
-  RUNNABLE_KINDS,
-  SHAPE_LABELS,
   type ComputedView,
   type Connection as ViewConnection,
   type DeploymentArrow,
@@ -45,7 +42,7 @@ import {
 } from "@xyflow/react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { byName, connectionEnds, deploymentOffers, uniqueNodeId, type DeploymentOffer } from "../model.js";
+import { connectionChoices, connectionEndChoices, nodeChoices, stopRunning, uniqueNodeId, type DeploymentChoice } from "../model.js";
 import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, NODE_W, placeStickies, STICKY, TOUCH_STICKY, type Point } from "./autoLayout.js";
@@ -449,35 +446,19 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
 
   const notes = useContext(NotesOpener);
   const edits: MenuEdits = { edit, select };
-  /** Whether an edit can be offered: whether the view's rules would let it be made (see deploymentOffers). */
-  const offers = (op: DeploymentOffer) => deploymentOffers(ws, view, op);
-  /**
-   * The ends a connection from this one can go to: another node, or for a node, something that
-   * runs in one, but nothing it's inside or that's inside it.
-   */
-  const connectTo = (from: string): MenuItem[] => {
+  /** An item that makes one of the edits a node or connection offers (see nodeChoices), then selects what `then` says. */
+  const choose = (choice: DeploymentChoice, then?: Selection): MenuAction => ({ label: choice.label, onSelect: () => void edit([choice.op]).then((ok) => ok && then && select(then)) });
+  /** Where a connection from this one can go, selecting the connection it adds (see connectionChoices). */
+  const connectTo = (choices: DeploymentChoice[]): MenuItem[] => {
     const number = view.connections.length + 1;
-    const items = connectionEnds(ws, view).flatMap((end) => {
-      const add: DeploymentOffer = { op: "add-connection", view: view.id, from, to: end.id };
-      return offers(add) ? [{ label: end.label, onSelect: () => void edit([add]).then((ok) => ok && select({ kind: "connection", number })) }] : [];
-    });
-    return items.length ? [{ label: "Add connection to", items }] : [];
+    return choices.length ? [{ label: "Add connection to", items: choices.map((c) => choose(c, { kind: "connection", number })) }] : [];
   };
 
   // Each item does what it does in the toolbar or the details, which have them all too.
   const nodeMenu = (node: DeploymentNode): MenuItem[] => {
-    const update = (fields: Omit<Extract<Operation, { op: "update-node" }>, "op" | "view" | "id">): DeploymentOffer => ({ op: "update-node", view: view.id, id: node.id, ...fields });
-    const set = (fields: Parameters<typeof update>[0]) => () => void edit([update(fields)]);
-    /** An item that changes the node this way, if it can be changed so. */
-    const item = (label: string, fields: Parameters<typeof update>[0]): MenuAction[] => (offers(update(fields)) ? [{ label, onSelect: set(fields) }] : []);
+    const choices = nodeChoices(ws, view, node);
     const holdsNodes = view.nodes.some((n) => n.parent === node.id);
-    // Not into infrastructure, itself or a node inside it, nor where a connection would join a node and something inside it.
-    const inside: MenuAction[] = [...view.nodes.filter((n) => n.id !== node.parent).flatMap((n) => item(n.name, { parent: n.id })), ...(node.parent !== undefined ? item("Nothing: at the top", { parent: null }) : [])];
-    const runnable = [...ws.elements.values()].filter((e) => RUNNABLE_KINDS.includes(e.kind) && !node.runs.includes(e.id)).sort(byName);
-    const run = runnable.flatMap((e) => item(`${e.name} [${kindLabel(e)}]`, { runs: [...node.runs, e.id] }));
-    // Infrastructure runs nothing and holds no nodes, so a node that does can't become it.
-    const kind = node.infrastructure ? item("Make it a deployment node", { infrastructure: false }) : item("Make it infrastructure", { infrastructure: true });
-    const shapes = ELEMENT_SHAPES.filter((shape) => shape !== node.shape).flatMap((shape) => item(SHAPE_LABELS[shape], { shape: shape === "box" ? null : shape }));
+    const items = (cs: DeploymentChoice[]) => cs.map((c) => choose(c));
     return withDelete(
       edits,
       [
@@ -492,11 +473,11 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
                 ],
               },
             ]),
-        ...(run.length ? [{ label: "Run here", items: run }] : []),
-        ...connectTo(node.id),
-        ...(shapes.length ? [{ label: "Shape", items: shapes }] : []),
-        ...(inside.length ? [{ label: "Move inside", items: inside }] : []),
-        ...kind,
+        ...(choices.run.length ? [{ label: "Run here", items: items(choices.run) }] : []),
+        ...connectTo(choices.connectTo),
+        ...(choices.shapes.length ? [{ label: "Shape", items: items(choices.shapes) }] : []),
+        ...(choices.inside.length ? [{ label: "Move inside", items: items(choices.inside) }] : []),
+        ...(choices.kind ? [choose(choices.kind)] : []),
       ],
       holdsNodes ? "Delete node and what's inside" : "Delete node",
       { op: "remove-node", view: view.id, id: node.id },
@@ -505,20 +486,16 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
 
   /** A container or system running in a node: what's done with it there, then what the designer's menu for the element has. */
   const instanceMenu = (node: DeploymentNode, element: string): MenuItem[] => {
-    const stop: DeploymentOffer = { op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element) };
-    const here: MenuItem[] = [...(offers(stop) ? [{ label: "Stop running it here", onSelect: () => void edit([stop]).then((ok) => ok && select({ kind: "node", id: node.id })) }] : []), ...connectTo(element)];
+    const stop = stopRunning(ws, view, node, element);
+    const here: MenuItem[] = [...(stop ? [choose({ id: element, label: "Stop running it here", op: stop }, { kind: "node", id: node.id })] : []), ...connectTo(connectionChoices(ws, view, element))];
     const [first, ...rest] = elementItems(element);
     return [...here, ...(first ? [{ ...first, divider: here.length > 0 }, ...rest] : [])];
   };
 
   const connectionMenu = (connection: ViewConnection): MenuItem[] => {
     const update = (fields: Omit<Extract<Operation, { op: "update-connection" }>, "op" | "view" | "connection">) => edit([{ op: "update-connection", view: view.id, connection: connection.number, ...fields }]);
-    const all = connectionEnds(ws, view);
-    // Only where the connection can go: see connectTo.
-    const ends = (end: "from" | "to") =>
-      all
-        .filter((e) => e.id !== connection[end] && offers({ op: "update-connection", view: view.id, connection: connection.number, [end]: e.id }))
-        .map((e) => ({ label: e.label, onSelect: () => void update({ [end]: e.id }) }));
+    // Only where the connection can go: see connectionChoices.
+    const ends = (end: "from" | "to") => connectionEndChoices(ws, view, connection, end).map((c) => choose(c));
     const [from, to] = [ends("from"), ends("to")];
     return withDelete(
       edits,

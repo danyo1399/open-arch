@@ -5,6 +5,7 @@ import {
   computeAllViews,
   computeView,
   describeElement,
+  ELEMENT_SHAPES,
   isInside,
   kindLabel,
   LEVEL_TITLE,
@@ -12,6 +13,7 @@ import {
   representative,
   RUNNABLE_KINDS,
   SCOPE_KINDS,
+  SHAPE_LABELS,
   stickyAnchor,
   STICKY_TARGET_LEVELS,
   VIEW_LEVELS,
@@ -586,7 +588,7 @@ export function connectionEnds(ws: Workspace, view: ViewDef): { id: string; labe
   return [...view.nodes.map((n) => ({ id: n.id, label: `${n.name} [${nodeKindLabel(n)}]` })), ...run.map((e) => ({ id: e.id, label: `${e.name} [${kindLabel(e)}]` }))];
 }
 
-/** The edits a deployment view's menus offer: a node changed, or a connection added or changed. */
+/** The edits a deployment view's menus and details offer: a node changed, or a connection added or changed. */
 export type DeploymentOffer = Extract<Operation, { op: "update-node" | "add-connection" | "update-connection" }>;
 
 /**
@@ -672,9 +674,9 @@ function viewErrors(ws: Workspace, view: ViewDef): string[] {
 const errorsNow = new WeakMap<ViewDef, string[]>();
 
 /**
- * Whether a deployment view's menu can offer an edit: whether core would make it. Core refuses
- * one for the operation's own rules (see deploymentRules), or for leaving the workspace with an
- * error it didn't have. The second can refuse a move or a connection that looks fine, for
+ * Whether a deployment view's menus and details can offer an edit: whether core would make it.
+ * Core refuses one for the operation's own rules (see deploymentRules), or for leaving the
+ * workspace with an error it didn't have. The second can refuse a move or a connection that looks fine, for
  * another connection: none can join a node and something inside it. So the view is checked as
  * the edit would leave it (see deploymentAfter), by the checks an edit runs, and its errors
  * compared as an edit compares them, by rule and message.
@@ -693,6 +695,87 @@ export function deploymentOffers(ws: Workspace, view: ViewDef, op: DeploymentOff
     if (at >= 0) left.splice(at, 1);
     return at >= 0;
   });
+}
+
+/** An edit a deployment view's menus and details offer: what it's for, by ID, what they call it, and the edit. */
+export interface DeploymentChoice<O extends DeploymentOffer = DeploymentOffer> {
+  id: string;
+  label: string;
+  op: O;
+}
+
+type NodeUpdate = Extract<DeploymentOffer, { op: "update-node" }>;
+
+/** What can be done to a deployment node, as its right-click menu and the details offer it. */
+export interface NodeChoices {
+  /**
+   * Whether it can be changed at all. Infrastructure that runs something or holds a node, as a
+   * file written by hand can have, can't be, until it's made a deployment node.
+   */
+  changeable: boolean;
+  /** The nodes it can be moved inside, in the view's order, then the top, whose ID is "": not where it is now. */
+  inside: DeploymentChoice<NodeUpdate>[];
+  /** The containers and systems it can be told to run, of those it doesn't run yet, by name. */
+  run: DeploymentChoice<NodeUpdate>[];
+  /** Making it infrastructure, or a deployment node again, if it can be made that. */
+  kind?: DeploymentChoice<NodeUpdate>;
+  /** The other shapes it can be drawn as. */
+  shapes: DeploymentChoice<NodeUpdate>[];
+  /** Where a connection from it can go. */
+  connectTo: DeploymentChoice[];
+}
+
+/**
+ * What a deployment node's menu and the details offer to do to it: only what core would make
+ * (see deploymentOffers), so the two offer the same.
+ */
+export function nodeChoices(ws: Workspace, view: ViewDef, node: DeploymentNode): NodeChoices {
+  const offered = (id: string, label: string, fields: Omit<NodeUpdate, "op" | "view" | "id">): DeploymentChoice<NodeUpdate>[] => {
+    const op: NodeUpdate = { op: "update-node", view: view.id, id: node.id, ...fields };
+    return deploymentOffers(ws, view, op) ? [{ id, label, op }] : [];
+  };
+  const runnable = [...ws.elements.values()].filter((e) => RUNNABLE_KINDS.includes(e.kind) && !node.runs.includes(e.id)).sort(byName);
+  return {
+    // Its name, as it is: an edit that changes nothing, refused only for what's wrong with the node already.
+    changeable: offered(node.id, node.name, { name: node.name }).length > 0,
+    // Not into infrastructure, itself or a node inside it, nor where a connection would join a node and something inside it.
+    inside: [...view.nodes.filter((n) => n.id !== node.parent).flatMap((n) => offered(n.id, n.name, { parent: n.id })), ...(node.parent !== undefined ? offered("", "Nothing: at the top", { parent: null }) : [])],
+    run: runnable.flatMap((e) => offered(e.id, `${e.name} [${kindLabel(e)}]`, { runs: [...node.runs, e.id] })),
+    // Infrastructure runs nothing and holds no nodes, so a node that does can't become it.
+    kind: offered(node.id, node.infrastructure ? "Make it a deployment node" : "Make it infrastructure", { infrastructure: !node.infrastructure })[0],
+    shapes: ELEMENT_SHAPES.filter((shape) => shape !== node.shape).flatMap((shape) => offered(shape, SHAPE_LABELS[shape], { shape: shape === "box" ? null : shape })),
+    connectTo: connectionChoices(ws, view, node.id),
+  };
+}
+
+/** Where a connection from a node, or from something a node runs, can go: the view's other nodes, and what they run, but nothing it's inside or that's inside it. */
+export function connectionChoices(ws: Workspace, view: ViewDef, from: string): DeploymentChoice[] {
+  return connectionEnds(ws, view).flatMap((end) => {
+    const op: DeploymentOffer = { op: "add-connection", view: view.id, from, to: end.id };
+    return deploymentOffers(ws, view, op) ? [{ ...end, op }] : [];
+  });
+}
+
+/** Where one end of a connection can be moved to: only where a connection can go (see connectionChoices). */
+export function connectionEndChoices(ws: Workspace, view: ViewDef, connection: Connection, end: "from" | "to"): DeploymentChoice[] {
+  return connectionEnds(ws, view).flatMap((e) => {
+    const op: DeploymentOffer = { op: "update-connection", view: view.id, connection: connection.number, [end]: e.id };
+    return e.id !== connection[end] && deploymentOffers(ws, view, op) ? [{ ...e, op }] : [];
+  });
+}
+
+/**
+ * The edit that stops a node running something, if it can be stopped. It can't when what's left
+ * is refused: something that's no container or system, or anything at all in infrastructure.
+ */
+export function stopRunning(ws: Workspace, view: ViewDef, node: DeploymentNode, element: string): NodeUpdate | undefined {
+  const op: NodeUpdate = { op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element) };
+  return deploymentOffers(ws, view, op) ? op : undefined;
+}
+
+/** What a node runs that no node can, as a file written by hand can say: anything that isn't a container or system of the model. */
+export function unrunnable(ws: Workspace, node: DeploymentNode): string[] {
+  return node.runs.filter((id) => !RUNNABLE_KINDS.includes(ws.elements.get(id)?.kind as ElementKind));
 }
 
 /** A wireframe's widget as lists and menus name it: its kind, and its text's first line. */

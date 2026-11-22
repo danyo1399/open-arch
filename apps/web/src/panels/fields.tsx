@@ -40,9 +40,11 @@ interface FieldProps {
    */
   autoFocus?: boolean | number;
   hint?: ReactNode;
+  /** Shown, but not to be changed. */
+  disabled?: boolean;
 }
 
-export function Field({ label, value, onCommit, multiline, rows = 3, placeholder, autoFocus, hint }: FieldProps) {
+export function Field({ label, value, onCommit, multiline, rows = 3, placeholder, autoFocus, hint, disabled }: FieldProps) {
   const { box, onKeyDown } = useSavedText<HTMLInputElement & HTMLTextAreaElement>(value, onCommit);
   useEffect(() => {
     if (autoFocus && box.ref.current) {
@@ -53,7 +55,7 @@ export function Field({ label, value, onCommit, multiline, rows = 3, placeholder
   return (
     <label className="field">
       <span className="field-label">{label}</span>
-      {multiline ? <textarea {...box} placeholder={placeholder} aria-label={label} rows={rows} /> : <input {...box} placeholder={placeholder} aria-label={label} onKeyDown={onKeyDown} />}
+      {multiline ? <textarea {...box} placeholder={placeholder} aria-label={label} rows={rows} disabled={disabled} /> : <input {...box} placeholder={placeholder} aria-label={label} onKeyDown={onKeyDown} disabled={disabled} />}
       {hint && <span className="field-hint">{hint}</span>}
     </label>
   );

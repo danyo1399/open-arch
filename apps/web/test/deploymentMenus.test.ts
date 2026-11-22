@@ -1,11 +1,14 @@
 // @vitest-environment happy-dom
-import { applyOperations, buildWorkspace, loadWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
-import { act } from "react";
+import { applyOperations, buildWorkspace, computeView, loadWorkspace, serializeDocument, type DeploymentNode, type OpenArchDocument, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { STICKY } from "../src/canvas/autoLayout.js";
 import type { MemoryHost } from "../src/hosts.js";
-import { connectionEnds, deploymentAfter, deploymentOffers, type DeploymentOffer } from "../src/model.js";
-import { button, click, key } from "./dom.js";
+import type { Selection } from "../src/canvas/Canvas.js";
+import { connectionEndChoices, connectionEnds, deploymentAfter, deploymentOffers, nodeChoices, stopRunning, type DeploymentOffer } from "../src/model.js";
+import { Properties } from "../src/panels/Properties.js";
+import type { Edit } from "../src/state.js";
+import { button, checkbox, choose, click, key, mount, select } from "./dom.js";
 import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
 /**
@@ -63,19 +66,53 @@ const slow = async (): Promise<[Open, SlowHost]> => {
 const node = async (d: Open, id: string, view = "production") => (await d.saved(view)).nodes.find((n) => n.id === id);
 const connections = async (d: Open, view = "production") => (await d.saved(view)).connections.map((c) => `${c.from} -> ${c.to}`);
 
+/** The model with something wrong in its deployment view already, as a file written by hand can have. */
+const broken = (change: (view: NonNullable<OpenArchDocument["views"][string]>, model: OpenArchDocument) => void) => {
+  const model = structuredClone(doc);
+  // Things no node can run: a person, and a component of a container.
+  model.elements.buyer = { kind: "person", name: "Buyer" };
+  model.elements.orders = { kind: "component", name: "Orders", parent: "api" };
+  change(model.views.production!, model);
+  return model;
+};
+
+/** Whether core makes an edit, tried on a copy. */
+const made = (model: OpenArchDocument, op: Operation) => {
+  try {
+    applyOperations(model, [op]);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** The models the menus and the details are checked on: one with nothing wrong, and ones with something wrong already, as a file written by hand can have. */
+const models = [
+  ["nothing wrong", doc],
+  ["a connection that joins a node and one inside it", broken((v) => v.connections!.push({ from: "region", to: "lb" }))],
+  ["a node that runs something that's no element, and a person", broken((v) => (v.nodes!.server!.runs = ["web", "ghost", "buyer"]))],
+  ["infrastructure that runs something", broken((v) => (v.nodes!.lb!.runs = ["cache"]))],
+  ["infrastructure that holds a node", broken((v) => (v.nodes!.edge!.parent = "lb"))],
+  ["nodes inside one another", broken((v) => (v.nodes!.region!.parent = "data"))],
+  ["a node inside one the view doesn't have", broken((v) => (v.nodes!.edge!.parent = "nowhere"))],
+  // Telling a node what it runs drops the first, which renumbers the second, and core takes the error under its new number for a new one.
+  ["a connection to what nothing runs, then one between a node and one inside it", broken((v) => v.connections!.push({ from: "lb", to: "cache" }, { from: "region", to: "lb" }))],
+  ["a connection from something to itself, and one between two elements", broken((v) => v.connections!.push({ from: "lb", to: "lb" }, { from: "web", to: "db" }))],
+  // Moving it out is the edit that puts it right: it holds nothing once it isn't inside itself.
+  ["infrastructure inside itself", broken((v) => (v.nodes!.lb!.parent = "lb"))],
+  ["a node inside itself", broken((v) => (v.nodes!.edge!.parent = "edge"))],
+  ["infrastructure and a node inside one another", broken((v) => ((v.nodes!.region!.parent = "lb"), (v.nodes!.lb!.parent = "region")))],
+  ["a node with an element's ID", broken((v) => ((v.nodes!.web = { name: "Web node" }), v.connections!.push({ from: "edge", to: "web" })))],
+  ["a connection to something the view doesn't have", broken((v) => v.connections!.unshift({ from: "lb", to: "nothing" }))],
+  ["what a node runs said twice, and with spaces round it", broken((v) => (v.nodes!.server!.runs = ["web", " api ", "web"]))],
+  // Valid, but more to tell apart: the web app runs in two nodes, one of them inside the region.
+  ["a container that runs in two nodes", broken((v) => ((v.nodes!.edge!.runs = ["web"]), v.connections!.push({ from: "region", to: "web" })))],
+] as const;
+
 describe("what a deployment view's menus can offer", () => {
   const ws = buildWorkspace(doc);
   const view = ws.views.get("production")!;
   const connects = (from: string, to: string) => deploymentOffers(ws, view, { op: "add-connection", view: "production", from, to });
-  /** Whether core makes an edit, tried on a copy. */
-  const made = (model: OpenArchDocument, op: DeploymentOffer) => {
-    try {
-      applyOperations(model, [op]);
-      return true;
-    } catch {
-      return false;
-    }
-  };
 
   it("is a connection between two of its nodes, or a node and something one runs", () => {
     expect(connects("lb", "server")).toBe(true);
@@ -139,37 +176,7 @@ describe("what a deployment view's menus can offer", () => {
     ];
   }
 
-  /** The model with something wrong in its deployment view already, as a file written by hand can have. */
-  const broken = (change: (view: NonNullable<OpenArchDocument["views"][string]>, model: OpenArchDocument) => void) => {
-    const model = structuredClone(doc);
-    // Things no node can run: a person, and a component of a container.
-    model.elements.buyer = { kind: "person", name: "Buyer" };
-    model.elements.orders = { kind: "component", name: "Orders", parent: "api" };
-    change(model.views.production!, model);
-    return model;
-  };
-
-  it.each([
-    ["nothing wrong", doc],
-    ["a connection that joins a node and one inside it", broken((v) => v.connections!.push({ from: "region", to: "lb" }))],
-    ["a node that runs something that's no element, and a person", broken((v) => (v.nodes!.server!.runs = ["web", "ghost", "buyer"]))],
-    ["infrastructure that runs something", broken((v) => (v.nodes!.lb!.runs = ["cache"]))],
-    ["infrastructure that holds a node", broken((v) => (v.nodes!.edge!.parent = "lb"))],
-    ["nodes inside one another", broken((v) => (v.nodes!.region!.parent = "data"))],
-    ["a node inside one the view doesn't have", broken((v) => (v.nodes!.edge!.parent = "nowhere"))],
-    // Telling a node what it runs drops the first, which renumbers the second, and core takes the error under its new number for a new one.
-    ["a connection to what nothing runs, then one between a node and one inside it", broken((v) => v.connections!.push({ from: "lb", to: "cache" }, { from: "region", to: "lb" }))],
-    ["a connection from something to itself, and one between two elements", broken((v) => v.connections!.push({ from: "lb", to: "lb" }, { from: "web", to: "db" }))],
-    // Moving it out is the edit that puts it right: it holds nothing once it isn't inside itself.
-    ["infrastructure inside itself", broken((v) => (v.nodes!.lb!.parent = "lb"))],
-    ["a node inside itself", broken((v) => (v.nodes!.edge!.parent = "edge"))],
-    ["infrastructure and a node inside one another", broken((v) => ((v.nodes!.region!.parent = "lb"), (v.nodes!.lb!.parent = "region")))],
-    ["a node with an element's ID", broken((v) => ((v.nodes!.web = { name: "Web node" }), v.connections!.push({ from: "edge", to: "web" })))],
-    ["a connection to something the view doesn't have", broken((v) => v.connections!.unshift({ from: "lb", to: "nothing" }))],
-    ["what a node runs said twice, and with spaces round it", broken((v) => (v.nodes!.server!.runs = ["web", " api ", "web"]))],
-    // Valid, but more to tell apart: the web app runs in two nodes, one of them inside the region.
-    ["a container that runs in two nodes", broken((v) => ((v.nodes!.edge!.runs = ["web"]), v.connections!.push({ from: "region", to: "web" })))],
-  ] as const)("is what core makes when asked, for every edit a menu might offer: with %s", (_, model) => {
+  it.each(models)("is what core makes when asked, for every edit a menu might offer: with %s", (_, model) => {
     const workspace = buildWorkspace(model);
     const production = workspace.views.get("production")!;
     const offers = everyOffer(workspace);
@@ -188,6 +195,168 @@ describe("what a deployment view's menus can offer", () => {
       "Region [Deployment node]",
       "Database server [Deployment node]",
       "Load balancer [Infrastructure node]",
+      "Server [Deployment node]",
+      "API [Container]",
+      "DB [Container]",
+      "Web [Container]",
+    ]);
+  });
+});
+
+/** The details panel for the deployment view, showing what's selected, keeping the edits it sends and what it selects. */
+function details(ws: Workspace, view: ViewDef, selection: Selection) {
+  const edits: Operation[][] = [];
+  const selected: Selection[] = [];
+  const host = mount(
+    createElement(Properties, {
+      ws,
+      view,
+      computed: computeView(ws, view),
+      selection,
+      isNew: false,
+      syncsDocs: false,
+      syncsSkill: false,
+      docs: null,
+      fileName: "shop.openarch",
+      edit: async (e: Edit) => {
+        edits.push(typeof e === "function" ? e(ws) : e);
+        return true;
+      },
+      onSelect: (s: Selection) => void selected.push(s),
+      onHide() {},
+      onDelete() {},
+      onFindUsages() {},
+      onNewView() {},
+      onNewLibrary: async () => {},
+      onBuild() {},
+      onAddSticky() {},
+      onDeleteView() {},
+      onEditNotes() {},
+    }),
+  );
+  return { host, edits, selected };
+}
+
+/** An edit as text, whatever order its fields are in, to compare. */
+const text = (op: Operation) => JSON.stringify(op, Object.keys(op).sort());
+
+/** What a select offers to change to: its options, but not what it shows now, and nothing if it's turned off. */
+const options = (box: HTMLSelectElement) => (box.disabled ? [] : [...box.options].map((o) => o.value).filter((v) => v !== box.value));
+
+/**
+ * The edits the details offer for a node: each shape, place and kind it can be changed to, what
+ * it can run or stop running, and where a connection from it can go. Read from what's shown, so
+ * what's turned off isn't offered.
+ */
+function nodeDetails(ws: Workspace, view: ViewDef, node: DeploymentNode): Operation[] {
+  const { host } = details(ws, view, { kind: "node", id: node.id });
+  const update = (fields: object): Operation => ({ op: "update-node", view: view.id, id: node.id, ...fields }) as Operation;
+  const kind = checkbox(host, "Infrastructure, like a load balancer, DNS or a firewall");
+  const ids = new Map(node.runs.map((id) => [ws.elements.get(id)?.name ?? id, id]));
+  const stops = [...host.querySelectorAll("li")].filter((li) => [...li.querySelectorAll("button")].some((b) => b.textContent === "Stop running it here"));
+  const runHere = [...host.querySelectorAll("label.field")].some((l) => l.querySelector(".field-label")?.textContent === "Run here") ? options(select(host, "Run here")) : [];
+  return [
+    ...options(select(host, "Shape")).map((shape) => update({ shape: shape === "box" ? null : shape })),
+    ...options(select(host, "Inside")).map((parent) => update({ parent: parent || null })),
+    ...(kind.disabled ? [] : [update({ infrastructure: !kind.checked })]),
+    ...stops.map((li) => {
+      const id = ids.get(li.querySelector("button")!.textContent!)!;
+      return update({ runs: node.runs.filter((r) => r !== id) });
+    }),
+    ...runHere.filter(Boolean).map((id) => update({ runs: [...node.runs, id] })),
+    ...options(select(host, "Add a connection to")).filter(Boolean).map((to): Operation => ({ op: "add-connection", view: view.id, from: node.id, to })),
+  ];
+}
+
+/** The same edits, as the node's right-click menus offer them: its own menu, and that of each thing it runs. */
+function nodeMenus(ws: Workspace, view: ViewDef, node: DeploymentNode): Operation[] {
+  const choices = nodeChoices(ws, view, node);
+  return [...choices.shapes, ...choices.inside, ...(choices.kind ? [choices.kind] : []), ...choices.run, ...choices.connectTo]
+    .map((c) => c.op)
+    .concat(node.runs.flatMap((id) => stopRunning(ws, view, node, id) ?? []));
+}
+
+describe("a deployment view's details", () => {
+  it.each(models)("offer the edits its menus do, and only what core makes: with %s", (_, model) => {
+    const ws = buildWorkspace(model);
+    const view = ws.views.get("production")!;
+    const sorted = (ops: Operation[]) => ops.map(text).sort();
+    const shown: Operation[] = [];
+    for (const node of view.nodes) {
+      const offered = nodeDetails(ws, view, node);
+      expect(sorted(offered), node.id).toEqual(sorted(nodeMenus(ws, view, node)));
+      shown.push(...offered);
+      // Its name, and the rest of what's typed, can be changed when core would change it at all.
+      const name = details(ws, view, { kind: "node", id: node.id }).host.querySelector<HTMLInputElement>('input[aria-label="Name"]')!;
+      expect(name.disabled, node.id).toBe(!made(model, { op: "update-node", view: "production", id: node.id, name: `${node.name} 2` }));
+      // A container or system that runs in it can stop running there if core would let it.
+      for (const id of node.runs.filter((r) => ws.elements.has(r))) {
+        const stop = button(details(ws, view, { kind: "instance", node: node.id, element: id }).host, "Stop running it here");
+        expect(stop.disabled, `${node.id}/${id}`).toBe(!stopRunning(ws, view, node, id));
+      }
+    }
+    for (const c of view.connections) {
+      const { host } = details(ws, view, { kind: "connection", number: c.number });
+      const ends = (["from", "to"] as const).flatMap((end) => options(select(host, end === "from" ? "From" : "To")).map((id): Operation => ({ op: "update-connection", view: "production", connection: c.number, [end]: id })));
+      const menu = (["from", "to"] as const).flatMap((end) => connectionEndChoices(ws, view, c, end).map((choice) => choice.op));
+      expect(sorted(ends), `connection ${c.number}`).toEqual(sorted(menu));
+      shown.push(...ends);
+    }
+    // Everything they offer, core makes.
+    expect(shown.filter((op) => !made(model, op)).map(text)).toEqual([]);
+    expect(shown.length).toBeGreaterThan(20);
+  });
+
+  it("leave out what update-node would refuse for what's already wrong with a node, and say why", async () => {
+    const wrong = structuredClone(doc);
+    wrong.elements.buyer = { kind: "person", name: "Buyer" };
+    // The server is told to run a person, and the load balancer, which is infrastructure, runs the cache.
+    wrong.views.production!.nodes!.server!.runs = ["web", "api", "buyer"];
+    wrong.views.production!.nodes!.lb!.runs = ["cache"];
+    const ws = buildWorkspace(wrong);
+    const view = ws.views.get("production")!;
+
+    // It can stop running the person, which puts it right, but nothing else, and run nothing more.
+    const server = details(ws, view, { kind: "node", id: "server" });
+    const stops = [...server.host.querySelectorAll("li")].filter((li) => li.textContent!.includes("Stop running it here")).map((li) => li.querySelector("button")!.textContent);
+    expect(stops).toEqual(["Buyer"]);
+    expect(select(server.host, "Run here").disabled).toBe(true);
+    expect(server.host.textContent).toContain("Nodes run only containers and systems, and Buyer isn't one. What else it runs can't change while it's told to run that.");
+    // Its name and where it is can still change.
+    expect(server.host.querySelector<HTMLInputElement>('input[aria-label="Name"]')!.disabled).toBe(false);
+    await choose(select(server.host, "Inside"), "edge");
+    expect(server.edits).toEqual([[{ op: "update-node", view: "production", id: "server", parent: "edge" }]]);
+    const web = details(ws, view, { kind: "instance", node: "server", element: "web" });
+    expect(button(web.host, "Stop running it here").disabled).toBe(true);
+    expect(web.host.querySelector(".instance-of")!.textContent).toContain("Buyer isn't one");
+
+    // Infrastructure that runs something can't be changed until it's made a deployment node.
+    const lb = details(ws, view, { kind: "node", id: "lb" });
+    expect(lb.host.textContent).toContain("Infrastructure runs nothing and holds no nodes, but this one does. Make it a deployment node to change it.");
+    for (const label of ["Name", "ID", "Technology", "Copies"]) expect(lb.host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!.disabled, label).toBe(true);
+    expect(lb.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]')!.disabled).toBe(true);
+    for (const label of ["Shape", "Inside"]) expect(select(lb.host, label).disabled, label).toBe(true);
+    // What it runs is listed, and it can stop running it, which leaves it running nothing.
+    expect(button(lb.host, "Stop running it here")).toBeTruthy();
+    await click(checkbox(lb.host, "Infrastructure, like a load balancer, DNS or a firewall"));
+    expect(lb.edits).toEqual([[{ op: "update-node", view: "production", id: "lb", infrastructure: false }]]);
+  });
+
+  it("offer a node's place, and a connection's ends, only where core would put them", () => {
+    const ws = buildWorkspace(doc);
+    const view = ws.views.get("production")!;
+    // The region can't go inside the edge node: Routes would then join that and the load balancer inside it.
+    const region = details(ws, view, { kind: "node", id: "region" });
+    expect([...select(region.host, "Inside").options].map((o) => o.textContent)).toEqual(["(nothing: at the top)"]);
+    expect(select(region.host, "Inside").disabled).toBe(true);
+    // Nor into infrastructure, or itself.
+    const server = details(ws, view, { kind: "node", id: "server" });
+    expect([...select(server.host, "Inside").options].map((o) => o.textContent)).toEqual(["(nothing: at the top)", "Edge", "Region", "Database server"]);
+    // Forwards goes from the load balancer: not to itself, nor to the region it's inside.
+    const forwards = details(ws, view, { kind: "connection", number: 1 });
+    expect([...select(forwards.host, "To").options].map((o) => o.textContent)).toEqual([
+      "Edge [Deployment node]",
+      "Database server [Deployment node]",
       "Server [Deployment node]",
       "API [Container]",
       "DB [Container]",

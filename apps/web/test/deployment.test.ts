@@ -254,11 +254,10 @@ describe("a deployment node's details", () => {
 describe("a connection's details", () => {
   it("change its ends to nodes or what they run, and delete it", async () => {
     const { host, edits } = panel({ kind: "connection", number: 1 });
+    // Where it goes now, then where it can go: not to the load balancer it's from, nor the cloud that's round it.
     expect([...select(host, "To").querySelectorAll("option")].map((o) => o.textContent)).toEqual([
-      "Cloud [Deployment node]",
       "Cluster [Deployment node]",
       "Database server [Deployment node]",
-      "Load balancer [Infrastructure node]",
       "API [Container]",
       "DB [Container]",
       "Web [Container]",

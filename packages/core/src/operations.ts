@@ -1774,6 +1774,14 @@ function addNode(doc: OpenArchDocument, op: Extract<Operation, { op: "add-node" 
   return `added ${op.infrastructure ? "infrastructure node" : "node"} ${op.id} to view ${op.view}`;
 }
 
+/**
+ * Changes a node of a deployment view.
+ *
+ * The designer copies these rules, and checkNodeParent's and runList's, in deploymentRules and
+ * deploymentAfter, in apps/web/src/model.ts, so its menus and details offer only what this
+ * makes. Change them together: the test "is what core makes when asked" in
+ * apps/web/test/deploymentMenus.test.ts checks that they agree.
+ */
 function updateNode(doc: OpenArchDocument, op: Extract<Operation, { op: "update-node" }>): string {
   const view = requireDeployment(doc, op.view);
   const node = requireNode(view, op.view, op.id);
@@ -1851,6 +1859,14 @@ function removeNode(doc: OpenArchDocument, viewId: string, id: string): string {
   return `removed node ${id} from view ${viewId}${extra.length ? ` and ${extra.join(" and ")}` : ""}`;
 }
 
+/**
+ * Adds a connection to a deployment view.
+ *
+ * The designer copies these rules, and checkConnectionEnds', in deploymentRules and
+ * deploymentAfter, in apps/web/src/model.ts, so its menus and details offer only what this
+ * makes. Change them together: the test "is what core makes when asked" in
+ * apps/web/test/deploymentMenus.test.ts checks that they agree.
+ */
 function addConnection(doc: OpenArchDocument, op: Extract<Operation, { op: "add-connection" }>): string {
   const view = requireDeployment(doc, op.view);
   checkConnectionEnds(doc, view, op.view, op.from, op.to);
@@ -1862,6 +1878,14 @@ function addConnection(doc: OpenArchDocument, op: Extract<Operation, { op: "add-
   return `added connection ${at} to view ${op.view}: ${op.from} -> ${op.to}`;
 }
 
+/**
+ * Changes a connection of a deployment view: its ends, its text, or where it is in the list.
+ *
+ * The designer copies these rules, and checkConnectionEnds', in deploymentRules and
+ * deploymentAfter, in apps/web/src/model.ts, so its menus and details offer only what this
+ * makes. Change them together: the test "is what core makes when asked" in
+ * apps/web/test/deploymentMenus.test.ts checks that they agree.
+ */
 function updateConnection(doc: OpenArchDocument, op: Extract<Operation, { op: "update-connection" }>): string {
   const view = requireDeployment(doc, op.view);
   const connection = requireConnection(view, op.view, op.connection);
@@ -1902,7 +1926,14 @@ function dropLooseConnections(doc: OpenArchDocument, view: ViewData, goneNodes: 
   return before - view.connections.length;
 }
 
-/** Refuses a connection whose ends aren't a node of the view, or something a node runs; or that joins two elements, or something to itself. */
+/**
+ * Refuses a connection whose ends aren't a node of the view, or something a node runs; or that
+ * joins two elements, or something to itself.
+ *
+ * The designer copies these rules in deploymentRules, in apps/web/src/model.ts, so its menus
+ * and details offer only connections this allows. Change them together: the test "is what core
+ * makes when asked" in apps/web/test/deploymentMenus.test.ts checks that they agree.
+ */
 function checkConnectionEnds(doc: OpenArchDocument, view: ViewData, viewId: string, from: string, to: string): void {
   const nodes = view.nodes ?? {};
   const run = new Set(Object.values(nodes).flatMap((n) => n.runs ?? []));

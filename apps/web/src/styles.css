@@ -230,6 +230,14 @@ textarea {
 textarea {
   resize: vertical;
 }
+/* What can't be changed now, such as the details of infrastructure that runs something, as a
+   file written by hand can have, looks it. */
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 /* Phones and tablets zoom in on a text box with smaller text when it gets focus, and stay
    zoomed in. Any touch screen, even with a trackpad as well. That includes the text box for
    editing a sticky note on the diagram, so notes' text is 16px there too (see .sticky), and a
