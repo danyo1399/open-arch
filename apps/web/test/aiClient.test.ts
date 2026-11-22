@@ -101,6 +101,9 @@ describe("asking a model from the page", () => {
       call({ index: 0, function: { arguments: '{"path":"b.ts"}' } }),
     ]);
     expect(streamed.map((c) => c.replace(/^call_\d+ /, ""))).toEqual(['read_file {"path":"a.ts"}', 'read_file {"path":"b.ts"}']);
+    // The same, for calls that take no arguments and come with no text for them: another name is another call.
+    const bare = await names([call({ index: 0, function: { name: "show_model", arguments: "" } }), call({ index: 0, function: { name: "check_model", arguments: "" } }), call({ index: 0, function: { name: "read_guide" } })]);
+    expect(bare.map((c) => c.replace(/^call_\d+ /, ""))).toEqual(["show_model ", "check_model ", "read_guide "]);
     // A server that sends the name again with each piece of one call's arguments: still one call, with its name once.
     const repeated = await names([
       call({ index: 0, function: { name: "show_model", arguments: '{"id":' } }),

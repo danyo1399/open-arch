@@ -79,19 +79,27 @@ export function pathTest(pattern: string): (path: string) => boolean {
     return places;
   };
   return (path) => {
+    // Where in the pattern the path so far can have got to, and the runs of folders it's partway
+    // through a folder's name in: those go on only at that name's `/`, so a run of folders is
+    // whole folders, never the start of a name.
     let places = settle(new Set([0]));
+    let within = new Set<number>();
     for (const char of path.toLowerCase()) {
       const next = new Set<number>();
+      const nextWithin = new Set<number>();
       for (const at of places) {
         const token = tokens[at];
         if (!token) continue;
         if (token.kind === "char" ? token.char === char : token.kind === "one" && char !== "/") next.add(at + 1);
-        else if (token.kind === "deep" || token.kind === "folders" || (token.kind === "star" && char !== "/")) next.add(at);
-        // Any run of folders ends at a `/`.
-        if (token.kind === "folders" && char === "/") next.add(at + 1);
+        else if (token.kind === "deep" || (token.kind === "star" && char !== "/")) next.add(at);
+        // A run of folders starts a folder's name here.
+        else if (token.kind === "folders" && char !== "/") nextWithin.add(at);
       }
-      if (next.size === 0) return false;
+      // A folder's name ends at its `/`: then the run can end, or take another folder.
+      for (const at of within) (char === "/" ? next : nextWithin).add(at);
+      if (next.size === 0 && nextWithin.size === 0) return false;
       places = settle(next);
+      within = nextWithin;
     }
     return places.has(tokens.length);
   };

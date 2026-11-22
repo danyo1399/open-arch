@@ -179,6 +179,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const [askOpen, setAskOpen] = useState(false);
   /** Whether the web app's Ask AI is working on a request. */
   const asking = useRef(false);
+  /** Whether a Save is under way that opens the copy it keeps, as a workspace of its own. */
+  const saving = useRef(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [usagesOf, setUsagesOf] = useState<string | null>(null);
   /** Every rename applied, in order. */
@@ -587,13 +589,19 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         await userSettings.setPins(next.key, viewSettings.pins).catch(() => undefined);
         onHostChange(next);
       };
-      if (desktop) {
-        const file = await desktop.saveAs(state.text);
-        if (file) await carryOn(new DesktopHost(desktop, file.path, file.name, file.saved));
-        return;
+      // Until the copy opens, Ask AI takes no request: one sent now would be cut off as it does.
+      saving.current = true;
+      try {
+        if (desktop) {
+          const file = await desktop.saveAs(state.text);
+          if (file) await carryOn(new DesktopHost(desktop, file.path, file.name, file.saved));
+          return;
+        }
+        const record = await browserLibrary.add(host.name, state.text);
+        await carryOn(new BrowserHost(browserLibrary, record.id, record.fileName));
+      } finally {
+        saving.current = false;
       }
-      const record = await browserLibrary.add(host.name, state.text);
-      await carryOn(new BrowserHost(browserLibrary, record.id, record.fileName));
     });
 
   const exportTo = (provider: FileProvider) =>
@@ -1043,7 +1051,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         </NotesOpener.Provider>
         {usagesOf && <Usages ws={ws} id={usagesOf} viewId={viewId} onGo={goToUsage} onClose={() => setUsagesOf(null)} />}
         {fileAgent && <AskAI agent={fileAgent} {...ask} />}
-        {!desktop && <BrowserAskAI host={host} storage={state.storage} change={state.change} afterEdits={state.afterEdits} fetch={askFetch} onRunning={(running) => (asking.current = running)} {...ask} />}
+        {!desktop && <BrowserAskAI host={host} storage={state.storage} change={state.change} afterEdits={state.afterEdits} fetch={askFetch} onRunning={(running) => (asking.current = running)} hold={() => (saving.current ? "The workspace is being saved. Ask again once the copy it keeps has opened." : null)} {...ask} />}
       </main>
 
       <Properties

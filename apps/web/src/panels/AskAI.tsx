@@ -83,6 +83,8 @@ interface AskAIProps {
   restore(text: string, from?: string): Promise<boolean>;
   /** Hears when a request starts running, and when it ends. */
   onRunning?(running: boolean): void;
+  /** Why a request can't be sent just now, such as the workspace being saved somewhere else, or null when it can. */
+  hold?(): string | null;
   open: boolean;
   onClose(): void;
   /** What the box is for, where it isn't only for changes. */
@@ -113,7 +115,7 @@ function formatted(text: string): ReactNode[] {
   });
 }
 
-export function AskAI({ agent, context, contextLabel, text, restore, onRunning, open, onClose, asks = CHANGES, setup: wanted, actions, note }: AskAIProps) {
+export function AskAI({ agent, context, contextLabel, text, restore, onRunning, hold, open, onClose, asks = CHANGES, setup: wanted, actions, note }: AskAIProps) {
   const [prompt, setPrompt] = useState("");
   const [log, setLog] = useState<Entry[]>([]);
   const [running, setRunning] = useState(false);
@@ -170,6 +172,9 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
   const send = async () => {
     const request = prompt.trim();
     if (!request || busy.current) return;
+    // Held: it's said, and what was typed stays in the box to send after.
+    const held = hold?.();
+    if (held) return add({ kind: "error", text: held });
     busy.current = true;
     setRunning(true);
     onRunning?.(true);
