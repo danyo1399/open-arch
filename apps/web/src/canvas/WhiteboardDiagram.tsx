@@ -142,7 +142,9 @@ const TOUCH = "(any-pointer: coarse)";
 const DRAWING_Z = STICKY_Z + 2000;
 /** How far, on the screen, a drag has to go to draw something, not just click. */
 const DRAG_MIN = 6;
-const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+/** Whether this is a Mac, asked as it's needed. */
+const onMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const isMac = onMac();
 const MULTI_KEYS = isMac ? ["Meta", "Shift"] : ["Control", "Shift"];
 const addsToSelection = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => e.shiftKey || (isMac ? e.metaKey : e.ctrlKey);
 /** Shapes and notes snap as they're dragged, shapes as they're resized too, and they line up with each other. Arrows' ends don't. */
@@ -751,7 +753,8 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
     const flow = (e: PointerEvent) => rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
     const down = (e: PointerEvent) => {
       const target = e.target as Element;
-      if (e.button !== 0 || target.closest(".react-flow__panel, .wb-text-draft, textarea, input, button, select, a")) return;
+      // A Ctrl-click on a Mac is a right-click, sent as a press of the left button: it opens a menu, and draws nothing.
+      if (e.button !== 0 || (e.ctrlKey && onMac()) || target.closest(".react-flow__panel, .wb-text-draft, textarea, input, button, select, a")) return;
       // A click away from text being typed saves it, and draws nothing.
       if (document.activeElement instanceof HTMLTextAreaElement && el.contains(document.activeElement)) {
         e.preventDefault();
