@@ -109,7 +109,7 @@ export function showView(ws: Workspace, cv: ComputedView): Shown {
   if (view.level === "event") return { json: eventsJson(cv), text: eventsText(cv) };
   if (view.level === "wireframe") return { json: wireframeJson(cv), text: wireframeText(ws, cv) };
   if (view.level === "whiteboard") return { json: whiteboardJson(cv), text: whiteboardText(cv) };
-  if (view.level === "flowchart") return { json: flowchartJson(cv), text: flowchartText(ws, cv) };
+  if (view.level === "flowchart") return { json: flowchartJson(ws, cv), text: flowchartText(ws, cv) };
   if (view.level === "entity") return { json: entityJson(cv), text: entityText(ws, cv) };
   const json = {
     id: view.id,
@@ -122,19 +122,9 @@ export function showView(ws: Workspace, cv: ComputedView): Shown {
     frame: cv.boundary?.id,
     boxes: cv.nodes.map(summary),
     arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, kind: kindOf(e), bidirectional: e.bidirectional || undefined, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
-    // What a note is on as the file and the operations write it, with an association's kind left out.
-    stickies: view.stickies.map((s) => ({
-      id: s.id,
-      text: s.text,
-      on: s.on && ("element" in s.on ? s.on : { from: s.on.from, to: s.on.to, kind: s.on.kind === "association" ? undefined : s.on.kind }),
-      drawn: s.on && !!stickyAnchor(ws, cv, s.on),
-      color: s.color,
-      at: s.at,
-      notes: s.notes,
-    })),
+    stickies: stickiesOn(ws, cv),
   };
   const scope = cv.boundary ?? (view.scope ? ws.elements.get(view.scope) : undefined);
-  const on = (s: Sticky) => (s.on ? `, on ${stickyTargetText(s.on)}${stickyAnchor(ws, cv, s.on) ? "" : ", which this view doesn't draw"}` : "");
   const lines = [
     `${view.id}: ${view.title}`,
     `  level:        ${view.level}${scope ? ` view of ${scope.id} (${scope.name})` : ""}`,
@@ -154,7 +144,7 @@ export function showView(ws: Workspace, cv: ComputedView): Shown {
           ]),
         )
       : ["  (none)"]),
-    ...stickyLines(view.stickies, on),
+    ...stickyLines(view.stickies, onText(ws, cv)),
   ];
   return { json, text: lines.join("\n") + "\n" };
 }
@@ -487,7 +477,7 @@ function whiteboardText(cv: ComputedView): string {
   return lines.join("\n") + "\n";
 }
 
-function flowchartJson(cv: ComputedView) {
+function flowchartJson(ws: Workspace, cv: ComputedView) {
   const view = cv.view;
   return {
     id: view.id,
@@ -499,7 +489,7 @@ function flowchartJson(cv: ComputedView) {
     lanes: view.lanes.length ? view.lanes.map((l) => ({ id: l.id, name: l.name, description: l.description })) : undefined,
     blocks: view.blocks.map((b) => ({ id: b.id, position: b.number, kind: b.kind, text: b.text, description: b.description, lane: b.lane, at: b.at })),
     flows: view.flows.map((f) => ({ flow: f.number, from: f.from, to: f.to, text: f.text })),
-    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+    stickies: stickiesOn(ws, cv),
   };
 }
 
@@ -525,7 +515,7 @@ function flowchartText(ws: Workspace, cv: ComputedView): string {
     "",
     "Flows:",
     ...(view.flows.length ? table(view.flows.map((f) => [`  ${f.number}.`, `${f.from} -> ${f.to}`, f.text ? quoted(f.text) : ""])) : ["  (none)"]),
-    ...stickyLines(view.stickies),
+    ...stickyLines(view.stickies, onText(ws, cv)),
   ];
   return lines.join("\n") + "\n";
 }
@@ -627,6 +617,28 @@ function relLabel(r: { description?: string; technology?: string; tags?: Tags; b
   // A relationship of another kind than association needs no description: its kind says what it is.
   const kind = r.kind && r.kind !== "association" ? `(${r.kind})` : "";
   return [kind, r.description ?? (kind ? "" : "(no description)"), r.technology ? `[${r.technology}]` : "", r.bidirectional ? "(both ways)" : "", tags ? `(tags: ${tags})` : ""].filter(Boolean).join(" ");
+}
+
+/**
+ * The sticky notes of a view whose notes can be on something, for `show --json`. What a note is on
+ * is as the file and the operations write it, with an association's kind left out, and `drawn`
+ * says whether the view draws that.
+ */
+function stickiesOn(ws: Workspace, cv: ComputedView) {
+  return cv.view.stickies.map((s) => ({
+    id: s.id,
+    text: s.text,
+    on: s.on && ("from" in s.on ? { from: s.on.from, to: s.on.to, kind: s.on.kind === "association" ? undefined : s.on.kind } : s.on),
+    drawn: s.on && !!stickyAnchor(ws, cv, s.on),
+    color: s.color,
+    at: s.at,
+    notes: s.notes,
+  }));
+}
+
+/** What a note is on, to say after where it is: ", on cache", and that the view doesn't draw it, when it doesn't. Nothing for a note on nothing. */
+function onText(ws: Workspace, cv: ComputedView): (s: Sticky) => string {
+  return (s) => (s.on ? `, on ${stickyTargetText(s.on)}${stickyAnchor(ws, cv, s.on) ? "" : ", which this view doesn't draw"}` : "");
 }
 
 /** A view's sticky notes, each with its color, where it is, what it's on if `on` says, its text and its notes. */

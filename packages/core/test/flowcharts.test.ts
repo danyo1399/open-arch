@@ -11,6 +11,7 @@ import {
   parseOperations,
   renderMermaid,
   serializeDocument,
+  stickyAnchor,
   type OpenArchDocument,
   type Operation,
 } from "../src/index.js";
@@ -422,7 +423,7 @@ describe("block and flow operations", () => {
     expect(fails(returns(), { op: "hide-in-view", view: "returns", id: "shop" })).toMatch(/^A flowchart view draws its blocks, not elements/);
     expect(fails(returns(), { op: "set-layout", view: "returns", positions: { shop: [0, 0] } })).toBe("A flowchart view has no boxes. Move a block with update-block --at.");
     expect(fails(returns(), { op: "add-sticky", view: "returns", id: "n", text: "Hi", on: { element: "api" } })).toBe(
-      'View "returns" is a flowchart view. Only sticky notes on landscape, context, container, component and class views can be on an element or relationship.',
+      'View "returns" is a flowchart view, which draws its blocks, not elements or relationships: a sticky note on it can only be on a block.',
     );
     expect(apply(returns(), { op: "add-sticky", view: "returns", id: "n", text: "Hi", at: [0, 0] }).views.returns!.stickies).toEqual({ n: { text: "Hi", at: [0, 0] } });
   });
@@ -434,6 +435,150 @@ describe("block and flow operations", () => {
     expect(() => parseOperations({ op: "add-flow", view: "returns", from: "a" })).toThrow('add-flow needs "to".');
     expect(() => parseOperations({ op: "update-flow", view: "returns", flow: 0 })).toThrow('update-flow: "flow" must be a number, 1 or more: 1 is the first.');
     expect(() => parseOperations({ op: "remove-flow", view: "returns", flow: 1, text: "x" })).toThrow('remove-flow has no field "text".');
+  });
+});
+
+/** The return, with a note on its decision, where it was put, and one on nothing. */
+function noted(): OpenArchDocument {
+  const doc = returns();
+  doc.views.returns!.stickies = {
+    days: { text: "Counted from delivery.", on: { block: "in-time" }, at: [300, 120] },
+    plain: { text: "Not on anything." },
+  };
+  return doc;
+}
+
+describe("sticky notes on a flowchart's blocks", () => {
+  it("are read and written in the file's canonical form", () => {
+    const text = serializeDocument(noted());
+    expect(text).toContain('"days": { "text": "Counted from delivery.", "on": { "block": "in-time" }, "at": [300, 120] },');
+    const read = parseDocument(text);
+    expect(read.diagnostics).toEqual([]);
+    expect(read.doc.views.returns).toEqual(noted().views.returns);
+    expect(buildWorkspace(read.doc).views.get("returns")!.stickies.find((s) => s.id === "days")!.on).toEqual({ block: "in-time" });
+  });
+
+  it("are new in version 20: a version 19 file is read as it is", () => {
+    const parsed = parseDocument(JSON.stringify({ ...returns(), openarch: 19 }));
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.doc).toEqual(returns());
+  });
+
+  it("report what isn't a block, and a block on another view, and keep the note", () => {
+    const doc = returns() as unknown as { views: Record<string, Record<string, unknown>> };
+    doc.views.landscape!.stickies = { box: { text: "Box", on: { block: "in-time" } } };
+    doc.views.returns!.stickies = {
+      a: { text: "A", on: "in-time" },
+      b: { text: "B", on: { element: "api" } },
+      c: { text: "C", on: { from: "asked", to: "in-time" } },
+      d: { text: "D", on: { block: "" } },
+      e: { text: "E", on: { block: "in-time", side: "left" } },
+      f: { text: "F", on: {} },
+      g: { text: "G", on: { block: 3 } },
+      h: { text: "H", on: { block: "in-time", element: "api" } },
+    };
+    const result = parseDocument(JSON.stringify(doc));
+    expect(result.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual([
+      "field-not-allowed views.landscape.stickies.box.on.block",
+      "field-type views.returns.stickies.a.on",
+      "field-not-allowed views.returns.stickies.b.on.element",
+      "field-not-allowed views.returns.stickies.c.on.from",
+      "field-required views.returns.stickies.d.on.block",
+      "field-unknown views.returns.stickies.e.on.side",
+      "field-required views.returns.stickies.f.on",
+      "field-type views.returns.stickies.g.on.block",
+      "field-not-allowed views.returns.stickies.h.on.element",
+    ]);
+    const message = (path: string) => result.diagnostics.find((d) => d.path === path)!.message;
+    expect(message("views.landscape.stickies.box.on.block")).toBe("Only a sticky note on a flowchart view can be on a block.");
+    expect(message("views.returns.stickies.a.on")).toBe('Must be a block of this view, like { "block": "pack-order" }.');
+    expect(message("views.returns.stickies.b.on.element")).toBe("A flowchart view draws its blocks, not elements or relationships: a sticky note on it can only be on a block.");
+    expect(result.doc.views.landscape!.stickies).toEqual({ box: { text: "Box" } });
+    expect(result.doc.views.returns!.stickies).toEqual({ a: { text: "A" }, b: { text: "B" }, c: { text: "C" }, d: { text: "D" }, e: { text: "E", on: { block: "in-time" } }, f: { text: "F" }, g: { text: "G" }, h: { text: "H" } });
+  });
+
+  it("point at the block, and are checked: it's a block of the view", () => {
+    const anchor = (doc: OpenArchDocument, id: string) => {
+      const cv = view(doc);
+      return stickyAnchor(buildWorkspace(doc), cv, cv.view.stickies.find((s) => s.id === id)!.on!);
+    };
+    expect(anchor(noted(), "days")).toEqual({ kind: "block", id: "in-time" });
+    expect(rules(noted())).toEqual([]);
+
+    const doc = noted();
+    doc.views.returns!.stickies!.days!.on = { block: "in-tme" };
+    doc.views.returns!.stickies!.plain!.on = { block: "packing" };
+    expect(anchor(doc, "days")).toBeUndefined();
+    expect(checkWorkspace(buildWorkspace(doc)).map((d) => [d.severity, d.rule, d.path, d.message, d.fix])).toEqual([
+      ["error", "sticky-unknown-target", "views.returns.stickies.days.on.block", 'The note is on the block "in-tme", which isn\'t a block of this view.', 'Did you mean "in-time"?'],
+      [
+        "error",
+        "sticky-unknown-target",
+        "views.returns.stickies.plain.on.block",
+        'The note is on the block "packing", which isn\'t a block of this view.',
+        "Take the note off it: `open-arch update-sticky returns plain --detach`.",
+      ],
+    ]);
+    // A view of boxes draws no blocks, and a flowchart no elements.
+    const boxes = view(returns(), "shop-containers");
+    expect(stickyAnchor(buildWorkspace(returns()), boxes, { block: "in-time" })).toBeUndefined();
+    expect(stickyAnchor(buildWorkspace(returns()), view(returns()), { element: "api" })).toBeUndefined();
+  });
+
+  it("are added on a block, moved to another, and taken off, and say what they're on", () => {
+    const added = applyOperations(returns(), [{ op: "add-sticky", view: "returns", id: "days", text: "Counted from delivery.", on: { block: "in-time" } }]);
+    expect(added.summary).toEqual(["added sticky note days to view returns, on block in-time"]);
+    expect(added.warnings).toEqual([]);
+    expect(added.doc.views.returns!.stickies).toEqual({ days: { text: "Counted from delivery.", on: { block: "in-time" } } });
+    const moved = apply(added.doc, { op: "update-sticky", view: "returns", id: "days", on: { block: "refund" } });
+    expect(moved.views.returns!.stickies!.days!.on).toEqual({ block: "refund" });
+    expect(apply(moved, { op: "update-sticky", view: "returns", id: "days", on: null }).views.returns!.stickies).toEqual({ days: { text: "Counted from delivery." } });
+  });
+
+  it("refuse a block the view doesn't have, an element or a relationship, and a block on another view", () => {
+    expect(fails(returns(), { op: "add-sticky", view: "returns", id: "n", text: "N", on: { block: "refnd" } })).toBe('View "returns" has no block "refnd". Did you mean "refund"?');
+    expect(fails(noted(), { op: "update-sticky", view: "returns", id: "days", on: { from: "asked", to: "in-time" } })).toBe(
+      'View "returns" is a flowchart view, which draws its blocks, not elements or relationships: a sticky note on it can only be on a block.',
+    );
+    expect(fails(returns(), { op: "add-sticky", view: "shop-containers", id: "n", text: "N", on: { block: "refund" } })).toBe(
+      'View "shop-containers" is a container view. Only a sticky note on a flowchart view can be on a block.',
+    );
+    const sequence = apply(returns(), { op: "add-view", id: "order", level: "sequence" });
+    expect(fails(sequence, { op: "add-sticky", view: "order", id: "n", text: "N", on: { block: "refund" } })).toBe('View "order" is a sequence view. Only a sticky note on a flowchart view can be on a block.');
+  });
+
+  it("follow a block to its new ID, and come off one that's removed", () => {
+    const renamed = apply(noted(), { op: "update-block", view: "returns", id: "in-time", newId: "in-30-days" });
+    expect(renamed.views.returns!.stickies!.days!.on).toEqual({ block: "in-30-days" });
+    expect(rules(renamed)).toEqual([]);
+    const removed = apply(noted(), { op: "remove-block", view: "returns", id: "in-time" });
+    expect(removed.views.returns!.stickies).toEqual({ days: { text: "Counted from delivery.", at: [300, 120] }, plain: { text: "Not on anything." } });
+    // Another block's going leaves it be.
+    expect(apply(noted(), { op: "remove-block", view: "returns", id: "refund" }).views.returns!.stickies!.days!.on).toEqual({ block: "in-time" });
+  });
+
+  it("stay on a block when an element with the block's ID is renamed or removed", () => {
+    // The flowchart has a block "db", and the model an element "db".
+    const doc = apply(noted(), { op: "add-block", view: "returns", id: "db", kind: "database", text: "Orders" }, { op: "update-sticky", view: "returns", id: "days", on: { block: "db" } });
+    expect(apply(doc, { op: "rename", id: "db", to: "database" }).views.returns!.stickies!.days!.on).toEqual({ block: "db" });
+    expect(apply(doc, { op: "remove-element", id: "db" }).views.returns!.stickies!.days!.on).toEqual({ block: "db" });
+    // And when a relationship between elements goes.
+    expect(apply(doc, { op: "remove-relationship", from: "controller", to: "db" }).views.returns!.stickies!.days!.on).toEqual({ block: "db" });
+  });
+
+  it("are checked as JSON", () => {
+    expect(parseOperations({ op: "add-sticky", view: "returns", id: "n", text: "N", on: { block: "refund" } })).toHaveLength(1);
+    expect(parseOperations({ op: "update-sticky", view: "returns", id: "n", on: { block: "refund" } })).toHaveLength(1);
+    for (const on of [{ block: 2 }, { block: "refund", element: "api" }, { block: "refund", side: "left" }]) {
+      expect(() => parseOperations({ op: "update-sticky", view: "returns", id: "n", on })).toThrow(/^update-sticky: "on" must be an element, .* or on a flowchart view a block, like \{ "block": "pack-order" \}, or null to take the note off it\.$/);
+    }
+  });
+
+  it("start with the block's text in the docs, on one line", () => {
+    const doc = noted();
+    doc.views.returns!.stickies!.plain!.on = { block: "refuse" };
+    const page = exportDocs(buildWorkspace(doc), "shop.openarch").find((f) => f.path === "views/returns.md")!.content;
+    expect(page).toContain(['## Sticky notes', "", '> On "Within 30 days?": Counted from delivery.', "", '> On "Say no, / and why": Not on anything.', "", "## Blocks"].join("\n"));
   });
 });
 

@@ -2,12 +2,13 @@ import { applyOperations, buildWorkspace, computeView, type ArchElement, type Op
 import { describe, expect, it } from "vitest";
 import { NODE_H, NODE_W, placeStickies, STICKY } from "../src/canvas/autoLayout.js";
 import { besideTargets, noteDropAt, noteDropOps, withFrame, type DrawnArrow } from "../src/canvas/Canvas.js";
+import { followBlocks, type MenuRename } from "../src/canvas/flowchartMenu.js";
 import type { ElementFlowNode, StickyFlowNode } from "../src/canvas/nodes.js";
 import { distanceToRoute, edgePoint, midpoint, nearestOnOutline, stickyLine } from "../src/canvas/stickyLines.js";
 import { followRenames, renamesBetween, stickyChoices, stickyTargetFor } from "../src/model.js";
 
 const doc: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -49,7 +50,7 @@ describe("stickyTargetFor", () => {
     // Logging's writer is drawn in each container built with it, so its relationship to the log
     // service is an arrow from each. A note on that relationship has its line to the first.
     const model: OpenArchDocument = {
-      openarch: 19,
+      openarch: 20,
       name: "Logs",
       elements: {
         shop: { kind: "system", name: "Shop" },
@@ -107,6 +108,104 @@ describe("stickyChoices", () => {
   });
 });
 
+describe("stickyChoices on a flowchart", () => {
+  const flow = (on?: { block: string }): OpenArchDocument => ({
+    ...doc,
+    views: {
+      returns: {
+        title: "Returns",
+        level: "flowchart",
+        blocks: [
+          { id: "asked", kind: "start", text: "Return asked for" },
+          { id: "in-time", kind: "decision", text: "\nWithin 30 days?\nOf delivery" },
+          { id: "refund", text: "Refund the card" },
+        ],
+        flows: [{ from: "asked", to: "in-time" }],
+        stickies: { n: { text: "N", ...(on && { on }) } },
+      },
+    },
+  });
+  const choices = (on?: { block: string }) => {
+    const { ws, cv } = computed(flow(on), "returns");
+    return stickyChoices(ws, cv, cv.view.stickies[0]!).map((c) => `${c.group ?? "-"} ${c.label} = ${c.key}`);
+  };
+
+  it("lists the blocks in their order, each by the first line of its text", () => {
+    const blocks = ["Blocks Return asked for = block:asked", "Blocks Within 30 days? = block:in-time", "Blocks Refund the card = block:refund"];
+    expect(choices()).toEqual(blocks);
+    expect(choices({ block: "refund" })).toEqual(blocks);
+  });
+
+  it("lists the block the note is on when the view doesn't have it", () => {
+    expect(choices({ block: "gone" })[0]).toBe("- gone (not in this view) = block:gone");
+    expect(choices({ block: "gone" })).toHaveLength(4);
+  });
+});
+
+describe("a note put on a block that has a new ID by the time the edit runs", () => {
+  const ops = [
+    { op: "add-sticky" as const, view: "returns", id: "note", text: "New note", on: { block: "new-process" } },
+    { op: "update-sticky" as const, view: "returns", id: "n", on: { block: "new-process" }, at: [1, 2] as [number, number] },
+    { op: "update-sticky" as const, view: "returns", id: "n", on: { block: "done" } },
+    { op: "update-sticky" as const, view: "returns", id: "n", on: null },
+    { op: "update-block" as const, view: "returns", id: "new-process", text: "Pack it" },
+  ];
+  const why = "The flowchart changed just before, so no note was put on the block. Try again.";
+
+  it("moves the edits that put a note on it to its new ID, and leaves the rest as they are", () => {
+    const renamed: MenuRename[] = [{ kind: "block", view: "returns", id: "new-process", to: "pack-it" }];
+    expect(followBlocks(ops, renamed)).toEqual([
+      { op: "add-sticky", view: "returns", id: "note", text: "New note", on: { block: "pack-it" } },
+      { op: "update-sticky", view: "returns", id: "n", on: { block: "pack-it" }, at: [1, 2] },
+      ops[2],
+      ops[3],
+      ops[4],
+    ]);
+    // Given one new ID and then another.
+    expect(followBlocks([ops[0]!], [...renamed, { kind: "block", view: "returns", id: "pack-it", to: "pack-the-order" }])[0]).toMatchObject({ on: { block: "pack-the-order" } });
+    // With nothing changed since, they're as they were.
+    expect(followBlocks(ops, [])).toBe(ops);
+  });
+
+  it("is left alone by what happens to other things: a block of another view, a lane, a flow, another block", () => {
+    const others: MenuRename[] = [
+      { kind: "block", view: "refunds", id: "new-process", to: "pack-it" },
+      { kind: "lane", view: "returns", id: "new-process", to: "pack-it" },
+      { kind: "gone", what: "lane", view: "returns", id: "new-process" },
+      { kind: "gone", what: "block", view: "returns", id: "asked" },
+      { kind: "flow-gone", view: "returns", was: { from: "asked", to: "new-process" } },
+      { kind: "flows-lost", view: "returns" },
+    ];
+    expect(followBlocks(ops, others)).toEqual(ops);
+  });
+
+  it("finds the block in its view under the ID the view has by then", () => {
+    // The view's new ID is the edit's to follow, as for any edit (see followRenames).
+    expect(
+      followBlocks(
+        [ops[0]!],
+        [
+          { kind: "view", id: "returns", to: "handling-returns" },
+          { kind: "block", view: "handling-returns", id: "new-process", to: "pack-it" },
+        ],
+      ),
+    ).toEqual([{ ...ops[0]!, on: { block: "pack-it" } }]);
+  });
+
+  it("refuses to put a note on a block that was deleted, even when another took its ID, and says why", () => {
+    const gone: MenuRename[] = [{ kind: "gone", what: "block", view: "returns", id: "new-process" }];
+    expect(() => followBlocks(ops, gone)).toThrow(why);
+    expect(() => followBlocks(ops, [...gone, { kind: "block", view: "returns", id: "other", to: "new-process" }])).toThrow(why);
+    expect(() => followBlocks(ops, [{ kind: "view-gone", id: "returns" }])).toThrow(why);
+    // The edits that name no block still go through.
+    expect(followBlocks([ops[3]!, ops[4]!], gone)).toEqual([ops[3], ops[4]]);
+  });
+
+  it("refuses when there's no telling what the block is now: after an Undo, or a file changed elsewhere", () => {
+    expect(() => followBlocks(ops, [{ kind: "lost" }])).toThrow(why);
+  });
+});
+
 describe("renames and sticky notes", () => {
   const renames = [{ op: "rename" as const, id: "web", to: "website" }];
 
@@ -118,6 +217,8 @@ describe("renames and sticky notes", () => {
       { op: "update-sticky", view: "containers", id: "n", on: { from: "customer", to: "website" } },
     ]);
     expect(followRenames([{ op: "update-sticky", view: "containers", id: "n", on: null }], renames)).toEqual([{ op: "update-sticky", view: "containers", id: "n", on: null }]);
+    // A flowchart's block is its view's own, even one with the ID of an element that's renamed.
+    expect(followRenames([{ op: "update-sticky", view: "returns", id: "n", on: { block: "web" } }], renames)).toEqual([{ op: "update-sticky", view: "returns", id: "n", on: { block: "web" } }]);
   });
 
   it("are worked out from a file with an element renamed that a note is on", () => {
@@ -266,7 +367,7 @@ describe("what a note's dot is let go on", () => {
   it("passes over an arrow a note can't be on", () => {
     // Logging's writer is drawn in each container built with it, and a note on its relationship has its line to the first arrow.
     const model: OpenArchDocument = {
-      openarch: 19,
+      openarch: 20,
       name: "Logs",
       elements: {
         shop: { kind: "system", name: "Shop" },

@@ -623,6 +623,7 @@ function fits(type: FieldType, value: unknown): boolean {
     const keys = Object.keys(v);
     const strings = (names: string[]) => names.every((k) => typeof v[k] === "string");
     if (keys.includes("element")) return keys.length === 1 && strings(["element"]);
+    if (keys.includes("block")) return keys.length === 1 && strings(["block"]);
     return keys.includes("from") && keys.includes("to") && keys.every((k) => ["from", "to", "kind"].includes(k)) && strings(keys);
   };
   switch (type) {
@@ -689,8 +690,9 @@ const TYPE_TEXT: Record<FieldType, string> = {
   positions: "an object of [x, y] positions (null removes one)",
   point: "a position, [x, y]",
   "nullable-point": "a position, [x, y], or null to let the designer place it",
-  target: 'an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association',
-  "nullable-target": 'an element, like { "element": "cache" }, or a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association, or null to take the note off it',
+  target: 'an element, like { "element": "cache" }, a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association, or on a flowchart view a block, like { "block": "pack-order" }',
+  "nullable-target":
+    'an element, like { "element": "cache" }, a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association, or on a flowchart view a block, like { "block": "pack-order" }, or null to take the note off it',
   box: "a position, [x, y], or a position and a size, [x, y, width, height]",
   points: "a list of points, [[x, y], ...]",
   end: 'the ID of a shape, a shape and a side of it, like { "shape": "decision", "side": "right" }, or a point, [x, y]',
@@ -1060,10 +1062,11 @@ function removeElement(doc: OpenArchDocument, id: string): string {
       if (node.runs.length === 0) delete node.runs;
     }
     if (v.connections) v.connections = v.connections.filter((c) => ![c.from, c.to].some((end) => gone.has(end) && !Object.hasOwn(v.nodes ?? {}, end)));
-    // A note stays, but comes off what's gone: an element, or a relationship to or from one.
+    // A note stays, but comes off what's gone: an element, or a relationship to or from one. A flowchart's block isn't one.
     for (const sticky of Object.values(v.stickies ?? {})) {
       const on = sticky.on;
-      if (on && ("element" in on ? gone.has(on.element) : gone.has(on.from) || gone.has(on.to))) delete sticky.on;
+      if (!on || "block" in on) continue;
+      if ("element" in on ? gone.has(on.element) : gone.has(on.from) || gone.has(on.to)) delete sticky.on;
     }
   }
   const extra = [gone.size > 1 ? `${gone.size - 1} element${gone.size === 2 ? "" : "s"} inside it` : "", removedViews.length ? `view${removedViews.length === 1 ? "" : "s"} ${removedViews.join(", ")}` : ""].filter(Boolean);
@@ -1104,7 +1107,8 @@ function rename(doc: OpenArchDocument, from: string, to: string): string {
     }
     for (const sticky of Object.values(v.stickies ?? {})) {
       const on = sticky.on;
-      if (!on) continue;
+      // A flowchart's block isn't an element, even one with the same ID.
+      if (!on || "block" in on) continue;
       if ("element" in on) {
         if (on.element === from) on.element = to;
         continue;
@@ -1476,12 +1480,21 @@ function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "updat
 }
 
 /**
- * What a note is on, as the file keeps it: an element, or a relationship from `from` to `to` of
- * its kind, which the model must have. Only views of boxes draw a line to it.
+ * What a note is on, as the file keeps it. On a view of boxes: an element, or a relationship from
+ * `from` to `to` of its kind, which the model must have. On a flowchart view: one of its blocks.
+ * Only those views draw a line to it.
  */
 function stickyTarget(doc: OpenArchDocument, view: ViewData, viewId: string, on: StickyTargetData): StickyTargetData {
+  if (view.level === "flowchart") {
+    if (!("block" in on)) throw new OpError(`View "${viewId}" is a flowchart view, which draws its blocks, not elements or relationships: a sticky note on it can only be on a block.`);
+    requireBlock(view, viewId, on.block);
+    return { block: on.block };
+  }
+  if ("block" in on) throw new OpError(`View "${viewId}" is ${aOrAn(view.level)} ${view.level} view. Only a sticky note on a flowchart view can be on a block.`);
   if (!STICKY_TARGET_LEVELS.includes(view.level)) {
-    throw new OpError(`View "${viewId}" is ${aOrAn(view.level)} ${view.level} view. Only sticky notes on landscape, context, container, component and class views can be on an element or relationship.`);
+    throw new OpError(
+      `View "${viewId}" is ${aOrAn(view.level)} ${view.level} view. A sticky note can be on an element or relationship on a landscape, context, container, component or class view, and on a block on a flowchart view.`,
+    );
   }
   if ("element" in on) {
     requireElement(doc, on.element);
@@ -1510,7 +1523,7 @@ function moveStickies(doc: OpenArchDocument, from: string, to: string, kind: Rel
   for (const v of Object.values(doc.views)) {
     for (const sticky of Object.values(v.stickies ?? {})) {
       const on = sticky.on;
-      if (!on || "element" in on || on.from !== from || on.to !== to || kindOf(on.kind) !== kindOf(kind)) continue;
+      if (!on || "element" in on || "block" in on || on.from !== from || on.to !== to || kindOf(on.kind) !== kindOf(kind)) continue;
       if (next) sticky.on = clean<StickyTargetData>({ from: next.from, to: next.to, kind: kindOf(next.kind) === "association" ? undefined : next.kind });
       else delete sticky.on;
     }
@@ -2731,10 +2744,13 @@ function updateBlock(doc: OpenArchDocument, op: Extract<Operation, { op: "update
     if (f.from === op.id) f.from = op.newId;
     if (f.to === op.id) f.to = op.newId;
   }
+  for (const sticky of Object.values(view.stickies ?? {})) {
+    if (sticky.on && "block" in sticky.on && sticky.on.block === op.id) sticky.on.block = op.newId;
+  }
   return `renamed block ${op.id} to ${op.newId} in view ${op.view}${where}`;
 }
 
-/** Removes a block, and the flows to and from it. */
+/** Removes a block, and the flows to and from it. A note on it stays, on nothing. */
 function removeBlock(doc: OpenArchDocument, viewId: string, id: string): string {
   const view = requireFlowchart(doc, viewId);
   const block = requireBlock(view, viewId, id);
@@ -2742,6 +2758,9 @@ function removeBlock(doc: OpenArchDocument, viewId: string, id: string): string 
   const before = view.flows?.length ?? 0;
   if (view.flows) view.flows = view.flows.filter((f) => f.from !== id && f.to !== id);
   const gone = before - (view.flows?.length ?? 0);
+  for (const sticky of Object.values(view.stickies ?? {})) {
+    if (sticky.on && "block" in sticky.on && sticky.on.block === id) delete sticky.on;
+  }
   return `removed block ${id} from view ${viewId}${gone ? ` and ${count(gone, "flow")} to or from it` : ""}`;
 }
 

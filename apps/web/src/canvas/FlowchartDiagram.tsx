@@ -4,7 +4,8 @@
  * them as arrows, each with its text. Drag a block to move it, or from the dot under one to
  * another to add a flow. The element whose process it is, if the view says, is the frame. A
  * right-click on a block, a flow, a lane, a sticky note or the background opens a menu of what
- * can be done there.
+ * can be done there. A sticky note can be on a block, with a line to it: drag from the dot under
+ * a note to a block.
  */
 import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, STICKY_COLORS, type Block, type BlockKind, type ComputedView, type Flow, type Lane, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
@@ -35,17 +36,19 @@ import { blockText, idFromName, newStickyId, uniqueAmong } from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
-import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
+import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
+import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, outlineToward, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { flowOf, followMenu, menuOn, sameSelection, selectionOf, sharesEnds, type MenuFor, type MenuRename } from "./flowchartMenu.js";
-import { FrameNode, FrameNotes, NotesOpener, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { FrameNode, FrameNotes, NotesOpener, StickyLines, StickyLinking, StickyNode, type FrameFlowNode, type StickyFlowNode, type StickyLine } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
+import { stickyLine } from "./stickyLines.js";
 
 type BlockNodeData = { block: Block };
 type BlockFlowNode = Node<BlockNodeData, "block">;
-type LaneNodeData = { column: LaneColumn; height: number; selected: boolean };
+/** `head` is how tall its name is drawn, and `height` the whole column, its name included. */
+type LaneNodeData = { column: LaneColumn; head: number; height: number; selected: boolean };
 type LaneFlowNode = Node<LaneNodeData, "lane">;
 type FlowNode = BlockFlowNode | StickyFlowNode | FrameFlowNode | LaneFlowNode;
 
@@ -131,13 +134,43 @@ function Outline({ kind }: { kind: BlockKind }) {
   );
 }
 
-/** A lane: a column with its name at the top. The column for blocks in no lane says so. */
+/** What a column says at its top: its lane's name, or that its blocks are in no lane. */
+const laneName = (column: LaneColumn) => column.lane?.name ?? "No lane";
+
+/**
+ * How tall the lanes' names are drawn: as tall as the longest one needs, wrapped to its lane's
+ * width, and the same for every lane, so the line under them runs straight across. No less than
+ * LANE.head, which fits a name on one line. Each name is measured in a hidden lane with the same
+ * styles as a drawn one, all of them together, laying the page out once.
+ */
+export function laneHead(columns: readonly LaneColumn[]): number {
+  const holder = document.createElement("div");
+  holder.setAttribute("aria-hidden", "true");
+  holder.style.cssText = "position: absolute; visibility: hidden; left: -10000px; top: 0";
+  const names = columns.map((column) => {
+    const lane = holder.appendChild(document.createElement("div"));
+    lane.className = `flow-lane${column.lane ? "" : " loose"}`;
+    lane.style.width = `${column.w}px`;
+    const name = lane.appendChild(document.createElement("div"));
+    name.className = "flow-lane-name";
+    name.textContent = laneName(column);
+    return name;
+  });
+  document.body.appendChild(holder);
+  try {
+    return Math.max(LANE.head, ...names.map((name) => Math.ceil(name.getBoundingClientRect().height)));
+  } finally {
+    holder.remove();
+  }
+}
+
+/** A lane: a column with its name at the top, on as many lines as it needs. The column for blocks in no lane says so. */
 function LaneNode({ data }: NodeProps<LaneFlowNode>) {
   const { lane } = data.column;
   return (
     <div className={`flow-lane${lane ? "" : " loose"}${data.selected ? " selected" : ""}`} style={{ width: data.column.w, height: data.height }} title={lane?.description}>
-      <div className="flow-lane-name" style={{ height: LANE.head }}>
-        {lane ? lane.name : "No lane"}
+      <div className="flow-lane-name" style={{ minHeight: data.head }}>
+        {laneName(data.column)}
       </div>
     </div>
   );
@@ -269,6 +302,45 @@ export function connectOps(view: ComputedView["view"], drawn: DrawnItem[], from:
   return { ops: [...pinOps(view, drawn, new Set(), columns), { op: "add-flow", view: view.id, from, to }], number: view.flows.length + 1 };
 }
 
+/**
+ * How far right of its block a note on it goes, before it's moved. placeStickies takes every block
+ * to be NODE_W wide, so this is far enough for a note beside the narrowest, a start or an end, to
+ * count as clear of it.
+ */
+const BESIDE = 80;
+
+/** Where each note on a block that hasn't been moved goes, by the note's ID: to the right of its block, level with its top. `positions` are the blocks'. */
+export function besideBlocks(view: Pick<ViewDef, "blocks" | "stickies">, positions: Record<string, Point>): Record<string, Point> {
+  const out: Record<string, Point> = {};
+  for (const sticky of view.stickies) {
+    const on = sticky.at ? undefined : sticky.on;
+    const block = on && "block" in on ? view.blocks.find((b) => b.id === on.block) : undefined;
+    const at = block && positions[block.id];
+    if (at) out[sticky.id] = { x: at.x + blockWidth(block.kind) + BESIDE, y: at.y };
+  }
+  return out;
+}
+
+/**
+ * The block at this point on the diagram, by its ID: the last of `boxes`, which is drawn on top,
+ * where blocks overlap. None under a note, which hides the blocks under it.
+ */
+export function blockUnder(at: Point, boxes: ReadonlyMap<string, Box>, notes: readonly Box[]): string | undefined {
+  const within = (r: Box) => at.x >= r.x && at.x <= r.x + r.w && at.y >= r.y && at.y <= r.y + r.h;
+  if (notes.some(within)) return undefined;
+  return [...boxes].findLast(([, box]) => within(box))?.[0];
+}
+
+/**
+ * The edit that puts a note on the block its dot was let go on, or none when it's on that block
+ * already. The note stays where it's drawn, `drawnAt`, rather than going beside the block, as one
+ * the designer placed would.
+ */
+export function noteOnBlockOps(view: Pick<ViewDef, "id">, sticky: Sticky, block: string, drawnAt: Point): Operation[] {
+  if (sticky.on && "block" in sticky.on && sticky.on.block === block) return [];
+  return [{ op: "update-sticky", view: view.id, id: sticky.id, on: { block }, ...(!sticky.at && { at: at(drawnAt) }) }];
+}
+
 /** What's on the diagram, as moveOps and connectOps take it. */
 function items(view: ViewDef, nodes: FlowNode[]): DrawnItem[] {
   return nodes.flatMap((n): DrawnItem[] =>
@@ -280,11 +352,13 @@ function items(view: ViewDef, nodes: FlowNode[]): DrawnItem[] {
   );
 }
 
-/** What's on the diagram round a new block: the lanes as drawn, if any, each block's box, the lanes' top, the middle of the canvas, and where the blocks and notes are. */
+/** What's on the diagram round a new block: the lanes as drawn, if any, each block's box, the lanes' top and how tall their names are, the middle of the canvas, and where the blocks and notes are. */
 export interface Surroundings {
   columns?: LaneColumn[];
   boxes: ReadonlyMap<string, Box>;
   top: number;
+  /** Left out where there are no lanes. */
+  head?: number;
   middle: Point;
   occupied: Point[];
 }
@@ -295,7 +369,7 @@ export interface Surroundings {
  * there. Its `at` is as the file keeps it, so from the inside of its lane's left in a flowchart
  * with lanes.
  */
-export function newBlockPlace(view: ViewDef, kind: BlockKind, selection: Selection, { columns, boxes, top, middle, occupied }: Surroundings): { at: [number, number]; lane?: string } {
+export function newBlockPlace(view: ViewDef, kind: BlockKind, selection: Selection, { columns, boxes, top, head = LANE.head, middle, occupied }: Surroundings): { at: [number, number]; lane?: string } {
   const afterBlock = selection?.kind === "block" ? view.blocks.find((b) => b.id === selection.id) : undefined;
   const after = afterBlock && boxes.get(afterBlock.id);
   const lane = selection?.kind === "lane" ? columns?.find((c) => c.lane?.id === selection.id) : undefined;
@@ -304,7 +378,7 @@ export function newBlockPlace(view: ViewDef, kind: BlockKind, selection: Selecti
   const start = after
     ? { x: after.x + (after.w - width) / 2, y: after.y + after.h + BELOW }
     : lane
-      ? { x: lane.x + LANE.pad + Math.max(0, LANE.centre - width / 2), y: inLane.length ? Math.max(...inLane.map((b) => b.y + b.h)) + BELOW : top + LANE.head + LANE.pad }
+      ? { x: lane.x + LANE.pad + Math.max(0, LANE.centre - width / 2), y: inLane.length ? Math.max(...inLane.map((b) => b.y + b.h)) + BELOW : top + head + LANE.pad }
       : { x: middle.x - width / 2, y: middle.y - 30 };
   const spot = freeSpotAmong(start, occupied);
   if (!columns?.length) return { at: [spot.x, spot.y] };
@@ -366,13 +440,15 @@ interface FlowchartDiagramProps {
   onError(text: string): void;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
+  /** A note just added from a block's details, to edit in place. */
+  editSticky?: string | null;
   /** What blocks and notes snap to as they're dragged, and its buttons. */
   snap: SnapControl;
   /** Given the diagram's Auto layout, for the top bar's More menu on a narrow screen. */
   autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
-export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menuAfterEdits, menuRenames, onError, exportItems, snap, autoLayoutHandle }: FlowchartDiagramProps) {
+export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menuAfterEdits, menuRenames, onError, exportItems, editSticky, snap, autoLayoutHandle }: FlowchartDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -421,6 +497,8 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
     return laneColumns(view, placeInLanes(view, saved, auto?.key === graphKey ? auto.positions : {}));
   }, [ready, laned, view, saved, auto, graphKey]);
   const columns = lanesAt?.columns;
+  /** How tall the lanes' names are: more than one line's room when a name is too long for its lane. */
+  const head = useMemo(() => (columns ? laneHead(columns) : LANE.head), [columns]);
   const positions = useMemo(
     () => (!ready ? null : lanesAt ? lanesAt.positions : placeMissing(ids, saved, auto?.key === graphKey ? auto.positions : {})),
     [ready, lanesAt, ids, saved, auto, graphKey],
@@ -442,10 +520,24 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
   );
 
   useEffect(() => {
+    if (editSticky) setEditing(editSticky);
+  }, [editSticky]);
+
+  /** A note whose dot is being dragged to a block, to put the note on it: the note, and where the dot is on the diagram. */
+  const [linking, setLinking] = useState<{ sticky: string; at: Point } | null>(null);
+  /** Puts the note on the block its dot was let go on, if any: set below, once the blocks are drawn. */
+  const dropLink = useRef<(id: string, at: Point | null) => void>(() => {});
+
+  useEffect(() => {
     if (!positions) return setNodes([]);
-    // Notes without a place go right of everything, the lanes too: a point at the right of the last lane stands for them.
+    // Notes without a place go beside the block they're on, or else right of everything, the lanes too: a point at the right of the last lane stands for them.
     const lastLane = columns?.at(-1);
-    const stickyAt = placeStickies(view.stickies, [...Object.values(positions), ...(lastLane ? [{ x: lastLane.x + lastLane.w - NODE_W, y: Math.min(0, ...Object.values(positions).map((p) => p.y)) }] : [])], stickySize);
+    const stickyAt = placeStickies(
+      view.stickies,
+      [...Object.values(positions), ...(lastLane ? [{ x: lastLane.x + lastLane.w - NODE_W, y: Math.min(0, ...Object.values(positions).map((p) => p.y)) }] : [])],
+      stickySize,
+      besideBlocks(view, positions),
+    );
     setNodes((previous) => [
       ...view.blocks.map(
         (block): BlockFlowNode => ({
@@ -462,7 +554,15 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
           id: stickyNodeId(sticky.id),
           type: "sticky",
           position: stickyAt[sticky.id]!,
-          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text) },
+          data: {
+            sticky,
+            editing: editing === sticky.id,
+            onEdit: () => setEditing(sticky.id),
+            onDone: (text) => finishEditing(sticky, text),
+            onLinkDrag: (at) => setLinking({ sticky: sticky.id, at }),
+            onLinkDrop: (at) => dropLink.current(sticky.id, at),
+            linkTo: "a block",
+          },
           selected: selection?.kind === "sticky" && selection.id === sticky.id,
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,
@@ -484,6 +584,47 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
   }, [nodes]);
   const boxes = useMemo(() => new Map([...drawnBlocks].map(([id, b]) => [id, b.box])), [drawnBlocks]);
 
+  // The line from each note on a block to the block's outline, as drawn now. Not a note whose dot
+  // is being dragged: it has the line being dragged instead.
+  const linkingNote = linking?.sticky;
+  const stickyLines = useMemo(
+    () =>
+      nodes.flatMap((n): StickyLine[] => {
+        const on = n.type === "sticky" ? n.data.sticky.on : undefined;
+        const block = on && "block" in on ? drawnBlocks.get(on.block) : undefined;
+        if (n.type !== "sticky" || !block || n.data.sticky.id === linkingNote) return [];
+        const line = stickyLine(noteRect(n, stickySize), { rect: block.box });
+        return line ? [{ id: n.data.sticky.id, from: line.from, to: outlineToward(block.kind, block.box, line.from), selected: !!n.selected }] : [];
+      }),
+    [nodes, drawnBlocks, stickySize, linkingNote],
+  );
+
+  /** The block a note's dot let go at this point on the diagram puts the note on. */
+  const linkDropAt = (at: Point) =>
+    blockUnder(
+      at,
+      boxes,
+      nodesRef.current.flatMap((n) => (n.type === "sticky" ? [noteRect(n, stickySize)] : [])),
+    );
+  /** The block the note whose dot is being dragged would go on, outlined while the dot is over it. */
+  const linkDrop = linking ? linkDropAt(linking.at) : undefined;
+  /** The line from a note whose dot is being dragged to where the dot is: none while the dot is over the note. */
+  const linkingNode = linking ? nodes.find((n): n is StickyFlowNode => n.id === stickyNodeId(linking.sticky)) : undefined;
+  const linkLine = linking && linkingNode ? stickyLine(noteRect(linkingNode, stickySize), { point: linking.at }) : null;
+
+  // A note's dot let go on a block puts the note on it, as one step for Undo, and selects the note
+  // (see noteOnBlockOps). Let go on the block it's on already, it just selects the note.
+  dropLink.current = (id, at) => {
+    setLinking(null);
+    const sticky = view.stickies.find((s) => s.id === id);
+    const node = nodesRef.current.find((n): n is StickyFlowNode => n.id === stickyNodeId(id));
+    const block = at && linkDropAt(at);
+    if (!sticky || !node || !block) return;
+    const ops = noteOnBlockOps(view, sticky, block, node.position);
+    if (!ops.length) return onSelect({ kind: "sticky", id });
+    void edit(ops).then((ok) => ok && onSelect({ kind: "sticky", id }));
+  };
+
   /** The lanes' sizes as React Flow last measured them, by node ID: see the frame's. */
   const lanesMeasured = useRef(new Map<string, LaneFlowNode["measured"]>());
 
@@ -491,20 +632,20 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
   const laneNodes = useMemo((): LaneFlowNode[] => {
     if (!columns) return [];
     const all = [...boxes.values()];
-    const top = all.length ? Math.min(...all.map((b) => b.y)) - LANE.head - LANE.pad : 0;
-    const bottom = all.length ? Math.max(...all.map((b) => b.y + b.h)) + LANE.pad : LANE.head + 200;
+    const top = all.length ? Math.min(...all.map((b) => b.y)) - head - LANE.pad : 0;
+    const bottom = all.length ? Math.max(...all.map((b) => b.y + b.h)) + LANE.pad : head + 200;
     return columns.map((column) => ({
       id: laneNodeId(column),
       type: "lane",
       position: { x: column.x, y: Math.round(top) },
-      data: { column, height: Math.round(bottom - top), selected: !!column.lane && selection?.kind === "lane" && selection.id === column.lane.id },
+      data: { column, head, height: Math.round(bottom - top), selected: !!column.lane && selection?.kind === "lane" && selection.id === column.lane.id },
       measured: lanesMeasured.current.get(laneNodeId(column)),
       draggable: false,
       connectable: false,
       selectable: false,
       zIndex: -1,
     }));
-  }, [columns, boxes, selection]);
+  }, [columns, head, boxes, selection]);
 
   /** The frame's size as React Flow last measured it. */
   const frameMeasured = useRef<FrameFlowNode["measured"]>(undefined);
@@ -567,7 +708,11 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
     [between, routes, labels, drawnBlocks, selection, select],
   );
 
-  const drawn = useMemo(() => [...(frame ? [frame] : []), ...laneNodes, ...nodes], [frame, laneNodes, nodes]);
+  // The block a note's dot would put the note on is outlined while the dot is over it.
+  const drawn = useMemo(
+    () => [...(frame ? [frame] : []), ...laneNodes, ...(linkDrop ? nodes.map((n) => (n.id === linkDrop ? { ...n, className: "drop-target" } : n)) : nodes)],
+    [frame, laneNodes, nodes, linkDrop],
+  );
 
   /** Positions for the blocks placed automatically, so they stay put as others move or flows are added. */
   const fixPlaced = useCallback((): Operation[] => pinOps(view, items(view, nodesRef.current), new Set(), columns), [view, columns]);
@@ -618,7 +763,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
   const addBlock = (kind: BlockKind, where: { after: Selection } | { at: Point; lane?: string }) => {
     const occupied = nodesRef.current.filter((n) => n.type === "block" || n.type === "sticky").map((n) => n.position);
     const after = "after" in where ? where.after : null;
-    const place = "at" in where ? blockPlaceAt(kind, where.at, { columns, occupied }, where.lane) : newBlockPlace(view, kind, after, { columns, boxes, top: laneNodes[0]?.position.y ?? 0, middle: middle(), occupied });
+    const place = "at" in where ? blockPlaceAt(kind, where.at, { columns, occupied }, where.lane) : newBlockPlace(view, kind, after, { columns, boxes, top: laneNodes[0]?.position.y ?? 0, head, middle: middle(), occupied });
     const { ops, id } = addBlockOps(view, kind, after, place.at, place.lane);
     void edit([...fixPlaced(), ...ops]).then((ok) => ok && onSelect({ kind: "block", id }, { isNew: true }));
   };
@@ -636,6 +781,16 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
     const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
+      if (!ok) return;
+      select({ kind: "sticky", id });
+      setEditing(id);
+    });
+  };
+
+  /** A new note on a block, from the block's menu: beside the block, with its text to type. */
+  const addStickyOn = (block: Block) => {
+    const id = newStickyId(view);
+    void edit([{ op: "add-sticky", view: view.id, id, text: "New note", on: { block: block.id } }]).then((ok) => {
       if (!ok) return;
       select({ kind: "sticky", id });
       setEditing(id);
@@ -768,6 +923,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
       [
         { label: "Add after", items: kinds.map((kind) => ({ label: BLOCK_KIND_LABELS[kind], onSelect: () => addBlock(kind, { after: { kind: "block", id: block.id } }) })) },
         ...(flowTo.length ? [{ label: "Add flow to", items: flowTo.map((b) => ({ label: blockText(b), onSelect: addFlow(b.id) })) }] : []),
+        { label: "Add sticky note", onSelect: () => addStickyOn(block) },
         { label: "Change kind", items: kinds.filter((kind) => kind !== block.kind).map((kind) => ({ label: BLOCK_KIND_LABELS[kind], onSelect: set({ kind }) })) },
         ...(lanes.length ? [{ label: "Move to lane", items: lanes }] : []),
         ...(block.at ? [{ label: "Lay out again", onSelect: set({ at: null }) }] : []),
@@ -813,12 +969,15 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
 
   const stickyMenu = (sticky: Sticky): MenuItem[] => {
     const set = (fields: Omit<Extract<Operation, { op: "update-sticky" }>, "op" | "view" | "id">) => () => void edit([{ op: "update-sticky", view: view.id, id: sticky.id, ...fields }]);
+    // A note that was moved goes back beside the block it's on, when it's on one the flowchart has, or else beside the diagram.
+    const on = sticky.on;
+    const onBlock = !!on && "block" in on && view.blocks.some((b) => b.id === on.block);
     return withDelete(
       [
         { label: "Edit text", onSelect: () => setEditing(sticky.id) },
         { label: "Colour", items: STICKY_COLORS.filter((color) => color !== sticky.color).map((color) => ({ label: color[0]!.toUpperCase() + color.slice(1), onSelect: set({ color }) })) },
         ...(notes ? [{ label: "Edit notes…", onSelect: () => notes.sticky(sticky.id) }] : []),
-        ...(sticky.at ? [{ label: "Move beside the diagram", onSelect: set({ at: null }) }] : []),
+        ...(sticky.at ? [{ label: onBlock ? "Move next to what it's on" : "Move beside the diagram", onSelect: set({ at: null }) }] : []),
       ],
       "Delete note",
       { op: "remove-sticky", view: view.id, id: sticky.id },
@@ -911,6 +1070,8 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
         <FrameNotes frame={frame} />
         <SnapGuides guides={guides} />
+        <StickyLines lines={stickyLines} />
+        {linking && <StickyLinking at={linking.at} line={linkLine} zIndex={DRAWING_Z} />}
         <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
           <SnapButtons snap={snap} />
         </Controls>

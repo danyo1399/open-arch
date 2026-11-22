@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { serializeDocument, type OpenArchDocument } from "@open-arch/core";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, createElement } from "react";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
 import { button, choose, click, key, mount, select } from "./dom.js";
@@ -48,7 +50,7 @@ afterAll(() => {
 });
 
 const doc: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -103,10 +105,27 @@ async function designer(model = doc) {
     }
     await settle();
   };
+  /** Drags a note's dot to this point on the diagram, and holds it there. What it returns lets go of it. */
+  const holdDot = async (id: string, to: { x: number; y: number }) => {
+    const grip = host.querySelector(`.react-flow__node[data-id="sticky:${id}"] .sticky-grip`);
+    if (!grip) throw new Error(`Note ${id} has no dot to drag.`);
+    const send = (type: string, at: { clientX: number; clientY: number }) =>
+      act(async () => {
+        grip.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, ...at }));
+      });
+    await send("pointerdown", { clientX: 0, clientY: 0 });
+    await send("pointermove", onScreen(to));
+    return async () => {
+      await send("pointerup", onScreen(to));
+      await settle();
+    };
+  };
   return {
     host,
+    settle,
     addNoteFrom,
     dragDot,
+    holdDot,
     node: (id: string) => host.querySelector(`.react-flow__node[data-id="${id}"]`),
     lines: () => host.querySelectorAll(".sticky-lines line").length,
     /** Stops editing a note in place, keeping its text. */
@@ -159,12 +178,13 @@ describe("putting a sticky note on something in the designer", () => {
   });
 });
 
+/** Where a note is drawn on the diagram. */
+const at = (note: Element) => /translate\(([-\d.]+)px, ?([-\d.]+)px\)/.exec((note as HTMLElement).style.transform)!.slice(1).map(Number);
+
 describe("dragging from a note's dot", () => {
   // A note on nothing, placed beside the diagram, as it hasn't been moved.
   const withNote = structuredClone(doc);
   withNote.views.containers!.stickies = { loose: { text: "Look here" } };
-  /** Where a note is drawn on the diagram. */
-  const at = (note: Element) => /translate\(([-\d.]+)px, ?([-\d.]+)px\)/.exec((note as HTMLElement).style.transform)!.slice(1).map(Number);
   /** The middle of the first run of an arrow's line, on the diagram. */
   const alongArrow = (arrow: Element) => {
     const [x1, y1, x2, y2] = /^M ?([-\d.]+)[ ,]([-\d.]+) ?L ?([-\d.]+)[ ,]([-\d.]+)/.exec(arrow.querySelector(".react-flow__edge-path")!.getAttribute("d")!)!.slice(1).map(Number) as [number, number, number, number];
@@ -212,5 +232,226 @@ describe("dragging from a note's dot", () => {
     await click(d.node("sticky:loose")!);
     expect(select(d.host, "On").value).toBe("");
     expect(d.host.textContent).not.toContain("Move beside the diagram");
+  });
+});
+
+describe("a sticky note on a flowchart's block in the designer", () => {
+  /** A return, each block placed, so nothing waits for ELK. Each is measured 200 by 100 here. */
+  const flow: OpenArchDocument = {
+    openarch: 20,
+    name: "Shop",
+    elements: {},
+    views: {
+      returns: {
+        title: "Returns",
+        level: "flowchart",
+        blocks: [
+          { id: "asked", kind: "start", text: "Return asked for", at: [0, 0] },
+          { id: "refund", text: "Refund the card", at: [0, 300] },
+          { id: "done", kind: "end", text: "Done", at: [500, 300] },
+        ],
+        flows: [
+          { from: "asked", to: "refund" },
+          { from: "refund", to: "done" },
+        ],
+      },
+    },
+  };
+  // A note on nothing, placed beside the diagram, as it hasn't been moved.
+  const withNote = structuredClone(flow);
+  withNote.views.returns!.stickies = { loose: { text: "Look here" } };
+
+  it("is added from the block's details, beside it, edited in place, with a line to it", async () => {
+    const d = await designer(flow);
+    expect(d.lines()).toBe(0);
+    await click(d.node("refund")!);
+    await click(button(d.host, "Add sticky note"));
+    await d.settle();
+    const note = d.node("sticky:note")!;
+    expect(note.querySelector("textarea")).not.toBeNull();
+    expect(document.activeElement).toBe(note.querySelector("textarea"));
+    const on = select(d.host, "On");
+    expect(on.value).toBe("block:refund");
+    expect([...on.querySelectorAll("optgroup")].map((g) => g.label)).toEqual(["Blocks"]);
+    expect([...on.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Nothing: the whole diagram", "Return asked for", "Refund the card", "Done"]);
+    await d.stopEditing();
+    expect(d.lines()).toBe(1);
+    // Right of its block, which is 180 wide, and level with its top.
+    expect(at(d.node("sticky:note")!)).toEqual([260, 300]);
+    expect(d.host.textContent).toContain("A line joins the note to the block it's on.");
+  });
+
+  /** Adds a process from + Add: it's selected, with its text to type. */
+  const addProcess = async (d: Awaited<ReturnType<typeof designer>>) => {
+    await click(button(d.host, "+ Add"));
+    await click([...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')].find((b) => b.textContent === "Process")!);
+    await d.settle();
+  };
+
+  it("is added to a new block whose text was typed just before the press", async () => {
+    const d = await designer(flow);
+    await addProcess(d);
+    expect(d.node("new-process")).not.toBeNull();
+    const text = document.activeElement as HTMLTextAreaElement;
+    expect(text.getAttribute("aria-label") ?? text.closest("label")?.textContent).toContain("Text");
+    // Leaving the box saves the text, which gives the block a new ID, and the press comes with it:
+    // its edit is made with the ID the block had, before a render shows the new one.
+    const press = button(d.host, "Add sticky note");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(text, "Pack the order");
+      text.dispatchEvent(new Event("input", { bubbles: true }));
+      text.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      press.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.host.querySelector('[role="alert"]')?.textContent).toBeUndefined();
+    expect(d.node("pack-the-order")!.textContent).toContain("Pack the order");
+    expect(d.node("sticky:note")!.querySelector("textarea")).not.toBeNull();
+    expect(select(d.host, "On").value).toBe("block:pack-the-order");
+    await d.stopEditing();
+    expect(d.lines()).toBe(1);
+  });
+
+  /** Makes the next save slow, as one to a folder can be, and gives what lets it finish. */
+  const slowSave = () => {
+    let finish = () => {};
+    const save = MemoryHost.prototype.save;
+    vi.spyOn(MemoryHost.prototype, "save").mockImplementationOnce(function (this: MemoryHost, text: string) {
+      return new Promise<void>((resolve) => (finish = () => resolve(save.call(this, text))));
+    });
+    return () => act(async () => finish());
+  };
+  /** Types a new block's text and leaves the box, which saves it and gives the block the text's ID. */
+  const retext = (text: string) =>
+    act(async () => {
+      const box = document.activeElement as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, text);
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      box.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+  it("goes on a new block whose text is still being saved when its dot is let go on it", async () => {
+    const d = await designer(withNote);
+    await addProcess(d);
+    const [x, y] = at(d.node("new-process")!) as [number, number];
+    const saved = slowSave();
+    await retext("Pack the order");
+    // The block is still drawn under the ID it had: it's 200 by 100 here.
+    expect(d.node("new-process")).not.toBeNull();
+    await d.dragDot("loose", { x: x + 100, y: y + 50 });
+    await saved();
+    await d.settle();
+    expect(d.host.querySelector('[role="alert"]')?.textContent).toBeUndefined();
+    expect(d.node("pack-the-order")).not.toBeNull();
+    expect(select(d.host, "On").value).toBe("block:pack-the-order");
+    expect(d.lines()).toBe(1);
+  });
+
+  it("goes on a new block whose text is still being saved when the block is picked under On", async () => {
+    const d = await designer(withNote);
+    await addProcess(d);
+    const saved = slowSave();
+    await retext("Pack the order");
+    await click(d.node("sticky:loose")!);
+    await choose(select(d.host, "On"), "block:new-process");
+    await saved();
+    await d.settle();
+    expect(d.host.querySelector('[role="alert"]')?.textContent).toBeUndefined();
+    expect(d.lines()).toBe(1);
+    // The block is selected again once its text is saved, under its new ID.
+    await click(d.node("sticky:loose")!);
+    expect(select(d.host, "On").value).toBe("block:pack-the-order");
+  });
+
+  it("says so, and adds no note, when the block is gone by the time of the press", async () => {
+    const d = await designer(flow);
+    await addProcess(d);
+    // Undo takes the new block away, and the press comes with it.
+    const press = button(d.host, "Add sticky note");
+    await act(async () => {
+      button(d.host, "Undo").click();
+      press.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.node("new-process")).toBeNull();
+    expect(d.host.querySelector(".react-flow__node-sticky")).toBeNull();
+    expect(d.host.querySelector('[role="alert"]')!.textContent).toContain("The flowchart changed just before, so no note was put on the block. Try again.");
+  });
+
+  it("goes on the block its dot is let go on, stays where it is, and is selected", async () => {
+    const d = await designer(withNote);
+    const before = at(d.node("sticky:loose")!);
+    // Done's block is at 500, 300.
+    await d.dragDot("loose", { x: 600, y: 350 });
+    expect(select(d.host, "On").value).toBe("block:done");
+    expect(d.lines()).toBe(1);
+    // It's kept where it was, rather than beside the block.
+    expect(at(d.node("sticky:loose")!)).toEqual(before);
+    expect(button(d.host, "Move next to what it's on")).toBeDefined();
+    // Onto another block, and the line goes there instead.
+    await d.dragDot("loose", { x: 100, y: 350 });
+    expect(select(d.host, "On").value).toBe("block:refund");
+    expect(d.lines()).toBe(1);
+  });
+
+  it("shows where its dot is going while it's dragged: a line to the dot, and the block under it outlined", async () => {
+    const d = await designer(withNote);
+    const letGo = await d.holdDot("loose", { x: 600, y: 350 });
+    expect(d.host.querySelectorAll(".sticky-linking line")).toHaveLength(1);
+    expect(d.host.querySelectorAll(".sticky-linking circle")).toHaveLength(1);
+    expect([...d.host.querySelectorAll<HTMLElement>(".react-flow__node.drop-target")].map((n) => n.dataset.id)).toEqual(["done"]);
+    // This page has no layout, so it reads the stylesheet for how the block is outlined.
+    const style = document.createElement("style");
+    style.textContent = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+    document.head.append(style);
+    try {
+      expect(getComputedStyle(d.node("done")!.querySelector(".flow-block")!).outlineStyle).toBe("dashed");
+      expect(getComputedStyle(d.node("refund")!.querySelector(".flow-block")!).outlineStyle).toBe("solid");
+    } finally {
+      style.remove();
+    }
+    await letGo();
+    expect(d.host.querySelector(".sticky-linking")).toBeNull();
+    expect(d.host.querySelector(".react-flow__node.drop-target")).toBeNull();
+    // Off every block, nothing is outlined.
+    const away = await d.holdDot("loose", { x: -2000, y: -2000 });
+    expect(d.host.querySelectorAll(".sticky-linking line")).toHaveLength(1);
+    expect(d.host.querySelector(".react-flow__node.drop-target")).toBeNull();
+    await away();
+  });
+
+  it("is only selected when it's let go on the block it's on, and left as it was on nothing", async () => {
+    const placed = structuredClone(flow);
+    placed.views.returns!.stickies = { placed: { text: "Look here", on: { block: "done" }, at: [800, 0] } };
+    const d = await designer(placed);
+    expect(d.lines()).toBe(1);
+    await d.dragDot("placed", { x: 600, y: 350 });
+    expect(select(d.host, "On").value).toBe("block:done");
+    expect(button(d.host, "Undo").disabled).toBe(true);
+    await d.dragDot("placed", { x: -2000, y: -2000 });
+    expect(select(d.host, "On").value).toBe("block:done");
+    expect(button(d.host, "Undo").disabled).toBe(true);
+    expect(d.lines()).toBe(1);
+  });
+
+  it("comes off its block with the note's choice of nothing, and off a block that's deleted", async () => {
+    const placed = structuredClone(flow);
+    placed.views.returns!.stickies = { placed: { text: "Look here", on: { block: "done" }, at: [800, 0] } };
+    const d = await designer(placed);
+    await click(d.node("sticky:placed")!);
+    await choose(select(d.host, "On"), "");
+    await d.settle();
+    expect(d.lines()).toBe(0);
+    expect(d.host.textContent).toContain("Pick a block, or drag from the dot under the note to one, and a line joins them.");
+    await choose(select(d.host, "On"), "block:refund");
+    await d.settle();
+    expect(d.lines()).toBe(1);
+    await click(d.node("refund")!);
+    await click(button(d.host, "Delete block"));
+    await d.settle();
+    expect(d.lines()).toBe(0);
+    expect(d.node("sticky:placed")).not.toBeNull();
+    await click(d.node("sticky:placed")!);
+    expect(select(d.host, "On").value).toBe("");
   });
 });

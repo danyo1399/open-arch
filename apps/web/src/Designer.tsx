@@ -25,7 +25,7 @@ import { WhiteboardDiagram } from "./canvas/WhiteboardDiagram.js";
 import { WireframeDiagram } from "./canvas/WireframeDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
 import { FlowchartDiagram } from "./canvas/FlowchartDiagram.js";
-import { followMenu, menuRenamesIn, selectionOf, type MenuFor, type MenuRename } from "./canvas/flowchartMenu.js";
+import { followBlocks, followMenu, menuRenamesIn, selectionOf, type MenuFor, type MenuRename } from "./canvas/flowchartMenu.js";
 import { NotesOpener } from "./canvas/nodes.js";
 import { EntityDiagram } from "./canvas/EntityDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
@@ -193,6 +193,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   /** Every change to the workspace that a flowchart's right-click menu follows (see flowchartMenu.ts), in order, and how many of them this render reflects. */
   const menuRenames = useRef<MenuRename[]>([]);
   const [menuRenamesSeen, setMenuRenamesSeen] = useState(0);
+  /** How many of them the latest render reflects, for an edit made with its IDs. */
+  const menuRenamesShown = useRef(menuRenamesSeen);
+  menuRenamesShown.current = menuRenamesSeen;
   /**
    * Which opening of a view this is: a number that tells the flowchart that's open from the next
    * view opened, and stays the same when its view is only given a new ID. So a rename doesn't
@@ -235,10 +238,16 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const shownRenames = useMemo(() => renames.current.slice(0, renamesSeen), [renamesSeen]);
   // An edit made with this render's IDs follows any rename applied before it runs: pressed just
   // after typing a new name, it queues behind the edit that saves the name, or lands before the
-  // render that shows it. One worked out from the workspace as it is when it runs needs nothing.
+  // render that shows it. A note put on a flowchart's block follows the block the same way, as a
+  // new block's ID follows its text (see followBlocks). One worked out from the workspace as it
+  // is when it runs needs nothing.
   const workspaceEdit = state.edit;
   const edit = useCallback(
-    (change: Edit) => (typeof change === "function" ? workspaceEdit(change) : workspaceEdit(() => followRenames(change, renames.current.slice(renamesSeen)))),
+    (change: Edit) => {
+      if (typeof change === "function") return workspaceEdit(change);
+      const shown = menuRenamesShown.current;
+      return workspaceEdit(() => followRenames(followBlocks(change, menuRenames.current.slice(shown)), renames.current.slice(renamesSeen)));
+    },
     [workspaceEdit, renamesSeen],
   );
   const narrow = useMediaQuery(NARROW);
@@ -435,7 +444,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     [openNotes, viewId],
   );
 
-  /** A new note on a box, the frame or an arrow, beside it on the diagram, with its text being typed there. */
+  /** A new note on a box, the frame or an arrow, or on a flowchart a block, beside it on the diagram, with its text being typed there. */
   const addStickyOn = (on: StickyTargetData) => {
     if (!view) return;
     const id = newStickyId(view);
@@ -955,6 +964,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
                   menuRenames={shownMenuRenames}
                   onError={(text) => state.notify({ kind: "error", text })}
                   exportItems={exportItems(computed)}
+                  editSticky={isNew && selection?.kind === "sticky" ? selection.id : null}
                   snap={snap}
                   autoLayoutHandle={autoLayout}
                 />

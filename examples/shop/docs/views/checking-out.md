@@ -42,6 +42,10 @@ flowchart TB
   style lane__payment_provider fill:none,stroke:#8a94a6
 ```
 
+## Sticky notes
+
+> On "Save the order": The card is charged before the order is saved, so a saved order is always paid for.
+
 ## Lanes
 
 | Lane | Description |

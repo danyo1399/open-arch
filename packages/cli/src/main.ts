@@ -304,33 +304,37 @@ An empty value removes a field.
   "show-in-view": writer(`Usage: open-arch show-in-view <view> <id>...\n\nShows elements in a view, removing them from its exclude list or adding them to include.\n`, {}),
   "hide-in-view": writer(`Usage: open-arch hide-in-view <view> <id>...\n\nHides elements from a view, without removing them from the model.\n`, {}),
   "add-sticky": writer(
-    `Usage: open-arch add-sticky <view> <id> --text <text> [--element <id> | --from <id> --to <id> [--kind <kind>]]
+    `Usage: open-arch add-sticky <view> <id> --text <text>
+                            [--element <id> | --from <id> --to <id> [--kind <kind>] | --block <id>]
                             [--color <yellow|pink|blue|green>] [--at <x,y>] [--notes <markdown>]
 
 Adds a sticky note to a view: text for people reading the diagram, such as what to notice or
 why it's drawn this way. It isn't part of the model. The id must be unique within the view.
 On a landscape, context, container, component or class view, a note can be on an element or
 a relationship: the designer draws a line from the note to the box or arrow that shows it.
+On a flowchart view, a note can be on a block, with a line to it.
   --element <id>         The element it's on
   --from <id> --to <id>  The relationship it's on: <from> uses <to>, as add-relationship says
   --kind <kind>          That relationship's kind, when it isn't an association
+  --block <id>           The block it's on, on a flowchart view
   --at <x,y>             Top-left corner (default: the designer puts it beside what it's on,
                          or else beside the diagram)
   --notes <markdown>     More than the note should say: the designer opens them from the note,
                          and the docs show them after its text (or --notes-file <path>, - for stdin)
 `,
-    { text: s, element: s, from: s, to: s, kind: s, color: s, at: s, notes: s, "notes-file": s },
+    { text: s, element: s, from: s, to: s, kind: s, block: s, color: s, at: s, notes: s, "notes-file": s },
   ),
   "update-sticky": writer(
-    `Usage: open-arch update-sticky <view> <id> [--text <text>] [--element <id> | --from <id> --to <id> [--kind <kind>] | --detach]
+    `Usage: open-arch update-sticky <view> <id> [--text <text>]
+                               [--element <id> | --from <id> --to <id> [--kind <kind>] | --block <id> | --detach]
                                [--color <yellow|pink|blue|green>] [--at <x,y>] [--notes <markdown>]
 
---element, or --from and --to, put the note on an element or a relationship (see add-sticky),
-and --detach takes it off.
+--element, or --from and --to, put the note on an element or a relationship, and --block on
+a flowchart view's block (see add-sticky). --detach takes it off.
 --at "" lets the designer place it again.
 --notes takes markdown, or use --notes-file <path> (- for stdin), and --notes "" removes them.
 `,
-    { text: s, element: s, from: s, to: s, kind: s, detach: b, color: s, at: s, notes: s, "notes-file": s },
+    { text: s, element: s, from: s, to: s, kind: s, block: s, detach: b, color: s, at: s, notes: s, "notes-file": s },
   ),
   "remove-sticky": writer(`Usage: open-arch remove-sticky <view> <id>\n`, {}),
   "add-step": writer(
@@ -707,7 +711,7 @@ blocks.
 
 --kind is start, end, process, decision, input-output, subprocess, document or database.
 --lane moves it into a lane, and --lane "" out of its lane.
---new-id changes its ID, and the flows to and from it follow it.
+--new-id changes its ID, and the flows to and from it, and the sticky notes on it, follow it.
 --at x,y moves it. In a flowchart with lanes, x is from the inside of its lane's left, and 0 or
 more. --at "" lets the designer lay it out again.
 --position moves it to that place in the view's list of blocks: 1 is the first.
@@ -716,7 +720,7 @@ An empty value removes a field: --kind "" makes it a process. A block needs text
 `,
     { kind: s, text: s, "new-id": s, description: s, lane: s, at: s, position: s },
   ),
-  "remove-block": writer(`Usage: open-arch remove-block <view> <id>\n\nRemoves a block, and the flows to and from it.\n`, {}),
+  "remove-block": writer(`Usage: open-arch remove-block <view> <id>\n\nRemoves a block, and the flows to and from it. A sticky note on it stays on the view, on nothing.\n`, {}),
   "add-flow": writer(
     `Usage: open-arch add-flow <view> <from> <to> [--text <text>] [--flow <n>]
 

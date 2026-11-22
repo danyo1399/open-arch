@@ -1862,9 +1862,10 @@ button.heading {
 .sticky textarea:focus-visible {
   outline: none;
 }
-/* The dot under a note, to drag to a box, the frame or an arrow and put the note on it. Drawn
-   like the dot under a box, and shown the same way: on a note pointed at, or selected. The grip
-   is bigger than the dot it draws, so it's easy to grab, and bigger again on a touch screen. */
+/* The dot under a note, to drag to a box, the frame or an arrow, or on a flowchart a block, and
+   put the note on it. Drawn like the dot under a box, and shown the same way: on a note pointed
+   at, or selected. The grip is bigger than the dot it draws, so it's easy to grab, and bigger
+   again on a touch screen. */
 .sticky-grip {
   position: absolute;
   left: 50%;
@@ -2306,8 +2307,9 @@ button.heading {
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
-/* A flowchart's lane: a column behind its blocks, with its name at the top. Lanes share the line
-   between them. The column for blocks in no lane is dashed. (See LaneNode in FlowchartDiagram.) */
+/* A flowchart's lane: a column behind its blocks, with its name at the top, wrapped onto as many
+   lines as it needs. Lanes share the line between them. The column for blocks in no lane is
+   dashed. (See LaneNode and laneHead in FlowchartDiagram.) */
 .flow-lane {
   border: 1.5px solid var(--frame);
   margin-left: -0.75px;
@@ -2328,14 +2330,14 @@ button.heading {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
+  padding: 8px 12px;
   border-bottom: 1.5px solid var(--frame);
   background: color-mix(in srgb, var(--frame) 10%, transparent);
   font-weight: 650;
+  line-height: 18px;
+  text-align: center;
   color: var(--text);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .flow-lane.loose .flow-lane-name {
   border-bottom-style: dashed;
@@ -2824,8 +2826,9 @@ button.heading {
   stroke-linejoin: round;
 }
 /*
- * The dotted line from a sticky note to the box, frame or arrow it's on: dotted, as an implied
- * arrow is dashed. Under the arrows, boxes and notes, but over the frame, which comes before it.
+ * The dotted line from a sticky note to the box, frame or arrow it's on, or on a flowchart, the
+ * block: dotted, as an implied arrow is dashed. Under the arrows, boxes and notes, but over the
+ * frame and a flowchart's lanes, which come before it.
  */
 .sticky-lines {
   position: absolute;
@@ -2846,8 +2849,8 @@ button.heading {
 .sticky-lines line.selected {
   stroke: var(--accent);
 }
-/* The box a moving end would go to, or the box, frame or arrow a note's dot would put the note on. */
-.react-flow__node.drop-target .c4 {
+/* The box a moving end would go to, or the box, frame or arrow, or on a flowchart the block, a note's dot would put the note on. */
+.react-flow__node.drop-target :is(.c4, .flow-block) {
   outline-color: var(--accent);
   outline-style: dashed;
 }

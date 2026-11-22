@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 19)
+# The open-arch workspace (format version 20)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 19,
+  "openarch": 20,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -77,14 +77,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `19` |
+| `openarch` | Format version, always `20` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs (`.` for the file's own folder) |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 18 files too, and write them back as version 19. Version 18 is the same, but without notes on sticky notes. Version 17 is version 18 without entity views. Version 16 is version 17 without lanes on flowchart views. Version 15 is version 16 without flowchart views. Version 14 is version 15, but a whiteboard arrow's end can't stay on a side of its shape. Version 13 is version 14 without whiteboard views. Version 12 is version 13 without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 19 files too, and write them back as version 20. Version 19 is the same, but without sticky notes on a flowchart's blocks. Version 18 is version 19 without notes on sticky notes. Version 17 is version 18 without entity views. Version 16 is version 17 without lanes on flowchart views. Version 15 is version 16 without flowchart views. Version 14 is version 15, but a whiteboard arrow's end can't stay on a side of its shape. Version 13 is version 14 without whiteboard views. Version 12 is version 13 without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view, as are the IDs of a state view's states, a deployment view's nodes, an event view's lanes and its cards, a wireframe view's screens, a whiteboard view's shapes and its arrows, a flowchart view's lanes and its blocks, and an entity view's entities. A wireframe view's widgets have IDs unique among all its widgets, on every screen.
 
@@ -467,7 +467,10 @@ A `flowchart` view draws the steps of a process, as a flowchart does: where it s
     { "from": "in-time", "to": "refuse", "text": "No" },
     { "from": "refund", "to": "done" },
     { "from": "refuse", "to": "done" }
-  ]
+  ],
+  "stickies": {
+    "from-delivery": { "text": "Counted from the day it was delivered.", "on": { "block": "in-time" } }
+  }
 }
 ```
 
@@ -485,7 +488,7 @@ A `flowchart` view draws the steps of a process, as a flowchart does: where it s
 | `from`, `to` | The IDs of the blocks it leaves and goes to |
 | `text` | What it says, like `Yes` or `No` on the ways out of a decision |
 
-`show <view>` numbers the blocks and the flows from 1, in the lists' order. Removing a block removes the flows to and from it, and renaming one renames it in their `from` and `to`. Removing a lane leaves its blocks in no lane, without their `at`, which was from that lane's left, so the designer lays them out again; renaming one renames it in its blocks' `lane`. A flow from a block to itself isn't drawn. Mermaid has no shape for a document that GitHub draws, so the docs draw one as a box.
+`show <view>` numbers the blocks and the flows from 1, in the lists' order. Removing a block removes the flows to and from it, and takes the sticky notes on it off it; renaming one renames it in the flows' `from` and `to`, and in the notes on it. Removing a lane leaves its blocks in no lane, without their `at`, which was from that lane's left, so the designer lays them out again; renaming one renames it in its blocks' `lane`. A flow from a block to itself isn't drawn. Mermaid has no shape for a document that GitHub draws, so the docs draw one as a box.
 
 An `entity` view draws the data something keeps, as an entity-relationship diagram (ERD) does: its entities, like a database's tables, each with its attributes, like the tables' columns, and the links between them, each with how many of each end there can be, in crow's foot notation. Its `scope`, if any, is the system, container, component or library whose data it shows, like a database. Its entities, attributes and links belong to the view, not the model:
 
@@ -552,10 +555,11 @@ An `entity` view draws the data something keeps, as an entity-relationship diagr
 
 Sticky notes belong to one view and explain that diagram to people: what to notice, or why it's drawn this way. They're drawn on the diagram, beside what they point at, while the view's `notes` are about the whole diagram and appear in its docs. They aren't part of the model, so they never become boxes, and no check looks inside their text.
 
-On a landscape, context, container, component or class view, a note can be `on` an element or a relationship, and the designer draws a dotted line from it to the box or arrow that shows it. Other views don't take `on`.
+On a landscape, context, container, component or class view, a note can be `on` an element or a relationship, and the designer draws a dotted line from it to the box or arrow that shows it. On a flowchart view, a note can be `on` one of its blocks, with a line to it. Other views don't take `on`.
 
 - `{ "element": "<id>" }` is on an element. The line goes to the box that draws it: its own, or the box of what it's inside, as a component is drawn as its container on a container view. On the view's scope, it goes to the frame.
 - `{ "from": "<id>", "to": "<id>" }` is on a relationship, named as `add-relationship` names it: `from` uses `to`. Add `"kind"` when the relationship isn't an association, as between two classes. The line goes to the arrow that draws it, which can be an implied one.
+- `{ "block": "<id>" }`, on a flowchart view, is on one of the view's blocks. The view must have the block. A flowchart's notes can't be on an element or a relationship, as it draws neither.
 
 The model must have what a note is on. Renaming an element renames it in the notes on it. Removing an element, or the last relationship of its kind from one element to another, takes the notes off it; they stay on the view. Moving a relationship's ends or changing its kind takes its notes with it, unless another relationship like it is still there. A note on something the view doesn't draw, such as an element hidden from it, has no line, and `check` warns.
 
@@ -578,9 +582,9 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `19` (or `1` to `18`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `20` (or `1` to `19`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
-| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment, event, wireframe, whiteboard, flowchart or entity view, `scope` on a deployment, event or whiteboard view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `cards` on another view than an event view, `lanes` on another view than an event or flowchart view, `screens` on another view than a wireframe view, `shapes` or `arrows` on another view than a whiteboard view, `blocks` or `flows` on another view than a flowchart view, `entities` or `links` on another view than an entity view, `widgets` on a widget that isn't a row or a panel, `text`, `size` or `fill` on a pen, `points` on a shape that isn't one, `dashed` on text, or a sticky note's `on` on a sequence, state, deployment, event, wireframe, whiteboard, flowchart or entity view, or with both `element` and `from` or `to` |
+| `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment, event, wireframe, whiteboard, flowchart or entity view, `scope` on a deployment, event or whiteboard view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `cards` on another view than an event view, `lanes` on another view than an event or flowchart view, `screens` on another view than a wireframe view, `shapes` or `arrows` on another view than a whiteboard view, `blocks` or `flows` on another view than a flowchart view, `entities` or `links` on another view than an entity view, `widgets` on a widget that isn't a row or a panel, `text`, `size` or `fill` on a pen, `points` on a shape that isn't one, `dashed` on text, or a sticky note's `on` on a sequence, state, deployment, event, wireframe, whiteboard or entity view, with both `element` and `from` or `to`, with `block` on another view than a flowchart, or with `element`, `from`, `to` or `kind` on a flowchart view |
 | `field-type` | error | A field has the wrong type |
 | `field-required` | error | A required field is missing |
 | `id-format` | error | An ID isn't kebab-case |
@@ -666,7 +670,7 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | `decision-ways` | warning | A decision has fewer than two flows out, so it decides nothing |
 | `decision-flow-text` | warning | A flow out of a decision has no text, so it doesn't say which answer it's for |
 | `link-unknown-entity` | error | A link's `from` or `to` isn't an entity of its view |
-| `sticky-unknown-target` | error | A sticky note is on an element that isn't there, or a relationship the model doesn't have |
+| `sticky-unknown-target` | error | A sticky note is on an element that isn't there, a relationship the model doesn't have, or on a flowchart view, a block the view doesn't have |
 | `sticky-target-not-drawn` | warning | A sticky note is on something the view doesn't draw, so no line joins them |
 | `layout-stale` | warning | Saved positions for elements no longer in the view (`open-arch fmt` removes them) |
 

@@ -722,10 +722,41 @@ Links (how many of from, then of to):
     expect(notes().db).toEqual({ text: "Backed up nightly.", at: [10, 20] });
 
     expect(cli(dir, "add-sticky", "shop-containers", "x", "--text", "X", "--from", "web-app").err).toContain("Pass --from and --to together");
-    expect(cli(dir, "add-sticky", "shop-containers", "x", "--text", "X", "--element", "web-app", "--to", "checkout-api").err).toContain("Pass --element, or --from and --to, not more than one of them.");
-    expect(cli(dir, "update-sticky", "shop-containers", "db", "--element", "web-app", "--detach").err).toContain("Pass --element, or --from and --to, or --detach, not more than one of them.");
+    expect(cli(dir, "add-sticky", "shop-containers", "x", "--text", "X", "--element", "web-app", "--to", "checkout-api").err).toContain("Pass --element, --block, or --from and --to, not more than one of them.");
+    expect(cli(dir, "update-sticky", "shop-containers", "db", "--element", "web-app", "--detach").err).toContain("Pass --element, --block, --from and --to, or --detach, not more than one of them.");
     expect(cli(dir, "add-sticky", "place-order", "x", "--text", "X", "--element", "web-app").err).toContain('View "place-order" is a sequence view.');
     expect(cli(dir, "add-sticky", "shop-containers", "x", "--text", "X", "--from", "web-app", "--to", "orders-db").err).toContain('"web-app" has no relationship to "orders-db".');
+  });
+
+  it("puts a sticky note on a flowchart's block, moves it, takes it off, and shows what it's on", () => {
+    const dir = example();
+    const note = () => JSON.parse(read(dir)).views["checking-out"].stickies.retry;
+    const added = cli(dir, "add-sticky", "checking-out", "retry", "--text", "As often as they like.", "--block", "declined");
+    expect(added.out).toContain("added sticky note retry to view checking-out, on block declined\n");
+    expect(note()).toEqual({ text: "As often as they like.", on: { block: "declined" } });
+    expect(cli(dir, "show", "checking-out").out).toContain("  retry (yellow), on block declined:\n    As often as they like.\n");
+    expect(JSON.parse(cli(dir, "show", "checking-out", "--json").out).stickies).toContainEqual({ id: "retry", text: "As often as they like.", on: { block: "declined" }, drawn: true, color: "yellow" });
+    expect(read(dir, "docs/views/checking-out.md")).toContain('> On "Say the card was declined": As often as they like.\n');
+
+    expect(cli(dir, "update-sticky", "checking-out", "retry", "--block", "card-details", "--at", "10,20").code).toBe(0);
+    expect(note()).toEqual({ text: "As often as they like.", on: { block: "card-details" }, at: [10, 20] });
+    // It follows its block to a new ID, and comes off one that's removed.
+    expect(cli(dir, "update-block", "checking-out", "card-details", "--new-id", "read-card").code).toBe(0);
+    expect(note().on).toEqual({ block: "read-card" });
+    expect(cli(dir, "remove-block", "checking-out", "read-card").code).toBe(0);
+    expect(note()).toEqual({ text: "As often as they like.", at: [10, 20] });
+    expect(cli(dir, "update-sticky", "checking-out", "retry", "--block", "paid").code).toBe(0);
+    expect(cli(dir, "update-sticky", "checking-out", "retry", "--detach").code).toBe(0);
+    expect(note()).toEqual({ text: "As often as they like.", at: [10, 20] });
+
+    expect(cli(dir, "add-sticky", "checking-out", "x", "--text", "X", "--block", "declind").err).toContain('View "checking-out" has no block "declind". Did you mean "declined"?');
+    expect(cli(dir, "add-sticky", "checking-out", "x", "--text", "X", "--element", "checkout-api").err).toContain('View "checking-out" is a flowchart view, which draws its blocks, not elements or relationships');
+    expect(cli(dir, "add-sticky", "shop-containers", "x", "--text", "X", "--block", "paid").err).toContain('View "shop-containers" is a container view. Only a sticky note on a flowchart view can be on a block.');
+    expect(cli(dir, "add-sticky", "checking-out", "x", "--text", "X", "--block", "paid", "--element", "web-app").err).toContain("Pass --element, --block, or --from and --to, not more than one of them.");
+    expect(cli(dir, "update-sticky", "checking-out", "retry", "--block", "paid", "--detach").err).toContain("Pass --element, --block, --from and --to, or --detach, not more than one of them.");
+    expect(cli(dir, "add-sticky", "--help").out).toContain("--block <id>           The block it's on, on a flowchart view");
+    expect(cli(dir, "update-block", "--help").out).toContain("--new-id changes its ID, and the flows to and from it, and the sticky notes on it, follow it.");
+    expect(cli(dir, "remove-block", "--help").out).toContain("Removes a block, and the flows to and from it. A sticky note on it stays on the view, on nothing.");
   });
 
   it("adds, changes, moves and removes a sequence view's steps, and shows them", () => {
@@ -858,22 +889,22 @@ Links (how many of from, then of to):
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 19', '"openarch": 1')
+      .replace('"openarch": 20', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 19, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 20, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18])("reads a version %i file, and writes it back as version 19", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])("reads a version %i file, and writes it back as version 20", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 19', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 20', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 19,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 20,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -960,7 +991,7 @@ describe("init", () => {
   it("export leaves the docs of another workspace in the same folder alone", () => {
     const project = tempDir();
     for (const [name, title] of [["a.openarch", "A"], ["b.openarch", "B"]]) {
-      writeFileSync(join(project, name), JSON.stringify({ openarch: 19, name: title, export: { docs: "." }, elements: {}, views: {} }));
+      writeFileSync(join(project, name), JSON.stringify({ openarch: 20, name: title, export: { docs: "." }, elements: {}, views: {} }));
     }
     expect(cli(project, "export", "--file", "a.openarch").code).toBe(0);
     const result = cli(project, "export", "--file", "b.openarch");
@@ -1024,7 +1055,7 @@ describe("init", () => {
 
     const older = tempDir();
     mkdirSync(join(older, ".git"));
-    writeFileSync(join(older, "architecture.openarch"), JSON.stringify({ openarch: 19, name: "Old", elements: {}, views: {} }));
+    writeFileSync(join(older, "architecture.openarch"), JSON.stringify({ openarch: 20, name: "Old", elements: {}, views: {} }));
     expect(cli(older, "init").out).toContain("kept architecture.openarch");
     expect(existsSync(join(older, "architecture"))).toBe(false);
   });
@@ -1066,7 +1097,7 @@ describe("init", () => {
     // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
     expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
     expect(created.out).toContain("created architecture/architecture.openarch");
-    expect(JSON.parse(read(project, "architecture/architecture.openarch"))).toEqual({ openarch: 19, name: "Payments", export: { docs: "." }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture/architecture.openarch"))).toEqual({ openarch: 20, name: "Payments", export: { docs: "." }, elements: {}, views: {} });
     // At the repository's top, the workspace gets a folder of its own, with its docs beside it, apart from the repository's README.md.
     expect(read(project, "architecture/README.md")).toContain("# Payments");
     expect(read(project, "README.md")).toBe("# My project\n");

@@ -18,7 +18,7 @@ import type { Edit } from "../src/state.js";
 import { button, click, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -392,7 +392,7 @@ describe("Auto layout on a narrow screen", () => {
  * entity with links to three others.
  */
 const hub: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Hub",
   elements: {
     shop: { kind: "system", name: "Shop" },

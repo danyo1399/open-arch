@@ -16,7 +16,7 @@ import { FakeFolder } from "./fakeFolder.js";
 import { fakeModel, reply, toolAnswers } from "./llm.js";
 
 const shop: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: { customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] }, shop: { kind: "system", name: "Shop" } },
   views: { context: { title: "Shop context", level: "context", scope: "shop" } },

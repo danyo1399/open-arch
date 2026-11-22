@@ -44,8 +44,8 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
 | `hide-in-view <view> <id>...` | Removes them from include, or adds them to exclude; the model is unchanged |
-| `add-sticky <view> <id>` | `--text` (required), `--element <id>` or `--from <id> --to <id>` (`--kind <kind>` when that relationship isn't an association): what it's on, on a landscape, context, container, component or class view; `--color <yellow\|pink\|blue\|green>`, `--at <x,y>`, `--notes <markdown>` or `--notes-file <path\|->` (more than the note should say on the diagram) |
-| `update-sticky <view> <id>` | `--text`, `--element <id>` or `--from <id> --to <id>` (with `--kind`) puts it on something else, `--detach` takes it off, `--color`, `--at <x,y>` (`--at ""` lets the designer place it), `--notes`, `--notes-file` (`--notes ""` removes them) |
+| `add-sticky <view> <id>` | `--text` (required), `--element <id>` or `--from <id> --to <id>` (`--kind <kind>` when that relationship isn't an association): what it's on, on a landscape, context, container, component or class view; `--block <id>`: the block it's on, on a flowchart view; `--color <yellow\|pink\|blue\|green>`, `--at <x,y>`, `--notes <markdown>` or `--notes-file <path\|->` (more than the note should say on the diagram) |
+| `update-sticky <view> <id>` | `--text`, `--element <id>`, `--from <id> --to <id>` (with `--kind`) or, on a flowchart view, `--block <id>` puts it on something else, `--detach` takes it off, `--color`, `--at <x,y>` (`--at ""` lets the designer place it), `--notes`, `--notes-file` (`--notes ""` removes them) |
 | `remove-sticky <view> <id>` | |
 | `add-step <view> <from> <to>` | Sequence views only. `--description`, `--technology`, `--reply` (`<from>` answers `<to>`), `--step <n>` (insert it as step n; default: after the last) |
 | `update-step <view> <n>` | `--from <id>`, `--to <id>`, `--description`, `--technology`, `--reply` / `--call`, `--move-to <n>` |
@@ -81,8 +81,8 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `update-arrow <view> <id>` | `--from`, `--to` (on another shape, an end faces the other end unless it's given a side too; naming the shape it's on already keeps its side), `--from-side`, `--to-side` (put the end on that side of its shape; `""` lets it face the other end again), `--text`, `--new-id <id>`, `--heads` (`--heads ""` is end again), `--color`, `--dashed` / `--solid` |
 | `remove-arrow <view> <id>` | |
 | `add-block <view> <id>` | Flowchart views only. `--kind <start\|end\|process\|decision\|input-output\|subprocess\|document\|database>` (default: process), `--text` (what it says; default: from the id), `--description`, `--lane <lane>` (the lane it's in), `--at <x,y>` (its top-left corner; default: the designer lays it out. In a flowchart with lanes, x is from the inside of its lane's left, and 0 or more), `--position <n>` (its place in the view's list of blocks: 1 is the first; default: after the last) |
-| `update-block <view> <id>` | `--kind` (`--kind ""` makes it a process again), `--text` (a block needs text), `--new-id <id>` (the flows to and from it follow it), `--description`, `--lane` (`--lane ""` takes it out of its lane), `--at` (in a flowchart with lanes, x is from the inside of its lane's left, and 0 or more; `--at ""` lets the designer lay it out again), `--position <n>` (moves it to that place) |
-| `remove-block <view> <id>` | Also removes the flows to and from it |
+| `update-block <view> <id>` | `--kind` (`--kind ""` makes it a process again), `--text` (a block needs text), `--new-id <id>` (the flows to and from it, and the sticky notes on it, follow it), `--description`, `--lane` (`--lane ""` takes it out of its lane), `--at` (in a flowchart with lanes, x is from the inside of its lane's left, and 0 or more; `--at ""` lets the designer lay it out again), `--position <n>` (moves it to that place) |
+| `remove-block <view> <id>` | Also removes the flows to and from it, and takes the sticky notes on it off it |
 | `add-flow <view> <from> <to>` | Flowchart views only. `--text` (like `Yes` or `No` on the ways out of a decision), `--flow <n>` (its number: 1 is the first; default: after the last) |
 | `update-flow <view> <n>` | `--from`, `--to`, `--text`, `--move-to <n>` |
 | `remove-flow <view> <n>` | The ones after it move up one |
@@ -135,7 +135,7 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `show-in-view` | **view**, **id** |
 | `hide-in-view` | **view**, **id** |
 | `set-layout` | **view**, **positions**: `{ "<element-id>": [x, y] }`, `null` removes one. Used by the designer; agents don't need it |
-| `add-sticky` | **view**, **id**, **text**, on (`{ "element": "<id>" }`, or `{ "from": "<id>", "to": "<id>" }` with `"kind"` when it isn't an association), color, at (`[x, y]`), notes |
+| `add-sticky` | **view**, **id**, **text**, on (`{ "element": "<id>" }`, or `{ "from": "<id>", "to": "<id>" }` with `"kind"` when it isn't an association, or on a flowchart view `{ "block": "<id>" }`), color, at (`[x, y]`), notes |
 | `update-sticky` | **view**, **id**, text, on (`null` takes it off), color, at (`null` lets the designer place it), notes (`null` takes them off) |
 | `remove-sticky` | **view**, **id** |
 | `add-step` | **view**, **from**, **to**, description, technology, reply (`true` for an answer), step (its number: 1 is the first; default: after the last) |

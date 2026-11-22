@@ -1001,7 +1001,7 @@ describe("exporting a workspace to a folder", () => {
 
   it("takes an empty docs folder, written by hand, as none", async () => {
     const root = new FakeFolder("repo");
-    const ws = loadWorkspace(JSON.stringify({ openarch: 19, name: "A", export: { docs: "" }, elements: {}, views: {} }));
+    const ws = loadWorkspace(JSON.stringify({ openarch: 20, name: "A", export: { docs: "" }, elements: {}, views: {} }));
     expect(ws.doc.export).toEqual({ docs: "" });
     await exportToFolder(root, ws, "a.openarch");
     expect(loadWorkspace(root.files()["a.openarch"]!).doc.export).toEqual({ docs: "." });

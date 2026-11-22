@@ -1,5 +1,5 @@
 {
-  "openarch": 19,
+  "openarch": 20,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -214,7 +214,10 @@
         { "from": "save-order", "to": "orders" },
         { "from": "save-order", "to": "receipt" },
         { "from": "receipt", "to": "placed" }
-      ]
+      ],
+      "stickies": {
+        "paid-first": { "text": "The card is charged before the order is saved, so a saved order is always paid for.", "on": { "block": "save-order" } }
+      }
     },
     "checkout-api-components": {
       "title": "Checkout API components",

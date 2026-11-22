@@ -197,15 +197,16 @@ function keys(v: Values[string]): AttributeKey[] | null | undefined {
   return parts.length ? (parts as AttributeKey[]) : null;
 }
 
-/** What a sticky note is on: `--element <id>`, or `--from <id> --to <id>` and maybe `--kind`. `--detach`, in an update, takes it off. */
+/** What a sticky note is on: `--element <id>`, or `--from <id> --to <id>` and maybe `--kind`, or on a flowchart view, `--block <id>`. `--detach`, in an update, takes it off. */
 function stickyOn(v: Values): StickyTargetData | null | undefined {
-  const [element, from, to, kind] = [text(v.element), text(v.from), text(v.to), text(v.kind)];
+  const [element, from, to, kind, block] = [text(v.element), text(v.from), text(v.to), text(v.kind), text(v.block)];
   const relationship = from !== undefined || to !== undefined || kind !== undefined;
-  if ([element !== undefined, relationship, v.detach === true].filter(Boolean).length > 1) {
-    throw new CliError(`Pass --element, or --from and --to${v.detach === true ? ", or --detach" : ""}, not more than one of them.`, 2);
+  if ([element !== undefined, relationship, block !== undefined, v.detach === true].filter(Boolean).length > 1) {
+    throw new CliError(`Pass --element, --block${v.detach === true ? ", --from and --to, or --detach" : ", or --from and --to"}, not more than one of them.`, 2);
   }
   if (v.detach === true) return null;
   if (element !== undefined) return { element };
+  if (block !== undefined) return { block };
   if (!relationship) return undefined;
   if (from === undefined || to === undefined) throw new CliError("Pass --from and --to together: the ends of the relationship the note is on.", 2);
   return { from, to, ...(kind !== undefined && { kind: kind as RelationshipKind }) };

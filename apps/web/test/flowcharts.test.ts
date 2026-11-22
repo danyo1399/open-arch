@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { buildWorkspace, computeView, type OpenArchDocument, type Operation, type Sticky } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, createElement } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
 import { BLOCK_KINDS, type ViewDef } from "@open-arch/core";
-import { addBlockOps, connectOps, FlowchartDiagram, flowchartLayout, moveOps, newBlockPlace, pinOps, tipsOf, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
-import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, onOutline, placeInLanes, routeToOutlines, savedAt, SLANT } from "../src/canvas/flowchartLayout.js";
+import { addBlockOps, besideBlocks, blockUnder, connectOps, FlowchartDiagram, flowchartLayout, laneHead, moveOps, newBlockPlace, noteOnBlockOps, pinOps, tipsOf, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
+import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, onOutline, outlineToward, placeInLanes, routeToOutlines, savedAt, SLANT } from "../src/canvas/flowchartLayout.js";
 import { followRenames, followsName, LEVEL_NAMES, shownInProperties, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
@@ -16,7 +18,7 @@ import { button, choose, click, mount, select } from "./dom.js";
 
 /** A return, each block placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, customer: { kind: "person", name: "Customer" } },
   views: {
@@ -139,6 +141,16 @@ describe("FlowchartDiagram", () => {
     expect(host.textContent).toContain("flowchart view of Shop [System]");
   });
 
+  it("draws a line from a sticky note to the block it's on, and gives each note a dot to drag to a block", async () => {
+    const noted = structuredClone(doc);
+    noted.views.returns!.stickies = { on: { text: "Within 3 days", on: { block: "refund" }, at: [400, 300] }, off: { text: "On nothing" } };
+    const { host } = await diagram(null, noted);
+    expect(host.querySelectorAll(".sticky-lines line")).toHaveLength(1);
+    expect([...host.querySelectorAll<HTMLElement>(".sticky-grip")].map((g) => g.title)).toEqual(["Drag to a block to put the note on it", "Drag to a block to put the note on it"]);
+    // A note on nothing has no line.
+    expect((await diagram(null, doc)).host.querySelector(".sticky-lines")).toBeNull();
+  });
+
   it("says how to start when there are no blocks", async () => {
     const empty: OpenArchDocument = { ...doc, views: { returns: { title: "Returns", level: "flowchart", blocks: [], flows: [] } } };
     const { host } = await diagram(null, empty);
@@ -230,6 +242,37 @@ describe("dragging on a flowchart", () => {
   });
 });
 
+describe("a sticky note on a flowchart's block", () => {
+  const note = (id: string, on?: { block: string }, at?: [number, number]): Sticky => ({ id, path: "", text: "N", color: "yellow", ...(on && { on }), ...(at && { at }) });
+
+  it("goes beside its block until it's moved: right of it, level with its top", () => {
+    const noted = { blocks: view.blocks, stickies: [note("n", { block: "in-time" }), note("moved", { block: "refund" }, [5, 6]), note("loose"), note("lost", { block: "gone" })] };
+    // in-time is a decision, 220 wide.
+    expect(besideBlocks(noted, { "in-time": { x: 0, y: 120 }, refund: { x: 0, y: 300 } })).toEqual({ n: { x: 220 + 80, y: 120 } });
+    // A block that isn't placed yet has nothing beside it.
+    expect(besideBlocks(noted, { refund: { x: 0, y: 300 } })).toEqual({});
+  });
+
+  it("is put on the block its dot is let go on: the one on top, and none under a note", () => {
+    const boxes = new Map([
+      ["under", { x: 0, y: 0, w: 180, h: 52 }],
+      ["over", { x: 100, y: 20, w: 180, h: 52 }],
+    ]);
+    expect(blockUnder({ x: 50, y: 10 }, boxes, [])).toBe("under");
+    expect(blockUnder({ x: 150, y: 30 }, boxes, [])).toBe("over");
+    expect(blockUnder({ x: 280, y: 72 }, boxes, [])).toBe("over");
+    expect(blockUnder({ x: 400, y: 30 }, boxes, [])).toBeUndefined();
+    expect(blockUnder({ x: 150, y: 30 }, boxes, [{ x: 140, y: 0, w: 150, h: 100 }])).toBeUndefined();
+  });
+
+  it("stays where it's drawn when it's put on a block, and isn't put on the block it's on", () => {
+    expect(noteOnBlockOps(view, note("n"), "refund", { x: 400.4, y: 9.6 })).toEqual([{ op: "update-sticky", view: "returns", id: "n", on: { block: "refund" }, at: [400, 10] }]);
+    // One that was moved keeps its place.
+    expect(noteOnBlockOps(view, note("n", { block: "asked" }, [1, 2]), "refund", { x: 1, y: 2 })).toEqual([{ op: "update-sticky", view: "returns", id: "n", on: { block: "refund" } }]);
+    expect(noteOnBlockOps(view, note("n", { block: "refund" }), "refund", { x: 1, y: 2 })).toEqual([]);
+  });
+});
+
 describe("laying out a flowchart", () => {
   it("goes from the first block down, with a loop back up turned round, not the way on", async () => {
     // The shop's checkout: as the blocks are listed, with a way back from a declined card.
@@ -284,6 +327,37 @@ describe("a flowchart's shapes", () => {
     expect(onOutline("input-output", { x: 0, y: 0, w: 180, h: 60 }, { x: 180, y: 60 }, { x: -1, y: 0 })).toEqual({ x: 180 - SLANT, y: 60 });
     // A box's outline is its box.
     expect(onOutline("process", box, { x: 50, y: 0 }, { x: 0, y: 1 })).toEqual({ x: 50, y: 0 });
+  });
+
+  it("meet a sticky note's line on their outline, on its way to their middle", () => {
+    const meets = (at: { x: number; y: number }, x: number, y: number) => {
+      expect(at.x).toBeCloseTo(x);
+      expect(at.y).toBeCloseTo(y);
+    };
+    // A diamond: at a tip, and halfway along an edge.
+    meets(outlineToward("decision", box, { x: 500, y: 50 }), 200, 50);
+    meets(outlineToward("decision", box, { x: 300, y: -50 }), 150, 25);
+    // A pill: its flat top, the middle of a round end, and round the end, as far from its centre as it's round.
+    const pill = { x: 0, y: 0, w: 160, h: 40 };
+    meets(outlineToward("start", pill, { x: 80, y: -100 }), 80, 0);
+    meets(outlineToward("start", pill, { x: 120, y: -80 }), 88, 0);
+    meets(outlineToward("end", pill, { x: 400, y: 20 }), 160, 20);
+    const round = outlineToward("end", pill, { x: 380, y: -30 });
+    expect(Math.hypot(round.x - 140, round.y - 20)).toBeCloseTo(20);
+    expect(round.x).toBeGreaterThan(150);
+    expect(round.y).toBeLessThan(20);
+    // An input or output: halfway down a slanted side, half the slant in, and its flat top.
+    const slanted = { x: 0, y: 0, w: 180, h: 60 };
+    meets(outlineToward("input-output", slanted, { x: 400, y: 30 }), 180 - SLANT / 2, 30);
+    meets(outlineToward("input-output", slanted, { x: -400, y: 30 }), SLANT / 2, 30);
+    meets(outlineToward("input-output", slanted, { x: 90, y: -90 }), 90, 0);
+    // A box: its edge.
+    meets(outlineToward("process", box, { x: 500, y: 50 }), 200, 50);
+    meets(outlineToward("database", box, { x: 100, y: 300 }), 100, 100);
+    meets(outlineToward("process", box, { x: 500, y: 250 }), 200, 100);
+    // From inside the outline, or its middle, where it is.
+    meets(outlineToward("decision", box, { x: 110, y: 55 }), 110, 55);
+    meets(outlineToward("process", box, { x: 100, y: 50 }), 100, 50);
   });
 
   it("move a route's ends onto the outlines of the blocks it joins", () => {
@@ -524,8 +598,9 @@ describe("a flowchart's lanes", () => {
     expect(newBlockPlace(extra, "process", { kind: "block", id: "done" }, around)).toEqual({ at: [0, 450 + blockHeight({ kind: "end", text: "Done" }) + 70], lane: undefined });
     // At the bottom of customer, under asked, down its middle.
     expect(newBlockPlace(extra, "process", { kind: "lane", id: "customer" }, around)).toEqual({ at: [LANE.centre - 90, 44 + 70], lane: "customer" });
-    // In warehouse, which has none yet: at its top.
+    // In warehouse, which has none yet: at its top, under the lanes' names, however tall they are.
     expect(newBlockPlace(extra, "process", { kind: "lane", id: "warehouse" }, around)).toEqual({ at: [LANE.centre - 90, -70 + LANE.head + LANE.pad], lane: "warehouse" });
+    expect(newBlockPlace(extra, "process", { kind: "lane", id: "warehouse" }, { ...around, head: 58 })).toEqual({ at: [LANE.centre - 90, -70 + 58 + LANE.pad], lane: "warehouse" });
     // With nothing selected, in the lane under the middle of the canvas.
     expect(newBlockPlace(extra, "process", null, around)).toEqual({ at: [0, 370], lane: "shop" });
     // In the nearest free spot.
@@ -569,6 +644,80 @@ describe("a flowchart's lanes", () => {
     await new Promise((resolve) => setTimeout(resolve));
     expect(edits.at(-1)!.at(-1)).toEqual({ op: "add-lane", view: "returns", id: "new-lane", name: "New lane", position: 2 });
     expect(selected).toEqual([{ kind: "lane", id: "new-lane" }]);
+  });
+});
+
+describe("a lane's name too long for one line", () => {
+  /**
+   * This page has no layout, so every name would measure nothing. Here each letter is 8 wide, and a
+   * name wraps in its lane, less the 12 either side of it, onto lines 18 tall, with 8 above and
+   * below them and the line under it, as in a browser.
+   */
+  const measure = Element.prototype.getBoundingClientRect;
+  beforeEach(() => {
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (!this.matches(".flow-lane-name")) return measure.call(this);
+      const room = parseFloat((this.parentElement as HTMLElement).style.width) - 24;
+      return { width: room + 24, height: Math.ceil((this.textContent!.length * 8) / room) * 18 + 17.5 } as DOMRect;
+    };
+  });
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = measure;
+  });
+
+  /** The customer's lane is 260 wide, so its name's 45 letters need two lines. */
+  const long = structuredClone(lanedDoc);
+  long.views.returns!.lanes![0]!.name = "Customer, or whoever is returning it for them";
+  /** Where a lane is drawn, and how tall. */
+  const drawn = (host: HTMLElement, id: string) => {
+    const node = host.querySelector<HTMLElement>(`.react-flow__node[data-id="lane:${id}"]`)!;
+    const [x, y] = /translate\(([-\d.]+)px, ?([-\d.]+)px\)/.exec(node.style.transform)!.slice(1).map(Number);
+    return { x, y, height: parseFloat(node.querySelector<HTMLElement>(".flow-lane")!.style.height) };
+  };
+
+  it("is as tall as it needs, wrapped to its lane's width, and no shorter than one line's room", () => {
+    const columns = [
+      { x: 0, w: 260 },
+      { lane: { id: "customer", path: "", number: 1, name: "Customer, or whoever is returning it for them" }, x: 260, w: 260 },
+      { lane: { id: "shop", path: "", number: 2, name: "Shop" }, x: 520, w: 540 },
+    ];
+    expect(laneHead(columns)).toBe(54);
+    // In a lane wide enough for it, it's on one line.
+    expect(laneHead([{ ...columns[1]!, w: 540 }])).toBe(LANE.head);
+    expect(laneHead([])).toBe(LANE.head);
+    // The names it measured aren't left on the page.
+    expect(document.querySelector(".flow-lane-name")).toBeNull();
+  });
+
+  it("isn't cut short: it wraps, a long word too, and none of it is hidden", async () => {
+    // This page has no layout, so it reads the stylesheet.
+    const style = document.createElement("style");
+    style.textContent = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+    document.head.append(style);
+    try {
+      const { host } = await diagram(null, long);
+      const name = getComputedStyle(host.querySelector('.react-flow__node[data-id="lane:customer"] .flow-lane-name')!);
+      expect(name.whiteSpace).not.toBe("nowrap");
+      expect(name.overflowWrap).toBe("anywhere");
+      expect(name.overflow).not.toBe("hidden");
+      expect(name.textOverflow).not.toBe("ellipsis");
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("is drawn in full, with every lane's name as tall, and the lanes that much taller, above the blocks", async () => {
+    const short = await diagram(null, lanedDoc);
+    const { host } = await diagram(null, long);
+    expect(host.querySelector('.react-flow__node[data-id="lane:customer"]')!.textContent).toBe("Customer, or whoever is returning it for them");
+    expect([...host.querySelectorAll<HTMLElement>(".flow-lane-name")].map((n) => n.style.minHeight)).toEqual(["54px", "54px", "54px"]);
+    expect([...short.host.querySelectorAll<HTMLElement>(".flow-lane-name")].map((n) => n.style.minHeight)).toEqual(["40px", "40px", "40px"]);
+    // The highest block is at 0, with the room above it and the names above that: 14 more than a line's.
+    for (const id of ["", "customer", "shop"]) {
+      const [was, now] = [drawn(short.host, id), drawn(host, id)];
+      expect(was.y).toBe(-LANE.head - LANE.pad);
+      expect(now).toEqual({ x: was.x, y: -54 - LANE.pad, height: was.height + 14 });
+    }
   });
 });
 

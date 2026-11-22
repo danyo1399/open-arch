@@ -1,7 +1,8 @@
 /**
- * The lines from sticky notes to what they're on: a box, the frame round the view, or an arrow.
- * A line runs from the edge of the note to the edge of the box, the arrow's label, or the frame's
- * outline, or to the middle of an arrow with no label.
+ * The lines from sticky notes to what they're on: a box, the frame round the view, or an arrow,
+ * or on a flowchart, a block. A line runs from the edge of the note to the edge of the box, the
+ * arrow's label, or the frame's outline, or to the middle of an arrow with no label. One to a
+ * block runs to the block's outline (see outlineToward in flowchartLayout.ts).
  */
 import { NODE_H, NODE_W, type Point } from "./autoLayout.js";
 

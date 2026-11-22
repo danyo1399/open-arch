@@ -57,7 +57,7 @@ import {
 import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type LayoutEdge, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
-import { classHeight, FrameNotes, nodeTypes, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { classHeight, FrameNotes, nodeTypes, StickyLines, StickyLinking, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -135,7 +135,7 @@ export const SELECTED_LIFT = 1000;
 /** A note's z-index: above the arrows and boxes, even a selected box, like a note stuck on a printed diagram. */
 export const STICKY_Z = SELECTED_LIFT + 1;
 /** An arrow being drawn, or one whose end is being moved, stays over everything, as React Flow means a new one to, even a selected note. */
-const DRAWING_Z = STICKY_Z + SELECTED_LIFT + 1;
+export const DRAWING_Z = STICKY_Z + SELECTED_LIFT + 1;
 /** Any touch screen, as in styles.css, where sticky notes are drawn bigger. */
 const TOUCH = "(any-pointer: coarse)";
 
@@ -781,7 +781,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
       } else if (anchor.kind === "frame") {
         const frame = nodes.find((f) => f.type === "frame");
         end = frame && { outline: rectOf(frame) };
-      } else {
+      } else if (anchor.kind === "arrow") {
         const id = arrowId(anchor.edge);
         const label = labels.get(id);
         const point = midpoint(routes.get(id) ?? []);
@@ -1159,15 +1159,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
         <FrameNotes frame={nodes.find((n): n is FrameFlowNode => n.type === "frame")} />
         <SnapGuides guides={guides} />
-        {stickyLines.length > 0 && (
-          <ViewportPortal>
-            <svg className="sticky-lines" aria-hidden="true">
-              {stickyLines.map((l) => (
-                <line key={l.id} className={l.selected ? "selected" : undefined} x1={l.from.x} y1={l.from.y} x2={l.to.x} y2={l.to.y} />
-              ))}
-            </svg>
-          </ViewportPortal>
-        )}
+        <StickyLines lines={stickyLines} />
         {movingLine && (
           <ViewportPortal>
             <svg className="arrow-moving" style={{ zIndex: DRAWING_Z }} aria-hidden="true">
@@ -1181,14 +1173,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
             </svg>
           </ViewportPortal>
         )}
-        {linking && (
-          <ViewportPortal>
-            <svg className="sticky-linking" style={{ zIndex: DRAWING_Z }} aria-hidden="true">
-              {linkLine && <line x1={linkLine.from.x} y1={linkLine.from.y} x2={linkLine.to.x} y2={linkLine.to.y} />}
-              <circle cx={linking.at.x} cy={linking.at.y} r={5} />
-            </svg>
-          </ViewportPortal>
-        )}
+        {linking && <StickyLinking at={linking.at} line={linkLine} zIndex={DRAWING_Z} />}
         {/* The fit button fits the view with its own options, then calls onFitView. React Flow fits
             once, with the last options it was asked for, so these are the ones it uses. */}
         <Controls showInteractive={false} onFitView={() => fitDiagram(FIT_BUTTON)}>
