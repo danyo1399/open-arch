@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
-import { emptyDocument, serializeDocument } from "@open-arch/core";
+import { emptyDocument, serializeDocument, type Operation } from "@open-arch/core";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { DocsSummary, SaveSummary } from "../src/bridge.js";
 import type { WorkspaceHost } from "../src/hosts.js";
-import { docsProblem, saveProblem, useWorkspace, type WorkspaceState } from "../src/state.js";
+import { changeLabel, docsProblem, saveProblem, useWorkspace, type WorkspaceState } from "../src/state.js";
 import { mount } from "./dom.js";
 import { FakeFile, FakeFolder } from "./fakeFolder.js";
 import { FolderHost } from "../src/folders.js";
@@ -33,11 +33,11 @@ class TestHost implements WorkspaceHost {
   }
 }
 
-/** Renders the workspace state for a host, and returns a function that reads its latest. */
-async function workspaceFor(host: WorkspaceHost) {
+/** Renders the workspace state for a host, and returns a function that reads its latest. `onApplied` hears what it applies. */
+async function workspaceFor(host: WorkspaceHost, onApplied?: (ops: Operation[]) => void) {
   let latest: WorkspaceState | null = null;
   const Probe = () => {
-    latest = useWorkspace(host);
+    latest = useWorkspace(host, onApplied);
     return null;
   };
   mount(createElement(Probe));
@@ -303,5 +303,217 @@ describe("the open workspace", () => {
     expect(state().loadError).toBeNull();
     expect(state().message).toBeNull();
     expect(state().storage).toBe("file");
+  });
+});
+
+describe("the History list", () => {
+  /** Renames the workspace, as one change. */
+  const name = (state: () => WorkspaceState, to: string) => act(async () => void (await state().edit([{ op: "update-workspace", name: to }])));
+  /** What the list says each version's change did, oldest first. */
+  const changes = (state: () => WorkspaceState) => state().versions.map((v) => v.change);
+
+  it("says what an edit did: its first change, and how many more came with it", () => {
+    expect(changeLabel(["added container cache"])).toBe("Added container cache");
+    expect(changeLabel(["added container cache", "showed cache in view containers"])).toBe("Added container cache, and 1 more change");
+    expect(changeLabel(["added container cache", "showed cache in view containers", "saved positions in view containers"])).toBe("Added container cache, and 2 more changes");
+    expect(changeLabel([])).toBe("Changed the workspace");
+  });
+
+  it("starts with the workspace as it was opened, and lists each change made, with when", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    expect(state().versions).toEqual([{ number: 0, change: null, at: null }]);
+    expect(state().version).toBe(0);
+    const before = Date.now();
+    await act(
+      async () =>
+        void (await state().edit([
+          { op: "add-element", id: "shop", kind: "system" },
+          { op: "add-view", id: "context", level: "context", scope: "shop" },
+        ])),
+    );
+    await name(state, "B");
+    expect(changes(state)).toEqual([null, "Added system shop, and 1 more change", "Updated workspace"]);
+    expect(state().versions.map((v) => v.number)).toEqual([0, 1, 2]);
+    expect(state().version).toBe(2);
+    const at = state().versions[2]!.at!;
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("goes back to any version in one save, and forward again, and Undo and Redo carry on from there", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    for (const to of ["B", "C", "D"]) await name(state, to);
+    const saves: string[] = [];
+    host.save = async (next) => {
+      host.file = next;
+      saves.push(JSON.parse(next).name);
+    };
+
+    await act(async () => state().goTo(1));
+    await settle();
+    expect(saves).toEqual(["B"]);
+    expect(state().ws?.doc.name).toBe("B");
+    expect(state().version).toBe(1);
+    // The changes gone back over stay in the list, to make again.
+    expect(state().versions.map((v) => v.number)).toEqual([0, 1, 2, 3]);
+    expect([state().canUndo, state().canRedo]).toEqual([true, true]);
+
+    await act(async () => state().redo());
+    await settle();
+    expect(state().ws?.doc.name).toBe("C");
+    await act(async () => state().goTo(0));
+    await settle();
+    expect(state().ws?.doc.name).toBe("A");
+    expect([state().canUndo, state().canRedo]).toEqual([false, true]);
+    await act(async () => state().goTo(3));
+    await settle();
+    expect(state().ws?.doc.name).toBe("D");
+    expect([state().canUndo, state().canRedo]).toEqual([true, false]);
+    await act(async () => state().undo());
+    await settle();
+    expect(state().version).toBe(2);
+    expect(saves).toEqual(["B", "C", "A", "D", "C"]);
+
+    // The version showing now is already there, so nothing is saved.
+    await act(async () => state().goTo(2));
+    await settle();
+    expect(saves).toHaveLength(5);
+  });
+
+  it("drops the changes that were undone once another is made, and never uses their numbers again", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    for (const to of ["B", "C", "D"]) await name(state, to);
+    await act(async () => state().goTo(1));
+    await settle();
+    await name(state, "E");
+    expect(state().versions.map((v) => v.number)).toEqual([0, 1, 4]);
+    expect(state().version).toBe(4);
+    // A version that's gone from the list isn't gone to.
+    await act(async () => state().goTo(3));
+    await settle();
+    expect(state().ws?.doc.name).toBe("E");
+    await act(async () => state().undo());
+    await settle();
+    expect(state().ws?.doc.name).toBe("B");
+  });
+
+  it("takes back the renames of every change it goes back over, last first, and makes them again going forward", async () => {
+    const host = new TestHost("file");
+    const heard: Operation[][] = [];
+    const state = await workspaceFor(host, (ops) => void heard.push(ops));
+    await act(async () => void (await state().edit([{ op: "add-element", id: "shop", kind: "system" }])));
+    await act(async () => void (await state().edit([{ op: "rename", id: "shop", to: "store" }])));
+    await act(async () => void (await state().edit([{ op: "rename", id: "store", to: "market" }])));
+    heard.length = 0;
+    await act(async () => state().goTo(1));
+    await settle();
+    expect(Object.keys(state().ws!.doc.elements)).toEqual(["shop"]);
+    await act(async () => state().goTo(3));
+    await settle();
+    expect(Object.keys(state().ws!.doc.elements)).toEqual(["market"]);
+    expect(heard).toEqual([
+      [
+        { op: "rename", id: "market", to: "store" },
+        { op: "rename", id: "store", to: "shop" },
+      ],
+      [
+        { op: "rename", id: "shop", to: "store" },
+        { op: "rename", id: "store", to: "market" },
+      ],
+    ]);
+  });
+
+  it("lists an earlier version put back as a change of its own", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    await name(state, "B");
+    await act(async () => void (await state().restore(text("A"))));
+    expect(changes(state)).toEqual([null, "Updated workspace", "Restored an earlier version"]);
+    await act(async () => state().goTo(1));
+    await settle();
+    expect(state().ws?.doc.name).toBe("B");
+  });
+
+  it("keeps a hundred changes, and starts from the version before the oldest of them", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    for (let i = 1; i <= 102; i++) await name(state, `N${i}`);
+    expect(state().versions).toHaveLength(101);
+    expect(state().versions[0]).toEqual({ number: 2, change: null, at: null });
+    expect(state().version).toBe(102);
+    // The oldest version left is the workspace as the second change left it.
+    await act(async () => state().goTo(2));
+    await settle();
+    expect(state().ws?.doc.name).toBe("N2");
+    expect(state().canUndo).toBe(false);
+    await act(async () => state().goTo(0));
+    await settle();
+    expect(state().ws?.doc.name).toBe("N2");
+  });
+
+  it("stays where it is, and says so, when going to a version can't be saved", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    for (const to of ["B", "C"]) await name(state, to);
+    host.save = async () => {
+      throw new Error("The folder is gone.");
+    };
+    await act(async () => state().goTo(0));
+    await settle();
+    expect(state().message).toEqual({ kind: "error", text: "Couldn't save: The folder is gone." });
+    expect(state().ws?.doc.name).toBe("C");
+    expect(state().version).toBe(2);
+  });
+
+  it("starts again when the file changes outside this window, from a version with a new number", async () => {
+    const host = new TestHost("file");
+    const state = await workspaceFor(host);
+    for (const to of ["B", "C"]) await name(state, to);
+    await act(async () => state().undo());
+    await settle();
+    host.file = text("Pulled");
+    await act(async () => host.changed());
+    await settle();
+    expect(state().versions).toEqual([{ number: 3, change: null, at: null }]);
+    expect(state().version).toBe(3);
+    expect([state().canUndo, state().canRedo]).toEqual([false, false]);
+    // A version from before the reload isn't there to go to.
+    await act(async () => state().goTo(0));
+    await settle();
+    expect(state().ws?.doc.name).toBe("Pulled");
+  });
+
+  it("is kept in memory only: nothing of it is in what's saved, and it's gone when the workspace is opened again", async () => {
+    const host = new TestHost("browser");
+    const saved: string[] = [];
+    host.save = async (next) => {
+      host.file = next;
+      saved.push(next);
+    };
+    const state = await workspaceFor(host);
+    await act(async () => void (await state().edit([{ op: "add-element", id: "secret-system", kind: "system" }])));
+    await act(async () => void (await state().edit([{ op: "remove-element", id: "secret-system" }])));
+    await name(state, "B");
+    await act(async () => state().goTo(1));
+    await settle();
+    await act(async () => state().goTo(3));
+    await settle();
+    expect(changes(state)).toEqual([null, "Added system secret-system", "Removed secret-system", "Updated workspace"]);
+    // Each save is the workspace as it is then, and nothing else: the last has no trace of what was removed.
+    expect(saved).toHaveLength(5);
+    for (const file of saved) expect(file).toBe(serializeDocument(JSON.parse(file)));
+    expect(host.file).toBe(text("B"));
+    expect(host.file).not.toContain("secret-system");
+    // Nothing is put in the browser's own storage either.
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+
+    const reopened = await workspaceFor(host);
+    expect(reopened().ws?.doc.name).toBe("B");
+    expect(reopened().versions).toEqual([{ number: 0, change: null, at: null }]);
+    expect([reopened().canUndo, reopened().canRedo]).toEqual([false, false]);
   });
 });

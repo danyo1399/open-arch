@@ -66,7 +66,7 @@ import {
 } from "./model.js";
 import { AskAI } from "./panels/AskAI.js";
 import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
-import { ConfirmDialog, DeleteElementDialog, NewViewDialog, NotesEditor } from "./panels/dialogs.js";
+import { ConfirmDialog, DeleteElementDialog, HistoryDialog, NewViewDialog, NotesEditor } from "./panels/dialogs.js";
 import { ShareDialog } from "./panels/ShareDialog.js";
 import { Properties, shapesLabel } from "./panels/Properties.js";
 import { problemText } from "./problems.js";
@@ -84,6 +84,7 @@ type Dialog =
   | { kind: "deleteView"; id: string }
   | { kind: "newView" }
   | { kind: "share" }
+  | { kind: "history" }
   /**
    * `name` is whose notes they are, as they were called when the editor opened, and `text` what
    * it started from. `opened` tells one opening from the next, and `ready` says it knows which
@@ -145,6 +146,7 @@ function Icon({ d, stroke = 2 }: { d: string; stroke?: number }) {
 }
 const UNDO_ICON = "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11";
 const REDO_ICON = "m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13";
+const HISTORY_ICON = "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2";
 const MORE_ICON = "M5 12h.01M12 12h.01M19 12h.01";
 
 interface DesignerProps {
@@ -617,7 +619,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     { label: "Save as SVG…", onSelect: () => saveImage(cv, "svg", SVG_FILE) },
     { label: "Save as PDF…", onSelect: () => saveImage(cv, "pdf", PDF_FILE) },
   ];
-  // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu. The diagram's
+  // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu, History too. The diagram's
   // toolbar has no room for its Auto layout button or Export menu there either, so they're in
   // this menu too.
   const moreItems: MenuItem[] = [
@@ -628,6 +630,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     ...(computed && canAutoLayout(computed) ? [{ label: "Auto layout", onSelect: () => autoLayout.current?.run() }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
     ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
+    { label: "History", onSelect: () => setDialog({ kind: "history" }) },
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
     { label: "Close", onSelect: onClose },
   ];
@@ -745,6 +748,12 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         <button className={narrow ? "square" : ""} onClick={state.redo} disabled={!state.canRedo} title={`Redo (${mod}⇧Z)`} aria-label="Redo">
           {narrow ? <Icon d={REDO_ICON} /> : "Redo"}
         </button>
+        {/* An icon, as the bar has little room to spare beside a workspace's export buttons. */}
+        {!narrow && (
+          <button className="square" onClick={() => setDialog({ kind: "history" })} title="History: the changes made here, to go back to any of them. The list isn't saved in the file." aria-label="History">
+            <Icon d={HISTORY_ICON} />
+          </button>
+        )}
         {narrow ? (
           <MenuButton items={moreItems} note={`${fileName} · ${status}`} from="right" className="square" title="More" label="More">
             <Icon d={MORE_ICON} stroke={3} />
@@ -1064,6 +1073,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog?.kind === "history" && <HistoryDialog versions={state.versions} current={state.version} onGo={state.goTo} onClose={() => setDialog(null)} />}
       {dialog?.kind === "share" && shareClient && (
         <ShareDialog client={shareClient} workspace={host.key} file={{ name: host.name, text: state.text }} designer={designer} onClose={() => setDialog(null)} />
       )}

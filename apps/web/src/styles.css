@@ -624,6 +624,10 @@ button.square {
   display: grid;
   place-items: center;
 }
+/* Beside buttons with text, where the bar isn't narrow, an icon's button is as tall as they are: a line, their padding and their border. */
+.app:not(.narrow) .topbar button.square {
+  min-height: calc(1lh + 12px);
+}
 /* Room for a finger. */
 .app.narrow .row {
   padding-top: 9px;
@@ -3205,6 +3209,23 @@ button.heading {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 16px;
+}
+/* The History list: as much of it as fits, and the rest scrolls. */
+.history {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: min(360px, 45dvh);
+  overflow-y: auto;
+}
+.history .row {
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+/* A change that was undone: still there to make again, but not part of the workspace now. */
+.history .undone .grow {
+  color: var(--muted);
+  text-decoration: line-through;
 }
 .share-link {
   display: flex;
