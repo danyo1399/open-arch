@@ -184,9 +184,11 @@ describe("a menu's target, followed through the edits that land before it opens"
   });
 
   /** What says which one of a numbered list is which, however the list is renumbered. */
-  const LISTS: Record<NumberedPart, { view: string; add(n: number, at?: number): Operation; move(from: number, to: number): Operation; remove(n: number): Operation; retext(n: number): Operation }> = {
+  const LISTS: Record<NumberedPart, { view: string; ends: string[]; add(n: number, at?: number): Operation; move(from: number, to: number): Operation; remove(n: number): Operation; retext(n: number): Operation; cut(id: string): Operation }> = {
     flow: {
       view: "returns",
+      ends: ["refund", "say-no", "in-time"],
+      cut: (id) => ({ op: "remove-block", view: "returns", id }),
       add: (n, at) => ({ op: "add-flow", view: "returns", from: "asked", to: "done", text: `new ${n}`, ...(at !== undefined && { flow: at }) }),
       move: (from, to) => ({ op: "update-flow", view: "returns", flow: from, newFlow: to }),
       remove: (n) => ({ op: "remove-flow", view: "returns", flow: n }),
@@ -194,6 +196,8 @@ describe("a menu's target, followed through the edits that land before it opens"
     },
     transition: {
       view: "states",
+      ends: ["paid"],
+      cut: (id) => ({ op: "remove-state", view: "states", id }),
       add: (n, at) => ({ op: "add-transition", view: "states", from: "placed", to: "shipped", action: `new ${n}`, ...(at !== undefined && { transition: at }) }),
       move: (from, to) => ({ op: "update-transition", view: "states", transition: from, newTransition: to }),
       remove: (n) => ({ op: "remove-transition", view: "states", transition: n }),
@@ -201,6 +205,8 @@ describe("a menu's target, followed through the edits that land before it opens"
     },
     link: {
       view: "data",
+      ends: ["order"],
+      cut: (id) => ({ op: "remove-entity", view: "data", id }),
       add: (n, at) => ({ op: "add-link", view: "data", from: "line", to: "customer", text: `new ${n}`, ...(at !== undefined && { link: at }) }),
       move: (from, to) => ({ op: "update-link", view: "data", link: from, newLink: to }),
       remove: (n) => ({ op: "remove-link", view: "data", link: n }),
@@ -218,7 +224,7 @@ describe("a menu's target, followed through the edits that land before it opens"
     return view.links.map((l) => l.text ?? "");
   }
 
-  it.each(["flow", "transition", "link"] as const)("follows a %s to the number it has however others are added, deleted and moved round it, in one edit or several", (list) => {
+  it.each(["flow", "transition", "link"] as const)("follows a %s to the number it has however others are added, deleted and moved round it, in one edit or several, and when what's at one's end is deleted", (list) => {
     const kit = LISTS[list];
     // The same sequences every run: a small generator stands in for chance.
     let seed = 7;
@@ -231,11 +237,16 @@ describe("a menu's target, followed through the edits that land before it opens"
       const start = labelsOf(list, ws);
       const edits: Operation[][] = [];
       const renames: MenuRename[] = [];
+      // The blocks, states or entities that are still there to delete, each with some of the arrows.
+      const ends = [...kit.ends];
       for (let step = 0; step < 6; step++) {
         const ops: Operation[] = [];
         let now = ws;
-        // One operation, or two in the same edit.
-        for (let k = 0; k <= random(2); k++) {
+        // Now and then, what's at the end of some of them is deleted, in an edit of its own.
+        const cut = ends.length > 0 && random(6) === 0;
+        if (cut) ops.push(kit.cut(ends.splice(random(ends.length), 1)[0]!));
+        // Or else one operation, or two in the same edit.
+        for (let k = 0; !cut && k <= random(2); k++) {
           const count = labelsOf(list, now).length;
           const does = count === 0 ? 0 : random(5);
           const op =
@@ -276,16 +287,47 @@ describe("a menu's target, followed through the edits that land before it opens"
     expect(followMenu({ kind: "flow", number: 2 }, "returns", [{ kind: "removed", list: "flow", view: "exchanges", number: 1 }, { kind: "removed", list: "link", view: "returns", number: 1 }]).on).toEqual({ kind: "flow", number: 2 });
   });
 
-  it("loses the flows of a block that's deleted, a state's transitions and an entity's links, as which went with it isn't said", () => {
+  it("follows the arrows that stay when a block, a state or an entity is deleted, to their new numbers, and loses the ones that go with it", () => {
+    // Deleting the start takes flow 1, from it, with it.
     const cut: Operation[][] = [[{ op: "remove-block", view: "returns", id: "asked" }]];
-    expect(landed("returns", { kind: "flow", number: 4 }, cut)).toBeNull();
+    expect(landed("returns", { kind: "flow", number: 1 }, cut)).toBeNull();
+    expect(landed("returns", { kind: "flow", number: 4 }, cut)?.on).toEqual({ kind: "flow", number: 3 });
     expect(landed("returns", { kind: "block", id: "refund" }, cut)?.on).toEqual({ kind: "block", id: "refund" });
-    expect(landed("states", { kind: "transition", number: 1 }, [[{ op: "remove-state", view: "states", id: "shipped" }]])).toBeNull();
-    expect(landed("states", { kind: "state", id: "paid" }, [[{ op: "remove-state", view: "states", id: "shipped" }]])?.on).toEqual({ kind: "state", id: "paid" });
-    expect(landed("data", { kind: "link", number: 1 }, [[{ op: "remove-entity", view: "data", id: "line" }]])).toBeNull();
-    expect(landed("data", { kind: "attribute", entity: "order", name: "id" }, [[{ op: "remove-entity", view: "data", id: "line" }]])?.on).toEqual({ kind: "attribute", entity: "order", name: "id" });
+    // Deleting the decision takes flows 1, 2 and 3, to and from it, and leaves the last as the first.
+    const middle: Operation[][] = [[{ op: "remove-block", view: "returns", id: "in-time" }]];
+    expect([1, 2, 3, 4].map((number) => landed("returns", { kind: "flow", number }, middle)?.on ?? null)).toEqual([null, null, null, { kind: "flow", number: 1 }]);
+    // A state's transitions, a loop back to itself too, and an entity's links.
+    const looped = structuredClone(doc);
+    looped.views.states!.transitions!.push({ from: "shipped", to: "shipped", event: "Tracked" }, { from: "placed", to: "placed", event: "Changed" });
+    const shipped: Operation[][] = [[{ op: "remove-state", view: "states", id: "shipped" }]];
+    expect([1, 2, 3, 4, 5].map((number) => landed("states", { kind: "transition", number }, shipped, looped)?.on ?? null)).toEqual([
+      { kind: "transition", number: 1 },
+      null,
+      { kind: "transition", number: 2 },
+      null,
+      { kind: "transition", number: 3 },
+    ]);
+    expect(landed("states", { kind: "state", id: "paid" }, shipped)?.on).toEqual({ kind: "state", id: "paid" });
+    const line: Operation[][] = [[{ op: "remove-entity", view: "data", id: "order" }]];
+    expect([1, 2, 3].map((number) => landed("data", { kind: "link", number }, line)?.on ?? null)).toEqual([null, null, { kind: "link", number: 1 }]);
+    expect(landed("data", { kind: "attribute", entity: "customer", name: "id" }, line)?.on).toEqual({ kind: "attribute", entity: "customer", name: "id" });
     // A lane or a note takes nothing with it.
     expect(landed("returns", { kind: "flow", number: 4 }, [[{ op: "remove-lane", view: "returns", id: "staff" }], [{ op: "remove-sticky", view: "returns", id: "note" }]])?.on).toEqual({ kind: "flow", number: 4 });
+  });
+
+  it("loses a view's arrows when an edit deletes a block, a state or an entity and does more, where there's no saying which went", () => {
+    const more: Operation[] = [
+      { op: "update-view", id: "returns", description: "Sending something back" },
+      { op: "remove-block", view: "returns", id: "asked" },
+    ];
+    expect(menuRenamesIn(more, buildWorkspace(doc))).toEqual([
+      { kind: "gone", what: "block", view: "returns", id: "asked" },
+      { kind: "lists-lost", lists: ["flow"], view: "returns" },
+    ]);
+    expect(landed("returns", { kind: "flow", number: 4 }, [more])).toBeNull();
+    // The view's blocks, and another view's arrows, are still followed.
+    expect(landed("returns", { kind: "block", id: "refund" }, [more])?.on).toEqual({ kind: "block", id: "refund" });
+    expect(landed("states", { kind: "transition", number: 1 }, [more])?.on).toEqual({ kind: "transition", number: 1 });
   });
 
   it("loses everything but the diagram through Undo, Redo or a file changed elsewhere, which write a whole version and don't say what they did", () => {

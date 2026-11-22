@@ -254,17 +254,30 @@ describe("a state view's right-click menu, opened with the keyboard or after an 
     expect((await d.saved()).transitions.map((t) => t.event)).toEqual(["Sent"]);
   });
 
-  it("doesn't open on a transition once one of its states is deleted, as its number can't be told", async () => {
+  it("opens on a transition under the number it has once a state is deleted, unless it went with the state", async () => {
     const file = new SlowHost("shop.openarch", serializeDocument(doc));
     const d = await designer(doc, file);
     await click(d.node("shipped")!);
     file.hold = true;
     await click(button(d.host, "Delete state"));
+    // Sent, transition 2, goes to the state that's being deleted, and Refunded, transition 3, doesn't.
     await d.rightClick(d.edge("transition:3")!);
     file.release();
     await d.settle();
-    expect((await d.saved()).transitions.map((t) => t.event)).toEqual(["Payment taken", "Refunded"]);
-    expect(d.menuOpen()).toBe(false);
+    expect(d.details()).toBe("Transition 2of 2");
+    await d.pick("Delete transition");
+    expect((await d.saved()).transitions.map((t) => t.event)).toEqual(["Payment taken"]);
+
+    const again = new SlowHost("shop.openarch", serializeDocument(doc));
+    const gone = await designer(doc, again);
+    await click(gone.node("shipped")!);
+    again.hold = true;
+    await click(button(gone.host, "Delete state"));
+    await gone.rightClick(gone.edge("transition:2")!);
+    again.release();
+    await gone.settle();
+    expect((await gone.saved()).transitions.map((t) => t.event)).toEqual(["Payment taken", "Refunded"]);
+    expect(gone.menuOpen()).toBe(false);
   });
 
   it("opens once a title typed just before has given the view a new ID, on the same diagram", async () => {

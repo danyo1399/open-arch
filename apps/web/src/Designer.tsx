@@ -940,8 +940,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             )
           ) : view?.level === "state" ? (
             computed ? (
-              // Not keyed by the view's ID, so it isn't made again when the view is given a new one.
-              <ReactFlowProvider key={`diagram:${opening.number}`}>
+              // Not keyed by the view's ID, so it isn't made again when the view is given a new one. Its level is in the key, so one kind of diagram never gets what another's kept.
+              <ReactFlowProvider key={`${view.level}:${opening.number}`}>
                 <StateDiagram
                   computed={computed}
                   selection={selection}
@@ -959,7 +959,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             )
           ) : view?.level === "flowchart" ? (
             computed ? (
-              <ReactFlowProvider key={`diagram:${opening.number}`}>
+              <ReactFlowProvider key={`${view.level}:${opening.number}`}>
                 <FlowchartDiagram
                   computed={computed}
                   selection={selection}
@@ -978,7 +978,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             )
           ) : view?.level === "entity" ? (
             computed ? (
-              <ReactFlowProvider key={`diagram:${opening.number}`}>
+              <ReactFlowProvider key={`${view.level}:${opening.number}`}>
                 <EntityDiagram
                   computed={computed}
                   selection={selection}

@@ -28,13 +28,13 @@ export type IdPart = keyof typeof ID_PARTS;
 /**
  * The things of a view that go by their number, their place in a list: 1 is the first. A number
  * says which one only until another is added before it, deleted or moved, so each of those is
- * followed too.
+ * followed too. Each is an arrow between two of the view's things.
  */
 const NUMBERED = {
   flow: (view: ViewDef) => view.flows,
   transition: (view: ViewDef) => view.transitions,
   link: (view: ViewDef) => view.links,
-} satisfies Record<string, (view: ViewDef) => readonly unknown[]>;
+} satisfies Record<string, (view: ViewDef) => readonly { from: string; to: string }[]>;
 export type NumberedPart = keyof typeof NUMBERED;
 
 const isIdPart = (kind: string): kind is IdPart => Object.hasOwn(ID_PARTS, kind);
@@ -43,6 +43,10 @@ const isNumbered = (kind: string): kind is NumberedPart => Object.hasOwn(NUMBERE
 /**
  * What a right-click menu is for: one thing of a diagram, as a click selects it, or the diagram,
  * after a right-click on the background. The kinds here are the ones followed through edits.
+ *
+ * An attribute goes by its entity and its name, as selecting one does. A file written by hand
+ * can give an entity two attributes with one name, which the problems list says: there, it's
+ * the first of them, as it is in the details.
  */
 export type MenuFor = Extract<Selection, { kind: IdPart | NumberedPart | "attribute" }> | { kind: "diagram" };
 
@@ -80,9 +84,10 @@ export function isSelected(on: MenuFor, selection: Selection): boolean {
  * An edit gave a view a new ID, or deleted it. It gave one of a view's things a new ID (`kind`
  * is which kind of thing), or deleted it (`gone`), after which another can take its ID. It added
  * one to a numbered list at a place that isn't the end, deleted one, or moved one, each of which
- * renumbers the ones after. It gave an attribute a new name, or deleted it. Or it changed a
- * view's numbered lists without saying how: `lists-lost`. Or a whole version of the file was
- * written, which says nothing of what's in the views: `lost`.
+ * renumbers the ones after. It gave an attribute a new name, or deleted it. Or it deleted from a
+ * view's numbered lists without saying which, as an edit that deletes a block and does more
+ * does: `lists-lost`. Or a whole version of the file was written, which says nothing of what's
+ * in the views: `lost`.
  */
 export type MenuRename =
   | { kind: "view"; id: string; to: string }
@@ -101,8 +106,8 @@ const RENAMES: Partial<Record<Operation["op"], IdPart>> = { "update-block": "blo
 
 /**
  * The operation that deletes each kind of thing, and the numbered lists of its view that it
- * deletes from too: a block's flows go with it, a state's transitions and an entity's links.
- * Which ones isn't said, so those lists can't be followed through it.
+ * deletes from too: a block's flows go with it, a state's transitions and an entity's links, the
+ * ones with it at either end.
  */
 const REMOVES: Partial<Record<Operation["op"], { what: IdPart; loses: NumberedPart[] }>> = {
   "remove-block": { what: "block", loses: ["flow"] },
@@ -124,8 +129,10 @@ const LISTED: Partial<Record<Operation["op"], { list: NumberedPart; does: "add" 
  * is what had it before, unless the edit says otherwise.
  *
  * `before` is the workspace the operations were applied to. It says which views go with an
- * element that's deleted. That's only so for an edit's first operation, so an element deleted by
- * an edit that does more loses everything: no such edit in the designer does anything else.
+ * element that's deleted, and which arrows go with a block, a state or an entity, by their
+ * numbers. That's only so for an edit's first operation. So an element deleted by an edit that
+ * does more loses everything, and a block, state or entity deleted by one loses its view's
+ * arrows: no such edit in the designer does anything else.
  *
  * Without `before`, the change is a whole version of the file, written by Undo, Redo, the
  * History or a change made outside the designer, and `ops` only the renames it made. Everything
@@ -150,7 +157,21 @@ export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[
     const removed = REMOVES[op.op];
     if (removed) {
       const { view, id } = op as { view: string; id: string };
-      return [{ kind: "gone", what: removed.what, view, id }, ...(removed.loses.length ? [{ kind: "lists-lost" as const, lists: removed.loses, view }] : [])];
+      const was = first?.views.get(view);
+      const out: MenuRename[] = [{ kind: "gone", what: removed.what, view, id }];
+      for (const list of removed.loses) {
+        if (!was) {
+          out.push({ kind: "lists-lost", lists: [list], view });
+          continue;
+        }
+        // Its arrows go with it. From the last, so each one's number is still its number as the ones after it go.
+        const arrows = NUMBERED[list](was);
+        for (let number = arrows.length; number >= 1; number--) {
+          const arrow = arrows[number - 1]!;
+          if (arrow.from === id || arrow.to === id) out.push({ kind: "removed", list, view, number });
+        }
+      }
+      return out;
     }
     const listed = LISTED[op.op];
     if (listed) {

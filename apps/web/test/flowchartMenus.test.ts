@@ -219,6 +219,23 @@ describe("a flow's right-click menu", () => {
     expect(d.labels()).toEqual(["Change from", "Change to", "Move up, to flow 3", "Delete flow"]);
   });
 
+  it("opens on the one that was clicked of two flows with the same ends and text, as only a file written by hand has", async () => {
+    const twins = structuredClone(doc);
+    // Flow 5 is flow 4 again, and flow 6 tells them from the last.
+    twins.views.returns!.flows!.push({ from: "refund", to: "done" }, { from: "say-no", to: "done" });
+    const d = await designer(twins);
+    await d.rightClick(flow(d, 5)!);
+    expect(d.details()).toBe("Flow 5of 6");
+    await d.pick("Move down, to flow 6");
+    // It's the second of the two that moved, past the last flow.
+    expect((await d.saved()).flows.map((f) => `${f.from}>${f.to}`)).toEqual(["asked>in-time", "in-time>refund", "in-time>say-no", "refund>done", "say-no>done", "refund>done"]);
+    expect(d.details()).toBe("Flow 6of 6");
+    await d.rightClick(flow(d, 4)!);
+    expect(d.details()).toBe("Flow 4of 6");
+    await d.pick("Delete flow");
+    expect((await d.saved()).flows.map((f) => `${f.from}>${f.to}`)).toEqual(["asked>in-time", "in-time>refund", "in-time>say-no", "say-no>done", "refund>done"]);
+  });
+
   it("moves either end to another block, but not to make a flow the flowchart has already", async () => {
     const d = await designer();
     // Not to the decision it comes from, or to the refund, where it goes already.
@@ -621,6 +638,33 @@ describe("a flowchart's right-click menu, as the flowchart changes under it", ()
     await d.settle();
     expect((await d.saved()).flows.map((f) => `${f.from}>${f.to}`)).toEqual(["asked>in-time", "in-time>refund", "in-time>say-no", "say-no>done"]);
     expect(d.menuOpen()).toBe(false);
+  });
+
+  it("opens on a flow under the number it has once a block is deleted, unless it went with the block", async () => {
+    const file = new SlowHost("shop.openarch", serializeDocument(doc));
+    const d = await designer(doc, file);
+    await click(d.node("asked")!);
+    file.hold = true;
+    await click(button(d.host, "Delete block"));
+    // Flow 1 comes from the block that's being deleted. The flow that says No, flow 3, has nothing to do with it.
+    await d.rightClick(flow(d, 3)!);
+    expect(d.menuOpen()).toBe(false);
+    file.release();
+    await d.settle();
+    expect(d.details()).toBe("Flow 2of 3");
+    await d.pick("Delete flow");
+    expect((await d.saved()).flows.map((f) => f.text)).toEqual(["Yes", undefined]);
+
+    const again = new SlowHost("shop.openarch", serializeDocument(doc));
+    const gone = await designer(doc, again);
+    await click(gone.node("asked")!);
+    again.hold = true;
+    await click(button(gone.host, "Delete block"));
+    await gone.rightClick(flow(gone, 1)!);
+    again.release();
+    await gone.settle();
+    expect((await gone.saved()).flows).toHaveLength(3);
+    expect(gone.menuOpen()).toBe(false);
   });
 
   it("opens on a flow under the number it has once a flow before it is deleted", async () => {

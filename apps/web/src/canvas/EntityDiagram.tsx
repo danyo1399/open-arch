@@ -37,7 +37,7 @@ import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, 
 import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { CROW_FOOT, crowFoot, ENTITY, entityHeight, entityWidth, keyColumns } from "./entityLayout.js";
-import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
+import { diagramItems, moveItems, noSuchArrow, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { FrameNode, FrameNotes, NotesOpener, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
@@ -246,6 +246,15 @@ export function connectOps(view: ViewDef, drawn: DrawnItem[], from: string, to: 
   const entities = new Set(view.entities.map((e) => e.id));
   if (from === to || !entities.has(from) || !entities.has(to)) return null;
   return { ops: [...pinOps(view, drawn), { op: "add-link", view: view.id, from, to }], number: view.links.length + 1 };
+}
+
+/**
+ * Whether the view can have a link from one entity to another with this text, as add-link and
+ * update-link check: not one it has already, with the same ends and text. An entity can be
+ * linked to itself. `but` is the link being changed, which doesn't count.
+ */
+export function canLink(view: Pick<ViewDef, "links">, from: string, to: string, text?: string, but?: EntityLink): boolean {
+  return noSuchArrow(view.links, from, to, text, but);
 }
 
 /** What's on the diagram, as moveOps and connectOps take it. */
@@ -553,12 +562,13 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, menus, 
       const number = view.links.length + 1;
       void edit([{ op: "add-link", view: view.id, from: entity.id, to }]).then((ok) => ok && select({ kind: "link", number }));
     };
+    // An entity can be linked to itself, as an employee is to their manager, but not twice to one entity by links that say the same.
+    const linkTo = view.entities.filter((e) => canLink(view, entity.id, e.id));
     return withDelete(
       edits,
       [
         { label: "Add attribute", onSelect: () => addAttribute({ kind: "entity", id: entity.id }) },
-        // An entity can be linked to itself, as an employee is to their manager.
-        { label: "Add link to", items: view.entities.map((e) => ({ label: e.id === entity.id ? `${e.name} (itself)` : e.name, onSelect: addLink(e.id) })) },
+        ...(linkTo.length ? [{ label: "Add link to", items: linkTo.map((e) => ({ label: e.id === entity.id ? `${e.name} (itself)` : e.name, onSelect: addLink(e.id) })) }] : []),
         ...(entity.at ? [{ label: "Lay out again", onSelect: set({ at: null }) }] : []),
       ],
       "Delete entity",
@@ -588,7 +598,10 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, menus, 
   const linkMenu = (link: EntityLink): MenuItem[] => {
     const update = (fields: Omit<Extract<Operation, { op: "update-link" }>, "op" | "view" | "link">) => edit([{ op: "update-link", view: view.id, link: link.number, ...fields }]);
     const name = (id: string) => view.entities.find((e) => e.id === id)?.name ?? id;
-    const ends = (end: "from" | "to") => view.entities.filter((e) => e.id !== link[end]).map((e) => ({ label: e.name, onSelect: () => void update({ [end]: e.id }) }));
+    const ends = (end: "from" | "to") =>
+      view.entities
+        .filter((e) => e.id !== link[end] && canLink(view, end === "from" ? e.id : link.from, end === "to" ? e.id : link.to, link.text, link))
+        .map((e) => ({ label: e.name, onSelect: () => void update({ [end]: e.id }) }));
     // How many of one end there can be, for each one of the other.
     const howMany = (i: 0 | 1) =>
       CARDINALITIES.filter((c) => c !== link.cardinality[i]).map((c) => ({

@@ -35,6 +35,15 @@ export function moveItems(what: string, number: number, count: number, move: (to
 }
 
 /**
+ * Whether a list of arrows has none from `from` to `to` that says `text` yet, which the
+ * operations that add and change flows and links refuse a second of. `but` is the arrow being
+ * changed, which doesn't count. A menu only offers what can be made.
+ */
+export function noSuchArrow<T extends { from: string; to: string; text?: string }>(arrows: readonly T[], from: string, to: string, text?: string, but?: T): boolean {
+  return !arrows.some((a) => a !== but && a.from === from && a.to === to && (a.text ?? "") === (text ?? ""));
+}
+
+/**
  * A sticky note's menu. `editText` edits its text in place, and `openNotes` opens its notes,
  * where the designer can. A note that was moved can go back where the designer puts it: `back`
  * says where that is, as in "Move beside the diagram".

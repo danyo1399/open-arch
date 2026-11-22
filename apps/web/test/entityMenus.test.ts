@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
-import { serializeDocument, type OpenArchDocument } from "@open-arch/core";
+import { buildWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
+
 import { describe, expect, it } from "vitest";
 import { STICKY } from "../src/canvas/autoLayout.js";
+import { canLink } from "../src/canvas/EntityDiagram.js";
 import type { MemoryHost } from "../src/hosts.js";
 import { button, click, key } from "./dom.js";
 import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
@@ -34,6 +36,20 @@ const designer = (model: OpenArchDocument = doc, file?: MemoryHost) => open(mode
 /** The row an entity's box draws for one of its attributes. */
 const row = (d: Awaited<ReturnType<typeof designer>>, entity: string, attribute: string) => d.node(entity)!.querySelector(`[data-attribute="${attribute}"]`)!;
 
+describe("the links an entity view can have", () => {
+  const view = buildWorkspace(doc).views.get("orders-data")!;
+
+  it("aren't ones it has already, with the same ends and text, and can go from an entity to itself", () => {
+    expect(canLink(view, "customer", "order")).toBe(true);
+    expect(canLink(view, "customer", "order", "places")).toBe(false);
+    expect(canLink(view, "order", "customer", "places")).toBe(true);
+    expect(canLink(view, "customer", "customer")).toBe(true);
+    // The link that's being changed can stay what it is.
+    expect(canLink(view, "customer", "order", "places", view.links[0])).toBe(true);
+    expect(canLink(view, "customer", "order", "places", view.links[1])).toBe(false);
+  });
+});
+
 describe("an entity's right-click menu", () => {
   it("selects the entity, and lists what can be done with it", async () => {
     const d = await designer();
@@ -61,6 +77,10 @@ describe("an entity's right-click menu", () => {
     await d.pick("Customer (itself)");
     expect((await d.saved()).links.at(-1)).toMatchObject({ number: 3, from: "customer", to: "customer" });
     expect(d.details()).toBe("Link 3of 3");
+    // A second link to itself that says nothing would be refused, so it isn't offered.
+    await d.rightClick(d.node("customer")!);
+    await d.pick("Add link to");
+    expect(d.labels()).toEqual(["Order", "Line"]);
   });
 
   it("lays an entity out again and deletes it, with its links", async () => {
@@ -145,6 +165,13 @@ describe("a link's right-click menu", () => {
     expect(d.labels()).toEqual(["Customer", "Line"]);
     await d.pick("Line");
     expect((await d.saved()).links[0]).toMatchObject({ from: "customer", to: "line" });
+    // Not to make a link the view has already: from the customer's line, another from the order to the line that says "has".
+    const same = structuredClone(doc);
+    same.views["orders-data"]!.links![0] = { from: "customer", to: "line", text: "has" };
+    const taken = await designer(same);
+    await taken.rightClick(taken.edge("link:1")!);
+    await taken.pick("Change from");
+    expect(taken.labels()).toEqual(["Line"]);
 
     await d.rightClick(d.edge("link:1")!);
     await d.pick("From: how many Customer");

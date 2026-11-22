@@ -39,7 +39,7 @@ import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, 
 import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, outlineToward, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
-import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
+import { diagramItems, moveItems, noSuchArrow, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { FrameNode, FrameNotes, NotesOpener, StickyLines, StickyLinking, StickyNode, type FrameFlowNode, type StickyFlowNode, type StickyLine } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
@@ -407,7 +407,7 @@ export function blockPlaceAt(kind: BlockKind, point: Point, { columns, occupied 
  * and text. `but` is the flow being changed, which doesn't count.
  */
 export function canFlow(view: Pick<ViewDef, "flows">, from: string, to: string, text?: string, but?: Flow): boolean {
-  return from !== to && !view.flows.some((f) => f !== but && f.from === from && f.to === to && (f.text ?? "") === (text ?? ""));
+  return from !== to && noSuchArrow(view.flows, from, to, text, but);
 }
 
 interface FlowchartDiagramProps {
