@@ -793,14 +793,76 @@ describe("a workspace in a folder in the URL", () => {
 
   it("reopens it when the browser still allows it, and not when it would have to ask", async () => {
     const root = new FakeFolder("repo");
-    const folders = { get: async (id: string) => (id === "f1" ? stored(root) : undefined) };
-    expect(await folderInUrl("folder/f1", folders)).toMatchObject({ id: "f1", root, path: "arch/a.openarch" });
+    const names: string[] = [];
+    const folders = { get: async (id: string) => (id === "f1" ? stored(root) : undefined), rename: async (id: string, name: string) => void names.push(`${id}: ${name}`) };
+    const host = await folderInUrl("folder/f1", folders);
+    expect(host).toMatchObject({ id: "f1", root, path: "arch/a.openarch" });
+    // Reopened this way, it still keeps the name it's listed by.
+    root.put("arch/a.openarch", workspace("A"));
+    await host!.load();
+    expect(names).toEqual(["f1: A"]);
     expect(await folderInUrl("folder/f2", folders)).toBeNull();
     expect(await folderInUrl("abc123", folders)).toBeNull();
     root.permission = "prompt";
     expect(await folderInUrl("folder/f1", folders)).toBeNull();
     // It didn't ask: that needs a click.
     expect(root.permission).toBe("prompt");
+  });
+});
+
+describe("the name a workspace in a folder is listed by", () => {
+  /** A list that takes names, or refuses them. */
+  function listed() {
+    const names: string[] = [];
+    const list = { refuse: false, rename: async (id: string, name: string) => (list.refuse ? Promise.reject(new Error("No storage.")) : void names.push(`${id}: ${name}`)) };
+    return { names, list };
+  }
+
+  it("is the file's, as it's read and as it's saved", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const { names, list } = listed();
+    const host = new FolderHost("f1", root, "a.openarch", 60_000, list);
+    expect(host.location).toBe("repo/a.openarch");
+    await host.load();
+    expect(names).toEqual(["f1: A"]);
+    // The same name again isn't given again.
+    await host.save(workspace("A", "docs"));
+    await host.load();
+    expect(names).toEqual(["f1: A"]);
+    await host.save(workspace("B", "docs"));
+    expect(names).toEqual(["f1: A", "f1: B"]);
+    // Renamed outside the designer, say by a pull, it's the new name once the file is read again.
+    root.put("a.openarch", workspace("C"));
+    await host.load();
+    expect(names).toEqual(["f1: A", "f1: B", "f1: C"]);
+  });
+
+  it("stays as it was when the file can't be read as a workspace, or a save is refused", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", "{ not json");
+    const { names, list } = listed();
+    const host = new FolderHost("f1", root, "a.openarch", 60_000, list);
+    expect(await host.load()).toBe("{ not json");
+    await expect(host.save("{ still not")).rejects.toThrow("Refusing to save");
+    // Changed outside since it was read, so the save is refused, and its name isn't taken.
+    root.put("a.openarch", workspace("Theirs"));
+    await expect(host.save(workspace("Mine"))).rejects.toThrow("changed outside the designer");
+    expect(names).toEqual([]);
+  });
+
+  it("is given again by the next load or save, when the list didn't take it", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    const { names, list } = listed();
+    list.refuse = true;
+    const host = new FolderHost("f1", root, "a.openarch", 60_000, list);
+    // The list failing doesn't fail the load.
+    expect(loadWorkspace(await host.load()).doc.name).toBe("A");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    list.refuse = false;
+    await host.load();
+    expect(names).toEqual(["f1: A"]);
   });
 });
 
@@ -860,6 +922,43 @@ describe("the folders opened", () => {
     // Another file in the same folder is another entry.
     await list.add(root, "b.openarch");
     expect(await list.list()).toHaveLength(2);
+  });
+});
+
+describe("the names the folders opened are listed by", () => {
+  let count = 0;
+  const root = { kind: "directory", name: "docs" } as FolderHandle;
+
+  it("keeps a workspace's name, and takes a new one", async () => {
+    const list = new FolderList(`names-${++count}`);
+    const unnamed = await list.add(root, "a.openarch");
+    expect("name" in unnamed).toBe(false);
+    const named = await list.add({ kind: "directory", name: "docs" } as FolderHandle, "b.openarch", "Billing");
+    expect(named.name).toBe("Billing");
+    await list.rename(unnamed.id, "Shop");
+    await list.rename(named.id, "Billing 2");
+    expect(Object.fromEntries((await list.list()).map((r) => [r.path, r.name]))).toEqual({ "a.openarch": "Shop", "b.openarch": "Billing 2" });
+    // Renaming doesn't count as opening it.
+    expect((await list.get(named.id))?.opened).toBe(named.opened);
+  });
+
+  it("keeps the name of one opened again, unless it's given another", async () => {
+    const list = new FolderList(`names-${++count}`);
+    const first = await list.add(root, "a.openarch", "Shop");
+    const sameFolder = { kind: "directory", name: "docs", isSameEntry: async (other: FolderHandle) => other === root } as FolderHandle;
+    vi.spyOn(list, "list").mockResolvedValueOnce([{ ...first, root: sameFolder }]);
+    expect(await list.add(root, "a.openarch")).toMatchObject({ id: first.id, name: "Shop" });
+    expect((await list.get(first.id))?.name).toBe("Shop");
+    vi.spyOn(list, "list").mockResolvedValueOnce([{ ...first, root: sameFolder }]);
+    expect(await list.add(root, "a.openarch", "Shop 2")).toMatchObject({ id: first.id, name: "Shop 2" });
+  });
+
+  it("leaves a forgotten one forgotten", async () => {
+    const list = new FolderList(`names-${++count}`);
+    const record = await list.add(root, "a.openarch", "Shop");
+    await list.remove(record.id);
+    await list.rename(record.id, "Shop 2");
+    expect(await list.list()).toEqual([]);
   });
 });
 

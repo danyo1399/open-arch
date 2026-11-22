@@ -21,6 +21,10 @@ function foldersWith(root: FakeFolder) {
       records.unshift(record);
       return record;
     },
+    rename: async (id: string, name: string) => {
+      const record = records.find((r) => r.id === id);
+      if (record) record.name = name;
+    },
     remove: async () => {},
   } as unknown as FolderList;
 }
@@ -52,11 +56,14 @@ describe("reloading the page with a workspace in a folder open", () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace);
     history.replaceState(null, "", "/#folder/f1");
-    const host = mount(createElement(App, { folders: foldersWith(root) }));
+    const folders = foldersWith(root);
+    const host = mount(createElement(App, { folders }));
     await until(() => !!host.querySelector(".ws-name"));
     expect(host.querySelector(".ws-name")?.textContent).toBe("Repo");
     expect(host.querySelector(".storage")?.textContent).toBe("Saved");
     expect(location.hash).toBe("#folder/f1");
+    // The start page lists it by its name from now on.
+    expect((await folders.list())[0]?.name).toBe("Repo");
   });
 
   it("says it couldn't open a file that's gone, and opens it once it's back", async () => {
@@ -96,9 +103,9 @@ describe("the designer with a workspace in a folder", () => {
   const withDocs = JSON.stringify({ openarch: 19, name: "Repo", export: { docs: "docs" }, elements: {}, views: {} });
 
   /** Opens repo/a.openarch, as reloading the page with it open does. */
-  async function open(root: FakeFolder) {
+  async function open(root: FakeFolder, folders = foldersWith(root)) {
     history.replaceState(null, "", "/#folder/f1");
-    const host = mount(createElement(App, { folders: foldersWith(root) }));
+    const host = mount(createElement(App, { folders }));
     await until(() => !!host.querySelector(".ws-name"));
     return host;
   }
@@ -108,7 +115,8 @@ describe("the designer with a workspace in a folder", () => {
   it("says where the docs are, or that they weren't written, and doesn't offer a zip", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", withDocs);
-    const host = await open(root);
+    const folders = foldersWith(root);
+    const host = await open(root, folders);
     expect(status(host)).toBe("Saved · docs in docs/");
     expect(hasButton(host, "Export zip")).toBe(false);
     await click(host.querySelector(".ws-name")!);
@@ -123,10 +131,21 @@ describe("the designer with a workspace in a folder", () => {
     await act(async () => void name.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
     await until(() => !!host.querySelector('.properties [role="alert"]'));
     expect(JSON.parse(root.files()["a.openarch"]!).name).toBe("Repo 2");
+    // The start page lists it by the new name.
+    expect((await folders.list())[0]?.name).toBe("Repo 2");
     expect(status(host)).toBe("Saved");
     expect(host.querySelector('.properties [role="alert"]')?.textContent).toBe("Saved, but the docs in docs/ weren't updated: Not allowed.");
     // The message bar says so too.
     expect(host.textContent).toContain("Saved, but the docs in docs/ weren't updated: Not allowed.×");
+  });
+
+  it("names the file with its folder and the path in it, in the top bar, which starts with the workspace's name", async () => {
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", withDocs);
+    const host = await open(root);
+    expect(host.querySelector(".file-name")?.textContent).toBe("repo/a.openarch");
+    expect(host.querySelector(".topbar")?.firstElementChild?.className).toContain("ws-name");
+    expect(host.querySelector(".topbar")?.textContent?.startsWith("Reporepo/a.openarch")).toBe(true);
   });
 
   it("offers to export a zip once the file's gone, as nothing saves them any more", async () => {

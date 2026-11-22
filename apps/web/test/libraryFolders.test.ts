@@ -20,11 +20,14 @@ class MemoryFolders {
     return this.records.find((r) => r.id === id);
   }
   /** Opening one again moves it to the top, as FolderList does. */
-  async add(root: FolderHandle, path: string) {
+  async add(root: FolderHandle, path: string, name = this.records.find((r) => r.root === root && r.path === path)?.name) {
     const known = this.records.find((r) => r.root === root && r.path === path);
-    const record = { id: known?.id ?? `f${this.records.length + 1}`, root, path, opened: Date.UTC(2026, 0, 1) };
+    const record = { id: known?.id ?? `f${this.records.length + 1}`, root, path, ...(name === undefined ? {} : { name }), opened: Date.UTC(2026, 0, 1) };
     this.records = [record, ...this.records.filter((r) => r !== known)];
     return record;
+  }
+  async rename(id: string, name: string) {
+    this.records = this.records.map((r) => (r.id === id ? { ...r, name } : r));
   }
   async remove(id: string) {
     this.records = this.records.filter((r) => r.id !== id);
@@ -202,7 +205,9 @@ describe("opening a folder from the start page", () => {
     expect(opened).toEqual([]);
     expect(Object.keys(root.files()).sort()).toEqual(["architecture.openarch", "AGENTS.md", ...Object.keys(skillInFolder())].sort());
     expect(folders.records.map((r) => r.path)).toEqual(["architecture.openarch"]);
-    expect(host.textContent).toContain("architecture.openarch · opened");
+    // By its name, with where it is.
+    expect(host.querySelector(".library-open")?.textContent).toBe("Repo");
+    expect(host.textContent).toContain("repo/architecture.openarch · opened");
   });
 
   it("says so when the new workspace's agent skill can't be written", async () => {
@@ -277,5 +282,33 @@ describe("opening a folder from the start page", () => {
     expect(host.textContent).not.toContain("l.openarch");
     // The folder itself is left as it was.
     expect(locked.files()).toEqual({});
+  });
+
+  it("lists each by its workspace's name, with the folder and the path in it, to tell folders of the same name apart", async () => {
+    picker();
+    const folders = new MemoryFolders();
+    const shop = new FakeFolder("docs");
+    shop.put("arch/architecture.openarch", workspace("Shop"));
+    const billing = new FakeFolder("docs");
+    billing.put("architecture.openarch", workspace("Billing"));
+    await folders.add(billing, "architecture.openarch", "Billing");
+    // One listed before names were kept: it goes by its folder's name until it's opened.
+    await folders.add(shop, "arch/architecture.openarch");
+    const { host, opened } = page(folders);
+    await until(host, "architecture.openarch · opened");
+    const items = () => [...host.querySelectorAll('[aria-label="Folders"] li')].map((li) => [li.querySelector(".library-open")?.textContent, li.querySelector(".library-meta")?.textContent?.replace(/ · opened.*/, "")]);
+    expect(items()).toEqual([
+      ["docs", "docs/arch/architecture.openarch"],
+      ["Billing", "docs/architecture.openarch"],
+    ]);
+
+    // Opened, the designer reads the file, and the list has its name from then on.
+    await click(button(host, "docs"));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    await opened[0]!.load();
+    expect(folders.records.map((r) => r.name)).toEqual(["Shop", "Billing"]);
+    const again = page(folders);
+    await until(again.host, "architecture.openarch · opened");
+    expect([...again.host.querySelectorAll(".library-open")].slice(0, 2).map((b) => b.textContent)).toEqual(["Shop", "Billing"]);
   });
 });

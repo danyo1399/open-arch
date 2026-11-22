@@ -8,7 +8,7 @@
  * changes are there to commit. The folders opened are remembered in IndexedDB: the browser can
  * keep a folder's handle, and asks again before the page may change it.
  */
-import { agentsSection, agentsSectionWorkspace, applyOperations, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, generatedFrom, lineEnding, LineBreakInPath, loadWorkspace, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
+import { agentsSection, agentsSectionWorkspace, applyOperations, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, generatedFrom, lineEnding, LineBreakInPath, loadWorkspace, parseDocument, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
@@ -352,13 +352,20 @@ export class FolderHost implements WorkspaceHost {
   private skillKept = false;
   /** The section this host last wrote to AGENTS.md, or null before it has. */
   private agentsKept: string | null = null;
+  /** The workspace's name as this host last gave it to `names`, or null before it has. */
+  private listedAs: string | null = null;
 
-  /** `path` is the file's, relative to `root`, with `/` between folders. */
+  /**
+   * `path` is the file's, relative to `root`, with `/` between folders. `names` is the list of
+   * folders opened, when the workspace is in it: the name it's listed by there is kept the
+   * file's, as the file is read and saved.
+   */
   constructor(
     readonly id: string,
     readonly root: FolderHandle,
     readonly path: string,
     private readonly pollMs = POLL_MS,
+    private readonly names?: Pick<FolderList, "rename">,
   ) {
     this.name = path.split("/").pop()!;
   }
@@ -367,15 +374,33 @@ export class FolderHost implements WorkspaceHost {
     return `folder/${this.id}`;
   }
 
-  /** Where the file is, for display: the folder's name, then the path in it. */
+  /**
+   * Where the file is, for display: the folder's name, then the path in it. The browser doesn't
+   * tell a page where on the computer the folder is, so this is as much of the path as there is.
+   */
   get location(): string {
     return `${this.root.name}/${this.path}`;
+  }
+
+  /**
+   * Has the list of folders opened call the workspace by this name. The list not taking it
+   * doesn't stop a load or a save: the next one tries again.
+   */
+  private listAs(name: string): void {
+    if (!this.names || name === this.listedAs) return;
+    this.listedAs = name;
+    this.names.rename(this.id, name).catch(() => {
+      if (this.listedAs === name) this.listedAs = null;
+    });
   }
 
   load(): Promise<string> {
     this.loading = (async () => {
       try {
         this.known = await readText(await fileAt(this.root, this.path));
+        // A file that can't be read as a workspace keeps the name it's listed by.
+        const parsed = parseDocument(this.known);
+        if (parsed.valid) this.listAs(parsed.doc.name);
         return this.known;
       } catch (error) {
         if (isMissing(error)) throw new Error(`${this.location} isn't there any more.`);
@@ -447,6 +472,7 @@ export class FolderHost implements WorkspaceHost {
     }
     await writable.close();
     this.known = saved;
+    this.listAs(ws.doc.name);
     const result: SaveSummary = { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
     // The section in AGENTS.md names the file and its docs, so it's written again whenever that changes.
     const docsPath = docsParts && docs ? docsParts.join("/") : undefined;
@@ -565,6 +591,8 @@ export interface StoredFolder {
   root: FolderHandle;
   /** The .openarch file's path in the folder. */
   path: string;
+  /** The workspace's name, as the file had it when it was last read or saved here. Missing until then. */
+  name?: string;
   /** Milliseconds since the epoch. */
   opened: number;
 }
@@ -616,17 +644,30 @@ export class FolderList {
     return done((await this.store("readonly")).get(id) as IDBRequest<StoredFolder | undefined>);
   }
 
-  /** Remembers a workspace in a folder, or marks it opened now if it's remembered already. */
-  async add(root: FolderHandle, path: string): Promise<StoredFolder> {
+  /**
+   * Remembers a workspace in a folder, or marks it opened now if it's remembered already. `name`
+   * is the workspace's, when it's known here; otherwise one remembered already keeps the name it
+   * has, and opening it brings the name up to date (FolderHost).
+   */
+  async add(root: FolderHandle, path: string, name?: string): Promise<StoredFolder> {
     let record: StoredFolder | undefined;
     for (const known of await this.list()) {
       if (known.path === path && (await (known.root.isSameEntry?.(root) ?? Promise.resolve(false)).catch(() => false))) record = known;
     }
-    record = { id: record?.id ?? newId(), root, path, opened: Date.now() };
+    name ??= record?.name;
+    record = { id: record?.id ?? newId(), root, path, ...(name === undefined ? {} : { name }), opened: Date.now() };
     const store = await this.store("readwrite");
     store.put(record);
     await committed(store.transaction);
     return record;
+  }
+
+  /** Lists a remembered workspace by a new name. One that was forgotten stays forgotten. */
+  async rename(id: string, name: string): Promise<void> {
+    const store = await this.store("readwrite");
+    const record = await done(store.get(id) as IDBRequest<StoredFolder | undefined>);
+    if (record && record.name !== name) store.put({ ...record, name });
+    await committed(store.transaction);
   }
 
   /** Forgets it. The folder and its files stay as they are. */
@@ -659,8 +700,8 @@ export function folderIdInHash(hash: string): string | null {
  * folder. If it has to ask, it can only do that after a click, so it's null, and the start page
  * lists the folder to open instead.
  */
-export async function folderInUrl(hash: string, folders: Pick<FolderList, "get"> = folderList): Promise<FolderHost | null> {
+export async function folderInUrl(hash: string, folders: Pick<FolderList, "get" | "rename"> = folderList): Promise<FolderHost | null> {
   const id = folderIdInHash(hash);
   const record = id === null ? undefined : await folders.get(id);
-  return record && (await allowed(record.root, false)) ? new FolderHost(record.id, record.root, record.path) : null;
+  return record && (await allowed(record.root, false)) ? new FolderHost(record.id, record.root, record.path, undefined, folders) : null;
 }

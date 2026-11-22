@@ -55,7 +55,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
   /** Remembers the workspace in the folder, so the list has it next time, and opens it. */
   const openInFolder = async (root: FolderHandle, path: string) => {
     const record = await folders.add(root, path);
-    onOpen(new FolderHost(record.id, root, path));
+    onOpen(new FolderHost(record.id, root, path, undefined, folders));
   };
 
   /** One workspace in the folder opens straight away. With several, the user picks one; with none, they can make one. */
@@ -84,7 +84,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
       const problems = [docs?.error && `couldn't write its docs ${docsFolder === "." ? "beside it" : `in ${docs.dir}/`}: ${docs.error}`, skillError && `couldn't add the agent skill: ${skillError}`, agentsError && `couldn't add its section to AGENTS.md: ${agentsError}`].filter(Boolean);
       const problem = problems.length ? problems.join(" It also ") : null;
       if (problem) {
-        await folders.add(root, path);
+        await folders.add(root, path, doc.name);
         setOpened(await folders.list());
         throw new Error(`Created ${path} in ${root.name}, but ${problem} Open it from Folders once that's fixed.`);
       }
@@ -144,11 +144,12 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
             <ul className="library-list">
               {opened.map((record) => (
                 <li key={record.id} className="library-item">
+                  {/* By the workspace's name, once it's been read here: a folder's name, such as docs, is often not the only one. */}
                   <button className="link library-open" onClick={() => reopen(record)} title={`Open ${record.path} in ${record.root.name}`}>
-                    {record.root.name}
+                    {record.name ?? record.root.name}
                   </button>
-                  <span className="muted small library-meta">
-                    {record.path} · opened {edited.format(record.opened)}
+                  <span className="muted small library-meta" title={`${record.root.name}/${record.path}`}>
+                    {record.root.name}/{record.path} · opened {edited.format(record.opened)}
                   </span>
                   <span className="library-actions">
                     <button onClick={() => forget(record)} title="Take it off this list. The folder and its files stay as they are.">

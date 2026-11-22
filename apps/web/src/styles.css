@@ -313,10 +313,6 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.brand {
-  font-weight: 700;
-  color: var(--accent);
-}
 .ws-name {
   font-weight: 600;
   overflow: hidden;

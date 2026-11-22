@@ -73,7 +73,8 @@ describe("Export to folder", () => {
     expect(loadWorkspace(root.files()["shop.openarch"]!).doc.name).toBe("Shop 2");
     expect(Object.keys(root.files())).toContain("AGENTS.md");
     expect(host.querySelector(".storage")?.textContent).not.toBe("Not saved");
-    expect((await folderList.list()).some((record) => record.root.name === "repo" && record.path === "shop.openarch")).toBe(true);
+    // Listed by the workspace's name.
+    expect((await folderList.list()).some((record) => record.root.name === "repo" && record.path === "shop.openarch" && record.name === "Shop 2")).toBe(true);
   });
 
   it("says what went wrong beside writing the file, and what was left alone", async () => {
