@@ -77,7 +77,7 @@ afterAll(() => {
 });
 
 const shop: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },

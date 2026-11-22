@@ -2825,8 +2825,9 @@ button.heading {
   stroke-linejoin: round;
 }
 /*
- * The dotted line from a sticky note to the box, frame or arrow it's on: dotted, as an implied
- * arrow is dashed. Under the arrows, boxes and notes, but over the frame, which comes before it.
+ * The dotted line from a sticky note to the box, frame or arrow it's on, or on a flowchart, the
+ * block: dotted, as an implied arrow is dashed. Under the arrows, boxes and notes, but over the
+ * frame and a flowchart's lanes, which come before it.
  */
 .sticky-lines {
   position: absolute;
@@ -2847,8 +2848,8 @@ button.heading {
 .sticky-lines line.selected {
   stroke: var(--accent);
 }
-/* The box a moving end would go to, or the box, frame or arrow a note's dot would put the note on. */
-.react-flow__node.drop-target .c4 {
+/* The box a moving end would go to, or the box, frame or arrow, or on a flowchart the block, a note's dot would put the note on. */
+.react-flow__node.drop-target :is(.c4, .flow-block) {
   outline-color: var(--accent);
   outline-style: dashed;
 }

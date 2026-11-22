@@ -54,7 +54,7 @@ afterAll(() => {
 
 /** A return, each block placed, so nothing waits for ELK, with a note beside it. */
 const doc: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" } },
   views: {
@@ -472,7 +472,17 @@ describe("a block's right-click menu", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(d.details()).toBe("Decision");
     // The flowchart has no lanes to move it to.
-    expect(d.labels()).toEqual(["Add after", "Add flow to", "Change kind", "Lay out again", "Delete block"]);
+    expect(d.labels()).toEqual(["Add after", "Add flow to", "Add sticky note", "Change kind", "Lay out again", "Delete block"]);
+  });
+
+  it("adds a sticky note on the block, with its text to type", async () => {
+    const d = await designer();
+    await d.rightClick(d.node("refund")!);
+    await d.pick("Add sticky note");
+    expect((await d.saved()).stickies.find((s) => s.id === "note-2")).toMatchObject({ text: "New note", on: { block: "refund" } });
+    expect(d.details()).toBe("Sticky note");
+    expect(document.activeElement).toBe(d.node("sticky:note-2")!.querySelector("textarea"));
+    expect(d.menuOpen()).toBe(false);
   });
 
   it("adds a block after it, with a flow to it, and selects it to give it text", async () => {
@@ -688,6 +698,24 @@ describe("a sticky note's right-click menu on a flowchart", () => {
     await d.rightClick(d.node("sticky:note")!);
     expect(d.details()).toBe("Sticky note");
     expect(d.labels()).toEqual(["Edit text", "Colour", "Edit notes…", "Move beside the diagram", "Delete note"]);
+  });
+
+  it("moves a note that's on a block back next to the block", async () => {
+    const onBlock = structuredClone(doc);
+    onBlock.views.returns!.stickies!.note!.on = { block: "refund" };
+    const d = await designer(onBlock);
+    await d.rightClick(d.node("sticky:note")!);
+    expect(d.labels()).toEqual(["Edit text", "Colour", "Edit notes…", "Move next to what it's on", "Delete note"]);
+    await d.pick("Move next to what it's on");
+    const note = (await d.saved()).stickies[0]!;
+    expect(note.on).toEqual({ block: "refund" });
+    expect(note.at).toBeUndefined();
+    // On a block the flowchart doesn't have, it goes beside the diagram.
+    const lost = structuredClone(doc);
+    lost.views.returns!.stickies!.note!.on = { block: "gone" };
+    const other = await designer(lost);
+    await other.rightClick(other.node("sticky:note")!);
+    expect(other.labels()).toContain("Move beside the diagram");
   });
 
   it("edits its text in place, where a right-click is left to the browser, to paste", async () => {

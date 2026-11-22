@@ -77,7 +77,9 @@ describe("sticky notes on elements and relationships", () => {
       "field-required views.landscape.stickies.f.on",
       "field-not-allowed views.order.stickies.g.on",
     ]);
-    expect(result.diagnostics.at(-1)!.message).toBe("Only sticky notes on landscape, context, container, component and class views can be on an element or relationship, and this is a sequence view.");
+    expect(result.diagnostics.at(-1)!.message).toBe(
+      "A sticky note can be on an element or relationship on a landscape, context, container, component or class view, and on a block on a flowchart view. This is a sequence view.",
+    );
     expect(Object.keys(result.doc.views.landscape!.stickies!)).toEqual(["a", "b", "c", "d", "e", "f"]);
     expect(result.doc.views.landscape!.stickies!.a).toEqual({ text: "A" });
     // A bad kind is left out, as on a relationship.
@@ -158,7 +160,7 @@ describe("putting sticky notes on things", () => {
     expect(fails(doc, { op: "add-sticky", view: "shop-containers", id: "a", text: "A", on: { from: "web-app", to: "controller", kind: "inheritance" } })).toBe('"web-app" has no inheritance relationship to "controller".');
     expect(fails(doc, { op: "add-sticky", view: "shop-containers", id: "a", text: "A", on: { from: "web-app", to: "controller", kind: "likes" as never } })).toMatch(/^Unknown kind of relationship "likes"/);
     expect(fails(doc, { op: "add-sticky", view: "order", id: "a", text: "A", on: { element: "db" } })).toBe(
-      'View "order" is a sequence view. Only sticky notes on landscape, context, container, component and class views can be on an element or relationship.',
+      'View "order" is a sequence view. A sticky note can be on an element or relationship on a landscape, context, container, component or class view, and on a block on a flowchart view.',
     );
   });
 
@@ -226,7 +228,7 @@ describe("putting sticky notes on things", () => {
     expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", on: { from: "a", to: "b", kind: "inheritance" } })).toBe("ok");
     expect(bad({ op: "update-sticky", view: "v", id: "n", on: null })).toBe("ok");
     for (const on of ["db", { element: "db", to: "x" }, { from: "a" }, { from: "a", to: 2 }, { from: "a", to: "b", index: 0 }]) {
-      expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", on })).toMatch(/^add-sticky: "on" must be an element, like \{ "element": "cache" \}, or a relationship/);
+      expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", on })).toMatch(/^add-sticky: "on" must be an element, like \{ "element": "cache" \}, a relationship/);
     }
     expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", on: null })).toMatch(/^add-sticky: "on" must be/);
   });

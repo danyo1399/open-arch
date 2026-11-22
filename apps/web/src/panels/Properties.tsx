@@ -93,6 +93,7 @@ import {
   stickyKey,
   stickyTargetFor,
   type NotesOwner,
+  type StickyChoice,
   uniqueAmong,
   uniqueId,
   uniqueNodeId,
@@ -491,10 +492,13 @@ function ArrowProperties({ ws, computed, from, to, relation, edit, onSelect, onA
 
 function StickyProperties({ ws, view, computed, sticky, edit, onSelect, onEditNotes }: PropertiesProps & { view: ViewDef; sticky: Sticky }) {
   const set = (fields: Omit<Extract<Operation, { op: "update-sticky" }>, "op" | "view" | "id">) => void edit([{ op: "update-sticky", view: view.id, id: sticky.id, ...fields }]);
-  // Views of boxes draw a line from a note to the box or arrow it's on.
-  const choices = computed && STICKY_TARGET_LEVELS.includes(view.level) ? stickyChoices(ws, computed, sticky) : null;
+  // Views of boxes draw a line from a note to the box or arrow it's on, and a flowchart to the block.
+  const flowchart = view.level === "flowchart";
+  const choices = computed && (flowchart || STICKY_TARGET_LEVELS.includes(view.level)) ? stickyChoices(ws, computed, sticky) : null;
   const drawn = !!(computed && sticky.on && stickyAnchor(ws, computed, sticky.on));
-  const group = (name: "Boxes" | "Arrows") => {
+  // What a note can be on here, as the hint under On says it: to pick, and once it's on one.
+  const [pick, picked] = flowchart ? ["a block", "block"] : ["a box or an arrow", "box or arrow"];
+  const group = (name: NonNullable<StickyChoice["group"]>) => {
     const items = choices!.filter((c) => c.group === name);
     return (
       items.length > 0 && (
@@ -535,9 +539,10 @@ function StickyProperties({ ws, view, computed, sticky, edit, onSelect, onEditNo
               ))}
             {group("Boxes")}
             {group("Arrows")}
+            {group("Blocks")}
           </select>
           <span className="field-hint">
-            {!sticky.on ? "Pick a box or an arrow, or drag from the dot under the note to one, and a line joins them." : drawn ? "A line joins the note to the box or arrow it's on." : "This view doesn't draw it, so no line joins them."}
+            {!sticky.on ? `Pick ${pick}, or drag from the dot under the note to one, and a line joins them.` : drawn ? `A line joins the note to the ${picked} it's on.` : "This view doesn't draw it, so no line joins them."}
           </span>
         </label>
       )}
@@ -744,7 +749,7 @@ const BLOCK_KIND_HINTS: Record<BlockKind, string> = {
   database: "Data that's kept, like a database.",
 };
 
-function BlockProperties({ view, block, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; block: Block }) {
+function BlockProperties({ view, block, isNew, edit, onSelect, onAddSticky }: PropertiesProps & { view: ViewDef; block: Block }) {
   const set = (fields: Omit<Extract<Operation, { op: "update-block" }>, "op" | "view" | "id">) => void edit([{ op: "update-block", view: view.id, id: block.id, ...fields }]);
   const ids = view.blocks.map((b) => b.id);
   // An ID made from the text keeps following it, as a state's does; the selection follows the ID.
@@ -835,6 +840,7 @@ function BlockProperties({ view, block, isNew, edit, onSelect }: PropertiesProps
       </label>
       <div className="actions">
         {block.at && <button onClick={() => set({ at: null })}>Lay out again</button>}
+        <button onClick={() => onAddSticky({ block: block.id })}>Add sticky note</button>
         <button className="danger" onClick={() => void edit([{ op: "remove-block", view: view.id, id: block.id }]).then(() => onSelect(null))}>
           Delete block
         </button>

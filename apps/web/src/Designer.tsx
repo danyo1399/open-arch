@@ -418,7 +418,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     [openNotes, viewId],
   );
 
-  /** A new note on a box, the frame or an arrow, beside it on the diagram, with its text being typed there. */
+  /** A new note on a box, the frame or an arrow, or on a flowchart a block, beside it on the diagram, with its text being typed there. */
   const addStickyOn = (on: StickyTargetData) => {
     if (!view) return;
     const id = newStickyId(view);
@@ -921,6 +921,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
                   menuRenames={shownMenuRenames}
                   onError={(text) => state.notify({ kind: "error", text })}
                   exportItems={exportItems(computed)}
+                  editSticky={isNew && selection?.kind === "sticky" ? selection.id : null}
                   snap={snap}
                   autoLayoutHandle={autoLayout}
                 />

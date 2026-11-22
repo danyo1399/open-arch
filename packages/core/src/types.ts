@@ -247,7 +247,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 19;
+export const FORMAT_VERSION = 20;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -599,7 +599,7 @@ export interface StepData {
 /** A sticky note on a view. It explains the diagram; it isn't part of the model. */
 export interface StickyData {
   text: string;
-  /** What it's on, which the designer draws a line to. Only on views of boxes: landscape, context, container, component and class views. */
+  /** What it's on, which the designer draws a line to. Only on views of boxes (landscape, context, container, component and class views) and flowchart views. */
   on?: StickyTargetData;
   /** Default: yellow. */
   color?: StickyColor;
@@ -610,11 +610,11 @@ export interface StickyData {
 }
 
 /**
- * What a sticky note is on: an element, drawn as the box that shows it, or a relationship, named
- * as add-relationship names it (`from` uses `to`, and its kind when it isn't an association),
- * drawn as the arrow that shows it.
+ * What a sticky note is on. On a view of boxes: an element, drawn as the box that shows it, or a
+ * relationship, named as add-relationship names it (`from` uses `to`, and its kind when it isn't
+ * an association), drawn as the arrow that shows it. On a flowchart view: one of its blocks.
  */
-export type StickyTargetData = { element: string } | { from: string; to: string; kind?: RelationshipKind };
+export type StickyTargetData = { element: string } | { from: string; to: string; kind?: RelationshipKind } | { block: string };
 
 // --- The model built from a document -------------------------------------------
 
@@ -916,7 +916,7 @@ export interface Sticky {
 }
 
 /** What a sticky note is on (see StickyTargetData), with a relationship's kind always given. */
-export type StickyTarget = { element: string } | { from: string; to: string; kind: RelationshipKind };
+export type StickyTarget = { element: string } | { from: string; to: string; kind: RelationshipKind } | { block: string };
 
 export type Severity = "error" | "warning";
 

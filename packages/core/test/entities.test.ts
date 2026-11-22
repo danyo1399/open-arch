@@ -155,7 +155,7 @@ describe("entity views", () => {
     const old = shop();
     const parsed = parseDocument(JSON.stringify({ ...old, openarch: 17 }));
     expect(parsed.diagnostics).toEqual([]);
-    expect(parsed.doc).toEqual({ ...old, openarch: 19 });
+    expect(parsed.doc).toEqual({ ...old, openarch: 20 });
   });
 
   it("refuse fields of other views, and report malformed entities, attributes and links", () => {
@@ -536,7 +536,7 @@ describe("entity operations", () => {
     expect(fails(orders(), { op: "hide-in-view", view: "orders-data", id: "shop" })).toMatch(/^An entity view draws its entities, not elements/);
     expect(fails(orders(), { op: "set-layout", view: "orders-data", positions: { shop: [0, 0] } })).toBe("An entity view has no boxes. Move an entity with update-entity --at.");
     expect(fails(orders(), { op: "add-sticky", view: "orders-data", id: "n", text: "Hi", on: { element: "db" } })).toBe(
-      'View "orders-data" is an entity view. Only sticky notes on landscape, context, container, component and class views can be on an element or relationship.',
+      'View "orders-data" is an entity view. A sticky note can be on an element or relationship on a landscape, context, container, component or class view, and on a block on a flowchart view.',
     );
     expect(apply(orders(), { op: "add-sticky", view: "orders-data", id: "n", text: "Hi", at: [0, 0] }).views["orders-data"]!.stickies).toEqual({ n: { text: "Hi", at: [0, 0] } });
   });

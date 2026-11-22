@@ -1,4 +1,5 @@
 import { builtInto, containerOf, isInside, kindList, libraryOf, lineage, PARENT_KINDS } from "./model.js";
+import { suggest } from "./suggest.js";
 import type { ArchElement, Diagnostic, Relationship, Sticky, ViewDef } from "./types.js";
 import { computeView, didYouMean, scopeProblems, stickyAnchor, type ComputedView } from "./views.js";
 import type { Workspace } from "./workspace.js";
@@ -227,11 +228,28 @@ function checkView(ws: Workspace, view: ViewDef, out: Diagnostic[]): void {
   }
 }
 
-/** What a sticky note is on: something in the model, which the view draws. `cv` is the view, when it can be drawn. */
+/**
+ * What a sticky note is on: something in the model, which the view draws, or on a flowchart, one
+ * of its blocks. `cv` is the view, when it can be drawn.
+ */
 function checkSticky(ws: Workspace, view: ViewDef, cv: ComputedView | undefined, sticky: Sticky, out: Diagnostic[]): void {
   const on = sticky.on;
   if (!on) return;
   const at = `${sticky.path}.on`;
+  if ("block" in on) {
+    // A flowchart draws every block it has.
+    const blocks = view.blocks.map((b) => b.id);
+    if (blocks.includes(on.block)) return;
+    const match = suggest(on.block, blocks);
+    out.push({
+      severity: "error",
+      rule: "sticky-unknown-target",
+      message: `The note is on the block "${on.block}", which isn't a block of this view.`,
+      path: `${at}.block`,
+      fix: match ? `Did you mean "${match}"?` : `Take the note off it: \`open-arch update-sticky ${view.id} ${sticky.id} --detach\`.`,
+    });
+    return;
+  }
   const unknown = (field: string, id: string, message: string) => void out.push({ severity: "error", rule: "sticky-unknown-target", message, path: `${at}.${field}`, fix: didYouMean(ws, id) });
   let what: string;
   if ("element" in on) {

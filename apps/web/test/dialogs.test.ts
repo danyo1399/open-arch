@@ -9,7 +9,7 @@ import type { Version } from "../src/state.js";
 import { button, choose, click, key, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: { customer: { kind: "person", name: "Customer" }, shop: { kind: "system", name: "Shop" } },
   views: {},

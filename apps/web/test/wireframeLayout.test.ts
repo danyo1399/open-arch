@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { arrowRoutes, screenDropOps, WF, widgetDropOps, widgetDropSpot, widgetHeight, wireframeLayout } from "../src/canvas/wireframeLayout.js";
 
 const doc: OpenArchDocument = {
-  openarch: 19,
+  openarch: 20,
   name: "Shop",
   elements: {},
   views: {
