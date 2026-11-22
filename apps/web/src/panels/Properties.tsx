@@ -2141,7 +2141,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.links.length}</dd>
           </dl>
           <p className="muted small">
-            An entity view is an entity-relationship diagram: the things whose data is kept, with their attributes, and how they're linked. Use + Add to add an entity, and with one selected, its attributes. Drag from the dot under an entity to another to link them, then select the link to say how many of each there can be. Select an entity, an attribute or a link to change it.
+            An entity view is an entity-relationship diagram: the things whose data is kept, with their attributes, and how they're linked. Use + Add to add an entity, and with one selected, its attributes. Drag from the dot under an entity to another to link them, then select the link to say how many of each there can be. Select an entity, an attribute or a link to change it. Right-click an entity, an attribute, a link, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : view.level === "flowchart" ? (
@@ -2247,7 +2247,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.transitions.length}</dd>
           </dl>
           <p className="muted small">
-            A state view shows the states something can be in, and the transitions between them. Use + Add to add a state, and drag from the dot under a state to another to add a transition. Select a state or a transition to change it.
+            A state view shows the states something can be in, and the transitions between them. Use + Add to add a state, and drag from the dot under a state to another to add a transition. Select a state or a transition to change it. Right-click a state, a transition, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : view.level === "sequence" ? (

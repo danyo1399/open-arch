@@ -27,14 +27,16 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueStateId } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
-import { FrameNode, FrameNotes, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
+import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
+import { FrameNode, FrameNotes, NotesOpener, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -127,6 +129,8 @@ interface StateDiagramProps {
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   edit(edit: Edit): Promise<boolean>;
+  /** What the right-click menus need from the designer. */
+  menus: MenuHost;
   /** A problem drawing the diagram, to tell the person about. */
   onError(text: string): void;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
@@ -161,7 +165,7 @@ function newStickyId(stickies: Sticky[]): string {
   for (let i = 2; ; i++) if (!taken.has(`note-${i}`)) return `note-${i}`;
 }
 
-export function StateDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap, autoLayoutHandle }: StateDiagramProps) {
+export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, onError, exportItems, snap, autoLayoutHandle }: StateDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, TransitionEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -382,8 +386,9 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   };
 
-  const addState = () => {
-    const center = middle();
+  /** A new state goes in the middle of the canvas, or from a right-click menu, where that was. */
+  const addState = (at?: Point) => {
+    const center = at ?? middle();
     const id = uniqueStateId(view, "new-state");
     const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - STATE_W / 2, y: center.y - 30 }, occupied);
@@ -394,8 +399,9 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     );
   };
 
-  const addSticky = () => {
-    const center = middle();
+  /** A new note goes in the middle of the canvas, or from a right-click menu, where that was. */
+  const addSticky = (at?: Point) => {
+    const center = at ?? middle();
     const id = newStickyId(view.stickies);
     const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
@@ -437,6 +443,76 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
     requestAnimationFrame(() => requestAnimationFrame(() => fitDiagram()));
   }, [ready, fitDiagram]);
 
+  /** What + Add adds, and the background's menu, which puts it where the click was, `at`. */
+  const addItems = (at?: Point): MenuItem[] => [
+    { label: "State", onSelect: () => addState(at) },
+    { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
+  ];
+
+  const notes = useContext(NotesOpener);
+  const edits: MenuEdits = { edit, select };
+
+  // Each item does what it does in the toolbar or the details, which have them all too.
+  const stateMenu = (state: State): MenuItem[] => {
+    const set = (fields: Omit<Extract<Operation, { op: "update-state" }>, "op" | "view" | "id">) => () => void edit([{ op: "update-state", view: view.id, id: state.id, ...fields }]);
+    const addTransition = (to: string) => () => {
+      const number = view.transitions.length + 1;
+      void edit([{ op: "add-transition", view: view.id, from: state.id, to }]).then((ok) => ok && select({ kind: "transition", number }));
+    };
+    const starts = view.initial === state.id;
+    return withDelete(
+      edits,
+      [
+        // A state can go back to itself.
+        { label: "Add transition to", items: view.states.map((s) => ({ label: s.id === state.id ? `${s.name} (itself)` : s.name, onSelect: addTransition(s.id) })) },
+        { label: starts ? "It doesn't start here" : "It starts here", onSelect: set({ initial: !starts }) },
+        { label: state.final ? "It can't end here" : "It can end here", onSelect: set({ final: !state.final }) },
+        ...(state.at ? [{ label: "Lay out again", onSelect: set({ at: null }) }] : []),
+      ],
+      "Delete state",
+      { op: "remove-state", view: view.id, id: state.id },
+    );
+  };
+
+  const transitionMenu = (transition: Transition): MenuItem[] => {
+    const update = (fields: Omit<Extract<Operation, { op: "update-transition" }>, "op" | "view" | "transition">) => edit([{ op: "update-transition", view: view.id, transition: transition.number, ...fields }]);
+    const ends = (end: "from" | "to") => view.states.filter((s) => s.id !== transition[end]).map((s) => ({ label: s.name, onSelect: () => void update({ [end]: s.id }) }));
+    const [from, to] = [ends("from"), ends("to")];
+    return withDelete(
+      edits,
+      [
+        ...(from.length ? [{ label: "Change from", items: from }] : []),
+        ...(to.length ? [{ label: "Change to", items: to }] : []),
+        ...moveItems("transition", transition.number, view.transitions.length, (to) => void update({ newTransition: to }).then((ok) => ok && select({ kind: "transition", number: to }))),
+      ],
+      "Delete transition",
+      { op: "remove-transition", view: view.id, transition: transition.number },
+    );
+  };
+
+  /**
+   * The right-click menus: for a state, a transition or a sticky note, which the click selects,
+   * and for the diagram, after a click on the background or the frame. See useDiagramMenu for
+   * how one opens and closes.
+   */
+  const menu = useDiagramMenu({
+    view,
+    selection,
+    select,
+    host: menus,
+    toDiagram: (point) => rf.screenToFlowPosition(point),
+    items: (on, at) => {
+      if (on.kind === "diagram") return diagramItems(addItems(at), view.states.length > 0 ? autoLayout.run : undefined, exportItems);
+      const state = on.kind === "state" && view.states.find((s) => s.id === on.id);
+      if (state) return stateMenu(state);
+      const transition = on.kind === "transition" && view.transitions[on.number - 1];
+      if (transition) return transitionMenu(transition);
+      const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
+      if (!sticky) return [];
+      return stickyItems(edits, view.id, sticky, { editText: () => setEditing(sticky.id), openNotes: notes ? () => notes.sticky(sticky.id) : undefined, back: "Move beside the diagram" });
+    },
+  });
+
   const scope = cv.boundary;
   return (
     <div className="canvas" ref={wrapper}>
@@ -459,6 +535,14 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
         }}
         onEdgeClick={(_, edge) => edge.data && select({ kind: "transition", number: edge.data.transition.number })}
         onPaneClick={() => select(null)}
+        onNodeContextMenu={(event, node) => {
+          if (node.type === "state") menu.open(event, { kind: "state", id: node.id });
+          else if (node.type === "sticky") menu.open(event, { kind: "sticky", id: node.data.sticky.id });
+        }}
+        // A transition's label is drawn apart from its line, but a right-click on it comes here too.
+        onEdgeContextMenu={(event, edge) => edge.data && menu.open(event, { kind: "transition", number: edge.data.transition.number })}
+        // The frame takes no clicks, so a right-click on it is one on the background.
+        onPaneContextMenu={(event) => menu.open(event, null)}
         nodeClickDistance={4}
         paneClickDistance={4}
         connectionMode={ConnectionMode.Loose}
@@ -486,13 +570,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
               </span>
             )}
           </div>
-          <MenuButton
-            className="primary"
-            items={[
-              { label: "State", onSelect: addState },
-              { label: "Sticky note", divider: true, onSelect: addSticky },
-            ]}
-          >
+          <MenuButton className="primary" items={addItems()}>
             + Add
           </MenuButton>
           <AutoLayoutButton layout={autoLayout} empty={view.states.length === 0} />
@@ -508,6 +586,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, onError,
           This view has no states yet. Use <strong>+ Add</strong> to create one, then drag from the dot under a state to another to add a transition.
         </div>
       )}
+      {menu.menu}
     </div>
   );
 }

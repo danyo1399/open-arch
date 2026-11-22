@@ -3,6 +3,7 @@
  * starts with `// @vitest-environment happy-dom`, so it has a page to render into.
  */
 import { act, type ReactElement } from "react";
+import type { MenuHost } from "../src/canvas/DiagramMenu.js";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach } from "vitest";
 
@@ -90,4 +91,12 @@ export function select(host: HTMLElement, label: string): HTMLSelectElement {
   const found = field?.querySelector("select");
   if (!found) throw new Error(`No select "${label}".`);
   return found;
+}
+
+/**
+ * What a diagram's right-click menus need, for a diagram drawn on its own, with no designer round
+ * it: nothing is ever on its way, so a menu is for what was clicked, in the view with this ID.
+ */
+export function menusFor(view: string): MenuHost {
+  return { afterEdits: async (on, then) => then(on, view, 0), renames: [] };
 }

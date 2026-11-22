@@ -100,6 +100,12 @@ As you drag boxes and sticky notes, they line up with the ones around them, edge
 
 Drag from the dot under a box to another box to add a relationship. To move one, select its arrow and drag the dot at either end to another box: the relationship keeps its description, technology, tags and notes. An arrow that stands for several relationships moves them all. When two elements call each other, select the relationship and tick **Goes both ways**: its arrow gets a head at each end, and stands for every relationship between the two boxes.
 
+### Right-click menus
+
+On a flowchart, a state view or an entity view, right-click something on the diagram for a menu of what you can do with it: a block, a state, an entity or one of its attributes, an arrow, a lane or a sticky note. That selects it too, so its details show. Each kind of view's section says what its menus have. A sticky note's menu edits its text or its notes, changes its colour, moves it back where the designer puts it, or deletes it. Right-click the background for **Add**, **Auto layout** and **Export**: what you add from there goes where you clicked. The Menu key opens the menu of what has the focus. Everything in these menus is in the toolbar or the details too, for a touch screen.
+
+A menu opens once what you changed just before is saved, as text typed in the details is when you click away from it, so it's for the diagram as that leaves it. If what you clicked is gone by then, or an Undo, a Redo or a change made to the file elsewhere landed on the way, no menu opens: right-click again. An open menu closes when one of those lands under it.
+
 ### Undo and History
 
 **Undo** and **Redo**, in the top bar, take back the last change and make it again: Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y (⌘ for Ctrl on a Mac).
@@ -149,6 +155,8 @@ A library is code built into several containers, such as a logging library. Add 
 ### State views
 
 A state view shows the states something can be in, and how it moves between them: an order that's placed, paid, shipped and delivered, say. Make one with **+ New view** and the **State** level, and pick what the states are of, such as a class, or nothing in particular. **+ Add** adds a state; drag from the dot under a state to another to add a transition. Select a state to rename it, describe it, or mark it as where the view starts (drawn with a dot pointing into it) or where it can end (an arrow out to a bullseye), and to add a transition back to itself. Select a transition to give it an event, a guard and an action, labelled as UML writes them: `event [guard] / action`. States and transitions belong to the view, not the model.
+
+Right-click a state or a transition for its menu (see [Right-click menus](#right-click-menus)). A state's menu adds a transition from it, to another state or back to itself, says whether it starts there or can end there, lays it out again or deletes it. A transition's menu moves either end to another state, moves the transition up or down the list of transitions, or deletes it.
 
 ### Deployment views
 
@@ -216,7 +224,7 @@ The blocks are laid out automatically, from the first one down. Drag one to move
 
 To show who does each step, give the flowchart lanes: columns, left to right, one for each actor, team or system, like Customer and Shop staff. **+ Add** adds a lane, after the one selected. Drag a block into a lane to put it there, or pick its **Lane** in its details, which lays it out again in that lane; a new block goes in the lane of the block or lane selected, or else in the lane it lands in. Each lane is as wide as its blocks need, and a name too long for its lane goes onto as many lines as it needs. A flowchart with lanes and blocks in none has a column for those blocks too, at the left. Select a lane to rename it, describe it, or move it left or right. Deleting a lane keeps its blocks, in no lane, and lays them out again.
 
-Right-click a block, a flow, a lane or a sticky note for a menu of what you can do with it. That selects it too, so its details show. A block's menu adds a block after it, a flow from it or a sticky note on it, changes its kind, moves it to another lane, lays it out again or deletes it. A flow's menu moves either end to another block, moves the flow up or down the list of flows, or deletes it. Two flows with the same ends and text, which only a file written by hand can have, get no menu, as nothing tells one from the other: the designer says so, and their details still change them. A lane's menu adds to the lane, moves it left or right, or deletes it. A sticky note's menu edits its text or its notes, changes its colour, moves it back beside the diagram, or next to the block it's on, or deletes it. Right-click the background for **Add**, **Auto layout** and **Export**. Added from the background's menu or a lane's, a block or a sticky note goes where you clicked, and the block goes in the lane there, with no flow to it. Everything in these menus is in the toolbar or the details too, for a touch screen.
+Right-click a block, a flow or a lane for its menu (see [Right-click menus](#right-click-menus)). A block's menu adds a block after it, a flow from it or a sticky note on it, changes its kind, moves it to another lane, lays it out again or deletes it. A flow's menu moves either end to another block, moves the flow up or down the list of flows, or deletes it. A lane's menu adds to the lane, moves it left or right, or deletes it. A sticky note's menu moves a note that's on a block back next to it. Added from the background's menu or a lane's, a block or a sticky note goes where you clicked, and the block goes in the lane there, with no flow to it.
 
 The docs draw a flowchart in Mermaid, top to bottom, each block in its shape and in a frame for its lane, though Mermaid lays them out itself, and a document is a box: Mermaid as GitHub draws it has no shape for one. Mermaid has no swimlanes either, so the frames aren't always side by side.
 
@@ -236,6 +244,8 @@ Drag from the dot under an entity to another to add a link between them. A link 
 | Zero or more | A crow's foot and a circle |
 
 A new link is one to zero or more, like one customer to their orders. Select it to change how many of each end there can be, its ends, its text, like "places", or its number. A link can go from an entity to itself, like an employee and their manager: add one with **Add a link to** in the entity's details, and it's drawn as a loop above it.
+
+Right-click an entity, an attribute's row or a link for its menu (see [Right-click menus](#right-click-menus)). An entity's menu adds an attribute to it or a link from it, to another entity or to itself, lays it out again or deletes it. An attribute's menu adds an attribute after it, makes it a key or no longer one, moves it up or down, or deletes it. A link's menu moves either end to another entity, says how many of each end there can be, moves the link up or down the list of links, or deletes it.
 
 Entities without a position are laid out automatically, from left to right. Drag one to move it: then they all stay where they are, and **Lay out again**, in an entity's details, lets the designer place that one again. **Auto layout**, in the toolbar, places them all again. Deleting an entity deletes its attributes and the links to and from it. Entities, attributes and links belong to the view, not the model.
 

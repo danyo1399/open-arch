@@ -14,7 +14,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, choose, click, mount, select } from "./dom.js";
+import { button, choose, click, menusFor, mount, select } from "./dom.js";
 
 /** A return, each block placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
@@ -69,8 +69,7 @@ async function diagram(selection: Selection = null, model: OpenArchDocument = do
         selection,
         onSelect: r.onSelect,
         edit: r.edit,
-        menuAfterEdits: async (on, then) => then(on, built.views.get("returns"), 0),
-        menuRenames: [],
+        menus: menusFor("returns"),
         onError() {},
         exportItems: [],
         snap: { settings: SNAP_DEFAULTS, set() {} },

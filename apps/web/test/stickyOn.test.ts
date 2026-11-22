@@ -2,7 +2,7 @@ import { applyOperations, buildWorkspace, computeView, type ArchElement, type Op
 import { describe, expect, it } from "vitest";
 import { NODE_H, NODE_W, placeStickies, STICKY } from "../src/canvas/autoLayout.js";
 import { besideTargets, noteDropAt, noteDropOps, withFrame, type DrawnArrow } from "../src/canvas/Canvas.js";
-import { followBlocks, type MenuRename } from "../src/canvas/flowchartMenu.js";
+import { followBlocks, type MenuRename } from "../src/canvas/diagramMenu.js";
 import type { ElementFlowNode, StickyFlowNode } from "../src/canvas/nodes.js";
 import { distanceToRoute, edgePoint, midpoint, nearestOnOutline, stickyLine } from "../src/canvas/stickyLines.js";
 import { followRenames, renamesBetween, stickyChoices, stickyTargetFor } from "../src/model.js";
@@ -167,14 +167,14 @@ describe("a note put on a block that has a new ID by the time the edit runs", ()
     expect(followBlocks(ops, [])).toBe(ops);
   });
 
-  it("is left alone by what happens to other things: a block of another view, a lane, a flow, another block", () => {
+  it("is left alone by what happens to other things: a block of another view, a lane, the flows, another block", () => {
     const others: MenuRename[] = [
       { kind: "block", view: "refunds", id: "new-process", to: "pack-it" },
       { kind: "lane", view: "returns", id: "new-process", to: "pack-it" },
       { kind: "gone", what: "lane", view: "returns", id: "new-process" },
       { kind: "gone", what: "block", view: "returns", id: "asked" },
-      { kind: "flow-gone", view: "returns", was: { from: "asked", to: "new-process" } },
-      { kind: "flows-lost", view: "returns" },
+      { kind: "removed", list: "flow", view: "returns", number: 1 },
+      { kind: "lists-lost", lists: ["flow"], view: "returns" },
     ];
     expect(followBlocks(ops, others)).toEqual(ops);
   });

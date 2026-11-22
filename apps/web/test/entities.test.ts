@@ -11,7 +11,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, checkbox, choose, click, key, mount, select, type } from "./dom.js";
+import { button, checkbox, choose, click, key, mount, select, type, menusFor } from "./dom.js";
 
 /** What the shop's DB keeps: customers and their orders, with a customer referring another. Each entity is placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
@@ -84,6 +84,7 @@ async function diagram(selection: Selection = null, model: OpenArchDocument = do
         selection,
         onSelect: r.onSelect,
         edit: r.edit,
+        menus: menusFor("data"),
         onError() {},
         exportItems: [],
         snap: { settings: SNAP_DEFAULTS, set() {} },

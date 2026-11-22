@@ -7,7 +7,7 @@ import type { Selection } from "../src/canvas/Canvas.js";
 import { StateDiagram } from "../src/canvas/StateDiagram.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { mount } from "./dom.js";
+import { mount, menusFor } from "./dom.js";
 
 /** An order's states, each placed, so nothing waits for ELK. */
 const shop: OpenArchDocument = {
@@ -43,6 +43,7 @@ async function diagram(model: OpenArchDocument = shop) {
           edits.push(typeof e === "function" ? e(ws) : e);
           return true;
         },
+        menus: menusFor("order-states"),
         onError() {},
         exportItems: [],
         snap: { settings: SNAP_DEFAULTS, set() {} },

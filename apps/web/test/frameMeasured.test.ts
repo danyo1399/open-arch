@@ -7,7 +7,7 @@ import { Canvas, type Selection } from "../src/canvas/Canvas.js";
 import { DeploymentDiagram } from "../src/canvas/DeploymentDiagram.js";
 import { StateDiagram } from "../src/canvas/StateDiagram.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
-import { mount } from "./dom.js";
+import { mount, menusFor } from "./dom.js";
 
 /**
  * React Flow watches each node's size with a ResizeObserver, and starts watching a node again when
@@ -151,6 +151,7 @@ describe("the frame round a diagram", () => {
           selection: null,
           onSelect() {},
           edit: async () => true,
+          menus: menusFor("order-states"),
           onError() {},
           exportItems: [],
           snap: { settings: SNAP_DEFAULTS, set() {} },

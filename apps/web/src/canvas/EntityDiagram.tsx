@@ -6,7 +6,7 @@
  * dot under one to another to add a link. The element whose data it is, if the view says, is the
  * frame.
  */
-import { kindLabel, type Cardinality, type ComputedView, type Entity, type EntityLink, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
+import { ATTRIBUTE_KEY_LABELS, ATTRIBUTE_KEYS, CARDINALITIES, CARDINALITY_LABELS, kindLabel, type Attribute, type AttributeKey, type Cardinality, type ComputedView, type Entity, type EntityLink, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -28,15 +28,17 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
+import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { CROW_FOOT, crowFoot, ENTITY, entityHeight, entityWidth, keyColumns } from "./entityLayout.js";
-import { FrameNode, FrameNotes, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
+import { FrameNode, FrameNotes, NotesOpener, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -264,6 +266,8 @@ interface EntityDiagramProps {
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   edit(edit: Edit): Promise<boolean>;
+  /** What the right-click menus need from the designer. */
+  menus: MenuHost;
   /** A problem drawing the diagram, to tell the person about. */
   onError(text: string): void;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
@@ -274,7 +278,7 @@ interface EntityDiagramProps {
   autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
-export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError, exportItems, snap, autoLayoutHandle }: EntityDiagramProps) {
+export function EntityDiagram({ computed: cv, selection, onSelect, edit, menus, onError, exportItems, snap, autoLayoutHandle }: EntityDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, LinkEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -473,21 +477,24 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
     return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   };
 
-  const addEntity = () => {
-    const center = middle();
+  /** A new entity goes in the middle of the canvas, or from a right-click menu, where that was. */
+  const addEntity = (at?: Point) => {
+    const center = at ?? middle();
     const occupied = nodesRef.current.filter((n) => n.type === "entity" || n.type === "sticky").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - 110, y: center.y - 40 }, occupied);
     const { ops, id } = addEntityOps(view, [spot.x, spot.y]);
     void edit([...fixPlaced(), ...ops]).then((ok) => ok && onSelect({ kind: "entity", id }, { isNew: true }));
   };
 
-  const addAttribute = () => {
-    const made = addAttributeOps(view, selection);
+  /** A new attribute goes at the end of the entity `to`, or after the attribute `to`: what's selected, or from a right-click menu, what the menu is for. */
+  const addAttribute = (to: Selection = selection) => {
+    const made = addAttributeOps(view, to);
     if (made) void edit([...fixPlaced(), ...made.ops]).then((ok) => ok && onSelect({ kind: "attribute", entity: made.entity, name: made.name }, { isNew: true }));
   };
 
-  const addSticky = () => {
-    const center = middle();
+  /** A new note goes in the middle of the canvas, or from a right-click menu, where that was. */
+  const addSticky = (at?: Point) => {
+    const center = at ?? middle();
     const id = newStickyId(view);
     const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
@@ -531,10 +538,112 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
 
   const onEntity = selection?.kind === "entity" || selection?.kind === "attribute" ? view.entities.find((e) => e.id === (selection.kind === "entity" ? selection.id : selection.entity)) : undefined;
   const addItems: MenuItem[] = [
-    { label: "Entity", onSelect: addEntity },
-    ...(onEntity ? [{ label: `Attribute of ${onEntity.name}`, onSelect: addAttribute }] : []),
-    { label: "Sticky note", divider: true, onSelect: addSticky },
+    { label: "Entity", onSelect: () => addEntity() },
+    ...(onEntity ? [{ label: `Attribute of ${onEntity.name}`, onSelect: () => addAttribute() }] : []),
+    { label: "Sticky note", divider: true, onSelect: () => addSticky() },
   ];
+
+  const notes = useContext(NotesOpener);
+  const edits: MenuEdits = { edit, select };
+
+  // Each item does what it does in the toolbar or the details, which have them all too.
+  const entityMenu = (entity: Entity): MenuItem[] => {
+    const set = (fields: Omit<Extract<Operation, { op: "update-entity" }>, "op" | "view" | "id">) => () => void edit([{ op: "update-entity", view: view.id, id: entity.id, ...fields }]);
+    const addLink = (to: string) => () => {
+      const number = view.links.length + 1;
+      void edit([{ op: "add-link", view: view.id, from: entity.id, to }]).then((ok) => ok && select({ kind: "link", number }));
+    };
+    return withDelete(
+      edits,
+      [
+        { label: "Add attribute", onSelect: () => addAttribute({ kind: "entity", id: entity.id }) },
+        // An entity can be linked to itself, as an employee is to their manager.
+        { label: "Add link to", items: view.entities.map((e) => ({ label: e.id === entity.id ? `${e.name} (itself)` : e.name, onSelect: addLink(e.id) })) },
+        ...(entity.at ? [{ label: "Lay out again", onSelect: set({ at: null }) }] : []),
+      ],
+      "Delete entity",
+      { op: "remove-entity", view: view.id, id: entity.id },
+    );
+  };
+
+  const attributeMenu = (entity: Entity, attribute: Attribute): MenuItem[] => {
+    const set = (fields: Omit<Extract<Operation, { op: "update-attribute" }>, "op" | "view" | "entity" | "name">) => () => void edit([{ op: "update-attribute", view: view.id, entity: entity.id, name: attribute.name, ...fields }]);
+    const key = (which: AttributeKey, on: boolean) => ({ label: `${ATTRIBUTE_KEY_LABELS[which]} (${which.toUpperCase()})`, onSelect: set({ keys: ATTRIBUTE_KEYS.filter((k) => (k === which ? on : attribute.keys.includes(k))) }) });
+    const [has, lacks] = [ATTRIBUTE_KEYS.filter((k) => attribute.keys.includes(k)), ATTRIBUTE_KEYS.filter((k) => !attribute.keys.includes(k))];
+    return withDelete(
+      edits,
+      [
+        { label: "Add attribute after", onSelect: () => addAttribute({ kind: "attribute", entity: entity.id, name: attribute.name }) },
+        ...(lacks.length ? [{ label: "Make it a key", items: lacks.map((k) => key(k, true)) }] : []),
+        ...(has.length ? [{ label: "No longer a key", items: has.map((k) => key(k, false)) }] : []),
+        ...moveItems("attribute", attribute.number, entity.attributes.length, (to) => set({ position: to })()),
+      ],
+      "Delete attribute",
+      { op: "remove-attribute", view: view.id, entity: entity.id, name: attribute.name },
+      // Its entity is what's left of it.
+      { kind: "entity", id: entity.id },
+    );
+  };
+
+  const linkMenu = (link: EntityLink): MenuItem[] => {
+    const update = (fields: Omit<Extract<Operation, { op: "update-link" }>, "op" | "view" | "link">) => edit([{ op: "update-link", view: view.id, link: link.number, ...fields }]);
+    const name = (id: string) => view.entities.find((e) => e.id === id)?.name ?? id;
+    const ends = (end: "from" | "to") => view.entities.filter((e) => e.id !== link[end]).map((e) => ({ label: e.name, onSelect: () => void update({ [end]: e.id }) }));
+    // How many of one end there can be, for each one of the other.
+    const howMany = (i: 0 | 1) =>
+      CARDINALITIES.filter((c) => c !== link.cardinality[i]).map((c) => ({
+        label: CARDINALITY_LABELS[c],
+        onSelect: () => {
+          const next: [Cardinality, Cardinality] = [...link.cardinality];
+          next[i] = c;
+          void update({ cardinality: next });
+        },
+      }));
+    const [from, to] = [ends("from"), ends("to")];
+    return withDelete(
+      edits,
+      [
+        ...(from.length ? [{ label: "Change from", items: from }] : []),
+        ...(to.length ? [{ label: "Change to", items: to }] : []),
+        { label: `From: how many ${name(link.from)}`, items: howMany(0) },
+        { label: `To: how many ${name(link.to)}`, items: howMany(1) },
+        ...moveItems("link", link.number, view.links.length, (to) => void update({ newLink: to }).then((ok) => ok && select({ kind: "link", number: to }))),
+      ],
+      "Delete link",
+      { op: "remove-link", view: view.id, link: link.number },
+    );
+  };
+
+  /**
+   * The right-click menus: for an entity, one of its attributes, a link or a sticky note, which
+   * the click selects, and for the diagram, after a click on the background or the frame. See
+   * useDiagramMenu for how one opens and closes.
+   */
+  const menu = useDiagramMenu({
+    view,
+    selection,
+    select,
+    host: menus,
+    toDiagram: (point) => rf.screenToFlowPosition(point),
+    items: (on, at) => {
+      if (on.kind === "diagram") {
+        const add: MenuItem[] = [
+          { label: "Entity", onSelect: () => addEntity(at) },
+          { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
+        ];
+        return diagramItems(add, view.entities.length > 0 ? autoLayout.run : undefined, exportItems);
+      }
+      const entity = (on.kind === "entity" || on.kind === "attribute") && view.entities.find((e) => e.id === (on.kind === "entity" ? on.id : on.entity));
+      if (entity && on.kind === "entity") return entityMenu(entity);
+      const attribute = entity && on.kind === "attribute" && entity.attributes.find((a) => a.name === on.name);
+      if (entity && attribute) return attributeMenu(entity, attribute);
+      const link = on.kind === "link" && view.links[on.number - 1];
+      if (link) return linkMenu(link);
+      const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
+      if (!sticky) return [];
+      return stickyItems(edits, view.id, sticky, { editText: () => setEditing(sticky.id), openNotes: notes ? () => notes.sticky(sticky.id) : undefined, back: "Move beside the diagram" });
+    },
+  });
 
   const scope = cv.boundary;
   return (
@@ -558,6 +667,15 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
         }}
         onEdgeClick={(_, edge) => edge.data && select({ kind: "link", number: edge.data.link.number })}
         onPaneClick={() => select(null)}
+        onNodeContextMenu={(event, node) => {
+          // On an attribute's row, it's the attribute's menu, as a click there selects it.
+          if (node.type === "entity") menu.open(event, clickedOn(node.id, event.target));
+          else if (node.type === "sticky") menu.open(event, { kind: "sticky", id: node.data.sticky.id });
+        }}
+        // A link's text is drawn apart from its line, but a right-click on it comes here too.
+        onEdgeContextMenu={(event, edge) => edge.data && menu.open(event, { kind: "link", number: edge.data.link.number })}
+        // The frame takes no clicks, so a right-click on it is one on the background.
+        onPaneContextMenu={(event) => menu.open(event, null)}
         nodeClickDistance={4}
         paneClickDistance={4}
         connectionMode={ConnectionMode.Loose}
@@ -601,6 +719,7 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, onError
           This entity view has no entities yet. Use <strong>+ Add</strong> to add one, then, with it selected, + Add adds its attributes. Drag from the dot under an entity to another to add a link between them.
         </div>
       )}
+      {menu.menu}
     </div>
   );
 }
