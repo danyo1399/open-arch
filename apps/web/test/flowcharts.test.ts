@@ -67,7 +67,7 @@ async function diagram(selection: Selection = null, model: OpenArchDocument = do
         selection,
         onSelect: r.onSelect,
         edit: r.edit,
-        afterEdits: async (look) => look(built),
+        menuAfterEdits: async (on, then) => then(on, built.views.get("returns")),
         onError() {},
         exportItems: [],
         snap: { settings: SNAP_DEFAULTS, set() {} },

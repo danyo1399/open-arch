@@ -3,11 +3,13 @@ import { applyOperations, buildWorkspace, loadWorkspace, serializeDocument, type
 import { act, createElement } from "react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { STICKY } from "../src/canvas/autoLayout.js";
-import { blockPlaceAt, canFlow, menuFor } from "../src/canvas/FlowchartDiagram.js";
+import type { Selection } from "../src/canvas/Canvas.js";
+import { blockPlaceAt, canFlow } from "../src/canvas/FlowchartDiagram.js";
 import type { LaneColumn } from "../src/canvas/flowchartLayout.js";
+import { followMenu, menuOn, menuRenamesIn, sameSelection, selectionOf, type MenuRename } from "../src/canvas/flowchartMenu.js";
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
-import { button, click, key, mount } from "./dom.js";
+import { button, choose, click, key, mount, select } from "./dom.js";
 
 /**
  * React Flow draws arrows once it has measured the blocks, and this page has no layout. So, as in
@@ -184,8 +186,8 @@ async function designer(model: OpenArchDocument = doc, file: MemoryHost = new Me
     pane: () => host.querySelector(".react-flow__pane")!,
     /** What the details panel is showing, as its heading says. */
     details: () => host.querySelector(".props-header")!.textContent,
-    /** The flowchart as the file now has it. */
-    saved: async () => loadWorkspace(await file.load()).views.get("returns")!,
+    /** The flowchart as the file now has it, under this ID. */
+    saved: async (id = "returns") => loadWorkspace(await file.load()).views.get(id)!,
   };
 }
 
@@ -240,79 +242,154 @@ describe("the flows a flowchart can have", () => {
   });
 });
 
-describe("what a right-click menu is for, once the edits made before the click have landed", () => {
-  const was = buildWorkspace(doc).views.get("returns")!;
-  /** The flowchart after these edits. */
-  const after = (ops: Operation[], from: OpenArchDocument = doc) => buildWorkspace(applyOperations(buildWorkspace(from).doc, ops).doc).views.get("returns")!;
-  const flow = (number: number, from: string, to: string, text?: string) => ({ kind: "flow", flow: expect.objectContaining({ number, from, to, text }) });
+describe("what a right-click menu is for, followed through the edits that land before it opens", () => {
+  /**
+   * What the menu for a right-click on this is for, and what's selected with it open, once these
+   * edits have landed, one after another: what was clicked, followed through what each did, then
+   * looked for in the flowchart as they leave it. Null when it isn't there.
+   */
+  const landed = (on: Selection, edits: Operation[][], from: OpenArchDocument = doc, viewId = "returns") => {
+    let ws = buildWorkspace(from);
+    const clicked = menuOn(ws.views.get(viewId)!, on)!;
+    const renames: MenuRename[] = [];
+    for (const ops of edits) {
+      renames.push(...menuRenamesIn(ops, ws));
+      ws = buildWorkspace(applyOperations(ws.doc, ops).doc);
+    }
+    const followed = followMenu(clicked, viewId, renames);
+    const view = ws.views.get(followed.view);
+    const selected = view && selectionOf(view, followed.on);
+    return selected === undefined ? null : { on: followed.on, selected, view: followed.view };
+  };
 
-  it("is what was clicked, while it's there, or the diagram for the background", () => {
-    expect(menuFor(was, was, { kind: "block", id: "refund" })).toEqual({ kind: "block", id: "refund" });
-    expect(menuFor(was, was, { kind: "sticky", id: "note" })).toEqual({ kind: "sticky", id: "note" });
-    expect(menuFor(was, was, { kind: "flow", number: 2 })).toEqual(flow(2, "in-time", "refund", "Yes"));
-    expect(menuFor(was, was, null)).toEqual({ kind: "diagram" });
-    const lanes = buildWorkspace(laned).views.get("returns")!;
-    expect(menuFor(lanes, lanes, { kind: "lane", id: "shop" })).toEqual({ kind: "lane", id: "shop" });
-    // Whatever else changed, a block that's there under its ID is that block.
-    expect(menuFor(was, after([{ op: "remove-block", view: "returns", id: "asked" }, { op: "update-block", view: "returns", id: "refund", position: 1 }]), { kind: "block", id: "refund" })).toEqual({ kind: "block", id: "refund" });
+  it("is what was clicked, or the diagram for the background", () => {
+    const view = buildWorkspace(doc).views.get("returns")!;
+    expect(menuOn(view, { kind: "block", id: "refund" })).toEqual({ kind: "block", id: "refund" });
+    expect(menuOn(view, { kind: "sticky", id: "note" })).toEqual({ kind: "sticky", id: "note" });
+    // A flow goes by its ends and text: its number is only its place in the list.
+    expect(menuOn(view, { kind: "flow", number: 2 })).toEqual({ kind: "flow", from: "in-time", to: "refund", text: "Yes" });
+    expect(menuOn(view, null)).toEqual({ kind: "diagram" });
+    expect(menuOn(buildWorkspace(laned).views.get("returns")!, { kind: "lane", id: "shop" })).toEqual({ kind: "lane", id: "shop" });
+    // Nothing for what the flowchart doesn't have, or what's selected on another kind of view.
+    expect(menuOn(view, { kind: "block", id: "gone" })).toBeNull();
+    expect(menuOn(view, { kind: "flow", number: 9 })).toBeNull();
+    expect(menuOn(view, { kind: "lane", id: "shop" })).toBeNull();
+    expect(menuOn(view, { kind: "element", id: "shop" })).toBeNull();
   });
 
-  it("follows a block or a lane given a new ID, when nothing else came or went", () => {
-    const renamed = after([{ op: "update-block", view: "returns", id: "say-no", text: "Turn it down", newId: "turn-it-down" }]);
-    expect(menuFor(was, renamed, { kind: "block", id: "say-no" })).toEqual({ kind: "block", id: "turn-it-down" });
-    expect(menuFor(was, renamed, { kind: "block", id: "refund" })).toEqual({ kind: "block", id: "refund" });
-    const lanes = buildWorkspace(laned).views.get("returns")!;
-    const staff = after([{ op: "update-lane", view: "returns", id: "shop", name: "Shop staff", newId: "shop-staff" }], laned);
-    expect(menuFor(lanes, staff, { kind: "lane", id: "shop" })).toEqual({ kind: "lane", id: "shop-staff" });
+  it("selects what it's for while it's open, a flow at the number it has now", () => {
+    const view = buildWorkspace(doc).views.get("returns")!;
+    expect(selectionOf(view, { kind: "block", id: "refund" })).toEqual({ kind: "block", id: "refund" });
+    expect(selectionOf(view, { kind: "flow", from: "in-time", to: "say-no", text: "No" })).toEqual({ kind: "flow", number: 3 });
+    expect(selectionOf(view, { kind: "diagram" })).toBeNull();
+    expect(selectionOf(view, { kind: "block", id: "gone" })).toBeUndefined();
+    expect(selectionOf(view, { kind: "flow", from: "in-time", to: "say-no", text: "Maybe" })).toBeUndefined();
+    expect(sameSelection({ kind: "flow", number: 3 }, { kind: "flow", number: 3 })).toBe(true);
+    expect(sameSelection({ kind: "flow", number: 3 }, { kind: "flow", number: 2 })).toBe(false);
+    expect(sameSelection({ kind: "block", id: "refund" }, { kind: "block", id: "refund" })).toBe(true);
+    expect(sameSelection({ kind: "block", id: "shop" }, { kind: "lane", id: "shop" })).toBe(false);
+    expect(sameSelection(null, null)).toBe(true);
+    expect(sameSelection(null, { kind: "block", id: "refund" })).toBe(false);
   });
 
-  it("is nothing when what was clicked is gone, or there's no telling which it is now", () => {
-    expect(menuFor(was, after([{ op: "remove-block", view: "returns", id: "say-no" }]), { kind: "block", id: "say-no" })).toBeNull();
-    expect(menuFor(was, after([{ op: "remove-sticky", view: "returns", id: "note" }]), { kind: "sticky", id: "note" })).toBeNull();
-    expect(menuFor(was, after([{ op: "remove-flow", view: "returns", flow: 2 }]), { kind: "flow", number: 2 })).toBeNull();
-    // A block went and another came, but not in its place: they aren't taken for the same block.
-    const replaced = after([
-      { op: "remove-block", view: "returns", id: "say-no" },
-      { op: "add-block", view: "returns", id: "escalate", text: "Escalate" },
-    ]);
-    expect(menuFor(was, replaced, { kind: "block", id: "say-no" })).toBeNull();
-    // A new ID and a new block at once: it could be either.
-    const both = after([
-      { op: "update-block", view: "returns", id: "say-no", newId: "turn-it-down" },
-      { op: "add-block", view: "returns", id: "escalate", text: "Escalate" },
-    ]);
-    expect(menuFor(was, both, { kind: "block", id: "say-no" })).toBeNull();
-    const lanes = buildWorkspace(laned).views.get("returns")!;
-    expect(menuFor(lanes, after([{ op: "remove-lane", view: "returns", id: "shop" }], laned), { kind: "lane", id: "shop" })).toBeNull();
-    // What's selected on another kind of view has no menu here.
-    expect(menuFor(was, was, { kind: "element", id: "shop" })).toBeNull();
+  it("stays what it was through edits to other things", () => {
+    const others: Operation[][] = [[{ op: "remove-block", view: "returns", id: "asked" }], [{ op: "update-block", view: "returns", id: "refund", position: 1 }], [{ op: "update-block", view: "returns", id: "say-no", newId: "turn-it-down" }]];
+    expect(landed({ kind: "block", id: "refund" }, others)).toMatchObject({ on: { kind: "block", id: "refund" } });
+    expect(landed({ kind: "sticky", id: "note" }, others)).toMatchObject({ on: { kind: "sticky", id: "note" } });
+    expect(landed(null, others)).toEqual({ on: { kind: "diagram" }, selected: null, view: "returns" });
   });
 
-  it("follows a flow to its new number, through new text, and through a block's new ID", () => {
-    const moved = after([{ op: "update-flow", view: "returns", flow: 2, newFlow: 4 }]);
-    expect(menuFor(was, moved, { kind: "flow", number: 2 })).toEqual(flow(4, "in-time", "refund", "Yes"));
-    // The flow that took its number isn't it.
-    expect(menuFor(was, moved, { kind: "flow", number: 3 })).toEqual(flow(2, "in-time", "say-no", "No"));
-    expect(menuFor(was, after([{ op: "remove-flow", view: "returns", flow: 1 }]), { kind: "flow", number: 2 })).toEqual(flow(1, "in-time", "refund", "Yes"));
-    // Its own text or ends changed, and no other flow did: it's the one in its place.
-    expect(menuFor(was, after([{ op: "update-flow", view: "returns", flow: 2, text: "Sure" }]), { kind: "flow", number: 2 })).toEqual(flow(2, "in-time", "refund", "Sure"));
-    expect(menuFor(was, after([{ op: "update-flow", view: "returns", flow: 4, to: "asked" }]), { kind: "flow", number: 4 })).toEqual(flow(4, "refund", "asked"));
+  it("follows a block or a lane through the edit that gives it a new ID", () => {
+    expect(landed({ kind: "block", id: "say-no" }, [[{ op: "update-block", view: "returns", id: "say-no", text: "Turn it down", newId: "turn-it-down" }]])).toMatchObject({
+      on: { kind: "block", id: "turn-it-down" },
+      selected: { kind: "block", id: "turn-it-down" },
+    });
+    // And through one after another.
+    const twice: Operation[][] = [[{ op: "update-block", view: "returns", id: "say-no", newId: "refuse" }], [{ op: "update-block", view: "returns", id: "refuse", newId: "turn-it-down" }]];
+    expect(landed({ kind: "block", id: "say-no" }, twice)).toMatchObject({ on: { kind: "block", id: "turn-it-down" } });
+    expect(landed({ kind: "lane", id: "shop" }, [[{ op: "update-lane", view: "returns", id: "shop", name: "Shop staff", newId: "shop-staff" }]], laned)).toMatchObject({ on: { kind: "lane", id: "shop-staff" } });
+    // A lane and a block can share an ID: one's new ID isn't the other's.
+    const shared = structuredClone(laned);
+    shared.views.returns!.blocks!.push({ id: "shop", text: "Open the shop", lane: "customer" });
+    expect(landed({ kind: "block", id: "shop" }, [[{ op: "update-lane", view: "returns", id: "shop", newId: "shop-staff" }]], shared)).toMatchObject({ on: { kind: "block", id: "shop" } });
+  });
+
+  it("isn't taken for another block or flow that comes as it goes, whatever place that takes", () => {
+    // The last block deleted, and a new one added at the end, where it was.
+    const swapped: Operation[][] = [[{ op: "remove-block", view: "returns", id: "done" }], [{ op: "add-block", view: "returns", id: "new-process", text: "New process" }]];
+    expect(landed({ kind: "block", id: "done" }, swapped)).toBeNull();
+    expect(landed({ kind: "block", id: "done" }, [[...swapped[0]!, ...swapped[1]!]])).toBeNull();
+    // The last flow deleted, and another added, which gets its number.
+    const drawn: Operation[][] = [[{ op: "remove-flow", view: "returns", flow: 4 }], [{ op: "add-flow", view: "returns", from: "say-no", to: "done" }]];
+    expect(landed({ kind: "flow", number: 4 }, drawn)).toBeNull();
+    expect(landed({ kind: "lane", id: "shop" }, [[{ op: "remove-lane", view: "returns", id: "shop" }], [{ op: "add-lane", view: "returns", id: "new-lane" }]], laned)).toBeNull();
+    expect(landed({ kind: "sticky", id: "note" }, [[{ op: "remove-sticky", view: "returns", id: "note" }], [{ op: "add-sticky", view: "returns", id: "note-2", text: "Another" }]])).toBeNull();
+  });
+
+  it("follows a flow to its new number, through its new text or ends, and through a block's new ID", () => {
+    const yes = { kind: "flow", number: 2 } as const;
+    expect(landed(yes, [[{ op: "update-flow", view: "returns", flow: 2, newFlow: 4 }]])).toMatchObject({ on: { from: "in-time", to: "refund", text: "Yes" }, selected: { kind: "flow", number: 4 } });
+    expect(landed(yes, [[{ op: "remove-flow", view: "returns", flow: 1 }]])).toMatchObject({ selected: { kind: "flow", number: 1 } });
+    // The flow that takes its number isn't it.
+    expect(landed({ kind: "flow", number: 3 }, [[{ op: "update-flow", view: "returns", flow: 2, newFlow: 4 }]])).toMatchObject({ on: { to: "say-no", text: "No" }, selected: { kind: "flow", number: 2 } });
+    expect(landed(yes, [[{ op: "update-flow", view: "returns", flow: 2, text: " Sure " }]])).toMatchObject({ on: { from: "in-time", to: "refund", text: "Sure" }, selected: yes });
+    expect(landed({ kind: "flow", number: 4 }, [[{ op: "update-flow", view: "returns", flow: 4, to: "asked" }]])).toMatchObject({ on: { from: "refund", to: "asked" }, selected: { kind: "flow", number: 4 } });
+    // Text taken off, then the flow moved: each edit is followed from where the last left it.
+    const steps: Operation[][] = [[{ op: "update-flow", view: "returns", flow: 2, text: null }], [{ op: "update-flow", view: "returns", flow: 2, newFlow: 1 }], [{ op: "update-flow", view: "returns", flow: 1, from: "say-no" }]];
+    const followed = landed(yes, steps)!;
+    expect(followed.on).toEqual({ kind: "flow", from: "say-no", to: "refund", text: undefined });
+    expect(followed.selected).toEqual({ kind: "flow", number: 1 });
+    // Another flow's new text isn't this one's.
+    expect(landed(yes, [[{ op: "update-flow", view: "returns", flow: 3, text: "Never" }]])).toMatchObject({ on: { text: "Yes" }, selected: yes });
     // Every flow of a block given a new ID has a new end, and each is still told from the others.
-    const renamed = after([{ op: "update-block", view: "returns", id: "in-time", newId: "on-time" }]);
-    expect(menuFor(was, renamed, { kind: "flow", number: 2 })).toEqual(flow(2, "on-time", "refund", "Yes"));
-    expect(menuFor(was, renamed, { kind: "flow", number: 3 })).toEqual(flow(3, "on-time", "say-no", "No"));
-    // Its text changed and another flow went: there's no telling which it is.
+    const renamed: Operation[][] = [[{ op: "update-block", view: "returns", id: "in-time", newId: "on-time" }]];
+    expect(landed(yes, renamed)).toMatchObject({ on: { from: "on-time", to: "refund", text: "Yes" }, selected: yes });
+    expect(landed({ kind: "flow", number: 3 }, renamed)).toMatchObject({ on: { from: "on-time", to: "say-no", text: "No" } });
+  });
+
+  it("loses a flow that's deleted, or changed by an edit that does more, where its number can't be trusted", () => {
+    expect(landed({ kind: "flow", number: 2 }, [[{ op: "remove-flow", view: "returns", flow: 2 }]])).toBeNull();
     expect(
-      menuFor(
-        was,
-        after([
-          { op: "update-flow", view: "returns", flow: 2, text: "Sure" },
-          { op: "remove-flow", view: "returns", flow: 4 },
-        ]),
-        { kind: "flow", number: 2 },
-      ),
+      landed({ kind: "flow", number: 2 }, [
+        [
+          { op: "remove-flow", view: "returns", flow: 1 },
+          { op: "update-flow", view: "returns", flow: 1, text: "Sure" },
+        ],
+      ]),
     ).toBeNull();
-    expect(menuFor(was, was, { kind: "flow", number: 9 })).toBeNull();
+    // Without the workspace an edit was made on, there's no telling which flow it changed.
+    expect(menuRenamesIn([{ op: "update-flow", view: "returns", flow: 2, text: "Sure" }])).toEqual([]);
+    // A flow moved, or told to be what it is already, has the ends and text it had.
+    expect(menuRenamesIn([{ op: "update-flow", view: "returns", flow: 2, newFlow: 1 }], buildWorkspace(doc))).toEqual([]);
+    expect(menuRenamesIn([{ op: "update-block", view: "returns", id: "refund", newId: "refund" }], buildWorkspace(doc))).toEqual([]);
+  });
+
+  it("is nothing for two flows with the same ends and text, as only a file written by hand has, which nothing tells apart", () => {
+    const twins = structuredClone(doc);
+    twins.views.returns!.flows!.push({ from: "asked", to: "in-time" });
+    const view = buildWorkspace(twins).views.get("returns")!;
+    expect(menuOn(view, { kind: "flow", number: 1 })).toBeNull();
+    expect(menuOn(view, { kind: "flow", number: 5 })).toBeNull();
+    expect(menuOn(view, { kind: "flow", number: 2 })).toEqual({ kind: "flow", from: "in-time", to: "refund", text: "Yes" });
+    expect(selectionOf(view, { kind: "flow", from: "asked", to: "in-time" })).toBeUndefined();
+  });
+
+  it("follows the flowchart through its own new ID, and leaves another flowchart's blocks alone", () => {
+    const retitled: Operation[][] = [
+      [
+        { op: "update-view", id: "returns", title: "Refunds" },
+        { op: "rename", id: "returns", to: "refunds" },
+      ],
+      [{ op: "update-block", view: "refunds", id: "say-no", newId: "turn-it-down" }],
+    ];
+    expect(landed({ kind: "block", id: "say-no" }, retitled)).toMatchObject({ on: { kind: "block", id: "turn-it-down" }, view: "refunds" });
+    expect(landed(null, retitled)).toEqual({ on: { kind: "diagram" }, selected: null, view: "refunds" });
+    // Another flowchart has a block of the same ID, which gets a new one.
+    const two = structuredClone(doc);
+    two.views.exchanges = { title: "Exchanges", level: "flowchart", blocks: [{ id: "say-no", text: "Say no" }] };
+    expect(landed({ kind: "block", id: "say-no" }, [[{ op: "update-block", view: "exchanges", id: "say-no", newId: "decline" }]], two)).toMatchObject({ on: { kind: "block", id: "say-no" }, view: "returns" });
+    // An element's new ID is no view's.
+    expect(landed({ kind: "block", id: "say-no" }, [[{ op: "rename", id: "shop", to: "store" }]])).toMatchObject({ on: { kind: "block", id: "say-no" }, view: "returns" });
   });
 });
 
@@ -672,7 +749,7 @@ describe("a flowchart's right-click menu, opened with the keyboard", () => {
 
 describe("a flowchart's right-click menu, as the flowchart changes under it", () => {
   /** Types into a text area and leaves it, which saves it. */
-  const write = async (box: HTMLTextAreaElement, text: string) => {
+  const write = async (box: HTMLTextAreaElement | HTMLInputElement, text: string) => {
     await act(async () => {
       Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), "value")!.set!.call(box, text);
       box.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
@@ -719,6 +796,22 @@ describe("a flowchart's right-click menu, as the flowchart changes under it", ()
     expect((await d.saved()).blocks.map((b) => b.id)).toEqual(["asked", "in-time", "turn-it-down", "done"]);
   });
 
+  it("is for the block that's drawn, not one that had its ID before", async () => {
+    const d = await designer();
+    // The block that said no gets new text, and a new ID with it.
+    await click(d.node("say-no")!);
+    await write(d.host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Text"]')!, "Turn it down");
+    await d.settle();
+    // Then the refund is given the ID it had. Both edits are drawn by now, so neither is followed again.
+    await click(d.node("refund")!);
+    await write(d.host.querySelector<HTMLInputElement>('input[aria-label="ID"]')!, "say-no");
+    await d.settle();
+    await d.rightClick(d.node("say-no")!);
+    expect(text(d)).toBe("Refund the card");
+    await d.pick("Delete block");
+    expect((await d.saved()).blocks.map((b) => b.id)).toEqual(["asked", "in-time", "turn-it-down", "done"]);
+  });
+
   it("doesn't open when what was right-clicked is gone once the edits before it have landed", async () => {
     const file = new SlowHost("shop.openarch", serializeDocument(doc));
     const d = await designer(doc, file);
@@ -733,6 +826,122 @@ describe("a flowchart's right-click menu, as the flowchart changes under it", ()
     expect(d.menuOpen()).toBe(false);
   });
 
+  it("doesn't open on a block added at the end, for the last block, deleted just before", async () => {
+    const file = new SlowHost("shop.openarch", serializeDocument(doc));
+    const d = await designer(doc, file);
+    await click(d.node("done")!);
+    file.hold = true;
+    await click(button(d.host, "Delete block"));
+    // With nothing selected, + Add puts the new block last, where the deleted one was.
+    await click(d.pane());
+    await click(button(d.host, "+ Add"));
+    await d.pick("Process");
+    await d.rightClick(d.node("done")!);
+    file.release();
+    await d.settle();
+    expect((await d.saved()).blocks.map((b) => b.id)).toEqual(["asked", "in-time", "refund", "say-no", "new-process"]);
+    expect(d.menuOpen()).toBe(false);
+  });
+
+  it("doesn't open on a flow added since, for the last flow, deleted just before", async () => {
+    const file = new SlowHost("shop.openarch", serializeDocument(doc));
+    const d = await designer(doc, file);
+    await click(d.flow(4)!);
+    expect(d.details()).toBe("Flow 4of 4");
+    file.hold = true;
+    await click(button(d.host, "Delete flow"));
+    // The details are still the flow's, as its delete hasn't landed: another block's add a flow, which gets its number.
+    await click(d.node("say-no")!);
+    await choose(select(d.host, "Add a flow to"), "done");
+    await d.rightClick(d.flow(4)!);
+    file.release();
+    await d.settle();
+    expect((await d.saved()).flows.map((f) => `${f.from}>${f.to}`)).toEqual(["asked>in-time", "in-time>refund", "in-time>say-no", "say-no>done"]);
+    expect(d.menuOpen()).toBe(false);
+  });
+
+  it("opens on a flow under the number it has once a flow before it is deleted", async () => {
+    const file = new SlowHost("shop.openarch", serializeDocument(doc));
+    const d = await designer(doc, file);
+    await click(d.flow(1)!);
+    file.hold = true;
+    await click(button(d.host, "Delete flow"));
+    await d.rightClick(d.flow(3)!);
+    file.release();
+    await d.settle();
+    // The flow that said No was flow 3, and is flow 2 now.
+    expect(d.details()).toBe("Flow 2of 3");
+    await d.pick("Delete flow");
+    expect((await d.saved()).flows.map((f) => f.text)).toEqual(["Yes", undefined]);
+  });
+
+  it("opens on a flow whose text was typed just before, once that's saved", async () => {
+    const file = new SlowHost("shop.openarch", serializeDocument(doc));
+    const d = await designer(doc, file);
+    await click(d.flow(2)!);
+    file.hold = true;
+    await write(d.host.querySelector<HTMLInputElement>('input[aria-label="Text"]')!, "Sure");
+    await d.rightClick(d.flow(2)!);
+    expect(d.menuOpen()).toBe(false);
+    file.release();
+    await d.settle();
+    expect(d.details()).toBe("Flow 2of 4");
+    await d.pick("Move down, to flow 3");
+    expect((await d.saved()).flows.map((f) => f.text)).toEqual([undefined, "No", "Sure", undefined]);
+  });
+
+  it("opens once a title typed just before has given the flowchart a new ID, on the same diagram", async () => {
+    const file = new SlowHost("shop.openarch", serializeDocument(doc));
+    const d = await designer(doc, file);
+    const pane = d.pane();
+    file.hold = true;
+    // The view's ID follows its title, so this renames the view.
+    await write(d.host.querySelector<HTMLInputElement>('input[aria-label="Title"]')!, "Refunds");
+    await d.rightClick(d.pane(), { x: 1500, y: 600 });
+    expect(d.menuOpen()).toBe(false);
+    file.release();
+    await d.settle();
+    expect(d.host.querySelector<HTMLInputElement>('input[aria-label="ID"]')!.value).toBe("refunds");
+    // The diagram wasn't made again for the new ID, which would have dropped the menu and fitted it again.
+    expect(d.pane()).toBe(pane);
+    expect(d.labels()).toEqual(["Add", "Auto layout", "Export"]);
+    await d.pick("Add", "Process");
+    expect((await d.saved("refunds")).blocks.at(-1)).toMatchObject({ id: "new-process", at: [1410, 574] });
+
+    // A block's menu too, after another title.
+    file.hold = true;
+    await click(d.pane());
+    await write(d.host.querySelector<HTMLInputElement>('input[aria-label="Title"]')!, "Money back");
+    await d.rightClick(d.node("refund")!);
+    file.release();
+    await d.settle();
+    expect(d.details()).toBe("Process");
+    await d.pick("Delete block");
+    expect((await d.saved("money-back")).blocks.map((b) => b.id)).toEqual(["asked", "in-time", "say-no", "done", "new-process"]);
+  });
+
+  it("opens straight after a new title when saving takes no time, too", async () => {
+    const d = await designer();
+    await write(d.host.querySelector<HTMLInputElement>('input[aria-label="Title"]')!, "Refunds");
+    await d.rightClick(d.pane());
+    expect(d.labels()).toEqual(["Add", "Auto layout", "Export"]);
+  });
+
+  it("opens another view's diagram afresh", async () => {
+    const two = structuredClone(doc);
+    two.views.exchanges = { title: "Exchanges", level: "flowchart", blocks: [{ id: "swap", text: "Swap it", at: [0, 0] }] };
+    const d = await designer(two);
+    const pane = d.pane();
+    await d.rightClick(d.node("swap")!);
+    expect(d.menuOpen()).toBe(true);
+    const returns = [...d.host.querySelectorAll<HTMLElement>(".sidebar .row-main")].find((r) => r.textContent?.includes("Returns"))!;
+    await click(returns);
+    await d.settle();
+    expect(d.node("refund")).not.toBeNull();
+    expect(d.pane()).not.toBe(pane);
+    expect(d.menuOpen()).toBe(false);
+  });
+
   it("is called off by a press while it waits", async () => {
     const { d, file } = await renaming("say-no", "Turn it down");
     await d.rightClick(d.node("refund")!);
@@ -743,6 +952,30 @@ describe("a flowchart's right-click menu, as the flowchart changes under it", ()
     await d.settle();
     expect(d.node("turn-it-down")).not.toBeNull();
     expect(d.menuOpen()).toBe(false);
+  });
+
+  it("is called off by a key while it waits, as a shortcut's edit would land after it opened", async () => {
+    const { d, file } = await renaming("say-no", "Turn it down");
+    await d.rightClick(d.node("refund")!);
+    // Escape selects nothing; the menu doesn't then open and select the block again.
+    await key(document.body, "Escape");
+    file.release();
+    await d.settle();
+    expect(d.node("turn-it-down")).not.toBeNull();
+    expect(d.menuOpen()).toBe(false);
+  });
+
+  it("is called off by the wheel, which moves the diagram from under it, and by the window changing size or losing the focus", async () => {
+    for (const event of [new WheelEvent("wheel", { bubbles: true }), new Event("resize"), new Event("blur")]) {
+      const { d, file } = await renaming("say-no", "Turn it down");
+      await d.rightClick(d.node("refund")!);
+      await act(async () => {
+        (event.type === "wheel" ? d.pane() : window).dispatchEvent(event);
+      });
+      file.release();
+      await d.settle();
+      expect(d.menuOpen(), event.type).toBe(false);
+    }
   });
 
   it("opens only the last one asked for", async () => {

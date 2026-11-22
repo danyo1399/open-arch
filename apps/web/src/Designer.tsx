@@ -25,6 +25,7 @@ import { WhiteboardDiagram } from "./canvas/WhiteboardDiagram.js";
 import { WireframeDiagram } from "./canvas/WireframeDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
 import { FlowchartDiagram } from "./canvas/FlowchartDiagram.js";
+import { followMenu, menuRenamesIn, selectionOf, type MenuFor, type MenuRename } from "./canvas/flowchartMenu.js";
 import { NotesOpener } from "./canvas/nodes.js";
 import { EntityDiagram } from "./canvas/EntityDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
@@ -182,6 +183,20 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const autoLayout = useRef<AutoLayout | null>(null);
   /** How many of them this render's IDs reflect. */
   const [renamesSeen, setRenamesSeen] = useState(0);
+  /** Everything edits did that a flowchart's right-click menu follows (see flowchartMenu.ts), in order, and how many of them this render reflects. */
+  const menuRenames = useRef<MenuRename[]>([]);
+  const [menuRenamesSeen, setMenuRenamesSeen] = useState(0);
+  /**
+   * Which opening of a view this is: a number that tells the flowchart that's open from the next
+   * view opened, and stays the same when its view is only given a new ID. So a rename doesn't
+   * make the flowchart's diagram again, which would lose a right-click menu waiting for that
+   * rename to land. Set while rendering, so no render pairs a view with another's number.
+   */
+  const [opening, setOpening] = useState({ view: viewId, seen: renamesSeen, number: 0 });
+  if (opening.view !== viewId || opening.seen !== renamesSeen) {
+    const renamed = opening.view !== null && renamedId(renames.current.slice(opening.seen, renamesSeen), opening.view) === viewId;
+    setOpening({ view: viewId, seen: renamesSeen, number: renamed ? opening.number : opening.number + 1 });
+  }
   /** How the Views list is sorted, and the views pinned to its top: this person's, not the file's. */
   const viewSettings = useViewSettings(host.key);
   /** What boxes and notes snap to as they're dragged, on every view: this person's too. */
@@ -191,7 +206,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   // What's open follows a rename in the same render as the rename lands. A render in between
   // would show something else in its place (the view's details for a renamed element), and a
   // button being pressed there would go with it.
-  const state = useWorkspace(host, (ops) => {
+  const state = useWorkspace(host, (ops, before) => {
+    menuRenames.current.push(...menuRenamesIn(ops, before));
+    setMenuRenamesSeen(menuRenames.current.length);
     const applied = renamesIn(ops);
     if (applied.length === 0) return;
     renames.current.push(...applied);
@@ -376,6 +393,22 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
       });
     },
     [afterEdits, current],
+  );
+  /**
+   * For a flowchart's right-click menu, which opens once the edits made before the click have
+   * landed: tells `then` what the menu is for by then, and the flowchart as it then is. `on` is
+   * what was clicked in this render's flowchart, `viewId`. It's followed through what every edit
+   * this render doesn't show has done to it and to the view, the ones already on their way and
+   * any that landed since the render. Null when it's gone by then, or an edit lost track of it.
+   */
+  const menuAfterEdits = useCallback(
+    (viewId: string, on: MenuFor, then: (on: MenuFor | null, view?: ViewDef) => void) =>
+      afterEdits((now) => {
+        const landed = followMenu(on, viewId, menuRenames.current.slice(menuRenamesSeen));
+        const view = now?.views.get(landed.view);
+        then(view && selectionOf(view, landed.on) !== undefined ? landed.on : null, view);
+      }),
+    [afterEdits, menuRenamesSeen],
   );
   const notesOpener = useMemo(
     () => (viewId ? { element: (id: string) => openNotes({ kind: "element", id }), sticky: (id: string) => openNotes({ kind: "sticky", view: viewId, id }) } : null),
@@ -874,13 +907,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             )
           ) : view?.level === "flowchart" ? (
             computed ? (
-              <ReactFlowProvider key={view.id}>
+              // Not keyed by the view's ID, so it isn't made again when the view is given a new one.
+              <ReactFlowProvider key={`flowchart:${opening.number}`}>
                 <FlowchartDiagram
                   computed={computed}
                   selection={selection}
                   onSelect={selectOnCanvas}
                   edit={edit}
-                  afterEdits={afterEdits}
+                  menuAfterEdits={(on, then) => menuAfterEdits(view.id, on, then)}
                   onError={(text) => state.notify({ kind: "error", text })}
                   exportItems={exportItems(computed)}
                   snap={snap}

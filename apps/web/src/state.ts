@@ -135,10 +135,12 @@ const renamesFrom = (before: string, after: string) => renamesBetween(loadWorksp
 /**
  * `onApplied` hears the operations of each edit as it's applied, in the same render as the
  * workspace they make, so what the designer has open can follow a rename without a render in
- * between where it points at an ID that's gone. Undo, Redo, a restore and a reload write a whole
- * version of the file instead, and it hears the renames they make.
+ * between where it points at an ID that's gone. It's given `before` too, the workspace they were
+ * applied to, which says what an operation that goes by a place in a list changed. Undo, Redo, a
+ * restore and a reload write a whole version of the file instead, and it hears the renames they
+ * make, without the workspace before.
  */
-export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[]) => void): WorkspaceState {
+export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[], before?: Workspace) => void): WorkspaceState {
   const [text, setText] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [history, setHistory] = useState<History>({ base: 0, steps: [], done: 0 });
@@ -297,7 +299,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
         }
         if (next === before) return true;
         try {
-          await write(next, () => applied.current?.(ops));
+          await write(next, () => applied.current?.(ops, workspace));
         } catch (error) {
           showSaveProblem(`Couldn't save: ${problemText(error)}`);
           return false;
