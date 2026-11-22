@@ -143,7 +143,7 @@ describe("Ask AI in the web designer", () => {
     // It went to the server in the settings, with the key, and with where the person is.
     expect(model.asked).toHaveLength(3);
     expect(model.asked[0]).toMatchObject({ url: "https://llm.example/v1/chat/completions", authorization: "Bearer sk-very-secret", body: { model: "small-model" } });
-    expect(model.asked[0]!.body.messages[1]).toEqual({ role: "user", content: "(In the designer, the view `context` is open.)\n\nAdd a payment provider the shop uses" });
+    expect(model.asked[0]!.body.messages[1]).toEqual({ role: "user", content: "(In the designer, the view `context` (“Shop context”, level `context`) is open.)\n\nAdd a payment provider the shop uses" });
     expect(toolAnswers(model.asked[1]!)[0]).toContain("Shop: shop.openarch (2 elements, 1 views)");
 
     // The change is the workspace's, saved as any edit is, and one step of its history.
@@ -155,6 +155,20 @@ describe("Ask AI in the web designer", () => {
     await click(button(panel(), "Undo AI change"));
     await until(() => log().at(-1) === "Undid the AI's change.");
     expect(await file.load()).toBe(serializeDocument(shop));
+  });
+
+  it("tells the model what's selected, as the operations name it, and shows the person the same", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    const { host, model, ask, panel } = await designer([{ text: "It's the shop." }]);
+    await click(button(host, "Ask AI"));
+    await until(() => !!host.querySelector('.react-flow__node[data-id="shop"]'));
+    await click(host.querySelector('.react-flow__node[data-id="shop"]')!);
+    expect(panel().textContent).toContain("In “Shop context” · shop selected");
+    // Selecting something that isn't an element tells it too.
+    await click(host.querySelector(".ws-name")!);
+    expect(panel().textContent).toContain("In “Shop context” · the workspace selected");
+    await ask("What is this?");
+    expect(model.asked[0]!.body.messages[1]).toEqual({ role: "user", content: "(In the designer, the view `context` (“Shop context”, level `context`) is open, and the workspace is selected.)\n\nWhat is this?" });
   });
 
   it("offers to undo only what the AI changed, and only while the workspace is as the AI left it", async () => {
@@ -633,7 +647,7 @@ describe("Ask AI in the desktop app", () => {
     expect(panel().querySelector("textarea")!.getAttribute("aria-label")).toBe("What should the AI change?");
     expect([...panel().querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain("Settings");
     await ask("Tidy up");
-    expect(asked).toEqual([["/work/shop.openarch", "Tidy up", { viewId: "context", selection: [] }]]);
+    expect(asked).toEqual([["/work/shop.openarch", "Tidy up", { viewId: "context", viewTitle: "Shop context", viewLevel: "context", selection: [] }]]);
     expect(log()).toEqual(["Tidy up", "$ open-arch show", "Nothing to change."]);
     expect(model.asked).toEqual([]);
     expect([...panel().querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain("New chat");

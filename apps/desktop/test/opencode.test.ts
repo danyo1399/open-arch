@@ -5,7 +5,7 @@ import { agentPrompt, type AgentEvent, type AgentRequest } from "../src/agent.js
 import { OpenCodeBackend } from "../src/opencode.js";
 
 const SESSION = "ses_1";
-const request: AgentRequest = { file: "/work/shop/shop.openarch", prompt: "Add a cart cache", selection: ["checkout-api"], viewId: "shop-containers" };
+const request: AgentRequest = { file: "/work/shop/shop.openarch", prompt: "Add a cart cache", selection: ["`checkout-api`", "the sticky note `n1`"], viewId: "shop-containers", viewTitle: "Shop containers", viewLevel: "container" };
 
 /** Just enough of the OpenCode client: an event stream the test pushes to, and a record of calls. */
 function fakeOpenCode(options: { skills?: string[]; onPrompt?(push: Push): void; connect?: () => Promise<OpenCodeClient> } = {}) {
@@ -159,8 +159,7 @@ describe("agent prompt", () => {
   it("names the file, the CLI and where the user is", () => {
     const text = agentPrompt({ ...request, file: "/My Work/shop.openarch" }, "/bin/open-arch");
     expect(text).toContain('pass `--file "/My Work/shop.openarch"` to every one');
-    expect(text).toContain("`shop-containers`");
-    expect(text).toContain("`checkout-api`");
+    expect(text).toContain("In the designer, the view `shop-containers` (“Shop containers”, level `container`) is open, and `checkout-api`, the sticky note `n1` are selected.");
     expect(text).toContain("Add a cart cache");
   });
 });

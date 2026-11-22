@@ -5,6 +5,7 @@
  * `opencode.ts` implements this with OpenCode 2.
  */
 import type { AgentEvent } from "../../web/src/bridge.js";
+import { whereText } from "../../web/src/ai/where.js";
 
 export type { AgentEvent };
 
@@ -13,10 +14,12 @@ export interface AgentRequest {
   file: string;
   /** What the user asked for. */
   prompt: string;
-  /** IDs of the elements selected in the designer, for context. */
+  /** Everything selected in the designer, for context, each as the agent is told it: "`shop`", "the sticky note `n1`". */
   selection: string[];
-  /** The view open in the designer, for context. */
+  /** The view open in the designer, with its title and level, for context. */
   viewId?: string;
+  viewTitle?: string;
+  viewLevel?: string;
 }
 
 export interface AgentBackend {
@@ -40,8 +43,8 @@ export function agentPrompt(request: AgentRequest, cli: string): string {
     "",
     `Use the open-arch skill. Change the model only with open-arch commands: run them as \`${cli}\` and pass \`--file ${file}\` to every one. Never edit the .openarch file or its docs folder directly.`,
   ];
-  if (request.viewId) lines.push(`The user has the view \`${request.viewId}\` open in the designer.`);
-  if (request.selection.length > 0) lines.push(`They have selected: ${request.selection.map((id) => `\`${id}\``).join(", ")}.`);
+  const where = whereText(request);
+  if (where) lines.push(`In the designer, ${where}.`);
   lines.push(
     "",
     "Request:",

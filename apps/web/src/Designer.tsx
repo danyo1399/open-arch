@@ -17,6 +17,7 @@ import {
 } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { askContext } from "./ai/context.js";
 import { Canvas, canAutoLayout, type AutoLayout, type Selection } from "./canvas/Canvas.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
@@ -622,20 +623,11 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   if (!ws || state.text === null || !panelSettings.loaded) return <div className="center muted">Loading…</div>;
 
   const mod = isMac ? "⌘" : "Ctrl+";
-  const selected =
-    selection?.kind === "element"
-      ? [selection.id]
-      : selection?.kind === "instance"
-        ? [selection.element]
-        : selection?.kind === "several"
-          ? selection.elements
-          : selection?.kind === "arrow"
-            ? [selection.from, selection.to]
-            : [];
   // What either Ask AI panel is given: where the person is, and the file's text, to undo what the AI changed.
+  const where = askContext(ws, view, computed, selection);
   const ask = {
-    context: { viewId: view?.id, selection: selected },
-    contextLabel: [view ? `In “${view.title}”` : "No view open", selected.length > 0 && `${selected.join(", ")} selected`].filter(Boolean).join(" · "),
+    context: where.context,
+    contextLabel: where.label,
     text: state.text,
     restore: (text: string, from?: string) => state.restore(text, "Undid the AI's change", from),
     open: askOpen,

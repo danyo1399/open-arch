@@ -223,9 +223,9 @@ handle("agentRun", async (event, run: number, path: string, prompt: string, cont
   try {
     const file = allowed(path);
     if (typeof prompt !== "string" || !prompt.trim()) throw new Error("Say what to change.");
-    const selection = Array.isArray(context?.selection) ? context.selection.filter((id) => typeof id === "string") : [];
-    const viewId = typeof context?.viewId === "string" ? context.viewId : undefined;
-    await agentFor(sender).run({ file, prompt, selection, viewId }, emit);
+    const selection = Array.isArray(context?.selection) ? context.selection.filter((thing) => typeof thing === "string") : [];
+    const text = (value: unknown) => (typeof value === "string" ? value : undefined);
+    await agentFor(sender).run({ file, prompt, selection, viewId: text(context?.viewId), viewTitle: text(context?.viewTitle), viewLevel: text(context?.viewLevel) }, emit);
   } catch (error) {
     emit({ type: "error", message: problemText(error) });
   }

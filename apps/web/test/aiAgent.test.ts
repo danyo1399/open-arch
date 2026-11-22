@@ -1,7 +1,7 @@
 import { applyOperations, loadWorkspace, OPERATION_NAMES, OpError, serializeDocument, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
 import { BrowserAgent, KEPT_LIMIT, ROUND_LIMIT, ROUNDS_LIMIT, systemPrompt } from "../src/ai/agent.js";
-import type { AgentEvent } from "../src/bridge.js";
+import type { AgentContext, AgentEvent } from "../src/bridge.js";
 import type { Change } from "../src/state.js";
 import type { ToolHost } from "../src/ai/tools.js";
 import { FakeFolder } from "./fakeFolder.js";
@@ -37,7 +37,7 @@ function agentFor(script: Parameters<typeof fakeModel>[0], { folder, configured 
     },
   };
   const agent = new BrowserAgent(() => ({ settings: configured ? settings : null, host, fetch: model.fetch }));
-  const ask = async (prompt: string, context = { selection: [] as string[], viewId: undefined as string | undefined }) => {
+  const ask = async (prompt: string, context: AgentContext = { selection: [] }) => {
     const events: AgentEvent[] = [];
     await agent.run(prompt, context, (event) => events.push(event));
     return events;
@@ -130,13 +130,13 @@ describe("Ask AI's agent, in the web app", () => {
 
   it("tells the model where the person is in the designer", async () => {
     const { ask, model } = agentFor([{ text: "a" }, { text: "b" }, { text: "c" }]);
-    await ask("Describe this", { viewId: "context", selection: ["shop"] });
-    await ask("And these", { viewId: undefined, selection: ["shop", "customer"] });
+    await ask("Describe this", { viewId: "context", viewTitle: "Shop context", viewLevel: "context", selection: ["`shop`"] });
+    await ask("And these", { viewId: undefined, selection: ["`shop`", "the relationship from `customer` to `shop`"] });
     await ask("And this view", { viewId: "context", selection: [] });
     const said = model.asked[2]!.body.messages.flatMap((m) => (m.role === "user" ? [m.content] : []));
     expect(said).toEqual([
-      "(In the designer, the view `context` is open, and `shop` is selected.)\n\nDescribe this",
-      "(In the designer, `shop`, `customer` are selected.)\n\nAnd these",
+      "(In the designer, the view `context` (“Shop context”, level `context`) is open, and `shop` is selected.)\n\nDescribe this",
+      "(In the designer, `shop`, the relationship from `customer` to `shop` are selected.)\n\nAnd these",
       "(In the designer, the view `context` is open.)\n\nAnd this view",
     ]);
   });
