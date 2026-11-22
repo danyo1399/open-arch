@@ -159,7 +159,10 @@ interface DesignerProps {
 export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const [viewId, setViewId] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
-  const [isNew, setIsNew] = useState(false);
+  // Not 0 when what's selected was just created: a number of its own for each, so the details
+  // give its name the focus even when what was selected before it was new too.
+  const [isNew, setIsNew] = useState(0);
+  const created = useRef(0);
   const [dialog, setDialog] = useState<Dialog>(null);
   /** How many times the notes editor has opened. */
   const notesOpened = useRef(0);
@@ -277,7 +280,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const select = useCallback(
     (next: Selection, options?: { isNew?: boolean }) => {
       setSelection(renamedSelection(next, current));
-      setIsNew(!!options?.isNew);
+      setIsNew(options?.isNew ? ++created.current : 0);
     },
     [current],
   );

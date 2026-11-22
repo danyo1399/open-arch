@@ -34,7 +34,11 @@ interface FieldProps {
   multiline?: boolean;
   rows?: number;
   placeholder?: string;
-  autoFocus?: boolean;
+  /**
+   * Takes the focus, with its text selected, when this becomes true, or changes to another number
+   * that isn't 0: the box stays as what it shows changes, so a number says it shows something new.
+   */
+  autoFocus?: boolean | number;
   hint?: ReactNode;
 }
 

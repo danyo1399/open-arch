@@ -203,6 +203,46 @@ describe("collapsing and expanding the side panels", () => {
   });
 });
 
+describe("adding one thing straight after another", () => {
+  const add = async (d: Awaited<ReturnType<typeof designer>>, what: string) => {
+    await click(button(d.host, "+ Add"));
+    await click([...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')].find((b) => b.textContent === what)!);
+    await d.settle();
+  };
+  const focused = () => document.activeElement as HTMLInputElement;
+  const boxes = (d: Awaited<ReturnType<typeof designer>>) => [...d.host.querySelectorAll<HTMLElement>(".react-flow__node")].map((n) => `${n.dataset.id} ${n.style.transform}`);
+
+  it("gives each one's name the focus: a container, then a shared library on the container view, which keeps its boxes", async () => {
+    const d = await designer();
+    await add(d, "Container in Shop");
+    expect(focused().value).toBe("New container");
+    const before = boxes(d);
+
+    await add(d, "Shared library");
+    expect(focused().getAttribute("aria-label")).toBe("Name");
+    expect(focused().value).toBe("New library");
+    // A container view draws no libraries: it's in the model, and its details are open.
+    expect(boxes(d)).toEqual(before);
+    expect([...d.host.querySelectorAll(".sidebar .tree .row-main")].map((r) => r.textContent)).toContain("New library");
+    expect(d.host.querySelector(".properties .badge")!.textContent).toBe("Library");
+    expect([...d.host.querySelectorAll(".properties fieldset .check")].map((c) => c.textContent)).toEqual(["New container", "Web"]);
+  });
+
+  it("gives a library's name the focus when it's made from the details of a container just added", async () => {
+    const d = await designer();
+    await add(d, "Container in Shop");
+    // A press gives the button the focus, as a browser does, and it's gone once the library is open.
+    const press = button(d.host, "+ New library");
+    press.focus();
+    await click(press);
+    await d.settle();
+    expect(focused().getAttribute("aria-label")).toBe("Name");
+    expect(focused().value).toBe("New library");
+    const built = [...d.host.querySelectorAll<HTMLInputElement>(".properties fieldset .check input")].map((c) => c.checked);
+    expect(built).toEqual([true, false]);
+  });
+});
+
 describe("resizing the side panels", () => {
   it("drags a panel's edge to resize it, keeps the size when it's let go, and puts it back with a double-click", async () => {
     const d = await designer();

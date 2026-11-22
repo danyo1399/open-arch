@@ -76,6 +76,7 @@ import {
   type WidgetKind,
   type Workspace,
 } from "@open-arch/core";
+import { useState } from "react";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import {
@@ -109,8 +110,12 @@ interface PropertiesProps {
   view: ViewDef | null;
   computed: ComputedView | null;
   selection: Selection;
-  /** The element was just created: focus its name. */
-  isNew: boolean;
+  /**
+   * What's selected was just created: focus its name. As a number, 0 when it wasn't, and a number
+   * of its own for each thing created, so the name of one made straight after another gets the
+   * focus too.
+   */
+  isNew: boolean | number;
   /** Saving keeps a docs folder up to date: on desktop, and for a workspace in a folder. */
   syncsDocs: boolean;
   /** Saving also keeps the agent skill and AGENTS.md section up to date beside the workspace: on desktop, and for a workspace in a folder. */
@@ -210,13 +215,27 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
   /** Builds a container with a library, or takes it out. */
   const build = (container: ArchElement, library: string, built: boolean) =>
     void edit([{ op: "update-element", id: container.id, libraries: built ? [...container.libraries, library] : container.libraries.filter((l) => l !== library) }]);
-  /** Adds a library built into this container, and opens its details, to name it and tick the other containers built with it. */
+  const [addingLibrary, setAddingLibrary] = useState(false);
+  /**
+   * Adds a library built into this container, and opens its details, to name it and tick the other
+   * containers built with it. Its ID and the container's libraries are worked out from the
+   * workspace as it is when the edit runs, which can be after a tick made just before the press.
+   * The button is off until then, so a double-click adds one library.
+   */
   const newLibrary = () => {
-    const id = uniqueId(ws, "new-library");
-    void edit([
-      { op: "add-element", id, kind: "library", name: "New library" },
-      { op: "update-element", id: element.id, libraries: [...element.libraries, id] },
-    ]).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
+    let id = "";
+    setAddingLibrary(true);
+    void edit((now) => {
+      const container = now.elements.get(element.id);
+      if (container?.kind !== "container") return [];
+      id = uniqueId(now, "new-library");
+      return [
+        { op: "add-element", id, kind: "library", name: "New library" },
+        { op: "update-element", id: container.id, libraries: [...container.libraries, id] },
+      ];
+    })
+      .then((ok) => ok && id && onSelect({ kind: "element", id }, { isNew: true }))
+      .finally(() => setAddingLibrary(false));
   };
   const canHide = viewAction(ws, view, computed, element.id) === "hide";
   const noteOn = stickyTargetFor(ws, computed, { kind: "element", id: element.id });
@@ -284,7 +303,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
               {l.name}
             </label>
           ))}
-          <button className="link" onClick={newLibrary}>
+          <button className="link" onClick={newLibrary} disabled={addingLibrary}>
             + New library
           </button>
           <span className="field-hint">The shared libraries built into it: code several containers are built with, like a logging library. Its component views draw each one inside the frame.</span>

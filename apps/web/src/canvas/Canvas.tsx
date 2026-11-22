@@ -1052,6 +1052,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   };
 
+  // A library added to a view that draws none, such as a container view, is put nowhere on the
+  // diagram, whatever point it was added at: addElementOps leaves the view as it is. It's in the
+  // Model list, and its details open.
   const add = (kind: ElementKind, parent?: string, at?: Point, builtInto?: string) => {
     const center = addPoint(at);
     const id = uniqueId(ws, `new-${kind}`);
