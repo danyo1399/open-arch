@@ -85,6 +85,9 @@ async function refusal(response: Response): Promise<string> {
   return `${what} (${status})${why ? `: ${why}` : "."}`;
 }
 
+/** How many IDs were made up for calls a server gave none, so no two are the same, in one reply or across a conversation. */
+let madeUp = 0;
+
 /** The pieces of tool calls as they stream in, put together. */
 class Calls {
   private readonly calls: { id: string; name: string; args: string }[] = [];
@@ -112,9 +115,9 @@ class Calls {
     else if (args && typeof args === "object") call.args = JSON.stringify(args);
   }
 
-  /** The calls with a name, each with an ID, which a few servers leave out. */
+  /** The calls with a name, each with an ID: its server's, or one made up for it, which a few servers leave out. */
   list(): ToolCall[] {
-    return this.calls.filter((c) => c.name).map((c, i) => ({ id: c.id || `call_${i + 1}`, type: "function", function: { name: c.name, arguments: c.args } }));
+    return this.calls.filter((c) => c.name).map((c) => ({ id: c.id || `call_${++madeUp}`, type: "function", function: { name: c.name, arguments: c.args } }));
   }
 }
 

@@ -1,8 +1,8 @@
 /**
  * What Ask AI's model can do with the files of a folder opened from the start page (folders.ts):
  * find them by name, read one, and search their text. It only reads. Hidden files and folders,
- * such as .env and .git, and node_modules, are left out of all three, so a secret kept in one
- * isn't sent to the model's provider.
+ * such as .env and .git, node_modules, and files named as keys and secrets usually are, are left
+ * out of all three, so a secret kept in one isn't sent to the model's provider.
  */
 import type { FileHandle, FolderHandle } from "../folders.js";
 import { segments } from "../paths.js";
@@ -19,8 +19,15 @@ export const LINES_LIMIT = 500;
 /** The most of a line shown in a search's answer. */
 const LINE_SHOWN = 240;
 
-/** A file or folder the model isn't shown: a hidden one, or node_modules. */
-const skipped = (name: string) => name.startsWith(".") || name === "node_modules";
+/**
+ * Names that keys and secrets usually go by: SSH keys, certificates' private keys and key
+ * stores, files of credentials or secrets, another environment's .env, and Terraform's state
+ * and variables.
+ */
+const SECRET = /^(id_(rsa|dsa|ecdsa|ed25519)|credentials\.json|secrets?\.(ya?ml|json|toml|txt|properties)|.*\.(pem|key|p12|pfx|jks|keystore|kdbx|env|tfvars|tfstate|tfstate\.backup))$/;
+
+/** A file or folder the model isn't shown: a hidden one, node_modules, or one named as a key or a secret usually is. Capitals don't matter. */
+const skipped = (name: string) => name.startsWith(".") || name.toLowerCase() === "node_modules" || SECRET.test(name.toLowerCase());
 
 /** A problem with what the model asked for, said so it can ask again. */
 export class FileProblem extends Error {}
@@ -30,7 +37,7 @@ function parts(path: string, what = "path"): string[] {
   const out = segments(path.trim());
   if (out === null) throw new FileProblem(`The ${what} ${JSON.stringify(path)} is outside the folder. Give one inside it, like src/main.ts.`);
   const hidden = out.find(skipped);
-  if (hidden) throw new FileProblem(`${JSON.stringify(path)} is in ${hidden}, which isn't read: hidden files and folders, and node_modules, are left out.`);
+  if (hidden) throw new FileProblem(`${JSON.stringify(path)} isn't read, because of ${hidden}: hidden files and folders, node_modules, and files named as keys and secrets usually are, are left out.`);
   return out;
 }
 
