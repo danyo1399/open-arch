@@ -148,6 +148,7 @@ export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[
         seen = buildWorkspace(applyOperations(seen.doc, ops.slice(applied, place)).doc);
         applied = place;
       } catch {
+        // Applied on their own, the operations ahead can be refused where the whole edit isn't: one that leaves something for a later one to put right.
         seen = undefined;
       }
     }

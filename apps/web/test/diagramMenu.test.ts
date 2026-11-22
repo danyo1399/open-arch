@@ -326,24 +326,36 @@ describe("a menu's target, followed through the edits that land before it opens"
     // The blocks, and another view's arrows, are followed as ever.
     expect(landed("returns", { kind: "block", id: "refund" }, [batch])?.on).toEqual({ kind: "block", id: "refund" });
     expect(landed("states", { kind: "transition", number: 1 }, [batch])?.on).toEqual({ kind: "transition", number: 1 });
-    // An element deleted after its view is given another element to be a view of: only the views that are of it by then go.
+    // An element deleted under the ID an operation ahead of it gave it: its views are the ones it has by then.
     const scoped = structuredClone(doc);
     scoped.elements.api = { kind: "container", name: "API", parent: "shop" };
     scoped.elements.db = { kind: "container", name: "DB", parent: "shop" };
-    scoped.views.data!.scope = "api";
-    scoped.views.returns!.scope = "db";
-    const moved: Operation[] = [
-      { op: "remove-view", id: "states" },
-      { op: "remove-element", id: "api" },
+    scoped.views.data!.scope = "db";
+    scoped.views.returns!.scope = "api";
+    const renamed: Operation[] = [
+      { op: "rename", id: "api", to: "gateway" },
+      { op: "remove-element", id: "gateway" },
     ];
-    expect(menuRenamesIn(moved, buildWorkspace(scoped))).toEqual([
-      { kind: "view-gone", id: "states" },
-      { kind: "view-gone", id: "data" },
+    expect(menuRenamesIn(renamed, buildWorkspace(scoped))).toEqual([
+      { kind: "view", id: "api", to: "gateway" },
+      { kind: "view-gone", id: "returns" },
     ]);
+    // The workspace the edit started from has no such element, so it alone says nothing went.
+    expect(menuRenamesIn([renamed[1]!], buildWorkspace(applyOperations(buildWorkspace(scoped).doc, [renamed[0]!]).doc))).toEqual([{ kind: "view-gone", id: "returns" }]);
+    expect(followMenu({ kind: "diagram" }, "returns", menuRenamesIn(renamed, buildWorkspace(scoped))).on).toBeNull();
+    expect(followMenu({ kind: "diagram" }, "data", menuRenamesIn(renamed, buildWorkspace(scoped))).on).toEqual({ kind: "diagram" });
+    // An element moved inside another, which is then deleted: its view goes with that one.
+    const moved: Operation[] = [
+      { op: "add-element", id: "store", kind: "system" },
+      { op: "update-element", id: "db", parent: "store" },
+      { op: "remove-element", id: "store" },
+    ];
+    expect(menuRenamesIn(moved, buildWorkspace(scoped))).toEqual([{ kind: "view-gone", id: "data" }]);
   });
 
   it("loses a view's arrows, or everything, where the workspace an operation was applied to can't be worked out", () => {
-    // Told of operations that don't go with the workspace it's given: the first can't be applied to it.
+    // Told of operations that don't go with the workspace it's given: the first can't be applied to it. An edit that's only right
+    // as a whole is refused the same way when the operations ahead of a delete are applied on their own.
     const odd: Operation[] = [
       { op: "update-view", id: "no-such-view", title: "Nothing" },
       { op: "remove-block", view: "returns", id: "asked" },
