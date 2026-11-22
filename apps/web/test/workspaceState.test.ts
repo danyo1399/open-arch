@@ -426,12 +426,13 @@ describe("the History list", () => {
     ]);
   });
 
-  it("lists an earlier version put back as a change of its own", async () => {
+  it("lists an earlier version put back as a change of its own, called what it's given", async () => {
     const host = new TestHost("file");
     const state = await workspaceFor(host);
     await name(state, "B");
-    await act(async () => void (await state().restore(text("A"))));
-    expect(changes(state)).toEqual([null, "Updated workspace", "Restored an earlier version"]);
+    await act(async () => void (await state().restore(text("A"), "Undid the AI's change")));
+    expect(changes(state)).toEqual([null, "Updated workspace", "Undid the AI's change"]);
+    expect(state().ws?.doc.name).toBe("A");
     await act(async () => state().goTo(1));
     await settle();
     expect(state().ws?.doc.name).toBe("B");

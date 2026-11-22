@@ -313,7 +313,8 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The brand is the first to give way: it goes before the workspace's name is cut short. */
+/* The brand gives way far faster than the rest of the text when the bar is tight, so it's all but
+   gone before much of the workspace's name is cut. */
 .topbar > .brand {
   flex-shrink: 50;
   min-width: 0;
@@ -3227,7 +3228,17 @@ button.heading {
 }
 .history .row {
   align-items: baseline;
+}
+/* What a change did goes onto as many lines as it needs, where other rows are cut short: two
+   long ones can differ only at the end. */
+.history .row .grow {
+  overflow: visible;
+  white-space: normal;
   overflow-wrap: anywhere;
+}
+/* When it was made stays on one line beside it. */
+.history .row time {
+  white-space: nowrap;
 }
 /* A change that was undone: still there to make again, but not part of the workspace now. */
 .history .undone .grow {
