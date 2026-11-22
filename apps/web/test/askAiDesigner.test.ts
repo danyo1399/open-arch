@@ -440,6 +440,36 @@ describe("Ask AI in the web designer", () => {
     }
   });
 
+  it("takes no request while a Save is on its way to opening the copy it keeps", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    const { host, model, send, ask, log, panel } = await designer([{ text: "Hello." }]);
+    // Keeping the copy in the browser takes a moment, which is held here.
+    const add = browserLibrary.add.bind(browserLibrary);
+    let keep = () => {};
+    const held = new Promise<void>((resolve) => (keep = resolve));
+    let kept: ReturnType<typeof add> | null = null;
+    vi.spyOn(browserLibrary, "add").mockImplementation((name, text) => (kept = held.then(() => add(name, text))));
+    await click(button(host, "Ask AI"));
+    await click(button(host, "Save"));
+    // Sent in that moment: it would be cut off as the copy opens, so it isn't sent, and says why. What was typed stays.
+    await send("Hello");
+    expect(log()).toEqual(["The workspace is being saved. Ask again once the copy it keeps has opened."]);
+    expect(panel().querySelector("textarea")!.value).toBe("Hello");
+    expect(model.asked).toEqual([]);
+    await act(async () => {
+      keep();
+      await kept;
+    });
+    try {
+      // Saved, a request goes as usual.
+      await ask("Hello");
+      expect(model.asked).toHaveLength(1);
+    } finally {
+      vi.restoreAllMocks();
+      await browserLibrary.remove((await kept!).id);
+    }
+  });
+
   it("doesn't write over a change by hand that's still being saved when Undo AI change is pressed", async () => {
     localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
     const file = new MemoryHost("shop.openarch", serializeDocument(shop));

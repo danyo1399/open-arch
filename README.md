@@ -282,7 +282,7 @@ The page talks to the model's server itself. Nothing goes through a server of op
 
 The settings are yours, not the workspace's. They're kept in this browser's local storage until you press **Forget** in the panel's **Settings**, and nowhere else: never in the .openarch file, an export, a zip or a shared link. Anyone who uses this browser as you can read the key there, so don't keep one in a browser you share.
 
-What goes to the server is what you ask, which view is open and what's selected, and what the model reads to answer. It reads the workspace with the same text `open-arch show` prints, and can search it and list its problems.
+What goes to the server is what you ask, the workspace's file name, which view is open and what's selected, and what the model reads to answer. With the tick for a folder's files on, the folder's name goes too. It reads the workspace with the same text `open-arch show` prints, and can search it and list its problems.
 
 It changes the workspace only through the operations the designer and the CLI use, so every change is checked: one that would break the model is refused, nothing changes, and the model is told why, to put it right. A change is made as soon as the model asks for it, and is one step in [History](#undo-and-history). **Undo AI change** puts the workspace back as it was just before the model's first change in the request, so what you changed yourself before that is kept. It's offered until you ask again or start a new chat, while the workspace is as the request's last change left it. Once you change something yourself, after the model's changes or between two of them, it isn't offered: use Undo or History. **Stop** ends a request; what it had changed by then stays.
 
