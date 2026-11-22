@@ -84,7 +84,7 @@ import { Usages } from "./panels/Usages.js";
 import { PANEL_PROPERTY, PanelEdge, PanelRail } from "./panels/SidePanels.js";
 import { userSettings, usePanelSettings, useSnapSettings, useViewSettings, type PanelSettings, type PanelSize } from "./settings.js";
 import { PUBLIC_DESIGNER, shareClient } from "./share.js";
-import { saveProblem, useWorkspace, type Edit } from "./state.js";
+import { RELOADED, saveProblem, useWorkspace, type Edit } from "./state.js";
 
 type Dialog =
   | { kind: "delete"; id: string }
@@ -638,9 +638,10 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     onHide: () => setAskOpen(false),
     onNews: setAskNews,
   };
-  // While the desktop app's agent works, its edits reload the file again and again, and the panel says what it changed: while it's open,
-  // while the request runs with it hidden, and until a request that finished with it hidden has been read there.
-  const message = state.message?.kind === "info" && fileAgent && (askOpen || agentRunning || askNews === "finished") ? null : state.message;
+  // While the desktop app's Ask AI is open, its agent's edits reload the file again and again, and the panel already says what it changed.
+  // With the panel hidden, only that the file was reloaded is held back: while the request runs, and until its answer is read there.
+  const agentReload = state.message?.kind === "info" && state.message.text === RELOADED && (agentRunning || askNews === "finished");
+  const message = state.message?.kind === "info" && fileAgent && (askOpen || agentReload) ? null : state.message;
   const syncsDocs = savesDocs(host, state.storage);
   const status =
     state.storage === "file"

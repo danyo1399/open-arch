@@ -3,7 +3,7 @@ import "fake-indexeddb/auto";
 import { loadWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { strFromU8, unzipSync } from "fflate";
 import { act, createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { AgentBridge, AgentEvent, DesktopBridge } from "../src/bridge.js";
 import { App } from "../src/App.js";
 import { Designer } from "../src/Designer.js";
@@ -799,6 +799,51 @@ describe("Ask AI in the desktop app", () => {
     expect(host.querySelector(".toast")).toBeNull();
     await click(button(host, "Ask AI"));
     expect(host.querySelector(".toast")).toBeNull();
+  });
+
+  it("doesn't say it's waiting for an approval an earlier request asked for and was stopped before", async () => {
+    let emit: (event: AgentEvent) => void = () => {};
+    let finish = () => {};
+    const agent: AgentBridge = {
+      run: (_path, _prompt, _context, onEvent) =>
+        new Promise<void>((resolve) => {
+          emit = onEvent;
+          finish = resolve;
+        }),
+      reply: async () => {},
+      cancel: async () => {},
+    };
+    const bridge = desktop(agent);
+    const { host, send, panel } = await designer([], new DesktopHost(bridge, "/work/shop.openarch", "shop.openarch"));
+    await click(button(host, "Ask AI"));
+    await send("Tidy up");
+    await act(async () => emit({ type: "permission", id: "p1", description: "run ls" }));
+    // Stopped with the approval unanswered.
+    await act(async () => {
+      emit({ type: "error", message: "Stopped." });
+      finish();
+    });
+    await send("Try again");
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+    expect(button(host, "Ask AI").querySelector(".ask-ai-news")).toBeNull();
+    await act(async () => emit({ type: "permission", id: "p2", description: "run cat" }));
+    expect(button(host, "Ask AI").querySelector(".ask-ai-news-waiting")).not.toBeNull();
+  });
+
+  it("still says what the person did themselves while its agent works with the panel hidden", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    onTestFinished(() => write.mockRestore());
+    const agent: AgentBridge = { run: () => new Promise<void>(() => {}), reply: async () => {}, cancel: async () => {} };
+    const bridge = desktop(agent);
+    const { host, send, panel } = await designer([], new DesktopHost(bridge, "/work/shop.openarch", "shop.openarch"));
+    await click(button(host, "Ask AI"));
+    await send("Tidy up");
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+    await click(button(host, "Export"));
+    const item = [...document.querySelectorAll<HTMLElement>('.context-menu [role="menuitem"]')].find((i) => i.textContent?.trim() === "Copy as Mermaid");
+    await click(item!);
+    await until(() => !!host.querySelector(".toast"));
+    expect(host.querySelector(".toast")!.textContent).toContain("Copied “Shop context” as Mermaid.");
   });
 
   it("doesn't show news on its button for a request that finished while it was open", async () => {

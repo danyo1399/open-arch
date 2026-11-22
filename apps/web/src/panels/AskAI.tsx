@@ -151,7 +151,8 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
     if (open) setFinishedUnseen(false);
   }, [open]);
   // What to show on the Ask AI button while the panel is hidden. It waits for as long as an approval it asked for has no answer, here or elsewhere, so hiding the panel again without answering still says so.
-  const waiting = running && log.some((e) => e.kind === "permission" && !e.answer);
+  // Only the running request's: one an earlier request asked for and was stopped before an answer isn't waited for.
+  const waiting = running && log.slice(log.findLastIndex((e) => e.kind === "prompt")).some((e) => e.kind === "permission" && !e.answer);
   const news: AskNews | null = open ? null : finishedUnseen ? "finished" : waiting ? "waiting" : null;
   const onNewsNow = useRef(onNews);
   onNewsNow.current = onNews;

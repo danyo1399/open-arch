@@ -7,6 +7,9 @@ import { problemText } from "./problems.js";
 import { SKILL_TARGETS } from "./skill.js";
 import { renamesBetween, renamesIn, undoRenames, type Rename } from "./model.js";
 
+/** What the designer says when the file changed on disk and was reloaded. */
+export const RELOADED = "The workspace changed outside this window, so it was reloaded.";
+
 /** Operations to apply, or a function that works them out from the current workspace. */
 export type Edit = Operation[] | ((ws: Workspace) => Operation[]);
 
@@ -226,7 +229,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[],
           updateHistory((h) => ({ base: (h.steps[h.steps.length - 1]?.version ?? h.base) + 1, steps: [], done: 0 }));
           if (opening) return;
           // An error, such as a save refused because of this change, stays until it's dismissed.
-          setMessage((shown) => (shown?.kind === "error" ? shown : { kind: "info", text: "The workspace changed outside this window, so it was reloaded." }));
+          setMessage((shown) => (shown?.kind === "error" ? shown : { kind: "info", text: RELOADED }));
         });
       },
       () => {
