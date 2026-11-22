@@ -4,7 +4,7 @@ import { NODE_H, NODE_W, placeStickies, STICKY } from "../src/canvas/autoLayout.
 import { besideTargets, noteDropAt, noteDropOps, withFrame, type DrawnArrow } from "../src/canvas/Canvas.js";
 import type { ElementFlowNode, StickyFlowNode } from "../src/canvas/nodes.js";
 import { distanceToRoute, edgePoint, midpoint, nearestOnOutline, stickyLine } from "../src/canvas/stickyLines.js";
-import { followRenames, renamesBetween, stickyChoices, stickyTargetFor } from "../src/model.js";
+import { blockNow, followBlocks, followRenames, renamesBetween, stickyChoices, stickyTargetFor } from "../src/model.js";
 
 const doc: OpenArchDocument = {
   openarch: 20,
@@ -138,6 +138,67 @@ describe("stickyChoices on a flowchart", () => {
   it("lists the block the note is on when the view doesn't have it", () => {
     expect(choices({ block: "gone" })[0]).toBe("- gone (not in this view) = block:gone");
     expect(choices({ block: "gone" })).toHaveLength(4);
+  });
+});
+
+describe("a note put on a block that has a new ID by the time the edit runs", () => {
+  /** A flowchart with these blocks, in order. */
+  const flowchart = (...blocks: string[]): OpenArchDocument => ({ ...doc, views: { returns: { title: "Returns", level: "flowchart", blocks: blocks.map((id) => ({ id, text: id })), flows: [], stickies: { n: { text: "N" } } } } });
+  const blocksOf = (model: OpenArchDocument) => buildWorkspace(model).views.get("returns")!;
+  const was = flowchart("asked", "new-process", "done");
+
+  it("finds the block under its own ID, or the new one it was given, at its place in the list", () => {
+    expect(blockNow(blocksOf(was), blocksOf(was), "new-process")).toBe("new-process");
+    // Its ID followed the text it was given.
+    expect(blockNow(blocksOf(was), blocksOf(flowchart("asked", "pack-it", "done")), "new-process")).toBe("pack-it");
+    // Others added or moved since leave it where it is.
+    expect(blockNow(blocksOf(was), blocksOf(flowchart("new-process", "asked", "done", "more")), "new-process")).toBe("new-process");
+  });
+
+  it("finds none for a block that's gone, or when it can't be told which it became", () => {
+    expect(blockNow(blocksOf(was), blocksOf(flowchart("asked", "done")), "new-process")).toBeUndefined();
+    // One came, but at another place: another block, added as this one went.
+    expect(blockNow(blocksOf(was), blocksOf(flowchart("asked", "done", "pack-it")), "new-process")).toBeUndefined();
+    // Two went and two came.
+    expect(blockNow(blocksOf(was), blocksOf(flowchart("asked", "pack-it", "finished")), "new-process")).toBeUndefined();
+    expect(blockNow(blocksOf(was), blocksOf(was), "never")).toBeUndefined();
+  });
+
+  it("moves the edits that put a note on it to its new ID, and leaves the rest as they are", () => {
+    const [before, now] = [buildWorkspace(was), buildWorkspace(flowchart("asked", "pack-it", "done"))];
+    const same = (id: string) => id;
+    const ops = [
+      { op: "add-sticky" as const, view: "returns", id: "note", text: "New note", on: { block: "new-process" } },
+      { op: "update-sticky" as const, view: "returns", id: "n", on: { block: "new-process" }, at: [1, 2] as [number, number] },
+      { op: "update-sticky" as const, view: "returns", id: "n", on: { block: "done" } },
+      { op: "update-sticky" as const, view: "returns", id: "n", on: null },
+      { op: "update-block" as const, view: "returns", id: "new-process", text: "Pack it" },
+    ];
+    expect(followBlocks(ops, before, now, same)).toEqual([
+      { op: "add-sticky", view: "returns", id: "note", text: "New note", on: { block: "pack-it" } },
+      { op: "update-sticky", view: "returns", id: "n", on: { block: "pack-it" }, at: [1, 2] },
+      ops[2],
+      ops[3],
+      ops[4],
+    ]);
+    // With nothing changed since, they're as they were.
+    expect(followBlocks(ops, before, before, same)).toEqual(ops);
+    // A block the view never had is left for the edit to refuse, as is a view that's gone.
+    const never = [{ op: "update-sticky" as const, view: "returns", id: "n", on: { block: "never" } }];
+    expect(followBlocks(never, before, now, same)).toEqual(never);
+    expect(followBlocks(ops, before, now, () => "gone")).toEqual(ops);
+  });
+
+  it("finds the view under the ID it has by then", () => {
+    const renamed = flowchart("asked", "pack-it", "done");
+    renamed.views = { "handling-returns": renamed.views.returns! };
+    const ops = [{ op: "update-sticky" as const, view: "returns", id: "n", on: { block: "new-process" } }];
+    expect(followBlocks(ops, buildWorkspace(was), buildWorkspace(renamed), () => "handling-returns")).toEqual([{ op: "update-sticky", view: "returns", id: "n", on: { block: "pack-it" } }]);
+  });
+
+  it("refuses to put a note on a block that's gone by then, and says why", () => {
+    const ops = [{ op: "add-sticky" as const, view: "returns", id: "note", text: "New note", on: { block: "new-process" } }];
+    expect(() => followBlocks(ops, buildWorkspace(was), buildWorkspace(flowchart("asked", "done")), (id) => id)).toThrow("The block is gone, so no note was put on it.");
   });
 });
 

@@ -711,7 +711,7 @@ blocks.
 
 --kind is start, end, process, decision, input-output, subprocess, document or database.
 --lane moves it into a lane, and --lane "" out of its lane.
---new-id changes its ID, and the flows to and from it follow it.
+--new-id changes its ID, and the flows to and from it, and the sticky notes on it, follow it.
 --at x,y moves it. In a flowchart with lanes, x is from the inside of its lane's left, and 0 or
 more. --at "" lets the designer lay it out again.
 --position moves it to that place in the view's list of blocks: 1 is the first.
@@ -720,7 +720,7 @@ An empty value removes a field: --kind "" makes it a process. A block needs text
 `,
     { kind: s, text: s, "new-id": s, description: s, lane: s, at: s, position: s },
   ),
-  "remove-block": writer(`Usage: open-arch remove-block <view> <id>\n\nRemoves a block, and the flows to and from it.\n`, {}),
+  "remove-block": writer(`Usage: open-arch remove-block <view> <id>\n\nRemoves a block, and the flows to and from it. A sticky note on it stays on the view, on nothing.\n`, {}),
   "add-flow": writer(
     `Usage: open-arch add-flow <view> <from> <to> [--text <text>] [--flow <n>]
 

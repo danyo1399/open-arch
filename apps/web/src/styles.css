@@ -1862,9 +1862,10 @@ button.heading {
 .sticky textarea:focus-visible {
   outline: none;
 }
-/* The dot under a note, to drag to a box, the frame or an arrow and put the note on it. Drawn
-   like the dot under a box, and shown the same way: on a note pointed at, or selected. The grip
-   is bigger than the dot it draws, so it's easy to grab, and bigger again on a touch screen. */
+/* The dot under a note, to drag to a box, the frame or an arrow, or on a flowchart a block, and
+   put the note on it. Drawn like the dot under a box, and shown the same way: on a note pointed
+   at, or selected. The grip is bigger than the dot it draws, so it's easy to grab, and bigger
+   again on a touch screen. */
 .sticky-grip {
   position: absolute;
   left: 50%;

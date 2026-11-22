@@ -43,6 +43,7 @@ import {
   whiteboardDeleteOps,
   whiteboardSelectionLeft,
   findArrow,
+  followBlocks,
   followRenames,
   LEVEL_NAMES,
   newStickyId,
@@ -208,12 +209,24 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const current = useCallback((id: string) => renamedId(renames.current.slice(renamesSeen), id), [renamesSeen]);
   /** The renames this render's IDs reflect, so the diagram's boxes can keep their nodes through them. */
   const shownRenames = useMemo(() => renames.current.slice(0, renamesSeen), [renamesSeen]);
+  /** The workspace this render shows, which an edit's IDs are from. */
+  const shown = useRef(ws);
+  shown.current = ws;
   // An edit made with this render's IDs follows any rename applied before it runs: pressed just
   // after typing a new name, it queues behind the edit that saves the name, or lands before the
-  // render that shows it. One worked out from the workspace as it is when it runs needs nothing.
+  // render that shows it. A note put on a flowchart's block follows the block the same way, as a
+  // new block's ID follows its text. One worked out from the workspace as it is when it runs
+  // needs nothing.
   const workspaceEdit = state.edit;
   const edit = useCallback(
-    (change: Edit) => (typeof change === "function" ? workspaceEdit(change) : workspaceEdit(() => followRenames(change, renames.current.slice(renamesSeen)))),
+    (change: Edit) => {
+      if (typeof change === "function") return workspaceEdit(change);
+      const was = shown.current;
+      return workspaceEdit((now) => {
+        const since = renames.current.slice(renamesSeen);
+        return followRenames(was ? followBlocks(change, was, now, (view) => renamedId(since, view)) : change, since);
+      });
+    },
     [workspaceEdit, renamesSeen],
   );
   const narrow = useMediaQuery(NARROW);

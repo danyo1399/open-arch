@@ -6,6 +6,7 @@ import {
   describeElement,
   isInside,
   LEVEL_TITLE,
+  OpError,
   representative,
   SCOPE_KINDS,
   stickyAnchor,
@@ -609,6 +610,38 @@ export function stickyKey(on: StickyTargetData): string {
 
 /** A block's text on one line, as lists name it. */
 export const blockText = (b: Pick<Block, "id" | "text">) => b.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? b.id;
+
+/**
+ * The ID a flowchart's block has in `now`, a later version of the view `was`: its own, while the
+ * view has it. A new block's ID follows its text, so it can have a new one by then: that of the
+ * only block that came, where it's the only one that went, at its place in the list. Undefined
+ * for a block that's gone, or when it can't be told which it became.
+ */
+export function blockNow(was: Pick<ViewDef, "blocks">, now: Pick<ViewDef, "blocks">, id: string): string | undefined {
+  if (now.blocks.some((b) => b.id === id)) return id;
+  const block = was.blocks.find((b) => b.id === id);
+  const went = was.blocks.filter((b) => !now.blocks.some((n) => n.id === b.id));
+  const came = now.blocks.filter((b) => !was.blocks.some((w) => w.id === b.id));
+  return block && went.length === 1 && came.length === 1 && came[0]!.number === block.number ? came[0]!.id : undefined;
+}
+
+/**
+ * Operations that put a sticky note on a flowchart's block, made with the block's ID in `was`,
+ * moved to the ID it has in `now`, the workspace as it is when they run (see blockNow). `viewNow`
+ * gives a view's ID in `now`. A block `was` has that's gone from `now` is refused, with why. The
+ * other operations are as they were.
+ */
+export function followBlocks(ops: Operation[], was: Workspace, now: Workspace, viewNow: (id: string) => string): Operation[] {
+  return ops.map((op): Operation => {
+    if ((op.op !== "add-sticky" && op.op !== "update-sticky") || !op.on || !("block" in op.on)) return op;
+    const id = op.on.block;
+    const [before, after] = [was.views.get(op.view), now.views.get(viewNow(op.view))];
+    if (!before?.blocks.some((b) => b.id === id) || !after) return op;
+    const block = blockNow(before, after, id);
+    if (!block) throw new OpError("The block is gone, so no note was put on it.");
+    return block === id ? op : { ...op, on: { block } };
+  });
+}
 
 /**
  * What a note on this view can be put on: its boxes and its frame, by name, then its arrows, each

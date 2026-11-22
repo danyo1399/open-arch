@@ -3,7 +3,7 @@ import { serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { act, createElement } from "react";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
 import { button, choose, click, key, mount, select } from "./dom.js";
@@ -279,6 +279,103 @@ describe("a sticky note on a flowchart's block in the designer", () => {
     // Right of its block, which is 180 wide, and level with its top.
     expect(at(d.node("sticky:note")!)).toEqual([260, 300]);
     expect(d.host.textContent).toContain("A line joins the note to the block it's on.");
+  });
+
+  /** Adds a process from + Add: it's selected, with its text to type. */
+  const addProcess = async (d: Awaited<ReturnType<typeof designer>>) => {
+    await click(button(d.host, "+ Add"));
+    await click([...document.querySelectorAll<HTMLButtonElement>('.context-menu [role="menuitem"]')].find((b) => b.textContent === "Process")!);
+    await d.settle();
+  };
+
+  it("is added to a new block whose text was typed just before the press", async () => {
+    const d = await designer(flow);
+    await addProcess(d);
+    expect(d.node("new-process")).not.toBeNull();
+    const text = document.activeElement as HTMLTextAreaElement;
+    expect(text.getAttribute("aria-label") ?? text.closest("label")?.textContent).toContain("Text");
+    // Leaving the box saves the text, which gives the block a new ID, and the press comes with it:
+    // its edit is made with the ID the block had, before a render shows the new one.
+    const press = button(d.host, "Add sticky note");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(text, "Pack the order");
+      text.dispatchEvent(new Event("input", { bubbles: true }));
+      text.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      press.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.host.querySelector('[role="alert"]')?.textContent).toBeUndefined();
+    expect(d.node("pack-the-order")!.textContent).toContain("Pack the order");
+    expect(d.node("sticky:note")!.querySelector("textarea")).not.toBeNull();
+    expect(select(d.host, "On").value).toBe("block:pack-the-order");
+    await d.stopEditing();
+    expect(d.lines()).toBe(1);
+  });
+
+  /** Makes the next save slow, as one to a folder can be, and gives what lets it finish. */
+  const slowSave = () => {
+    let finish = () => {};
+    const save = MemoryHost.prototype.save;
+    vi.spyOn(MemoryHost.prototype, "save").mockImplementationOnce(function (this: MemoryHost, text: string) {
+      return new Promise<void>((resolve) => (finish = () => resolve(save.call(this, text))));
+    });
+    return () => act(async () => finish());
+  };
+  /** Types a new block's text and leaves the box, which saves it and gives the block the text's ID. */
+  const retext = (text: string) =>
+    act(async () => {
+      const box = document.activeElement as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, text);
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      box.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+  it("goes on a new block whose text is still being saved when its dot is let go on it", async () => {
+    const d = await designer(withNote);
+    await addProcess(d);
+    const [x, y] = at(d.node("new-process")!) as [number, number];
+    const saved = slowSave();
+    await retext("Pack the order");
+    // The block is still drawn under the ID it had: it's 200 by 100 here.
+    expect(d.node("new-process")).not.toBeNull();
+    await d.dragDot("loose", { x: x + 100, y: y + 50 });
+    await saved();
+    await d.settle();
+    expect(d.host.querySelector('[role="alert"]')?.textContent).toBeUndefined();
+    expect(d.node("pack-the-order")).not.toBeNull();
+    expect(select(d.host, "On").value).toBe("block:pack-the-order");
+    expect(d.lines()).toBe(1);
+  });
+
+  it("goes on a new block whose text is still being saved when the block is picked under On", async () => {
+    const d = await designer(withNote);
+    await addProcess(d);
+    const saved = slowSave();
+    await retext("Pack the order");
+    await click(d.node("sticky:loose")!);
+    await choose(select(d.host, "On"), "block:new-process");
+    await saved();
+    await d.settle();
+    expect(d.host.querySelector('[role="alert"]')?.textContent).toBeUndefined();
+    expect(d.lines()).toBe(1);
+    // The block is selected again once its text is saved, under its new ID.
+    await click(d.node("sticky:loose")!);
+    expect(select(d.host, "On").value).toBe("block:pack-the-order");
+  });
+
+  it("says so, and adds no note, when the block is gone by the time of the press", async () => {
+    const d = await designer(flow);
+    await addProcess(d);
+    // Undo takes the new block away, and the press comes with it.
+    const press = button(d.host, "Add sticky note");
+    await act(async () => {
+      button(d.host, "Undo").click();
+      press.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.node("new-process")).toBeNull();
+    expect(d.host.querySelector(".react-flow__node-sticky")).toBeNull();
+    expect(d.host.querySelector('[role="alert"]')!.textContent).toContain("The block is gone, so no note was put on it.");
   });
 
   it("goes on the block its dot is let go on, stays where it is, and is selected", async () => {
