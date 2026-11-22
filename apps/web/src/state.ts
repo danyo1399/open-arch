@@ -291,59 +291,56 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[],
   );
 
   /**
-   * Applies an edit and saves it, as one step of the history. A save that fails is shown here.
-   * Operations that are refused are for the caller to show (`show`), or to hand on.
+   * Applies an edit and saves it, as one step of the history, in its turn in the queue. `finish`
+   * makes what it resolves to from what came of it, there in the queue's task, with nothing
+   * waited for in between. So whatever follows an edit, such as clearing the selection, still
+   * runs before the next thing queued, as callers count on. A save that fails is shown here.
+   * Operations that are refused are for `finish` to show (`show`), or to hand on.
    */
   const apply = useCallback(
-    (change: Edit) =>
-      enqueue(async (): Promise<Change | { ok: false; error: string; show: boolean }> => {
+    <T,>(change: Edit, finish: (done: Change | { ok: false; error: string; show: boolean }) => T) =>
+      enqueue(async (): Promise<T> => {
         const before = current.current;
-        if (before === null) return { ok: false, error: "The workspace isn't open.", show: false };
+        if (before === null) return finish({ ok: false, error: "The workspace isn't open.", show: false });
         const workspace = loadWorkspace(before);
-        if (!workspace.valid) return { ok: false, error: BROKEN_FILE, show: true };
+        if (!workspace.valid) return finish({ ok: false, error: BROKEN_FILE, show: true });
         let next: string;
         let ops: Operation[];
         let result: ApplyResult;
         try {
           ops = typeof change === "function" ? change(workspace) : change;
-          if (ops.length === 0) return { ok: true, summary: [], warnings: [], before, after: before };
+          if (ops.length === 0) return finish({ ok: true, summary: [], warnings: [], before, after: before });
           result = applyOperations(workspace.doc, ops);
           next = serializeDocument(result.doc);
         } catch (error) {
           if (!(error instanceof OpError)) throw error;
-          return { ok: false, error: problemText(error), show: true };
+          return finish({ ok: false, error: problemText(error), show: true });
         }
         const done: Change = { ok: true, summary: result.summary, warnings: result.warnings, before, after: next };
-        if (next === before) return done;
+        if (next === before) return finish(done);
         try {
           await write(next, () => applied.current?.(ops, workspace));
         } catch (error) {
           const problem = `Couldn't save: ${problemText(error)}`;
           showSaveProblem(problem);
-          return { ok: false, error: problem, show: false };
+          return finish({ ok: false, error: problem, show: false });
         }
         updateHistory((h) => withStep(h, { label: changeLabel(result.summary), before, after: next, renames: renamesIn(ops) }));
-        return done;
+        return finish(done);
       }),
     [enqueue, write],
   );
 
   const edit = useCallback(
-    async (change: Edit) => {
-      const done = await apply(change);
-      if (!done.ok && "show" in done && done.show) setMessage({ kind: "error", text: done.error });
-      return done.ok;
-    },
+    (change: Edit) =>
+      apply(change, (done) => {
+        if (!done.ok && "show" in done && done.show) setMessage({ kind: "error", text: done.error });
+        return done.ok;
+      }),
     [apply],
   );
 
-  const change = useCallback(
-    async (ops: Operation[]): Promise<Change> => {
-      const done = await apply(ops);
-      return done.ok ? done : { ok: false, error: done.error };
-    },
-    [apply],
-  );
+  const change = useCallback((ops: Operation[]) => apply(ops, (done): Change => (done.ok ? done : { ok: false, error: done.error })), [apply]);
 
   const restore = useCallback(
     (target: string, label: string, from?: string) =>
