@@ -33,7 +33,7 @@ One UI, two ways to run it.
 | Notices outside edits | Edits to the same workspace in another tab, and deleting it there: it stays open, and **Save** keeps it again. In a folder, it checks the file every few seconds, so an agent's, an editor's or Git's changes show up | Watches the file, so an agent's or editor's changes show up |
 | Try without a file | The bundled examples (the tour and the shop); **Save** keeps a copy in the browser | The bundled examples |
 | Share a link | **Share** makes a link that opens a copy; clicking it opens the workspace | The same, and links open in the web designer; **Open link…** opens one |
-| Ask AI | | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
+| Ask AI | Asks a model you choose, straight from the page, through any server that speaks OpenAI's chat API | Sends a request to a local [OpenCode 2](https://opencode.ai) agent |
 | Install | Installable as an app (Chrome, Edge, Safari's **Add to Dock** or **Add to Home Screen**) that opens offline | An installer per OS |
 
 The workspaces kept in the web app's browser storage are only in that browser, on that device, and clearing the site's data deletes them, so export a copy of anything you want to keep. A workspace opened from a folder stays in its file, in the folder: see [Working in a folder](#working-in-a-folder). The URL names the open workspace, so reloading the page reopens it. Import and export go through a `FileProvider` ([`apps/web/src/providers.ts`](apps/web/src/providers.ts)): files on this device are the only one so far, and cloud storage such as Dropbox or iCloud Drive can be added as another.
@@ -267,6 +267,31 @@ The Views & model panel is left of the diagram, and the Details panel right of i
 Drag a panel's edge to make it wider or narrower, or taller or shorter under the diagram. A panel stops growing before the diagram gets too small. Or press Tab to get to the edge, and use the arrow keys; Home and End make the panel its smallest or largest. Double-click the edge to give the panel its usual size again.
 
 Which panels are collapsed, and their sizes, are yours: they're kept in the browser's storage on this computer, in the desktop app too, not in the .openarch file. The designer opens every workspace with the panels as you left them. On a phone, each panel fills the screen in turn, picked with the tabs along the bottom, so they don't collapse or resize.
+
+### Ask AI (web)
+
+**Ask AI**, in the top bar, or in its menu on a phone, opens a panel to ask a model about the open workspace, or to change it: "Which containers use the Orders DB?", or "Add a Redis cache that the Checkout API uses". It carries on one conversation, so a request can follow from the one before. **New chat** starts another, and closing the workspace ends it: it isn't kept anywhere.
+
+The page talks to the model's server itself. Nothing goes through a server of open-arch's. The first time, it asks for three settings:
+
+- **Server address**: where the server's API is, such as `https://api.openai.com/v1`. Any server that speaks OpenAI's chat completions API will do: OpenAI, OpenRouter and most other providers, or a model on your own computer, served by Ollama or LM Studio.
+- **API key**: the key for that server. Leave it empty for a server that needs none.
+- **Model**: the model to ask, as the server names it. It has to be one that can call tools.
+
+The settings are yours, not the workspace's. They're kept in this browser's local storage until you press **Forget** in the panel's **Settings**, and nowhere else: never in the .openarch file, an export, a zip or a shared link. Anyone who uses this browser as you can read the key there, so don't keep one in a browser you share.
+
+What goes to the server is what you ask, which view is open and what's selected, and what the model reads to answer. It reads the workspace with the same text `open-arch show` prints, and can search it and list its problems.
+
+It changes the workspace only through the operations the designer and the CLI use, so every change is checked: one that would break the model is refused, nothing changes, and the model is told why, to put it right. A change is made as soon as the model asks for it, and is one step in [History](#undo-and-history). **Undo AI change** puts the workspace back as it was before the request. **Stop** ends a request; what it had changed by then stays.
+
+For a workspace [in a folder](#working-in-a-folder), tick **Let the AI read the files in …** to let the model find, read and search the folder's files too: to answer from the code, or to model what's in a repository. It only reads: it can't change a file or run a command. Hidden files and folders, such as `.env` and `.git`, and `node_modules` are left out, and it doesn't read a file bigger than 1 MB, or one that isn't text. What it reads is sent to the model's server. The tick is kept in this browser, for that folder only.
+
+If the server can't be reached, check these:
+
+- The server has to allow requests from a web page (CORS). Most providers do. A server on your computer needs the designer's address among its allowed origins: for Ollama, set `OLLAMA_ORIGINS`.
+- A page served over HTTPS can't call an `http://` address, except one on this computer (`localhost`).
+
+A request stops after 30 steps, in case a model never finishes: ask it to carry on.
 
 ### Ask AI (desktop)
 

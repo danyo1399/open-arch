@@ -1,5 +1,5 @@
 /** The open workspace: its file text, the model built from it, problems, edits, undo and the history. */
-import { applyOperations, checkWorkspace, loadWorkspace, OpError, serializeDocument, type Diagnostic, type Operation, type Workspace } from "@open-arch/core";
+import { applyOperations, checkWorkspace, loadWorkspace, OpError, serializeDocument, type ApplyResult, type Diagnostic, type Operation, type Workspace } from "@open-arch/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import type { WorkspaceHost } from "./hosts.js";
@@ -17,6 +17,12 @@ export interface WorkspaceState {
   loadError: string | null;
   /** Apply operations and save. Resolves to false when they were refused. */
   edit(edit: Edit): Promise<boolean>;
+  /**
+   * Apply operations and save, as `edit` does, and hand back what they did, or why they were
+   * refused, without showing it: for Ask AI, whose model reads the answer and tries again. A save
+   * that fails is still shown, as that's for the person to put right.
+   */
+  change(ops: Operation[]): Promise<Change>;
   /**
    * Save an earlier version of the file, as one step that Undo takes back, which the History list
    * calls `label`. Resolves to false if it couldn't be saved.
@@ -60,6 +66,9 @@ export interface WorkspaceState {
   dismissMessage(): void;
 }
 
+/** What a change did: each operation in a line, and the warnings it brought. Or why it was refused, with nothing changed. */
+export type Change = { ok: true; summary: string[]; warnings: Diagnostic[] } | { ok: false; error: string };
+
 /** A version of the workspace in the History list. */
 export interface Version {
   /** Tells it from the others, and puts them in order: a later version has a higher number. */
@@ -71,6 +80,9 @@ export interface Version {
 }
 
 const HISTORY_LIMIT = 100;
+
+/** Why a file with errors can't be changed. */
+const BROKEN_FILE = "This file has errors that stop it being changed safely. Fix it by hand (the Problems list says where), or restore it from version control.";
 
 /** What an edit did, for the History list: its first change, as `applyOperations` puts it, and how many more came with it. */
 export function changeLabel(summary: string[]): string {
@@ -271,41 +283,59 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     [host],
   );
 
-  const edit = useCallback(
+  /**
+   * Applies an edit and saves it, as one step of the history. A save that fails is shown here.
+   * Operations that are refused are for the caller to show (`show`), or to hand on.
+   */
+  const apply = useCallback(
     (change: Edit) =>
-      enqueue(async () => {
+      enqueue(async (): Promise<Change | { ok: false; error: string; show: boolean }> => {
         const before = current.current;
-        if (before === null) return false;
+        if (before === null) return { ok: false, error: "The workspace isn't open.", show: false };
         const workspace = loadWorkspace(before);
-        if (!workspace.valid) {
-          setMessage({ kind: "error", text: "This file has errors that stop it being changed safely. Fix it by hand (the Problems list says where), or restore it from version control." });
-          return false;
-        }
+        if (!workspace.valid) return { ok: false, error: BROKEN_FILE, show: true };
         let next: string;
         let ops: Operation[];
-        let label: string;
+        let result: ApplyResult;
         try {
           ops = typeof change === "function" ? change(workspace) : change;
-          if (ops.length === 0) return true;
-          const result = applyOperations(workspace.doc, ops);
+          if (ops.length === 0) return { ok: true, summary: [], warnings: [] };
+          result = applyOperations(workspace.doc, ops);
           next = serializeDocument(result.doc);
-          label = changeLabel(result.summary);
         } catch (error) {
           if (!(error instanceof OpError)) throw error;
-          setMessage({ kind: "error", text: problemText(error) });
-          return false;
+          return { ok: false, error: problemText(error), show: true };
         }
-        if (next === before) return true;
+        const done: Change = { ok: true, summary: result.summary, warnings: result.warnings };
+        if (next === before) return done;
         try {
           await write(next, () => applied.current?.(ops));
         } catch (error) {
-          showSaveProblem(`Couldn't save: ${problemText(error)}`);
-          return false;
+          const problem = `Couldn't save: ${problemText(error)}`;
+          showSaveProblem(problem);
+          return { ok: false, error: problem, show: false };
         }
-        updateHistory((h) => withStep(h, { label, before, after: next, renames: renamesIn(ops) }));
-        return true;
+        updateHistory((h) => withStep(h, { label: changeLabel(result.summary), before, after: next, renames: renamesIn(ops) }));
+        return done;
       }),
     [enqueue, write],
+  );
+
+  const edit = useCallback(
+    async (change: Edit) => {
+      const done = await apply(change);
+      if (!done.ok && "show" in done && done.show) setMessage({ kind: "error", text: done.error });
+      return done.ok;
+    },
+    [apply],
+  );
+
+  const change = useCallback(
+    async (ops: Operation[]): Promise<Change> => {
+      const done = await apply(ops);
+      return done.ok ? done : { ok: false, error: done.error };
+    },
+    [apply],
   );
 
   const restore = useCallback(
@@ -376,6 +406,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
     diagnostics,
     loadError,
     edit,
+    change,
     restore,
     afterEdits,
     undo: () => void go((h) => h.done - 1),
