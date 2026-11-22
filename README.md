@@ -100,6 +100,14 @@ As you drag boxes and sticky notes, they line up with the ones around them, edge
 
 Drag from the dot under a box to another box to add a relationship. To move one, select its arrow and drag the dot at either end to another box: the relationship keeps its description, technology, tags and notes. An arrow that stands for several relationships moves them all. When two elements call each other, select the relationship and tick **Goes both ways**: its arrow gets a head at each end, and stands for every relationship between the two boxes.
 
+### Undo and History
+
+**Undo** and **Redo**, in the top bar, take back the last change and make it again: Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y (⌘ for Ctrl on a Mac).
+
+**History**, the clock button beside them, lists the changes made since the workspace was opened, newest first, with when each was made. On a phone, it's in the top bar's menu. Pick a change to go back to the workspace as it was just after it, or **Before these changes** to take them all back. That's one save, however many changes it goes back over. The changes gone back over stay in the list, marked **Undone**: pick one to make it again, with the ones before it. They go once you make a new change. Undo and Redo carry on from wherever you are in the list.
+
+The list is kept in memory, only while the workspace is open. It isn't saved in the .openarch file or in the browser's storage, and it's in no export or shared link, so nobody you pass the workspace to sees what you tried and took back. It holds the last hundred changes, and starts again when the workspace is closed, or reloaded because its file changed outside the designer.
+
 ### Notes
 
 An element, a relationship, a view or a sticky note can have notes: longer documentation, in markdown, which the generated docs show. Select it and write them under **Notes** in its details. For more than a few lines, **Expand** opens them in an editor as big as the window. **Done**, Esc or Ctrl+Enter (⌘Enter on a Mac) saves them, and Undo takes them back. **Cancel** leaves them as they were. If the notes can't be saved, say because what they're on was deleted elsewhere while you wrote, the editor stays open with what you wrote, to copy.

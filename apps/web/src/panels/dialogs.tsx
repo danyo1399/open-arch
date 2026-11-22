@@ -1,5 +1,6 @@
 import { kindLabel, kindList, LEVEL_TITLE, SCOPE_KINDS, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
 import { addViewOp, deletePlan } from "../model.js";
+import type { Version } from "../state.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Format, RichNotes } from "./richNotes.js";
 
@@ -383,6 +384,49 @@ export function ConfirmDialog({ title, text, confirm, onConfirm, onClose }: { ti
       }
     >
       <p>{text}</p>
+    </Modal>
+  );
+}
+
+/** When a change was made, as the History list shows it: the time of day, to the minute. */
+export const changeTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+/**
+ * The History list: the changes made here, newest first, to go back to the workspace as it was
+ * just after any of them, or forward again to one that was undone. It opens on the one showing
+ * now, and stays open after a pick, to try another.
+ */
+export function HistoryDialog({ versions, current, onGo, onClose }: { versions: Version[]; current: number; onGo(version: number): void; onClose(): void }) {
+  const now = versions.findIndex((v) => v.number === current);
+  const shown = useRef<HTMLButtonElement>(null);
+  // After the dialog has opened, which puts the focus on its first button.
+  useEffect(() => {
+    shown.current?.focus();
+  }, []);
+  return (
+    <Modal title="History" onClose={onClose} actions={<button onClick={onClose}>Close</button>}>
+      <p>
+        The changes made here, newest first, with when each was made. Pick one to go back to the workspace as it was just after it, or one that was undone to make it again. Undo and Redo carry on from
+        there.
+      </p>
+      <p className="muted small">This list is kept only while the workspace is open here. It isn't saved in the file, exported or shared.</p>
+      {versions.length === 1 ? (
+        <p className="muted">No changes yet.</p>
+      ) : (
+        <ol className="history">
+          {versions
+            .map((v, i) => (
+              <li key={v.number}>
+                <button ref={i === now ? shown : undefined} className={i > now ? "row undone" : i === now ? "row active" : "row"} aria-current={i === now} onClick={() => onGo(v.number)}>
+                  <span className="grow">{v.change ?? "Before these changes"}</span>
+                  {i >= now && <span className="small">{i === now ? "Now" : "Undone"}</span>}
+                  {v.at !== null && <time className="muted small">{changeTime(v.at)}</time>}
+                </button>
+              </li>
+            ))
+            .reverse()}
+        </ol>
+      )}
     </Modal>
   );
 }

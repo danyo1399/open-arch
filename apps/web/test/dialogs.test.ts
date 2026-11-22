@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { act, createElement, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { linkable, NewViewDialog, NotesEditor } from "../src/panels/dialogs.js";
+import { changeTime, HistoryDialog, linkable, NewViewDialog, NotesEditor } from "../src/panels/dialogs.js";
+import type { Version } from "../src/state.js";
 import { button, choose, click, key, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
@@ -388,5 +389,54 @@ describe("NotesEditor", () => {
     expect(button(host, "Markdown").disabled).toBe(true);
     await act(async () => finish(true));
     expect(closes).toHaveLength(1);
+  });
+});
+
+describe("HistoryDialog", () => {
+  const noon = new Date(2026, 0, 5, 12, 0).getTime();
+  const versions: Version[] = [
+    { number: 4, change: null, at: null },
+    { number: 5, change: "Added system shop", at: noon },
+    { number: 6, change: "Updated shop", at: noon + 60_000 },
+    { number: 9, change: "Removed shop", at: noon + 120_000 },
+  ];
+  /** The dialog on these versions, showing the one numbered `current`. It keeps the versions picked. */
+  function history(list: Version[], current: number) {
+    const picked: number[] = [];
+    const host = mount(createElement(HistoryDialog, { versions: list, current, onGo: (version: number) => void picked.push(version), onClose() {} }));
+    return { host, picked, rows: [...host.querySelectorAll<HTMLButtonElement>(".history button")] };
+  }
+
+  it("lists the changes newest first, with when each was made, and marks the one showing now and the ones undone", () => {
+    const { host, rows } = history(versions, 6);
+    expect(rows.map((r) => [...r.children].map((c) => c.textContent))).toEqual([
+      ["Removed shop", "Undone", changeTime(noon + 120_000)],
+      ["Updated shop", "Now", changeTime(noon + 60_000)],
+      ["Added system shop", changeTime(noon)],
+      ["Before these changes"],
+    ]);
+    expect(changeTime(noon)).toMatch(/12.00/);
+    expect(rows.map((r) => r.className)).toEqual(["row undone", "row active", "row", "row"]);
+    expect(rows.map((r) => r.getAttribute("aria-current"))).toEqual(["false", "true", "false", "false"]);
+    expect(host.textContent).toContain("It isn't saved in the file, exported or shared.");
+  });
+
+  it("opens on the version showing now", () => {
+    const { rows } = history(versions, 5);
+    expect(document.activeElement).toBe(rows[2]);
+  });
+
+  it("goes to the version picked: an earlier one, the one before every change, or one that was undone", async () => {
+    const { rows, picked } = history(versions, 6);
+    await click(rows[2]!);
+    await click(rows[3]!);
+    await click(rows[0]!);
+    expect(picked).toEqual([5, 4, 9]);
+  });
+
+  it("says so when no changes have been made", () => {
+    const { host, rows } = history([{ number: 0, change: null, at: null }], 0);
+    expect(rows).toEqual([]);
+    expect(host.textContent).toContain("No changes yet.");
   });
 });
