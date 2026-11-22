@@ -367,6 +367,18 @@ describe("a deployment view's details", () => {
     for (const id of ["web", "ghost", "buyer"]) expect(made(model, { op: "update-node", view: "production", id: "server", runs: ["web", "ghost", "buyer"].filter((r) => r !== id) })).toBe(false);
   });
 
+  it("read what a node runs as core does, with spaces round an ID, when they say what it can't run", () => {
+    // " api " is the API container, as update-node reads it: only the person is wrong, and stopping it puts the node right.
+    const model = broken((v) => (v.nodes!.server!.runs = [" api ", "buyer"]));
+    const ws = buildWorkspace(model);
+    const view = ws.views.get("production")!;
+    const server = details(ws, view, { kind: "node", id: "server" });
+    const stops = [...server.host.querySelectorAll("li")].filter((li) => li.textContent!.includes("Stop running it here")).map((li) => li.querySelector("button")!.textContent);
+    expect(stops).toEqual(["Buyer"]);
+    expect(server.host.querySelector("ul.plain + .field-hint")!.textContent).toBe("Nodes run only containers and systems, and Buyer isn't one. What else it runs can't change while it's told to run that.");
+    expect(made(model, { op: "update-node", view: "production", id: "server", runs: [" api "] })).toBe(true);
+  });
+
   it("say why what a node runs can't change, when the change would leave an error the view doesn't have", () => {
     // Any change to what a node runs takes the connection to the cache, which nothing runs, and the one after is renumbered: core takes its error for a new one.
     const model = broken((v) => v.connections!.push({ from: "lb", to: "cache" }, { from: "region", to: "lb" }));

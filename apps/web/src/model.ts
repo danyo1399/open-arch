@@ -773,9 +773,13 @@ export function stopRunning(ws: Workspace, view: ViewDef, node: DeploymentNode, 
   return deploymentOffers(ws, view, op) ? op : undefined;
 }
 
-/** What a node runs that no node can, as a file written by hand can say: anything that isn't a container or system of the model. */
+/**
+ * What a node runs that no node can, as a file written by hand can say: anything that isn't a
+ * container or system of the model. Each ID is read as update-node reads it, trimmed, so " api "
+ * is the API container.
+ */
 export function unrunnable(ws: Workspace, node: DeploymentNode): string[] {
-  return node.runs.filter((id) => !RUNNABLE_KINDS.includes(ws.elements.get(id)?.kind as ElementKind));
+  return node.runs.filter((id) => !RUNNABLE_KINDS.includes(ws.elements.get(id.trim())?.kind as ElementKind));
 }
 
 /** A wireframe's widget as lists and menus name it: its kind, and its text's first line. */
