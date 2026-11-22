@@ -259,6 +259,57 @@ describe("the open workspace", () => {
     expect(state().message?.text).toBe("Couldn't save: Something went wrong, and no reason was given.");
   });
 
+  it("hands back what a change did, or why it was refused, without showing it, for whoever asked to read", async () => {
+    const host = new TestHost("browser");
+    const heard: Operation[][] = [];
+    const state = await workspaceFor(host, (ops) => heard.push(ops));
+    const ops: Operation[] = [
+      { op: "add-element", id: "shop", kind: "system", name: "Shop" },
+      { op: "add-element", id: "customer", kind: "person", name: "Customer" },
+      { op: "add-relationship", from: "customer", to: "shop" },
+    ];
+    let done = await act(() => state().change(ops));
+    // What each operation did, and the warnings they brought.
+    expect(done).toEqual({ ok: true, summary: ["added system shop", "added person customer", "added relationship customer -> shop"], warnings: [expect.objectContaining({ rule: "relationship-description", severity: "warning" })] });
+    expect(host.file).toContain('"customer"');
+    expect(state().ws?.elements.has("shop")).toBe(true);
+    expect(heard).toEqual([ops]);
+    // It's one change in the history, as an edit is, which Undo takes back.
+    expect(state().versions.map((v) => v.change)).toEqual([null, "Added system shop, and 2 more changes"]);
+    await act(async () => state().undo());
+    await settle();
+    expect(state().ws?.elements.size).toBe(0);
+
+    // Refused: nothing changes, and it's said to the caller, not shown.
+    const before = host.file;
+    done = await act(() => state().change([{ op: "add-element", id: "api", kind: "container", name: "API", parent: "nowhere" }]));
+    expect(done).toEqual({ ok: false, error: expect.stringContaining("nowhere") });
+    expect(host.file).toBe(before);
+    expect(state().message).toBeNull();
+    // The same operations as an edit are shown.
+    expect(await act(() => state().edit([{ op: "add-element", id: "api", kind: "container", name: "API", parent: "nowhere" }]))).toBe(false);
+    expect(state().message).toEqual({ kind: "error", text: (done as { error: string }).error });
+  });
+
+  it("refuses a change to a file with errors, and says a change couldn't be saved to the caller and on screen", async () => {
+    const broken = new TestHost("browser");
+    broken.file = JSON.stringify({ openarch: 20, name: "A", elements: { shop: { kind: "system" } }, views: {} });
+    const state = await workspaceFor(broken);
+    const done = await act(() => state().change([{ op: "update-workspace", name: "B" }]));
+    expect(done).toEqual({ ok: false, error: "This file has errors that stop it being changed safely. Fix it by hand (the Problems list says where), or restore it from version control." });
+    expect(state().message).toBeNull();
+    // As an edit, the same is shown.
+    await act(() => state().edit([{ op: "update-workspace", name: "B" }]));
+    expect(state().message?.text).toBe((done as { error: string }).error);
+
+    const host = new TestHost("browser");
+    host.save = () => Promise.reject(new Error("The disk is full."));
+    const failing = await workspaceFor(host);
+    expect(await act(() => failing().change([{ op: "update-workspace", name: "B" }]))).toEqual({ ok: false, error: "Couldn't save: The disk is full." });
+    expect(failing().message).toEqual({ kind: "error", text: "Couldn't save: The disk is full." });
+    expect(failing().versions).toHaveLength(1);
+  });
+
   it("says so when Undo can't be saved", async () => {
     const host = new TestHost("file");
     const state = await workspaceFor(host);

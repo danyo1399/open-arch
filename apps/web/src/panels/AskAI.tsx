@@ -1,25 +1,38 @@
 /**
- * "Ask AI" (desktop app): send a request to the app's agent, follow its
- * progress, approve or deny what it asks to do, and undo what it changed. The
- * agent changes the file on disk, and the designer reloads it from there.
+ * "Ask AI": send a request to an agent, follow its progress, approve or deny what it asks to do,
+ * and undo what it changed. In the desktop app the agent changes the file on disk, and the
+ * designer reloads it from there. In the web app the agent is the page's own (ai/agent.ts), which
+ * talks to a model itself and changes the workspace as the designer does.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AgentBridge, AgentContext, AgentEvent } from "../bridge.js";
+import type { AgentContext, AgentEvent } from "../bridge.js";
 import { problemText, UNKNOWN_PROBLEM } from "../problems.js";
 
 type Answer = "approved" | "denied" | "answered";
 
 type Entry =
   | { kind: "prompt"; text: string }
-  | { kind: "progress"; text: string }
+  /** `writing`: a message still being written, which the next piece of it goes on the end of. */
+  | { kind: "progress"; text: string; writing?: boolean }
   | { kind: "permission"; id: string; text: string; answer?: Answer }
   | { kind: "done"; text: string }
   | { kind: "error"; text: string };
 
+/** What the panel sends requests to: the desktop app's agent, for the open file, or the web app's own. */
+export interface Asker {
+  /** Run one request. Calls `onEvent` with progress, then once with "done" or "error", and resolves after that. */
+  run(prompt: string, context: AgentContext, onEvent: (event: AgentEvent) => void): Promise<void>;
+  /** Approve or deny a permission request from the running request, for an agent that makes them. */
+  reply?(permissionId: string, allow: boolean): Promise<void>;
+  /** Stop the running request. */
+  cancel(): Promise<void> | void;
+  /** Forget the conversation so far, for an agent that keeps one: the next request starts another. */
+  reset?(): void;
+}
+
 interface AskAIProps {
-  agent: AgentBridge;
-  /** The open file, as the bridge knows it. */
-  path: string;
+  /** The same one for as long as the panel is there: a new one stops the request the last was running. */
+  agent: Asker;
   context: AgentContext;
   /** Where the user is, in words. */
   contextLabel: string;
@@ -28,7 +41,17 @@ interface AskAIProps {
   restore(text: string): Promise<boolean>;
   open: boolean;
   onClose(): void;
+  /** What the box is for, where it isn't only for changes. */
+  asks?: { label: string; placeholder: string };
+  /** Shown in place of the log and the box, such as settings to fill in first. */
+  setup?: ReactNode;
+  /** More buttons for the header, while no request is running. */
+  actions?: ReactNode;
+  /** A line above the box. */
+  note?: ReactNode;
 }
+
+const CHANGES = { label: "What should the AI change?", placeholder: "Describe a change, like “Add a Redis cache that the Checkout API uses”" };
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -46,7 +69,7 @@ function formatted(text: string): ReactNode[] {
   });
 }
 
-export function AskAI({ agent, path, context, contextLabel, text, restore, open, onClose }: AskAIProps) {
+export function AskAI({ agent, context, contextLabel, text, restore, open, onClose, asks = CHANGES, setup, actions, note }: AskAIProps) {
   const [prompt, setPrompt] = useState("");
   const [log, setLog] = useState<Entry[]>([]);
   const [running, setRunning] = useState(false);
@@ -73,6 +96,12 @@ export function AskAI({ agent, path, context, contextLabel, text, restore, open,
 
   const onEvent = (event: AgentEvent) => {
     if (event.type === "progress") add({ kind: "progress", text: event.text });
+    // A piece of a message goes on the end of the one being written, or starts one.
+    else if (event.type === "delta")
+      setLog((l) => {
+        const last = l[l.length - 1];
+        return last?.kind === "progress" && last.writing ? [...l.slice(0, -1), { ...last, text: last.text + event.text }] : [...l, { kind: "progress", text: event.text, writing: true }];
+      });
     else if (event.type === "permission") add({ kind: "permission", id: event.id, text: event.description });
     else if (event.type === "permission-replied") setAnswer(event.id, "answered", true);
     else if (event.type === "error") add({ kind: "error", text: problemText(event.message) });
@@ -80,7 +109,7 @@ export function AskAI({ agent, path, context, contextLabel, text, restore, open,
       // The summary is usually the agent's last message: show it once.
       setLog((l) => {
         const last = l[l.length - 1];
-        return [...(last?.kind === "progress" && last.text === event.summary ? l.slice(0, -1) : l), { kind: "done", text: event.summary }];
+        return [...(last?.kind === "progress" && last.text.trim() === event.summary.trim() ? l.slice(0, -1) : l), { kind: "done", text: event.summary }];
       });
     }
   };
@@ -94,7 +123,7 @@ export function AskAI({ agent, path, context, contextLabel, text, restore, open,
     setBefore(text);
     add({ kind: "prompt", text: request });
     try {
-      await agent.run(path, request, context, onEvent);
+      await agent.run(request, context, onEvent);
     } catch (error) {
       add({ kind: "error", text: errorText(error) });
     } finally {
@@ -106,7 +135,7 @@ export function AskAI({ agent, path, context, contextLabel, text, restore, open,
   const answer = async (id: string, allow: boolean) => {
     setAnswer(id, allow ? "approved" : "denied");
     try {
-      await agent.reply(id, allow);
+      await agent.reply?.(id, allow);
     } catch (error) {
       setAnswer(id, undefined);
       add({ kind: "error", text: errorText(error) });
@@ -120,16 +149,30 @@ export function AskAI({ agent, path, context, contextLabel, text, restore, open,
     }
   };
 
+  /** Starts a new conversation, with nothing in the log. What the AI changed stays changed. */
+  const startAgain = () => {
+    agent.reset?.();
+    setLog([]);
+    setBefore(null);
+  };
+
   return (
     <section className="ask-ai" aria-label="Ask AI" hidden={!open}>
       <header className="ask-ai-header">
         <h2>Ask AI</h2>
         <span className="muted small grow">{contextLabel}</span>
+        {agent.reset && !setup && !running && log.length > 0 && (
+          <button className="link small" onClick={startAgain} title="Start a new conversation: the AI forgets this one. What it changed stays changed.">
+            New chat
+          </button>
+        )}
+        {!running && actions}
         <button className="icon" onClick={onClose} aria-label="Close Ask AI">
           ×
         </button>
       </header>
-      {log.length > 0 && (
+      {setup}
+      {!setup && log.length > 0 && (
         <div className="ask-ai-log" aria-live="polite">
           {log.map((entry, i) => (
             <LogEntry key={i} entry={entry} onAnswer={(id, allow) => void answer(id, allow)} />
@@ -137,7 +180,7 @@ export function AskAI({ agent, path, context, contextLabel, text, restore, open,
           <div ref={logEnd} />
         </div>
       )}
-      {!running && before !== null && text !== before && (
+      {!setup && !running && before !== null && text !== before && (
         <div className="ask-ai-undo">
           <span className="small muted grow">The AI changed the model.</span>
           <button onClick={() => void undo()} title="Put the file back as it was before this request. Undo takes this back.">
@@ -146,17 +189,19 @@ export function AskAI({ agent, path, context, contextLabel, text, restore, open,
         </div>
       )}
       <form
+        hidden={!!setup}
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
       >
+        {note}
         <textarea
           value={prompt}
           rows={3}
           disabled={running}
-          aria-label="What should the AI change?"
-          placeholder="Describe a change, like “Add a Redis cache that the Checkout API uses”"
+          aria-label={asks.label}
+          placeholder={asks.placeholder}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (isMac ? e.metaKey : e.ctrlKey)) {

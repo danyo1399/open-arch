@@ -18,6 +18,11 @@ export function checkWorkspace(ws: Workspace): Diagnostic[] {
   return out;
 }
 
+/** A problem as it's printed, for an agent or a person to read: where it is, what's wrong, and how to fix it. */
+export function formatDiagnostic(d: Diagnostic): string {
+  return `${d.path || "(file)"}: ${d.severity} [${d.rule}] ${d.message}${d.fix ? `\n  fix: ${d.fix}` : ""}`;
+}
+
 export function errorCount(diagnostics: Diagnostic[]): number {
   return diagnostics.filter((d) => d.severity === "error").length;
 }

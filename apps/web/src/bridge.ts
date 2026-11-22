@@ -61,6 +61,8 @@ export interface AgentContext {
 
 export type AgentEvent =
   | { type: "progress"; text: string }
+  /** A piece of the agent's message as it's written, which goes on the end of the pieces before it (the web app's Ask AI). */
+  | { type: "delta"; text: string }
   /** The agent wants to do something that needs the user's approval. */
   | { type: "permission"; id: string; description: string }
   /** A permission request was answered, here or elsewhere. */

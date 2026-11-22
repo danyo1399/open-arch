@@ -1,0 +1,677 @@
+/**
+ * What `show` says about a workspace: the whole model, one element or one view, as text to read
+ * and as JSON. The CLI prints it, and the designer's Ask AI hands it to its model, so an agent
+ * reads the same thing either way.
+ */
+import { nodeKindLabel, transitionLabel } from "./mermaid.js";
+import { tagEntries, tagText } from "./model.js";
+import type { NewElements } from "./operations.js";
+import { describeElement, modelTree, type TreeNode } from "./query.js";
+import {
+  BLOCK_KIND_LABELS,
+  CARD_KIND_LABELS,
+  endShape,
+  endSide,
+  WIDGET_KIND_LABELS,
+  type ArchElement,
+  type Relationship,
+  type RelationshipKind,
+  type Sticky,
+  type Tags,
+  type ViewDef,
+  type Widget,
+} from "./types.js";
+import { stickyAnchor, stickyTargetText, type ComputedView } from "./views.js";
+import type { Workspace } from "./workspace.js";
+
+/** One thing shown: as text, and as what `show --json` prints. */
+export interface Shown {
+  text: string;
+  json: unknown;
+}
+
+/** The model as a tree, and the views. `file` is what to call the workspace's file. */
+export function showWorkspace(ws: Workspace, file: string): Shown {
+  return { json: overviewJson(ws), text: overviewText(ws, file) };
+}
+
+/** One element: its fields, tags and notes, what it uses and what uses it, and the views showing it. */
+export function showElement(ws: Workspace, element: ArchElement): Shown {
+  const d = describeElement(ws, element.id)!;
+  const json = {
+    ...summary(element),
+    description: element.description,
+    shape: element.shape === "box" ? undefined : element.shape,
+    stereotype: element.stereotype,
+    members: element.kind === "class" ? element.members : undefined,
+    libraries: element.kind === "container" ? element.libraries : undefined,
+    builtInto: element.kind === "library" ? d.builtInto.map((c) => c.id) : undefined,
+    tags: element.tags,
+    notes: element.notes,
+    children: d.children.map((c) => c.id),
+    uses: d.uses.map(({ rel, target }) => ({ to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes, known: !!target })),
+    usedBy: d.usedBy.map(({ from, rel }) => ({ from: from.id, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, tags: rel.tags, notes: rel.notes })),
+    contentsUse: d.contentsUse.map(({ from, rel }) => ({ from: from.id, to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
+    contentsUsedBy: d.contentsUsedBy.map(({ from, rel }) => ({ from: from.id, to: rel.to, kind: kindOf(rel), bidirectional: rel.bidirectional || undefined, description: rel.description, technology: rel.technology, notes: rel.notes })),
+    views: d.views.map(({ view, as, runsIn }) => ({ id: view.id, as, runsIn: runsIn?.map((n) => n.id) })),
+  };
+  const lines = [`${element.id}: ${element.name}`];
+  const field = (label: string, value: string | undefined) => value && lines.push(`  ${(label + ":").padEnd(13)}${value}`);
+  field("kind", element.external ? `${element.kind} (external)` : element.kind);
+  field("parent", d.parent ? `${d.parent.id} (${d.parent.name})` : element.parent);
+  field("technology", element.technology);
+  field("description", element.description);
+  field("shape", element.shape === "box" ? undefined : element.shape);
+  field("stereotype", element.stereotype);
+  if (element.members.length) lines.push("", "Members:", ...element.members.map((m) => `  ${m}`));
+  const tags = tagEntries(element.tags);
+  if (tags.length) lines.push("", "Tags:", ...table(tags.map(([name, value]) => [`  ${name}`, value])));
+  if (element.notes) lines.push("", "Notes:", ...indented(element.notes, "  "));
+  if (d.children.length) lines.push("", "Contains:", ...table(d.children.map(row)));
+  if (d.libraries.length) lines.push("", "Libraries:", ...table(d.libraries.map(row)));
+  if (element.kind === "library") lines.push("", "Built into:", ...(d.builtInto.length ? table(d.builtInto.map(row)) : ["  (no container yet)"]));
+  lines.push("", "Uses:");
+  if (d.uses.length === 0) lines.push("  (nothing)");
+  lines.push(...relTable(d.uses.map(({ rel, target }) => [rel, `  ${rel.bidirectional ? "<->" : "->"} ${rel.to}`, relLabel(rel) + (target ? "" : "  (not an element!)")])));
+  lines.push("", "Used by:");
+  if (d.usedBy.length === 0) lines.push("  (nothing)");
+  lines.push(...relTable(d.usedBy.map(({ from, rel }) => [rel, `  ${rel.bidirectional ? "<->" : "<-"} ${from.id}`, relLabel(rel)])));
+  if (d.contentsUse.length) {
+    lines.push("", "Its contents use:", ...relTable(d.contentsUse.map(({ from, rel }) => [rel, `  ${arrow(from.id, rel)}`, relLabel(rel)])));
+  }
+  if (d.contentsUsedBy.length) {
+    lines.push("", "Its contents are used by:", ...relTable(d.contentsUsedBy.map(({ from, rel }) => [rel, `  ${arrow(from.id, rel)}`, relLabel(rel)])));
+  }
+  const how = (v: (typeof d.views)[number]) =>
+    v.as === "frame"
+      ? " (as the frame)"
+      : v.as === "states"
+        ? " (its states)"
+        : v.as === "screens"
+          ? " (its screens)"
+          : v.as === "process"
+            ? " (its process)"
+            : v.as === "data"
+              ? " (its data)"
+              : v.as === "deployed"
+                ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})`
+                : "";
+  lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => `${v.view.id}${how(v)}`).join(", ")}` : "  (none)");
+  return { json, text: lines.join("\n") + "\n" };
+}
+
+/** One view, computed (computeView), which a view whose scope has problems can't be: what it draws, by its level, and its sticky notes. */
+export function showView(ws: Workspace, cv: ComputedView): Shown {
+  const view = cv.view;
+  if (view.level === "sequence") return { json: sequenceJson(cv), text: sequenceText(ws, cv) };
+  if (view.level === "state") return { json: statesJson(cv), text: statesText(ws, cv) };
+  if (cv.deployment) return { json: deploymentJson(cv), text: deploymentText(cv) };
+  if (view.level === "event") return { json: eventsJson(cv), text: eventsText(cv) };
+  if (view.level === "wireframe") return { json: wireframeJson(cv), text: wireframeText(ws, cv) };
+  if (view.level === "whiteboard") return { json: whiteboardJson(cv), text: whiteboardText(cv) };
+  if (view.level === "flowchart") return { json: flowchartJson(ws, cv), text: flowchartText(ws, cv) };
+  if (view.level === "entity") return { json: entityJson(cv), text: entityText(ws, cv) };
+  const json = {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    newElements: newElements(view),
+    notes: view.notes,
+    frame: cv.boundary?.id,
+    boxes: cv.nodes.map(summary),
+    arrows: cv.edges.map((e) => ({ from: e.from, to: e.to, kind: kindOf(e), bidirectional: e.bidirectional || undefined, description: e.description, technology: e.technology, implied: e.implied, sources: e.sources })),
+    stickies: stickiesOn(ws, cv),
+  };
+  const scope = cv.boundary ?? (view.scope ? ws.elements.get(view.scope) : undefined);
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        ${view.level}${scope ? ` view of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    `  new elements: ${newElements(view) === "show" ? "shown here on their own" : "hidden until shown with show-in-view"}`,
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Boxes:",
+    ...(cv.nodes.length ? table(cv.nodes.map(row)) : ["  (none)"]),
+    "",
+    "Arrows:",
+    ...(cv.edges.length
+      ? table(
+          cv.edges.map((e) => [
+            `  ${e.from} ${e.bidirectional ? "<->" : "->"} ${e.to}`,
+            relLabel(e) + (e.implied ? `  (via ${e.sources.map((s) => arrow(s.element, ws.elements.get(s.element)!.uses[s.index]!)).join(", ")})` : ""),
+          ]),
+        )
+      : ["  (none)"]),
+    ...stickyLines(view.stickies, onText(ws, cv)),
+  ];
+  return { json, text: lines.join("\n") + "\n" };
+}
+
+/** Whether elements added to the model later appear in a view of boxes: they do while its include list has `*`. */
+const newElements = (view: ViewDef): NewElements => (view.include.includes("*") ? "show" : "hide");
+
+function sequenceJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    notes: view.notes,
+    participants: cv.nodes.map(summary),
+    steps: cv.steps.map((s) => ({
+      step: s.number,
+      from: s.from,
+      to: s.to,
+      reply: s.reply || undefined,
+      description: s.description,
+      technology: s.technology,
+      label: s.label,
+      labelTechnology: s.labelTechnology,
+      relationships: s.sources,
+    })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+  };
+}
+
+function sequenceText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const via = (s: ComputedView["steps"][number]) => {
+    if (s.sources.length === 0) return "  (no relationship!)";
+    const rels = s.sources.map(({ element, index }) => ({ from: element, rel: ws.elements.get(element)!.uses[index]! }));
+    // One relationship joining exactly the step's two elements needs no "via". A step can only go
+    // along one the right way, so which end is which doesn't matter.
+    const ends = new Set([s.from, s.to]);
+    const direct = rels.length === 1 && ends.has(rels[0]!.from) && ends.has(rels[0]!.rel.to);
+    return direct ? "" : `  (via ${rels.map((r) => arrow(r.from, r.rel)).join(", ")})`;
+  };
+  const lines = [
+    `${view.id}: ${view.title}`,
+    "  level:        sequence view",
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Participants:",
+    ...(cv.nodes.length ? table(cv.nodes.map(row)) : ["  (none)"]),
+    "",
+    "Steps:",
+    ...(cv.steps.length
+      ? table(
+          cv.steps.map((s) => [
+            `  ${s.number}.`,
+            `${s.from} ${s.reply ? "-->" : "->"} ${s.to}`,
+            relLabel({ description: s.label, technology: s.labelTechnology }) + (s.reply ? "  (reply)" : "") + via(s),
+          ]),
+        )
+      : ["  (none)"]),
+    ...stickyLines(view.stickies),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function statesJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    notes: view.notes,
+    initial: view.initial,
+    states: view.states.map((s) => ({ id: s.id, name: s.name, description: s.description, final: s.final || undefined, at: s.at })),
+    transitions: view.transitions.map((t) => ({ transition: t.number, from: t.from, to: t.to, event: t.event, guard: t.guard, action: t.action })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+  };
+}
+
+function statesText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        state view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "States:",
+    ...(view.states.length
+      ? table(view.states.map((s) => [`  ${s.id}`, s.name, [s.id === view.initial ? "(starts here)" : "", s.final ? "(can end here)" : "", s.description ?? ""].filter(Boolean).join(" ")]))
+      : ["  (none)"]),
+    "",
+    "Transitions:",
+    ...(view.transitions.length ? table(view.transitions.map((t) => [`  ${t.number}.`, `${t.from} -> ${t.to}`, transitionLabel(t) || "(no event)"])) : ["  (none)"]),
+    ...stickyLines(view.stickies),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function deploymentJson(cv: ComputedView) {
+  const view = cv.view;
+  const d = cv.deployment!;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    notes: view.notes,
+    nodes: d.nodes.map((n) => ({
+      id: n.id,
+      name: n.name,
+      parent: n.parent,
+      description: n.description,
+      technology: n.technology,
+      infrastructure: n.infrastructure || undefined,
+      instances: n.instances === 1 ? undefined : n.instances,
+      shape: n.shape === "box" ? undefined : n.shape,
+      runs: d.instances.filter((i) => i.node === n.id).map((i) => i.element.id),
+    })),
+    connections: view.connections.map((c) => ({ connection: c.number, from: c.from, to: c.to, description: c.description, technology: c.technology })),
+    arrows: d.arrows.map((a) => ({
+      from: a.from,
+      to: a.to,
+      bidirectional: a.bidirectional || undefined,
+      description: a.description,
+      technology: a.technology,
+      connection: a.connection?.number,
+      relationships: a.edge?.sources,
+    })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+  };
+}
+
+function deploymentText(cv: ComputedView): string {
+  const view = cv.view;
+  const d = cv.deployment!;
+  const depth = (id: string | undefined): number => {
+    const node = d.nodes.find((n) => n.id === id);
+    return node?.parent ? depth(node.parent) + 1 : 0;
+  };
+  const nodes = d.nodes.map((n) => {
+    const runs = d.instances.filter((i) => i.node === n.id).map((i) => i.element.id);
+    const facts = [
+      n.instances > 1 ? `×${n.instances}` : "",
+      n.infrastructure ? `(${nodeKindLabel(n).toLowerCase()})` : "",
+      n.shape === "box" ? "" : `(${n.shape})`,
+      runs.length ? `runs ${runs.join(", ")}` : "",
+      n.description ?? "",
+    ];
+    return [`  ${"  ".repeat(depth(n.id))}${n.id}`, n.technology ? `${n.name} [${n.technology}]` : n.name, facts.filter(Boolean).join(" ")];
+  });
+  const lines = [
+    `${view.id}: ${view.title}`,
+    "  level:        deployment view",
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Nodes:",
+    ...(nodes.length ? table(nodes) : ["  (none)"]),
+    "",
+    "Connections:",
+    ...(view.connections.length ? table(view.connections.map((c) => [`  ${c.number}.`, `${c.from} -> ${c.to}`, relLabel(c)])) : ["  (none)"]),
+    "",
+    "Arrows:",
+    ...(d.arrows.length
+      ? table(d.arrows.map((a) => [`  ${a.from} ${a.bidirectional ? "<->" : "->"} ${a.to}`, relLabel(a) + (a.connection ? `  (connection ${a.connection.number})` : "")]))
+      : ["  (none)"]),
+    ...stickyLines(view.stickies),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function eventsJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    notes: view.notes,
+    lanes: view.lanes.map((l) => ({ id: l.id, position: l.number, name: l.name, description: l.description })),
+    cards: view.cards.map((c) => ({ id: c.id, position: c.number, kind: c.kind, name: c.name, description: c.description, lane: c.lane, from: c.from })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+  };
+}
+
+function eventsText(cv: ComputedView): string {
+  const view = cv.view;
+  const lines = [
+    `${view.id}: ${view.title}`,
+    "  level:        event view",
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Lanes:",
+    ...(view.lanes.length ? table(view.lanes.map((l) => [`  ${l.number}.`, l.id, l.name, l.description ?? ""])) : ["  (none)"]),
+    "",
+    "Cards:",
+    ...(view.cards.length
+      ? table(
+          view.cards.map((c) => [
+            `  ${c.number}.`,
+            c.id,
+            CARD_KIND_LABELS[c.kind].toLowerCase(),
+            c.name,
+            [c.lane ? `in ${c.lane}` : "(no lane)", c.from.length ? `<- ${c.from.join(", ")}` : "", c.description ?? ""].filter(Boolean).join("  "),
+          ]),
+        )
+      : ["  (none)"]),
+    ...stickyLines(view.stickies),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function wireframeJson(cv: ComputedView) {
+  const view = cv.view;
+  const widget = (w: Widget): unknown => ({
+    id: w.id,
+    position: w.number,
+    kind: w.kind,
+    text: w.text,
+    description: w.description,
+    to: w.to,
+    widgets: w.widgets.length ? w.widgets.map(widget) : undefined,
+  });
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    notes: view.notes,
+    screens: view.screens.map((s) => ({ id: s.id, position: s.number, name: s.name, description: s.description, device: s.device, widgets: s.widgets.map(widget) })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+  };
+}
+
+function wireframeText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  /** A screen's widgets, each with its place, kind and text, and what's inside it indented under it. */
+  const rows = (widgets: Widget[], indent: string): string[][] =>
+    widgets.flatMap((w) => [
+      [
+        `${indent}${w.number}.`,
+        w.id,
+        WIDGET_KIND_LABELS[w.kind].toLowerCase(),
+        [w.text ? JSON.stringify(w.text.split(/\r?\n/).join(" / ")) : "", w.to ? `-> ${w.to}` : "", w.description ?? ""].filter(Boolean).join("  "),
+      ],
+      ...rows(w.widgets, `${indent}   `),
+    ]);
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        wireframe view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Screens:",
+    ...(view.screens.length
+      ? view.screens.flatMap((s) => [
+          ...table([[`  ${s.number}.`, s.id, s.name, [s.device === "desktop" ? "" : `(${s.device})`, s.description ?? ""].filter(Boolean).join("  ")]]),
+          ...(s.widgets.length ? table(rows(s.widgets, "       ")) : ["       (nothing on it yet)"]),
+        ])
+      : ["  (none)"]),
+    ...stickyLines(view.stickies),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function whiteboardJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    notes: view.notes,
+    shapes: view.shapes.map((s) => ({
+      id: s.id,
+      position: s.number,
+      kind: s.kind,
+      text: s.text,
+      at: s.at,
+      points: s.kind === "pen" ? s.points : undefined,
+      size: s.kind === "pen" ? undefined : s.size,
+      color: s.color,
+      fill: s.fill,
+      dashed: s.dashed || undefined,
+    })),
+    arrows: view.arrows.map((a) => ({ id: a.id, from: a.from, to: a.to, text: a.text, heads: a.heads, color: a.color, dashed: a.dashed || undefined })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+  };
+}
+
+function whiteboardText(cv: ComputedView): string {
+  const view = cv.view;
+  const where = (at: readonly number[]) => (at.length === 4 ? `at ${at[0]}, ${at[1]}, ${at[2]} x ${at[3]}` : `at ${at[0]}, ${at[1]}`);
+  const quoted = (text: string | undefined) => (text ? JSON.stringify(text.split(/\r?\n/).join(" / ")) : "");
+  /** How it looks, when it isn't how it looks by default. */
+  const look = (x: { color: string; dashed: boolean; size?: string; fill?: string }) =>
+    [x.size && x.size !== "medium" ? `${x.size} text` : "", x.color !== "black" ? x.color : "", x.fill ? `${x.fill} fill` : "", x.dashed ? "dashed" : ""].filter(Boolean).join(", ");
+  const shapes = view.shapes.map((s) => {
+    const detail = s.kind === "pen" ? `${s.points.length} points` : quoted(s.text);
+    const style = look(s.kind === "pen" ? { ...s, size: undefined } : s);
+    return [`  ${s.number}.`, s.id, s.kind, where(s.at), [detail, style ? `(${style})` : ""].filter(Boolean).join("  ")];
+  });
+  /** An end: its shape, with the side of it it stays on, or its point. */
+  const end = (e: (typeof view.arrows)[number]["from"]) => (Array.isArray(e) ? `${e[0]}, ${e[1]}` : endSide(e) ? `${endShape(e)} (${endSide(e)})` : endShape(e)!);
+  const arrows = view.arrows.map((a) => {
+    const style = look(a);
+    return [`  ${a.id}`, `${end(a.from)} ${a.heads === "both" ? "<->" : a.heads === "none" ? "---" : "->"} ${end(a.to)}`, [quoted(a.text), style ? `(${style})` : ""].filter(Boolean).join("  ")];
+  });
+  const lines = [
+    `${view.id}: ${view.title}`,
+    "  level:        whiteboard view",
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Shapes, from the back to the front:",
+    ...(shapes.length ? table(shapes) : ["  (none)"]),
+    "",
+    "Arrows:",
+    ...(arrows.length ? table(arrows) : ["  (none)"]),
+    ...stickyLines(view.stickies),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function flowchartJson(ws: Workspace, cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    notes: view.notes,
+    lanes: view.lanes.length ? view.lanes.map((l) => ({ id: l.id, name: l.name, description: l.description })) : undefined,
+    blocks: view.blocks.map((b) => ({ id: b.id, position: b.number, kind: b.kind, text: b.text, description: b.description, lane: b.lane, at: b.at })),
+    flows: view.flows.map((f) => ({ flow: f.number, from: f.from, to: f.to, text: f.text })),
+    stickies: stickiesOn(ws, cv),
+  };
+}
+
+function flowchartText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  const quoted = (text: string) => JSON.stringify(text.split(/\r?\n/).join(" / "));
+  const blocks = view.blocks.map((b) => [
+    `  ${b.number}.`,
+    b.id,
+    BLOCK_KIND_LABELS[b.kind].toLowerCase(),
+    [quoted(b.text), b.description ?? "", b.lane ? `(in ${b.lane})` : "", b.at ? `(at ${b.at.join(", ")})` : ""].filter(Boolean).join("  "),
+  ]);
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        flowchart view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    ...(view.lanes.length ? ["", "Lanes, left to right:", ...table(view.lanes.map((l) => [`  ${l.id}`, l.name, l.description ?? ""]))] : []),
+    "",
+    "Blocks:",
+    ...(blocks.length ? table(blocks) : ["  (none)"]),
+    "",
+    "Flows:",
+    ...(view.flows.length ? table(view.flows.map((f) => [`  ${f.number}.`, `${f.from} -> ${f.to}`, f.text ? quoted(f.text) : ""])) : ["  (none)"]),
+    ...stickyLines(view.stickies, onText(ws, cv)),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function entityJson(cv: ComputedView) {
+  const view = cv.view;
+  return {
+    id: view.id,
+    title: view.title,
+    description: view.description,
+    level: view.level,
+    scope: view.scope,
+    notes: view.notes,
+    entities: view.entities.map((e) => ({
+      id: e.id,
+      position: e.number,
+      name: e.name,
+      description: e.description,
+      at: e.at,
+      attributes: e.attributes.map((a) => ({ name: a.name, position: a.number, type: a.type, keys: a.keys, description: a.description })),
+    })),
+    links: view.links.map((l) => ({ link: l.number, from: l.from, to: l.to, cardinality: l.cardinality, text: l.text })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+  };
+}
+
+function entityText(ws: Workspace, cv: ComputedView): string {
+  const view = cv.view;
+  const scope = view.scope ? ws.elements.get(view.scope) : undefined;
+  const quoted = (text: string) => JSON.stringify(text.split(/\r?\n/).join(" / "));
+  // Each entity on a line, with its attributes under it, a line each: name, type, keys and description.
+  const entities = view.entities.flatMap((e) => [
+    [`  ${e.number}.`, e.id, [quoted(e.name), e.description ?? "", e.at ? `(at ${e.at.join(", ")})` : ""].filter(Boolean).join("  ")].join(" ").trimEnd(),
+    ...(e.attributes.length ? table(e.attributes.map((a) => [`       ${a.name}`, a.type ?? "", a.keys.join(","), a.description ?? ""])) : ["       (no attributes)"]),
+  ]);
+  const lines = [
+    `${view.id}: ${view.title}`,
+    `  level:        entity view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
+    ...(view.description ? [`  description:  ${view.description}`] : []),
+    ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
+    "",
+    "Entities:",
+    ...(entities.length ? entities : ["  (none)"]),
+    "",
+    "Links (how many of from, then of to):",
+    ...(view.links.length ? table(view.links.map((l) => [`  ${l.number}.`, `${l.from} -> ${l.to}`, `${l.cardinality[0]} to ${l.cardinality[1]}`, l.text ? quoted(l.text) : ""])) : ["  (none)"]),
+    ...(view.stickies.length
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      : []),
+  ];
+  return lines.join("\n") + "\n";
+}
+
+function overviewText(ws: Workspace, workspace: string): string {
+  const rows: string[][] = [];
+  const walk = (node: TreeNode, depth: number) => {
+    const [, kind, name] = row(node.element);
+    rows.push([`  ${"  ".repeat(depth)}${node.element.id}`, kind!, name!]);
+    node.children.forEach((c) => walk(c, depth + 1));
+  };
+  modelTree(ws).forEach((n) => walk(n, 0));
+  const views = [...ws.views.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+  return [
+    `${ws.doc.name}: ${workspace} (${ws.elements.size} elements, ${ws.views.size} views)`,
+    "",
+    "Model:",
+    ...(rows.length ? table(rows) : ["  (empty)"]),
+    "",
+    "Views:",
+    ...(views.length ? table(views.map((v) => [`  ${v.id}`, v.scope ? `${v.level} view of ${v.scope}` : `${v.level} view`, v.title])) : ["  (none)"]),
+  ].join("\n") + "\n";
+}
+
+function overviewJson(ws: Workspace) {
+  return {
+    elements: [...ws.elements.values()].map((e) => ({ ...summary(e), parent: e.parent })),
+    views: [...ws.views.values()].map((v) => ({ id: v.id, title: v.title, level: v.level, scope: v.scope })),
+  };
+}
+
+function summary(e: ArchElement) {
+  return { id: e.id, kind: e.kind, name: e.name, technology: e.technology, external: e.external || undefined };
+}
+
+function row(e: ArchElement): string[] {
+  return [`  ${e.id}`, e.external ? `${e.kind} (external)` : e.kind, e.technology ? `${e.name} [${e.technology}]` : e.name];
+}
+
+/** A relationship's or arrow's kind for JSON, left out for an association, which is what every one is unless it says. */
+const kindOf = (r: { kind: RelationshipKind }) => (r.kind === "association" ? undefined : r.kind);
+
+/** A relationship as "from -> to", or "from <-> to" when it goes both ways. */
+function arrow(from: string, rel: Relationship): string {
+  return `${from} ${rel.bidirectional ? "<->" : "->"} ${rel.to}`;
+}
+
+function relLabel(r: { description?: string; technology?: string; tags?: Tags; bidirectional?: boolean; kind?: RelationshipKind }): string {
+  const tags = r.tags && tagText(r.tags);
+  // A relationship of another kind than association needs no description: its kind says what it is.
+  const kind = r.kind && r.kind !== "association" ? `(${r.kind})` : "";
+  return [kind, r.description ?? (kind ? "" : "(no description)"), r.technology ? `[${r.technology}]` : "", r.bidirectional ? "(both ways)" : "", tags ? `(tags: ${tags})` : ""].filter(Boolean).join(" ");
+}
+
+/**
+ * The sticky notes of a view whose notes can be on something, for `show --json`. What a note is on
+ * is as the file and the operations write it, with an association's kind left out, and `drawn`
+ * says whether the view draws that.
+ */
+function stickiesOn(ws: Workspace, cv: ComputedView) {
+  return cv.view.stickies.map((s) => ({
+    id: s.id,
+    text: s.text,
+    on: s.on && ("from" in s.on ? { from: s.on.from, to: s.on.to, kind: s.on.kind === "association" ? undefined : s.on.kind } : s.on),
+    drawn: s.on && !!stickyAnchor(ws, cv, s.on),
+    color: s.color,
+    at: s.at,
+    notes: s.notes,
+  }));
+}
+
+/** What a note is on, to say after where it is: ", on cache", and that the view doesn't draw it, when it doesn't. Nothing for a note on nothing. */
+function onText(ws: Workspace, cv: ComputedView): (s: Sticky) => string {
+  return (s) => (s.on ? `, on ${stickyTargetText(s.on)}${stickyAnchor(ws, cv, s.on) ? "" : ", which this view doesn't draw"}` : "");
+}
+
+/** A view's sticky notes, each with its color, where it is, what it's on if `on` says, its text and its notes. */
+function stickyLines(stickies: Sticky[], on: (s: Sticky) => string = () => ""): string[] {
+  if (!stickies.length) return [];
+  return [
+    "",
+    "Sticky notes:",
+    ...stickies.flatMap((s) => [
+      `  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""})${on(s)}:`,
+      ...indented(s.text, "    "),
+      ...(s.notes ? ["    Notes:", ...indented(s.notes, "      ")] : []),
+    ]),
+  ];
+}
+
+/** Multi-line text, each line indented. */
+function indented(text: string, indent: string): string[] {
+  return text.split("\n").map((l) => `${indent}${l}`.trimEnd());
+}
+
+/** Relationships as left-aligned columns, each followed by its notes, indented under it. */
+function relTable(rows: [Relationship, ...string[]][]): string[] {
+  const lines = table(rows.map(([, ...cells]) => cells));
+  return lines.flatMap((line, i) => {
+    const notes = rows[i]![0].notes;
+    return [line, ...(notes ? indented(notes, "      ") : [])];
+  });
+}
+
+/** Left-aligned columns. */
+function table(rows: string[][]): string[] {
+  const widths: number[] = [];
+  for (const r of rows) r.forEach((cell, i) => (widths[i] = Math.max(widths[i] ?? 0, cell.length)));
+  return rows.map((r) => r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]! + 2))).join("").trimEnd());
+}

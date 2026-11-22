@@ -6,8 +6,8 @@ import { App } from "../src/App.js";
 import { FolderList, pickFolder, writeDocs, type FolderHandle } from "../src/folders.js";
 import { WorkspaceLibrary } from "../src/library.js";
 import { LibraryPage } from "../src/LibraryPage.js";
-import type { AgentBridge, AgentEvent, DesktopBridge } from "../src/bridge.js";
-import { AskAI } from "../src/panels/AskAI.js";
+import type { AgentEvent, DesktopBridge } from "../src/bridge.js";
+import { AskAI, type Asker } from "../src/panels/AskAI.js";
 import { ShareDialog } from "../src/panels/ShareDialog.js";
 import { isNamed, problemText, UNKNOWN_PROBLEM } from "../src/problems.js";
 import { PNG_FILE, saveFile } from "../src/providers.js";
@@ -59,9 +59,9 @@ describe("what went wrong", () => {
   });
 
   it("in Ask AI, from the agent or the desktop app, says so when it gives no reason", async () => {
-    const errors = async (run: AgentBridge["run"]) => {
-      const agent = { run, reply: async () => {}, cancel: async () => {} } as AgentBridge;
-      const host = mount(createElement(AskAI, { agent, path: "a.openarch", context: { selection: [] }, contextLabel: "", text: "", restore: async () => true, open: true, onClose() {} }));
+    const errors = async (run: Asker["run"]) => {
+      const agent: Asker = { run, reply: async () => {}, cancel: async () => {} };
+      const host = mount(createElement(AskAI, { agent, context: { selection: [] }, contextLabel: "", text: "", restore: async () => true, open: true, onClose() {} }));
       const box = host.querySelector("textarea")!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "Add a cache");
@@ -72,7 +72,7 @@ describe("what went wrong", () => {
       return [...host.querySelectorAll(".ask-ai-log .error, .error")].map((e) => e.textContent);
     };
     // An error event with no text.
-    expect(await errors(async (_path, _prompt, _context, onEvent: (event: AgentEvent) => void) => onEvent({ type: "error", message: "" }))).toContain(UNKNOWN_PROBLEM);
+    expect(await errors(async (_prompt, _context, onEvent: (event: AgentEvent) => void) => onEvent({ type: "error", message: "" }))).toContain(UNKNOWN_PROBLEM);
     // The desktop app's prefix, with nothing after it.
     expect(
       await errors(async () => {

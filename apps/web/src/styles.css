@@ -3403,7 +3403,7 @@ button.ws-name {
   font-size: 16px;
 }
 
-/* --- Ask AI (desktop) ------------------------------------------------------ */
+/* --- Ask AI ---------------------------------------------------------------- */
 
 button.active {
   background: var(--active);
@@ -3492,6 +3492,18 @@ button.active {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+/* The box, while the settings are filled in: what's typed in it is kept. */
+.ask-ai form[hidden] {
+  display: none;
+}
+/* The server, the key and the model the web app's Ask AI uses. */
+.ask-ai-settings {
+  min-height: 0;
+  overflow: auto;
+}
+.ask-ai-settings p {
+  margin: 0;
 }
 /* Where what's being dragged lines up with another box or note (see snap.tsx): a thin line, as thin at any zoom. */
 .snap-guides {
