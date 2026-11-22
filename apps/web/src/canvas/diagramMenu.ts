@@ -12,7 +12,7 @@
  * designer don't: they write a whole version of the file, where a block with the same ID needn't
  * be the same block. Through one of those, everything but the diagram itself is lost.
  */
-import { isInside, OpError, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
+import { applyOperations, buildWorkspace, isInside, OpError, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import type { Selection } from "./Canvas.js";
 
 /** The things of a view that have an ID of their own, as a selection names their kind, and where the view keeps each. */
@@ -85,9 +85,8 @@ export function isSelected(on: MenuFor, selection: Selection): boolean {
  * is which kind of thing), or deleted it (`gone`), after which another can take its ID. It added
  * one to a numbered list at a place that isn't the end, deleted one, or moved one, each of which
  * renumbers the ones after. It gave an attribute a new name, or deleted it. Or it deleted from a
- * view's numbered lists without saying which, as an edit that deletes a block and does more
- * does: `lists-lost`. Or a whole version of the file was written, which says nothing of what's
- * in the views: `lost`.
+ * view's numbered lists, and which ones couldn't be worked out: `lists-lost`. Or a whole version
+ * of the file was written, which says nothing of what's in the views: `lost`.
  */
 export type MenuRename =
   | { kind: "view"; id: string; to: string }
@@ -130,24 +129,39 @@ const LISTED: Partial<Record<Operation["op"], { list: NumberedPart; does: "add" 
  *
  * `before` is the workspace the operations were applied to. It says which views go with an
  * element that's deleted, and which arrows go with a block, a state or an entity, by their
- * numbers. That's only so for an edit's first operation. So an element deleted by an edit that
- * does more loses everything, and a block, state or entity deleted by one loses its view's
- * arrows: no such edit in the designer does anything else.
+ * numbers. An edit can do more first, as one of Ask AI's can, so the workspace an operation was
+ * applied to is `before` with the ones ahead of it applied. Where that can't be worked out, an
+ * element that's deleted loses everything, and a block, a state or an entity its view's arrows.
  *
  * Without `before`, the change is a whole version of the file, written by Undo, Redo, the
  * History or a change made outside the designer, and `ops` only the renames it made. Everything
  * in the views is lost, and the views are followed to their new IDs.
  */
 export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[] {
-  const first = ops.length === 1 ? before : undefined;
-  const followed = ops.flatMap((op): MenuRename[] => {
+  // The workspace so many of the operations have been applied to, taken forward only as far as it's asked for.
+  let seen = before;
+  let applied = 0;
+  /** The workspace the operation at this place was applied to. */
+  const appliedTo = (place: number): Workspace | undefined => {
+    if (seen && applied < place) {
+      try {
+        seen = buildWorkspace(applyOperations(seen.doc, ops.slice(applied, place)).doc);
+        applied = place;
+      } catch {
+        seen = undefined;
+      }
+    }
+    return seen;
+  };
+  const followed = ops.flatMap((op, place): MenuRename[] => {
     // An element's new ID is here too. No view has an element's ID, so it changes nothing.
     if (op.op === "rename") return [{ kind: "view", id: op.id, to: op.to }];
     if (op.op === "remove-view") return [{ kind: "view-gone", id: op.id }];
     if (op.op === "remove-element") {
       // The views of an element, and of what's inside it, are deleted with it.
-      if (!first) return [{ kind: "lost" }];
-      return [...first.views.values()].filter((v) => v.scope !== undefined && (v.scope === op.id || isInside(first, v.scope, op.id))).map((v) => ({ kind: "view-gone", id: v.id }));
+      const was = appliedTo(place);
+      if (!was) return [{ kind: "lost" }];
+      return [...was.views.values()].filter((v) => v.scope !== undefined && (v.scope === op.id || isInside(was, v.scope, op.id))).map((v) => ({ kind: "view-gone", id: v.id }));
     }
     const renamed = RENAMES[op.op];
     if (renamed) {
@@ -157,7 +171,7 @@ export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[
     const removed = REMOVES[op.op];
     if (removed) {
       const { view, id } = op as { view: string; id: string };
-      const was = first?.views.get(view);
+      const was = removed.loses.length ? appliedTo(place)?.views.get(view) : undefined;
       const out: MenuRename[] = [{ kind: "gone", what: removed.what, view, id }];
       for (const list of removed.loses) {
         if (!was) {

@@ -237,20 +237,20 @@ describe("a menu's target, followed through the edits that land before it opens"
       const start = labelsOf(list, ws);
       const edits: Operation[][] = [];
       const renames: MenuRename[] = [];
-      // The blocks, states or entities that are still there to delete, each with some of the arrows.
+      // The blocks, states or entities that are still there to delete, each at an end of some of the arrows.
       const ends = [...kit.ends];
       for (let step = 0; step < 6; step++) {
         const ops: Operation[] = [];
         let now = ws;
-        // Now and then, what's at the end of some of them is deleted, in an edit of its own.
-        const cut = ends.length > 0 && random(6) === 0;
-        if (cut) ops.push(kit.cut(ends.splice(random(ends.length), 1)[0]!));
-        // Or else one operation, or two in the same edit.
-        for (let k = 0; !cut && k <= random(2); k++) {
+        // One operation, or two in the same edit.
+        for (let k = 0; k <= random(2); k++) {
           const count = labelsOf(list, now).length;
+          // Now and then, what's at the end of some of them is deleted, and they go with it.
+          const cut = ends.length > 0 && random(6) === 0;
           const does = count === 0 ? 0 : random(5);
-          const op =
-            does === 0
+          const op = cut
+            ? kit.cut(ends.splice(random(ends.length), 1)[0]!)
+            : does === 0
               ? kit.add(round * 100 + step * 10 + k, random(3) === 0 ? undefined : 1 + random(count + 1))
               : does === 1
                 ? kit.remove(1 + random(count))
@@ -315,19 +315,47 @@ describe("a menu's target, followed through the edits that land before it opens"
     expect(landed("returns", { kind: "flow", number: 4 }, [[{ op: "remove-lane", view: "returns", id: "staff" }], [{ op: "remove-sticky", view: "returns", id: "note" }]])?.on).toEqual({ kind: "flow", number: 4 });
   });
 
-  it("loses a view's arrows when an edit deletes a block, a state or an entity and does more, where there's no saying which went", () => {
-    const more: Operation[] = [
+  it("follows the arrows through an edit that deletes a block, a state or an entity and does more, as one of Ask AI's can", () => {
+    // A flow is added at the front, the start deleted, which takes that flow and the old first with it, and the view described.
+    const batch: Operation[] = [
+      { op: "add-flow", view: "returns", from: "asked", to: "done", text: "Gave up", flow: 1 },
+      { op: "remove-block", view: "returns", id: "asked" },
       { op: "update-view", id: "returns", description: "Sending something back" },
+    ];
+    expect([1, 2, 3, 4].map((number) => landed("returns", { kind: "flow", number }, [batch])?.on ?? null)).toEqual([null, { kind: "flow", number: 1 }, { kind: "flow", number: 2 }, { kind: "flow", number: 3 }]);
+    // The blocks, and another view's arrows, are followed as ever.
+    expect(landed("returns", { kind: "block", id: "refund" }, [batch])?.on).toEqual({ kind: "block", id: "refund" });
+    expect(landed("states", { kind: "transition", number: 1 }, [batch])?.on).toEqual({ kind: "transition", number: 1 });
+    // An element deleted after its view is given another element to be a view of: only the views that are of it by then go.
+    const scoped = structuredClone(doc);
+    scoped.elements.api = { kind: "container", name: "API", parent: "shop" };
+    scoped.elements.db = { kind: "container", name: "DB", parent: "shop" };
+    scoped.views.data!.scope = "api";
+    scoped.views.returns!.scope = "db";
+    const moved: Operation[] = [
+      { op: "remove-view", id: "states" },
+      { op: "remove-element", id: "api" },
+    ];
+    expect(menuRenamesIn(moved, buildWorkspace(scoped))).toEqual([
+      { kind: "view-gone", id: "states" },
+      { kind: "view-gone", id: "data" },
+    ]);
+  });
+
+  it("loses a view's arrows, or everything, where the workspace an operation was applied to can't be worked out", () => {
+    // Told of operations that don't go with the workspace it's given: the first can't be applied to it.
+    const odd: Operation[] = [
+      { op: "update-view", id: "no-such-view", title: "Nothing" },
       { op: "remove-block", view: "returns", id: "asked" },
     ];
-    expect(menuRenamesIn(more, buildWorkspace(doc))).toEqual([
+    expect(menuRenamesIn(odd, buildWorkspace(doc))).toEqual([
       { kind: "gone", what: "block", view: "returns", id: "asked" },
       { kind: "lists-lost", lists: ["flow"], view: "returns" },
     ]);
-    expect(landed("returns", { kind: "flow", number: 4 }, [more])).toBeNull();
-    // The view's blocks, and another view's arrows, are still followed.
-    expect(landed("returns", { kind: "block", id: "refund" }, [more])?.on).toEqual({ kind: "block", id: "refund" });
-    expect(landed("states", { kind: "transition", number: 1 }, [more])?.on).toEqual({ kind: "transition", number: 1 });
+    expect(followMenu({ kind: "flow", number: 4 }, "returns", menuRenamesIn(odd, buildWorkspace(doc))).on).toBeNull();
+    expect(followMenu({ kind: "block", id: "refund" }, "returns", menuRenamesIn(odd, buildWorkspace(doc))).on).toEqual({ kind: "block", id: "refund" });
+    expect(followMenu({ kind: "transition", number: 1 }, "states", menuRenamesIn(odd, buildWorkspace(doc))).on).toEqual({ kind: "transition", number: 1 });
+    expect(menuRenamesIn([odd[0]!, { op: "remove-element", id: "shop" }], buildWorkspace(doc))).toEqual([{ kind: "lost" }]);
   });
 
   it("loses everything but the diagram through Undo, Redo or a file changed elsewhere, which write a whole version and don't say what they did", () => {
@@ -379,7 +407,7 @@ describe("a menu's target, followed through the edits that land before it opens"
     expect(followMenu({ kind: "diagram" }, "returns", gone).on).toBeNull();
     expect(followMenu({ kind: "block", id: "refund" }, "returns", gone).on).toBeNull();
     expect(followMenu({ kind: "diagram" }, "other", gone)).toEqual({ on: { kind: "diagram" }, view: "returns" });
-    // In an edit that does more, there's no saying which views went with an element.
-    expect(menuRenamesIn([{ op: "update-view", id: "other", title: "Others" }, { op: "remove-element", id: "api" }], buildWorkspace(scoped))).toEqual([{ kind: "lost" }]);
+    // In an edit that does more, too.
+    expect(menuRenamesIn([{ op: "update-view", id: "other", title: "Others" }, { op: "remove-element", id: "api" }], buildWorkspace(scoped))).toEqual([{ kind: "view-gone", id: "returns" }]);
   });
 });

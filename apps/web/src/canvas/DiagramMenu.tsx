@@ -80,8 +80,8 @@ export function useDiagramMenu({ view, selection, select, host, toDiagram, items
   );
 
   const open = (event: ReactMouseEvent | MouseEvent, on: Selection) => {
-    // Text being typed, as in a note edited in place, keeps the browser's own menu, to paste into it.
-    if (event.target instanceof Element && event.target.closest("textarea, input")) return;
+    // A note's text box, while it's typed in, keeps the browser's own menu, to paste into it.
+    if (event.target instanceof Element && event.target.closest("textarea")) return;
     event.preventDefault();
     // Opened with the keyboard, it goes under what it's for.
     const point = event.currentTarget instanceof Element ? menuPoint({ clientX: event.clientX, clientY: event.clientY, currentTarget: event.currentTarget }) : { x: event.clientX, y: event.clientY };

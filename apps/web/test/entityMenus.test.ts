@@ -301,6 +301,33 @@ describe("an entity view's right-click menu, opened with the keyboard or after a
     expect(d.menuOpen()).toBe(false);
   });
 
+  it("opens on a link under the number it has once an entity is deleted, unless it went with the entity", async () => {
+    const file = new SlowHost("shop.openarch", serializeDocument(doc));
+    const d = await designer(doc, file);
+    await click(d.node("customer")!);
+    file.hold = true;
+    await click(button(d.host, "Delete entity"));
+    // The customer's link, link 1, goes with it. The order's link to its lines, link 2, doesn't.
+    await d.rightClick(d.edge("link:2")!);
+    expect(d.menuOpen()).toBe(false);
+    file.release();
+    await d.settle();
+    expect(d.details()).toBe("Link 1of 1");
+    await d.pick("Delete link");
+    expect((await d.saved()).links).toEqual([]);
+
+    const again = new SlowHost("shop.openarch", serializeDocument(doc));
+    const gone = await designer(doc, again);
+    await click(gone.node("customer")!);
+    again.hold = true;
+    await click(button(gone.host, "Delete entity"));
+    await gone.rightClick(gone.edge("link:1")!);
+    again.release();
+    await gone.settle();
+    expect((await gone.saved()).links.map((l) => l.text)).toEqual(["has"]);
+    expect(gone.menuOpen()).toBe(false);
+  });
+
   it("opens once a title typed just before has given the view a new ID, on the same diagram", async () => {
     const file = new SlowHost("shop.openarch", serializeDocument(doc));
     const d = await designer(doc, file);
