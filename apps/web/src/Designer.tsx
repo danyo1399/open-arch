@@ -25,6 +25,7 @@ import { WhiteboardDiagram } from "./canvas/WhiteboardDiagram.js";
 import { WireframeDiagram } from "./canvas/WireframeDiagram.js";
 import { StateDiagram } from "./canvas/StateDiagram.js";
 import { FlowchartDiagram } from "./canvas/FlowchartDiagram.js";
+import { followMenu, menuRenamesIn, selectionOf, type MenuFor, type MenuRename } from "./canvas/flowchartMenu.js";
 import { NotesOpener } from "./canvas/nodes.js";
 import { EntityDiagram } from "./canvas/EntityDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
@@ -35,6 +36,7 @@ import { useMediaQuery } from "./mediaQuery.js";
 import {
   arrowDeleteOps,
   arrowRemovals,
+  blockText,
   buildOps,
   eventDeleteOps,
   eventSelectionGone,
@@ -120,7 +122,7 @@ export function detailsName(ws: Workspace, view: ViewDef | null, computed: Compu
   if (shown.kind === "step") return `Step ${shown.step.number}`;
   if (shown.kind === "state") return shown.state.name;
   if (shown.kind === "transition") return `Transition ${shown.transition.number}`;
-  if (shown.kind === "block") return shown.block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? shown.block.id;
+  if (shown.kind === "block") return blockText(shown.block);
   if (shown.kind === "flow") return `Flow ${shown.flow.number}`;
   if (shown.kind === "entity") return shown.entity.name;
   if (shown.kind === "attribute") return shown.attribute.name;
@@ -186,6 +188,20 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const autoLayout = useRef<AutoLayout | null>(null);
   /** How many of them this render's IDs reflect. */
   const [renamesSeen, setRenamesSeen] = useState(0);
+  /** Every change to the workspace that a flowchart's right-click menu follows (see flowchartMenu.ts), in order, and how many of them this render reflects. */
+  const menuRenames = useRef<MenuRename[]>([]);
+  const [menuRenamesSeen, setMenuRenamesSeen] = useState(0);
+  /**
+   * Which opening of a view this is: a number that tells the flowchart that's open from the next
+   * view opened, and stays the same when its view is only given a new ID. So a rename doesn't
+   * make the flowchart's diagram again, which would lose a right-click menu waiting for that
+   * rename to land. Set while rendering, so no render pairs a view with another's number.
+   */
+  const [opening, setOpening] = useState({ view: viewId, seen: renamesSeen, number: 0 });
+  if (opening.view !== viewId || opening.seen !== renamesSeen) {
+    const renamed = opening.view !== null && renamedId(renames.current.slice(opening.seen, renamesSeen), opening.view) === viewId;
+    setOpening({ view: viewId, seen: renamesSeen, number: renamed ? opening.number : opening.number + 1 });
+  }
   /** How the Views list is sorted, and the views pinned to its top: this person's, not the file's. */
   const viewSettings = useViewSettings(host.key);
   /** What boxes and notes snap to as they're dragged, on every view: this person's too. */
@@ -195,7 +211,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   // What's open follows a rename in the same render as the rename lands. A render in between
   // would show something else in its place (the view's details for a renamed element), and a
   // button being pressed there would go with it.
-  const state = useWorkspace(host, (ops) => {
+  const state = useWorkspace(host, (ops, before) => {
+    menuRenames.current.push(...menuRenamesIn(ops, before));
+    setMenuRenamesSeen(menuRenames.current.length);
     const applied = renamesIn(ops);
     if (applied.length === 0) return;
     renames.current.push(...applied);
@@ -391,6 +409,25 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     },
     [afterEdits, current],
   );
+  /**
+   * For a flowchart's right-click menu, which opens once the edits made before the click have
+   * landed: tells `then` what the menu is for by then, the flowchart as it then is, and how many
+   * of the changes a menu follows have been made by then, for it to follow the ones after. `on`
+   * is what was clicked in this render's flowchart, `viewId`. It's followed through what every
+   * change this render doesn't show has done to it and to the view, the ones already on their way
+   * and any that landed since the render. Null when it's gone by then, or was lost on the way.
+   */
+  const menuAfterEdits = useCallback(
+    (viewId: string, on: MenuFor, then: (on: MenuFor | null, view?: ViewDef, followed?: number) => void) =>
+      afterEdits((now) => {
+        const landed = followMenu(on, viewId, menuRenames.current.slice(menuRenamesSeen));
+        const view = now?.views.get(landed.view);
+        then(view && landed.on && selectionOf(view, landed.on) !== undefined ? landed.on : null, view, menuRenames.current.length);
+      }),
+    [afterEdits, menuRenamesSeen],
+  );
+  /** The changes a flowchart's menu follows that this render reflects, for an open menu to follow. */
+  const shownMenuRenames = useMemo(() => menuRenames.current.slice(0, menuRenamesSeen), [menuRenamesSeen]);
   const notesOpener = useMemo(
     () => (viewId ? { element: (id: string) => openNotes({ kind: "element", id }), sticky: (id: string) => openNotes({ kind: "sticky", view: viewId, id }) } : null),
     [openNotes, viewId],
@@ -899,12 +936,15 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             )
           ) : view?.level === "flowchart" ? (
             computed ? (
-              <ReactFlowProvider key={view.id}>
+              // Not keyed by the view's ID, so it isn't made again when the view is given a new one.
+              <ReactFlowProvider key={`flowchart:${opening.number}`}>
                 <FlowchartDiagram
                   computed={computed}
                   selection={selection}
                   onSelect={selectOnCanvas}
                   edit={edit}
+                  menuAfterEdits={(on, then) => menuAfterEdits(view.id, on, then)}
+                  menuRenames={shownMenuRenames}
                   onError={(text) => state.notify({ kind: "error", text })}
                   exportItems={exportItems(computed)}
                   snap={snap}

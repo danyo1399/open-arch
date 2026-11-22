@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { emptyDocument, serializeDocument, type Operation } from "@open-arch/core";
+import { emptyDocument, serializeDocument, type Operation, type Workspace } from "@open-arch/core";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { DocsSummary, SaveSummary } from "../src/bridge.js";
@@ -34,7 +34,7 @@ class TestHost implements WorkspaceHost {
 }
 
 /** Renders the workspace state for a host, and returns a function that reads its latest. `onApplied` hears what it applies. */
-async function workspaceFor(host: WorkspaceHost, onApplied?: (ops: Operation[]) => void) {
+async function workspaceFor(host: WorkspaceHost, onApplied?: (ops: Operation[], before?: Workspace) => void) {
   let latest: WorkspaceState | null = null;
   const Probe = () => {
     latest = useWorkspace(host, onApplied);
@@ -486,6 +486,41 @@ describe("the History list", () => {
         { op: "rename", id: "store", to: "market" },
       ],
     ]);
+  });
+
+  it("tells what hears an edit which workspace it was made on, and not for Undo, which writes a whole version", async () => {
+    const host = new TestHost("file");
+    const heard: { ops: Operation[]; before: string[] | undefined }[] = [];
+    const state = await workspaceFor(host, (ops, before) => void heard.push({ ops, before: before && Object.keys(before.doc.elements) }));
+    await act(async () => void (await state().edit([{ op: "add-element", id: "shop", kind: "system" }])));
+    await act(async () => void (await state().edit([{ op: "rename", id: "shop", to: "store" }])));
+    await act(async () => state().undo());
+    await settle();
+    expect(heard).toEqual([
+      { ops: [{ op: "add-element", id: "shop", kind: "system" }], before: [] },
+      { ops: [{ op: "rename", id: "shop", to: "store" }], before: ["shop"] },
+      { ops: [{ op: "rename", id: "store", to: "shop" }], before: undefined },
+    ]);
+  });
+
+  it("runs what follows an edit, or a change, before the next thing queued behind it", async () => {
+    const host = new TestHost("browser");
+    const state = await workspaceFor(host);
+    const order: string[] = [];
+    // As the designer does: clear the selection once an edit lands, and open a menu once the edits made before it have.
+    const follow = (what: string, made: Promise<unknown>) => {
+      const then = made.then(() => void order.push(`after ${what}`));
+      const next = state().afterEdits(() => void order.push(`queued behind ${what}`));
+      return act(async () => void (await Promise.all([then, next])));
+    };
+    await follow("an edit", state().edit([{ op: "update-workspace", name: "B" }]));
+    await follow("an edit that changes nothing", state().edit([{ op: "update-workspace", name: "B" }]));
+    await follow("an edit that's refused", state().edit([{ op: "remove-element", id: "nowhere" }]));
+    await follow("a change", state().change([{ op: "update-workspace", name: "C" }]));
+    await follow("a change that's refused", state().change([{ op: "remove-element", id: "nowhere" }]));
+    expect(order).toEqual(
+      ["an edit", "an edit that changes nothing", "an edit that's refused", "a change", "a change that's refused"].flatMap((what) => [`after ${what}`, `queued behind ${what}`]),
+    );
   });
 
   it("puts an earlier version back only over the text it's told to expect, when it's told one", async () => {

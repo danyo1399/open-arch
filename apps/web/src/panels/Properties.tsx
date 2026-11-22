@@ -80,6 +80,7 @@ import { useState } from "react";
 import type { DocsSummary } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import {
+  blockText,
   byName,
   cardArrowDeleteOps,
   findArrow,
@@ -742,9 +743,6 @@ const BLOCK_KIND_HINTS: Record<BlockKind, string> = {
   document: "A document or report that's made or read.",
   database: "Data that's kept, like a database.",
 };
-
-/** A block's text on one line, as lists name it. */
-const blockText = (b: Pick<Block, "id" | "text">) => b.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? b.id;
 
 function BlockProperties({ view, block, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; block: Block }) {
   const set = (fields: Omit<Extract<Operation, { op: "update-block" }>, "op" | "view" | "id">) => void edit([{ op: "update-block", view: view.id, id: block.id, ...fields }]);
@@ -2159,7 +2157,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.flows.length}</dd>
           </dl>
           <p className="muted small">
-            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it. + Add adds a lane too, a column for the blocks of one actor, team or system: drag a block into a lane to put it there.
+            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it. + Add adds a lane too, a column for the blocks of one actor, team or system: drag a block into a lane to put it there. Right-click a block, a flow, a lane, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : view.level === "whiteboard" ? (
