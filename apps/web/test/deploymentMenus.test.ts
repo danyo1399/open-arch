@@ -350,6 +350,23 @@ describe("a deployment view's details", () => {
     expect(lb.edits).toEqual([[{ op: "update-node", view: "production", id: "lb", infrastructure: false }]]);
   });
 
+  it("say to put a node right in the file when it's told to run more than one thing that's no container or system", () => {
+    // Stopping either still leaves the other, which update-node refuses, so nothing it runs can change here.
+    const model = broken((v) => (v.nodes!.server!.runs = ["web", "ghost", "buyer"]));
+    const ws = buildWorkspace(model);
+    const view = ws.views.get("production")!;
+    const server = details(ws, view, { kind: "node", id: "server" });
+    expect(server.host.textContent).not.toContain("Stop running it here");
+    expect(select(server.host, "Run here").disabled).toBe(true);
+    const why = "Nodes run only containers and systems, and ghost and Buyer aren't. What it runs can't change here while it's told to run those: take them out of its runs in the file.";
+    expect(server.host.querySelector("ul.plain + .field-hint")!.textContent).toBe(why);
+    const web = details(ws, view, { kind: "instance", node: "server", element: "web" });
+    expect(button(web.host, "Stop running it here").disabled).toBe(true);
+    expect(web.host.querySelector(".instance-of .field-hint")!.textContent).toBe(why);
+    // Core refuses each.
+    for (const id of ["web", "ghost", "buyer"]) expect(made(model, { op: "update-node", view: "production", id: "server", runs: ["web", "ghost", "buyer"].filter((r) => r !== id) })).toBe(false);
+  });
+
   it("say why what a node runs can't change, when the change would leave an error the view doesn't have", () => {
     // Any change to what a node runs takes the connection to the cache, which nothing runs, and the one after is renumbered: core takes its error for a new one.
     const model = broken((v) => v.connections!.push({ from: "lb", to: "cache" }, { from: "region", to: "lb" }));

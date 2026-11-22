@@ -1190,7 +1190,9 @@ function runsHint(ws: Workspace, node: DeploymentNode): string {
   const wrong = unrunnable(ws, node).map((id) => ws.elements.get(id)?.name ?? id);
   if (wrong.length) {
     const names = wrong.length === 1 ? wrong[0] : `${wrong.slice(0, -1).join(", ")} and ${wrong.at(-1)}`;
-    return `Nodes run only containers and systems, and ${names} ${wrong.length === 1 ? "isn't one" : "aren't"}. What else it runs can't change while it's told to run ${wrong.length === 1 ? "that" : "those"}.`;
+    // Stopping one of two still leaves the other, which core refuses: only the file can put that right.
+    if (wrong.length === 1) return `Nodes run only containers and systems, and ${names} isn't one. What else it runs can't change while it's told to run that.`;
+    return `Nodes run only containers and systems, and ${names} aren't. What it runs can't change here while it's told to run those: take them out of its runs in the file.`;
   }
   if (node.infrastructure) return "Infrastructure runs nothing, so make it a deployment node first.";
   return "What it runs can't change now: that would leave the view with an error it doesn't have. Put right what's under Problems first.";
