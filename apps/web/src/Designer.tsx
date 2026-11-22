@@ -963,6 +963,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             computed ? (
               <ReactFlowProvider key={`${view.level}:${opening.number}`}>
                 <FlowchartDiagram
+                  ws={ws}
                   computed={computed}
                   selection={selection}
                   onSelect={selectOnCanvas}

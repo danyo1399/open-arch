@@ -490,11 +490,22 @@ export const BUILDERS: Record<string, Builder> = {
   },
   "add-lane": (_io, v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
-    return [{ op: "add-lane", view: view!, id: id!, name: text(v.name), description: text(v.description), position: stepNumber(v.position, "--position", "lane") }];
+    return [{ op: "add-lane", view: view!, id: id!, name: text(v.name), description: text(v.description), element: text(v.element), position: stepNumber(v.position, "--position", "lane") }];
   },
   "update-lane": (_io, v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
-    return [{ op: "update-lane", view: view!, id: id!, newId: text(v["new-id"]), name: text(v.name), description: clearable(v.description), position: stepNumber(v.position, "--position", "lane") }];
+    return [
+      {
+        op: "update-lane",
+        view: view!,
+        id: id!,
+        newId: text(v["new-id"]),
+        name: text(v.name),
+        description: clearable(v.description),
+        element: clearable(v.element),
+        position: stepNumber(v.position, "--position", "lane"),
+      },
+    ];
   },
   "remove-lane": (_io, _v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);

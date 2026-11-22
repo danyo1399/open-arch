@@ -16,6 +16,7 @@ Customers use the shop from a browser on desktop or mobile.
 
 ## Shown in
 
+- [Checking out](../views/checking-out.md) (its lane, Customer)
 - [System landscape](../views/landscape.md)
 - [Placing an order](../views/place-order.md)
 - [Shop containers](../views/shop-containers.md)

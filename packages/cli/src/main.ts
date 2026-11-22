@@ -263,7 +263,7 @@ and its arrows with add-arrow. It takes no scope, include or exclude.
 A flowchart view shows the steps of a process: where it starts and ends, what's done, the
 decisions on the way, and the arrows from one to the next. Add its blocks with add-block and
 the flows between them with add-flow, and with add-lane, a lane, a column for the blocks of
-one actor, team or system. Its scope, if any, is the element of any kind whose
+one actor, team or system, which can be for an element of the model. Its scope, if any, is the element of any kind whose
 process it is. It takes no include or exclude.
 An entity view shows the data something keeps, as an entity-relationship diagram (ERD): its
 entities, like a database's tables, each with its attributes, and the links between them,
@@ -470,30 +470,35 @@ An empty value removes a field.
   ),
   "remove-connection": writer(`Usage: open-arch remove-connection <view> <n>\n\nRemoves connection <n>; the ones after it move up one.\n`, {}),
   "add-lane": writer(
-    `Usage: open-arch add-lane <view> <id> [--name <name>] [--description <text>] [--position <n>]
+    `Usage: open-arch add-lane <view> <id> [--name <name>] [--description <text>] [--element <id>] [--position <n>]
 
 Adds a swimlane for one actor, team or system, like "Customer" or "Orders": to an event view,
 a row for its cards, and to a flowchart, a column for its blocks. The id must be unique among
 the view's lanes.
-  --name <name>          Display name (default: from the id)
+  --name <name>          Display name (default: the element's name, or from the id)
   --description <text>   One sentence about the lane
+  --element <id>         Flowcharts only: the element of the model the lane is for, like the
+                         container or person that does its steps. The element's page in the
+                         docs lists the flowchart
   --position <n>         Its place: from the top on an event view, and from the left on a
                          flowchart. 1 is the first (default: after the last)
 In a flowchart with lanes, a block's x is from the inside of its lane's left, and 0 or more,
 so a flowchart's first lane moves its placed blocks right together, if need be, so none has an
 x less than 0.
 `,
-    { name: s, description: s, position: s },
+    { name: s, description: s, element: s, position: s },
   ),
   "update-lane": writer(
-    `Usage: open-arch update-lane <view> <id> [--name <name>] [--new-id <id>] [--description <text>] [--position <n>]
+    `Usage: open-arch update-lane <view> <id> [--name <name>] [--new-id <id>] [--description <text>] [--element <id>] [--position <n>]
 
 --new-id changes its ID, and its cards or blocks follow it.
+--element makes a flowchart's lane for an element of the model, and --element "" takes it off
+the element. Its name stays as it is.
 --position moves it: 1 is the top lane, or on a flowchart the leftmost, and the lanes between
 move one place.
 An empty value removes a field.
 `,
-    { name: s, "new-id": s, description: s, position: s },
+    { name: s, "new-id": s, description: s, element: s, position: s },
   ),
   "remove-lane": writer(
     `Usage: open-arch remove-lane <view> <id>\n\nRemoves a lane. Its cards, or its blocks, stay, in no lane: move them with update-card --lane or update-block --lane. Its blocks are laid out again, as their --at was from its left.\n`,

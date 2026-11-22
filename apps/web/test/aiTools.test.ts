@@ -6,7 +6,7 @@ import type { Change } from "../src/state.js";
 import { FakeFolder } from "./fakeFolder.js";
 
 const shop = (): OpenArchDocument => ({
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   description: "Everything the shop runs.",
   elements: {

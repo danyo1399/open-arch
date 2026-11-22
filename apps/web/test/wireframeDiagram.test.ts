@@ -10,7 +10,7 @@ import type { Edit } from "../src/state.js";
 import { button, click, menusFor, mount } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, web: { kind: "container", name: "Web App", parent: "shop" } },
   views: {

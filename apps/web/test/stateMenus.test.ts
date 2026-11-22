@@ -9,7 +9,7 @@ import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
 /** An order's states, each placed, so nothing waits for ELK, with a note beside them. */
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" } },
   views: {

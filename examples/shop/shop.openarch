@@ -1,5 +1,5 @@
 {
-  "openarch": 20,
+  "openarch": 21,
   "name": "Shop",
   "description": "An online shop, used as the open-arch example.",
   "export": { "docs": "docs" },
@@ -187,9 +187,9 @@
       "level": "flowchart",
       "scope": "checkout-api",
       "lanes": [
-        { "id": "customer", "name": "Customer" },
-        { "id": "checkout-api", "name": "Checkout API" },
-        { "id": "payment-provider", "name": "Payment Provider" }
+        { "id": "customer", "name": "Customer", "element": "customer" },
+        { "id": "checkout-api", "name": "Checkout API", "element": "checkout-api" },
+        { "id": "payment-provider", "name": "Payment Provider", "element": "payment-provider" }
       ],
       "blocks": [
         { "id": "checks-out", "kind": "start", "text": "Customer checks out", "lane": "customer" },

@@ -531,7 +531,9 @@ Flows:
     expect(JSON.parse(read(dir)).views["checking-out"]).toMatchObject({ scope: "web-app", blocks });
     expect(cli(dir, "show", "checking-out").out).toContain("flowchart view of web-app (Web App)");
     expect(read(dir, "docs/elements/web-app.md")).toContain("(../views/checking-out.md) (its process)");
-    expect(read(dir, "docs/elements/checkout-api.md")).not.toContain("(../views/checking-out.md)");
+    // The Checkout API is no longer the process the view is of, but one of its lanes is still for it.
+    expect(read(dir, "docs/elements/checkout-api.md")).not.toContain("(../views/checking-out.md) (its process)");
+    expect(read(dir, "docs/elements/checkout-api.md")).toContain("(../views/checking-out.md) (its lane, Checkout API)");
     expect(cli(dir, "update-view", "checking-out", "--scope", "").code).toBe(0);
     expect(JSON.parse(read(dir)).views["checking-out"].scope).toBeUndefined();
     expect(cli(dir, "update-view", "order-states", "--scope", "ordr").err).toContain('Scope "ordr" isn\'t an element. Did you mean "order"?');
@@ -570,6 +572,30 @@ Flows:
     expect(cli(dir, "remove-lane", "returns", "customer").out).toContain("removed lane customer from view returns, leaving 1 block in no lane, to be laid out again");
     expect(cli(dir, "add-block", "returns", "x", "--lane", "nope").err).toContain('View "returns" has no lane "nope". Its lanes: staff.');
     expect(cli(dir, "add-lane", "--help").out).toContain("to a flowchart, a column for its blocks");
+    expect(cli(dir, "check").code).toBe(0);
+  });
+
+  it("makes a flowchart's lane for an element, shows it, and takes it off", () => {
+    const dir = example();
+    expect(cli(dir, "add-view", "returns", "--level", "flowchart").code).toBe(0);
+    expect(cli(dir, "add-lane", "returns", "buyer", "--element", "customer").out).toContain("added lane buyer to view returns");
+    expect(cli(dir, "add-lane", "returns", "staff", "--name", "Shop staff").code).toBe(0);
+    expect(cli(dir, "update-lane", "returns", "staff", "--element", "orders-db").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.returns.lanes).toEqual([
+      { id: "buyer", name: "Customer", element: "customer" },
+      { id: "staff", name: "Shop staff", element: "orders-db" },
+    ]);
+    expect(cli(dir, "show", "returns").out).toContain(`Lanes, left to right:
+  buyer  Customer  (for customer)
+  staff  Shop staff  (for orders-db)
+`);
+    expect(JSON.parse(cli(dir, "show", "returns", "--json").out).lanes[0]).toEqual({ id: "buyer", name: "Customer", element: "customer" });
+    expect(cli(dir, "show", "customer").out).toContain("returns (lane buyer)");
+    expect(read(dir, "docs/elements/customer.md")).toContain("- [Returns](../views/returns.md) (its lane, Customer)");
+    expect(cli(dir, "add-lane", "returns", "x", "--element", "nope").err).toContain('No element has the ID "nope".');
+    expect(cli(dir, "update-lane", "returns", "staff", "--element", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.returns.lanes[1]).toEqual({ id: "staff", name: "Shop staff" });
+    expect(cli(dir, "update-lane", "--help").out).toContain('--element "" takes it off');
     expect(cli(dir, "check").code).toBe(0);
   });
 
@@ -905,22 +931,22 @@ Links (how many of from, then of to):
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 20', '"openarch": 1')
+      .replace('"openarch": 21', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 20, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 21, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])("reads a version %i file, and writes it back as version 20", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])("reads a version %i file, and writes it back as version 21", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 20', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 21', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 20,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 21,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -1007,7 +1033,7 @@ describe("init", () => {
   it("export leaves the docs of another workspace in the same folder alone", () => {
     const project = tempDir();
     for (const [name, title] of [["a.openarch", "A"], ["b.openarch", "B"]]) {
-      writeFileSync(join(project, name), JSON.stringify({ openarch: 20, name: title, export: { docs: "." }, elements: {}, views: {} }));
+      writeFileSync(join(project, name), JSON.stringify({ openarch: 21, name: title, export: { docs: "." }, elements: {}, views: {} }));
     }
     expect(cli(project, "export", "--file", "a.openarch").code).toBe(0);
     const result = cli(project, "export", "--file", "b.openarch");
@@ -1071,7 +1097,7 @@ describe("init", () => {
 
     const older = tempDir();
     mkdirSync(join(older, ".git"));
-    writeFileSync(join(older, "architecture.openarch"), JSON.stringify({ openarch: 20, name: "Old", elements: {}, views: {} }));
+    writeFileSync(join(older, "architecture.openarch"), JSON.stringify({ openarch: 21, name: "Old", elements: {}, views: {} }));
     expect(cli(older, "init").out).toContain("kept architecture.openarch");
     expect(existsSync(join(older, "architecture"))).toBe(false);
   });
@@ -1113,7 +1139,7 @@ describe("init", () => {
     // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
     expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
     expect(created.out).toContain("created architecture/architecture.openarch");
-    expect(JSON.parse(read(project, "architecture/architecture.openarch"))).toEqual({ openarch: 20, name: "Payments", export: { docs: "." }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture/architecture.openarch"))).toEqual({ openarch: 21, name: "Payments", export: { docs: "." }, elements: {}, views: {} });
     // At the repository's top, the workspace gets a folder of its own, with its docs beside it, apart from the repository's README.md.
     expect(read(project, "architecture/README.md")).toContain("# Payments");
     expect(read(project, "README.md")).toBe("# My project\n");

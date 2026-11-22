@@ -91,7 +91,7 @@ describe("Export to folder", () => {
 
   it("says when AGENTS.md names another workspace there, and when the folder couldn't be listed", async () => {
     const root = new FakeFolder("repo");
-    root.put("b.openarch", JSON.stringify({ openarch: 20, name: "B", elements: {}, views: {} }));
+    root.put("b.openarch", JSON.stringify({ openarch: 21, name: "B", elements: {}, views: {} }));
     root.put("AGENTS.md", agentsInFolder("b.openarch")["AGENTS.md"]!);
     vi.spyOn(folderList, "add").mockRejectedValue(new Error("No storage."));
     const host = await exampleOpen(root);

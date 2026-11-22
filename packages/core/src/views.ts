@@ -985,7 +985,8 @@ function computeWhiteboard(view: ViewDef): ComputedView {
 
 /**
  * A flowchart view: it draws its blocks, not boxes, so it has none, and the element whose process
- * it is, if it says, as its frame. Its problems are blocks in a lane it doesn't have, or with lanes
+ * it is, if it says, as its frame. Its problems are lanes for an element the model doesn't have;
+ * blocks in a lane it doesn't have, or with lanes
  * at an x less than 0; flows to or from a block it doesn't have; and flows that aren't drawn or
  * say nothing they should: one from a block to itself, out of an end or into a start, a decision
  * without two ways out, and a way out of a decision that doesn't say which answer it's for. And a
@@ -1005,6 +1006,16 @@ function computeFlowchart(ws: Workspace, view: ViewDef): ComputedView {
       message: "This flowchart has no start, so it doesn't say where the process begins.",
       path: `${view.path}.blocks`,
       fix: `Add one with \`open-arch add-block ${view.id} ${free} --kind start\`, and a flow from it.`,
+    });
+  }
+  for (const lane of view.lanes) {
+    if (lane.element === undefined || ws.elements.has(lane.element)) continue;
+    diagnostics.push({
+      severity: "error",
+      rule: "lane-element-unknown",
+      message: `Lane "${lane.id}" is for "${lane.element}", which isn't an element.`,
+      path: `${lane.path}.element`,
+      fix: didYouMean(ws, lane.element) ?? `Name an element of the model, or take it off with \`open-arch update-lane ${view.id} ${lane.id} --element ""\`.`,
     });
   }
   const lanes = view.lanes.map((l) => l.id);

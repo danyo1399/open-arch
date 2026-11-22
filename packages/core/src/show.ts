@@ -95,7 +95,9 @@ export function showElement(ws: Workspace, element: ArchElement): Shown {
               ? " (its data)"
               : v.as === "deployed"
                 ? ` (runs in ${v.runsIn!.map((n) => n.id).join(", ")})`
-                : "";
+                : v.as === "lane"
+                  ? ` (lane ${v.lanes!.map((l) => l.id).join(", ")})`
+                  : "";
   lines.push("", "Shown in views:", d.views.length ? `  ${d.views.map((v) => `${v.view.id}${how(v)}`).join(", ")}` : "  (none)");
   return { json, text: lines.join("\n") + "\n" };
 }
@@ -486,7 +488,7 @@ function flowchartJson(ws: Workspace, cv: ComputedView) {
     level: view.level,
     scope: view.scope,
     notes: view.notes,
-    lanes: view.lanes.length ? view.lanes.map((l) => ({ id: l.id, name: l.name, description: l.description })) : undefined,
+    lanes: view.lanes.length ? view.lanes.map((l) => ({ id: l.id, name: l.name, description: l.description, element: l.element })) : undefined,
     blocks: view.blocks.map((b) => ({ id: b.id, position: b.number, kind: b.kind, text: b.text, description: b.description, lane: b.lane, at: b.at })),
     flows: view.flows.map((f) => ({ flow: f.number, from: f.from, to: f.to, text: f.text })),
     stickies: stickiesOn(ws, cv),
@@ -508,7 +510,7 @@ function flowchartText(ws: Workspace, cv: ComputedView): string {
     `  level:        flowchart view${scope ? ` of ${scope.id} (${scope.name})` : ""}`,
     ...(view.description ? [`  description:  ${view.description}`] : []),
     ...(view.notes ? ["", "Notes:", ...indented(view.notes, "  ")] : []),
-    ...(view.lanes.length ? ["", "Lanes, left to right:", ...table(view.lanes.map((l) => [`  ${l.id}`, l.name, l.description ?? ""]))] : []),
+    ...(view.lanes.length ? ["", "Lanes, left to right:", ...table(view.lanes.map((l) => [`  ${l.id}`, l.element ? `${l.name}  (for ${l.element})` : l.name, l.description ?? ""]))] : []),
     "",
     "Blocks:",
     ...(blocks.length ? table(blocks) : ["  (none)"]),

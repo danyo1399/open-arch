@@ -2328,6 +2328,7 @@ button.heading {
 }
 .flow-lane-name {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
@@ -2338,6 +2339,13 @@ button.heading {
   text-align: center;
   color: var(--text);
   overflow-wrap: anywhere;
+}
+/* A lane for an element says what kind it is under its name, as a box does. */
+.flow-lane-kind {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--muted);
 }
 .flow-lane.loose .flow-lane-name {
   border-bottom-style: dashed;

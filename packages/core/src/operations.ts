@@ -194,9 +194,13 @@ export type Operation =
   | { op: "add-connection"; view: string; from: string; to: string; description?: string; technology?: string; connection?: number }
   | { op: "update-connection"; view: string; connection: number; from?: string; to?: string; description?: string | null; technology?: string | null; newConnection?: number }
   | { op: "remove-connection"; view: string; connection: number }
-  /** `position` is the lane's place from the top: 1 is the first. */
-  | { op: "add-lane"; view: string; id: string; name?: string; description?: string; position?: number }
-  | { op: "update-lane"; view: string; id: string; newId?: string; name?: string; description?: string | null; position?: number }
+  /**
+   * `position` is the lane's place from the top: 1 is the first. `element`, on a flowchart only: the
+   * element the lane is for, whose name it takes when it isn't given one.
+   */
+  | { op: "add-lane"; view: string; id: string; name?: string; description?: string; element?: string; position?: number }
+  /** `element`: null takes the lane off its element. */
+  | { op: "update-lane"; view: string; id: string; newId?: string; name?: string; description?: string | null; element?: string | null; position?: number }
   | { op: "remove-lane"; view: string; id: string }
   /** `position` is the card's place along the timeline: 1 is the first. */
   | { op: "add-card"; view: string; id: string; kind?: CardKind; name?: string; description?: string; lane?: string; from?: string[]; position?: number }
@@ -503,8 +507,8 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
     fields: { view: "string", connection: "number", from: "string", to: "string", description: "nullable-string", technology: "nullable-string", newConnection: "number" },
   },
   "remove-connection": { required: ["view", "connection"], fields: { view: "string", connection: "number" } },
-  "add-lane": { required: ["view", "id"], fields: { view: "string", id: "string", name: "string", description: "string", position: "number" } },
-  "update-lane": { required: ["view", "id"], fields: { view: "string", id: "string", newId: "string", name: "string", description: "nullable-string", position: "number" } },
+  "add-lane": { required: ["view", "id"], fields: { view: "string", id: "string", name: "string", description: "string", element: "string", position: "number" } },
+  "update-lane": { required: ["view", "id"], fields: { view: "string", id: "string", newId: "string", name: "string", description: "nullable-string", element: "nullable-string", position: "number" } },
   "remove-lane": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "add-card": {
     required: ["view", "id"],
@@ -1067,6 +1071,8 @@ function removeElement(doc: OpenArchDocument, id: string): string {
       if (node.runs.length === 0) delete node.runs;
     }
     if (v.connections) v.connections = v.connections.filter((c) => ![c.from, c.to].some((end) => gone.has(end) && !Object.hasOwn(v.nodes ?? {}, end)));
+    // A lane stays, with its blocks and its name, but is no longer for the element.
+    for (const lane of v.lanes ?? []) if (lane.element && gone.has(lane.element)) delete lane.element;
     // A note stays, but comes off what's gone: an element, or a relationship to or from one. A flowchart's block isn't one.
     for (const sticky of Object.values(v.stickies ?? {})) {
       const on = sticky.on;
@@ -1103,6 +1109,7 @@ function rename(doc: OpenArchDocument, from: string, to: string): string {
       if (step.to === from) step.to = to;
     }
     for (const node of Object.values(v.nodes ?? {})) if (node.runs) node.runs = node.runs.map((id) => (id === from ? to : id));
+    for (const lane of v.lanes ?? []) if (lane.element === from) lane.element = to;
     // A connection's end is a node when the view has one of that name.
     if (!Object.hasOwn(v.nodes ?? {}, from)) {
       for (const c of v.connections ?? []) {
@@ -1989,7 +1996,8 @@ function addLane(doc: OpenArchDocument, op: Extract<Operation, { op: "add-lane" 
     shift = -Math.min(0, ...(view.blocks ?? []).flatMap((b) => (b.at ? [b.at[0]] : [])));
     if (shift) for (const b of view.blocks ?? []) if (b.at) b.at = [b.at[0] + shift, b.at[1]];
   }
-  const lane = clean<LaneData>({ id: op.id, name: op.name?.trim() || titleFromId(op.id), description: op.description?.trim() });
+  const element = op.element?.trim() ? laneElement(doc, view, op.view, op.element.trim()) : undefined;
+  const lane = clean<LaneData>({ id: op.id, name: op.name?.trim() || element?.name || titleFromId(op.id), description: op.description?.trim(), element: op.element?.trim() || undefined });
   const at = insertAt(lanes, lane, op.position, op.view, "lane");
   const moved = shift ? `, moving its placed blocks ${shift} to the right, so none has an x less than 0` : "";
   return `added lane ${op.id} to view ${op.view}${at < lanes.length ? `, as lane ${at}` : ""}${moved}`;
@@ -1998,7 +2006,9 @@ function addLane(doc: OpenArchDocument, op: Extract<Operation, { op: "add-lane" 
 function updateLane(doc: OpenArchDocument, op: Extract<Operation, { op: "update-lane" }>): string {
   const view = requireLanes(doc, op.view);
   const lane = requireLane(view, op.view, op.id);
-  const fields = ["newId", "name", "description", "position"] as const;
+  // Only a flowchart's lanes can be for an element.
+  if (op.element !== undefined && op.element !== null && op.element.trim()) laneElement(doc, view, op.view, op.element.trim());
+  const fields = view.level === "flowchart" ? (["newId", "name", "description", "element", "position"] as const) : (["newId", "name", "description", "position"] as const);
   if (!fields.some((f) => op[f] !== undefined)) throw new OpError(`Say what to change on lane "${op.id}": ${fields.join(", ")}.`);
   if (op.name !== undefined) {
     if (!op.name.trim()) throw new OpError("A lane's name can't be empty.");
@@ -2008,6 +2018,8 @@ function updateLane(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
     if (op.description === null || !op.description.trim()) delete lane.description;
     else lane.description = op.description.trim();
   }
+  if (op.element === null || op.element?.trim() === "") delete lane.element;
+  else if (op.element !== undefined) lane.element = op.element.trim();
   const lanes = view.lanes!;
   const moved = moveTo(lanes, lanes.indexOf(lane), op.position, op.view, "lane");
   const where = moved ? `, and moved it to lane ${op.position}` : "";
@@ -2155,6 +2167,12 @@ function requireEvents(doc: OpenArchDocument, id: string): ViewData {
   const view = requireView(doc, id);
   if (view.level !== "event") throw new OpError(`View "${id}" is ${aOrAn(view.level)} ${view.level} view. Only event views have cards.`);
   return view;
+}
+
+/** The element a lane of `view` is for: only a flowchart's lanes can be for one. */
+function laneElement(doc: OpenArchDocument, view: ViewData, viewId: string, id: string): ElementData {
+  if (view.level !== "flowchart") throw new OpError(`View "${viewId}" is ${aOrAn(view.level)} ${view.level} view. Only a flowchart's lanes can be for an element.`);
+  return requireElement(doc, id);
 }
 
 /** An event or flowchart view: those that have lanes. */

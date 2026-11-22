@@ -60,13 +60,16 @@ export function Usages({ ws, id, viewId, onGo, onClose }: UsagesProps) {
         <>
           <h3>In views</h3>
           <ul className="list">
-            {usages.views.map(({ view, as, runsIn }) => (
+            {usages.views.map(({ view, as, runsIn, lanes }) => (
               <li key={view.id}>
-                <button className="row" onClick={() => onGo(view.id, runsIn?.[0] ? { kind: "instance", node: runsIn[0].id, element: id } : { kind: "element", id })}>
+                <button
+                  className="row"
+                  onClick={() => onGo(view.id, runsIn?.[0] ? { kind: "instance", node: runsIn[0].id, element: id } : lanes?.[0] ? { kind: "lane", id: lanes[0].id } : { kind: "element", id })}
+                >
                   <span className="dot dot-view" />
                   <span className="grow">{view.title}</span>
                   <span className="muted small">
-                    {as === "frame" ? `${view.level} · frame` : as === "states" ? `${view.level} · its states` : as === "screens" ? `${view.level} · its screens` : as === "process" ? `${view.level} · its process` : as === "data" ? `${view.level} · its data` : as === "deployed" ? `${view.level} · runs in ${runsIn!.map((n) => n.name).join(", ")}` : view.level}
+                    {as === "frame" ? `${view.level} · frame` : as === "states" ? `${view.level} · its states` : as === "screens" ? `${view.level} · its screens` : as === "process" ? `${view.level} · its process` : as === "data" ? `${view.level} · its data` : as === "deployed" ? `${view.level} · runs in ${runsIn!.map((n) => n.name).join(", ")}` : as === "lane" ? `${view.level} · its lane${lanes!.length === 1 ? "" : "s"}, ${lanes!.map((l) => l.name).join(", ")}` : view.level}
                   </span>
                 </button>
               </li>

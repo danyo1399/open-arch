@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { findUsages } from "../src/model.js";
 
 const ws = buildWorkspace({
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys" }] },
@@ -47,6 +47,17 @@ describe("findUsages", () => {
 
   it("finds the arrow in the preferred view when that view draws it", () => {
     expect(summary("shop", "shop-containers").relationships).toEqual(["customer -> web drawn in shop-containers as customer -> web"]);
+  });
+
+  it("includes a flowchart with lanes for the element", () => {
+    const doc = structuredClone(ws.doc);
+    doc.views.returns = { title: "Returns", level: "flowchart", lanes: [{ id: "buyer", name: "Buyer", element: "customer" }, { id: "staff", name: "Staff" }], blocks: [], flows: [] };
+    const usages = findUsages(buildWorkspace(doc), "customer")!;
+    expect(usages.views.map((v) => [v.view.id, v.as, v.lanes?.map((l) => l.id)])).toEqual([
+      ["landscape", "box", undefined],
+      ["returns", "lane", ["buyer"]],
+      ["shop-containers", "box", undefined],
+    ]);
   });
 
   it("is undefined for an element that doesn't exist", () => {

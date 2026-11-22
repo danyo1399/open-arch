@@ -173,7 +173,7 @@ const STATE_KEYS = ["name", "description", "final", "at"];
 const TRANSITION_KEYS = ["from", "to", "event", "guard", "action"];
 const NODE_KEYS = ["name", "parent", "description", "technology", "infrastructure", "instances", "shape", "runs"];
 const CONNECTION_KEYS = ["from", "to", "description", "technology"];
-const LANE_KEYS = ["id", "name", "description"];
+const LANE_KEYS = ["id", "name", "description", "element"];
 const CARD_KEYS = ["id", "kind", "name", "description", "lane", "from"];
 const SCREEN_KEYS = ["id", "name", "description", "device", "widgets"];
 const WIDGET_KEYS = ["id", "kind", "text", "description", "to", "widgets"];
@@ -313,6 +313,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 18) out = { ...out, openarch: 19 };
   // Version 20 let a sticky note be on a flowchart's block, so a version 19 file means the same in it.
   if (out.openarch === 19) out = { ...out, openarch: 20 };
+  // Version 21 let a flowchart's lane be for an element, so a version 20 file means the same in it.
+  if (out.openarch === 20) out = { ...out, openarch: 21 };
   return out;
 }
 
@@ -550,7 +552,7 @@ function readView(id: string, value: unknown, path: string, report: Report): Vie
     else {
       view.lanes = [];
       value.lanes.forEach((item, i) => {
-        const lane = readLane(item, `${path}.lanes[${i}]`, report);
+        const lane = readLane(item, `${path}.lanes[${i}]`, flowchart, report);
         if (!lane) return;
         if (view.lanes!.some((l) => l.id === lane.id)) report(`${path}.lanes[${i}].id`, "id-duplicate", `"${lane.id}" is the ID of two lanes of this view.`, "Give one of them another ID.");
         else view.lanes!.push(lane);
@@ -804,7 +806,8 @@ function readConnection(value: unknown, path: string, report: Report): Connectio
   return connection;
 }
 
-function readLane(value: unknown, path: string, report: Report): LaneData | undefined {
+/** `flowchart`: it's a flowchart's lane, which can be for an element. An event view's can't. */
+function readLane(value: unknown, path: string, flowchart: boolean, report: Report): LaneData | undefined {
   if (!isObject(value)) {
     report(path, "field-type", 'A lane must be an object like { "id": "customer", "name": "Customer" }.');
     return undefined;
@@ -821,6 +824,12 @@ function readLane(value: unknown, path: string, report: Report): LaneData | unde
   const lane: LaneData = { id, name: name?.trim() ? name : id };
   const description = str(value.description, `${path}.description`, report);
   if (description !== undefined) lane.description = description;
+  if (value.element !== undefined && !flowchart) {
+    report(`${path}.element`, "field-not-allowed", "Only a flowchart's lanes can be for an element.", "Remove `element`.");
+    return lane;
+  }
+  const element = str(value.element, `${path}.element`, report);
+  if (element?.trim()) lane.element = element.trim();
   return lane;
 }
 
@@ -1534,7 +1543,7 @@ function viewText(v: ViewData, indent: string): string {
   }
   if (flowchart) {
     // Lanes only when it has some: most flowcharts have none.
-    if (v.lanes?.length) entries.push(["lanes", listText(v.lanes.map((l) => inline({ id: l.id, name: l.name, description: l.description || undefined })), indent)]);
+    if (v.lanes?.length) entries.push(["lanes", listText(v.lanes.map((l) => inline({ id: l.id, name: l.name, description: l.description || undefined, element: l.element || undefined })), indent)]);
     const blockLine = (b: BlockData) =>
       inline({ id: b.id, kind: b.kind && b.kind !== "process" ? b.kind : undefined, text: b.text, description: b.description || undefined, lane: b.lane || undefined, at: b.at?.map((n) => Math.round(n)) });
     entries.push(["blocks", listText((v.blocks ?? []).map(blockLine), indent)]);

@@ -110,7 +110,7 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
         description: c.description || undefined,
         technology: c.technology || undefined,
       })),
-      lanes: (v.lanes ?? []).map((l, i) => ({ id: l.id, path: `views.${id}.lanes[${i}]`, number: i + 1, name: l.name, description: l.description || undefined })),
+      lanes: (v.lanes ?? []).map((l, i) => ({ id: l.id, path: `views.${id}.lanes[${i}]`, number: i + 1, name: l.name, description: l.description || undefined, element: l.element || undefined })),
       cards: (v.cards ?? []).map((c, i) => ({
         id: c.id,
         path: `views.${id}.cards[${i}]`,

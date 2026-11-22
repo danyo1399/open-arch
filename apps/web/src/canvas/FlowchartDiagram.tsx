@@ -7,7 +7,7 @@
  * can be done there. A sticky note can be on a block, with a line to it: drag from the dot under
  * a note to a block.
  */
-import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, STICKY_COLORS, type Block, type BlockKind, type ComputedView, type Flow, type Lane, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
+import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, STICKY_COLORS, type ArchElement, type Block, type BlockKind, type ComputedView, type Flow, type Lane, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -32,7 +32,7 @@ import {
 } from "@xyflow/react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { blockText, idFromName, newStickyId, uniqueAmong } from "../model.js";
+import { blockText, idFromName, NEW_LANE_NAME, newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
@@ -49,7 +49,7 @@ import { stickyLine } from "./stickyLines.js";
 type BlockNodeData = { block: Block };
 type BlockFlowNode = Node<BlockNodeData, "block">;
 /** `head` is how tall its name is drawn, and `height` the whole column, its name included. */
-type LaneNodeData = { column: LaneColumn; head: number; height: number; selected: boolean };
+type LaneNodeData = { column: LaneColumn; head: number; height: number; selected: boolean; element?: ArchElement };
 type LaneFlowNode = Node<LaneNodeData, "lane">;
 type FlowNode = BlockFlowNode | StickyFlowNode | FrameFlowNode | LaneFlowNode;
 
@@ -138,13 +138,22 @@ function Outline({ kind }: { kind: BlockKind }) {
 /** What a column says at its top: its lane's name, or that its blocks are in no lane. */
 const laneName = (column: LaneColumn) => column.lane?.name ?? "No lane";
 
+/** The element of the model a lane is for, if the model has it. */
+export function laneElement(ws: Workspace, lane: Lane | undefined): ArchElement | undefined {
+  return lane?.element ? ws.elements.get(lane.element) : undefined;
+}
+
+/** Under the name of a lane for an element, what kind of element it is, as a box says: "[Container]". */
+const laneKind = (element: ArchElement) => `[${kindLabel(element)}]`;
+
 /**
  * How tall the lanes' names are drawn: as tall as the longest one needs, wrapped to its lane's
  * width, and the same for every lane, so the line under them runs straight across. No less than
  * LANE.head, which fits a name on one line. Each name is measured in a hidden lane with the same
- * styles as a drawn one, all of them together, laying the page out once.
+ * styles as a drawn one, all of them together, laying the page out once. A lane for an element of
+ * `ws` has the element's kind under its name.
  */
-export function laneHead(columns: readonly LaneColumn[]): number {
+export function laneHead(columns: readonly LaneColumn[], ws?: Workspace): number {
   const holder = document.createElement("div");
   holder.setAttribute("aria-hidden", "true");
   holder.style.cssText = "position: absolute; visibility: hidden; left: -10000px; top: 0";
@@ -155,6 +164,12 @@ export function laneHead(columns: readonly LaneColumn[]): number {
     const name = lane.appendChild(document.createElement("div"));
     name.className = "flow-lane-name";
     name.textContent = laneName(column);
+    const element = ws && laneElement(ws, column.lane);
+    if (element) {
+      const kind = name.appendChild(document.createElement("span"));
+      kind.className = "flow-lane-kind";
+      kind.textContent = laneKind(element);
+    }
     return name;
   });
   document.body.appendChild(holder);
@@ -165,13 +180,17 @@ export function laneHead(columns: readonly LaneColumn[]): number {
   }
 }
 
-/** A lane: a column with its name at the top, on as many lines as it needs. The column for blocks in no lane says so. */
+/**
+ * A lane: a column with its name at the top, on as many lines as it needs, and under it, for a
+ * lane for an element, the element's kind. The column for blocks in no lane says so.
+ */
 function LaneNode({ data }: NodeProps<LaneFlowNode>) {
   const { lane } = data.column;
   return (
     <div className={`flow-lane${lane ? "" : " loose"}${data.selected ? " selected" : ""}`} style={{ width: data.column.w, height: data.height }} title={lane?.description}>
       <div className="flow-lane-name" style={{ minHeight: data.head }}>
         {laneName(data.column)}
+        {data.element && <span className="flow-lane-kind">{laneKind(data.element)}</span>}
       </div>
     </div>
   );
@@ -411,6 +430,8 @@ export function canFlow(view: Pick<ViewDef, "flows">, from: string, to: string, 
 }
 
 interface FlowchartDiagramProps {
+  /** The model, for the elements the lanes are for. */
+  ws: Workspace;
   computed: ComputedView;
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
@@ -429,7 +450,7 @@ interface FlowchartDiagramProps {
   autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
-export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menus, onError, exportItems, editSticky, snap, autoLayoutHandle }: FlowchartDiagramProps) {
+export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, menus, onError, exportItems, editSticky, snap, autoLayoutHandle }: FlowchartDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -479,7 +500,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
   }, [ready, laned, view, saved, auto, graphKey]);
   const columns = lanesAt?.columns;
   /** How tall the lanes' names are: more than one line's room when a name is too long for its lane. */
-  const head = useMemo(() => (columns ? laneHead(columns) : LANE.head), [columns]);
+  const head = useMemo(() => (columns ? laneHead(columns, ws) : LANE.head), [columns, ws]);
   const positions = useMemo(
     () => (!ready ? null : lanesAt ? lanesAt.positions : placeMissing(ids, saved, auto?.key === graphKey ? auto.positions : {})),
     [ready, lanesAt, ids, saved, auto, graphKey],
@@ -619,14 +640,14 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
       id: laneNodeId(column),
       type: "lane",
       position: { x: column.x, y: Math.round(top) },
-      data: { column, head, height: Math.round(bottom - top), selected: !!column.lane && selection?.kind === "lane" && selection.id === column.lane.id },
+      data: { column, head, height: Math.round(bottom - top), selected: !!column.lane && selection?.kind === "lane" && selection.id === column.lane.id, element: laneElement(ws, column.lane) },
       measured: lanesMeasured.current.get(laneNodeId(column)),
       draggable: false,
       connectable: false,
       selectable: false,
       zIndex: -1,
     }));
-  }, [columns, head, boxes, selection]);
+  }, [columns, head, boxes, selection, ws]);
 
   /** The frame's size as React Flow last measured it. */
   const frameMeasured = useRef<FrameFlowNode["measured"]>(undefined);
@@ -752,7 +773,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
   /** A new lane goes after this one, or else at the right. */
   const addLane = (after?: Lane) => {
     const id = uniqueAmong(view.lanes.map((l) => l.id), "new-lane");
-    void edit([...fixPlaced(), { op: "add-lane", view: view.id, id, name: "New lane", ...(after && { position: after.number + 1 }) }]).then((ok) => ok && onSelect({ kind: "lane", id }, { isNew: true }));
+    void edit([...fixPlaced(), { op: "add-lane", view: view.id, id, name: NEW_LANE_NAME, ...(after && { position: after.number + 1 }) }]).then((ok) => ok && onSelect({ kind: "lane", id }, { isNew: true }));
   };
 
   /** A new note goes in the middle of the canvas, or from a right-click menu, where that was. */
@@ -876,10 +897,13 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, menu
 
   const laneMenu = (lane: Lane, at: Point): MenuItem[] => {
     const move = (position: number) => () => void edit([{ op: "update-lane", view: view.id, id: lane.id, position }]);
+    const element = laneElement(ws, lane);
     return withDelete(
       edits,
       [
         { label: "Add", items: addItems({ at, lane }) },
+        // The element's details, with the views that show it, and Find usages.
+        ...(element ? [{ label: `Show ${element.name}`, onSelect: () => select({ kind: "element", id: element.id }) }] : []),
         ...(lane.number > 1 ? [{ label: "Move left", onSelect: move(lane.number - 1) }] : []),
         ...(lane.number < view.lanes.length ? [{ label: "Move right", onSelect: move(lane.number + 1) }] : []),
       ],

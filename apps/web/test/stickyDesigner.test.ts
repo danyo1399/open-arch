@@ -50,7 +50,7 @@ afterAll(() => {
 });
 
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -238,7 +238,7 @@ describe("dragging from a note's dot", () => {
 describe("a sticky note on a flowchart's block in the designer", () => {
   /** A return, each block placed, so nothing waits for ELK. Each is measured 200 by 100 here. */
   const flow: OpenArchDocument = {
-    openarch: 20,
+    openarch: 21,
     name: "Shop",
     elements: {},
     views: {

@@ -52,7 +52,7 @@ afterAll(() => {
 beforeEach(() => userSettings.setSnap(SNAP_DEFAULTS));
 
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -65,7 +65,7 @@ const doc: OpenArchDocument = {
 
 /** A state view, with a note: the states and the note snap too. */
 const states: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {},
   views: {
@@ -81,7 +81,7 @@ const states: OpenArchDocument = {
 
 /** Views laid out automatically, each with a note: there, only the note snaps. */
 const deployment: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, web: { kind: "container", name: "Web", parent: "shop" } },
   views: {
@@ -94,7 +94,7 @@ const deployment: OpenArchDocument = {
   },
 };
 const events: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {},
   views: {
@@ -111,7 +111,7 @@ const events: OpenArchDocument = {
   },
 };
 const screens: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {},
   views: {

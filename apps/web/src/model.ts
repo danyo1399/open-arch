@@ -568,6 +568,9 @@ export function whiteboardSelectionLeft(view: ViewDef | undefined, selection: Se
   return same ? selection : selectBoard(left);
 }
 
+/** What + Add calls a flowchart's new lane, until it's named, or picks an element whose name it takes. */
+export const NEW_LANE_NAME = "New lane";
+
 /** A flowchart block's text on one line, as lists and menus name it. */
 export function blockText(block: Pick<Block, "id" | "text">): string {
   return block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? block.id;

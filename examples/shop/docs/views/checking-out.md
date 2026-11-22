@@ -48,11 +48,11 @@ flowchart TB
 
 ## Lanes
 
-| Lane | Description |
-|---|---|
-| Customer |  |
-| Checkout API |  |
-| Payment Provider |  |
+| Lane | Element | Description |
+|---|---|---|
+| Customer | [Customer](../elements/customer.md) |  |
+| Checkout API | [Checkout API](../elements/checkout-api.md) |  |
+| Payment Provider | [Payment Provider](../elements/payment-provider.md) |  |
 
 ## Blocks
 

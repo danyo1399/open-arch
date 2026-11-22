@@ -19,6 +19,7 @@ import {
   WIDGET_KIND_LABELS,
   type ArchElement,
   type Arrow,
+  type Lane,
   type Relationship,
   type RelationshipKind,
   type Sticky,
@@ -295,7 +296,15 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
         return b ? text(b.text) : cell(id);
       };
       const laneName = (id: string | undefined) => cell(v.lanes.find((l) => l.id === id)?.name ?? id);
-      if (v.lanes.length) {
+      // A lane for an element links to the element's page, when any lane is for one.
+      const laneFor = (lane: Lane) => {
+        const e = lane.element ? ws.elements.get(lane.element) : undefined;
+        return e ? link(e, "views") : cell(lane.element);
+      };
+      if (v.lanes.some((l) => l.element)) {
+        lines.push("", "## Lanes", "", "| Lane | Element | Description |", "|---|---|---|");
+        for (const lane of v.lanes) lines.push(`| ${cell(lane.name)} | ${laneFor(lane)} | ${cell(lane.description)} |`);
+      } else if (v.lanes.length) {
         lines.push("", "## Lanes", "", "| Lane | Description |", "|---|---|");
         for (const lane of v.lanes) lines.push(`| ${cell(lane.name)} | ${cell(lane.description)} |`);
       }
@@ -408,7 +417,7 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
     const tags = tagEntries(e.tags);
     if (tags.length) lines.push("", "## Tags", "", "| Tag | Value |", "|---|---|", ...tags.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
     if (d.views.length) {
-      const how = ({ as, runsIn }: (typeof d.views)[number]) =>
+      const how = ({ as, runsIn, lanes }: (typeof d.views)[number]) =>
         as === "frame"
           ? " (as the frame)"
           : as === "states"
@@ -421,7 +430,9 @@ export function exportDocs(ws: Workspace, source: string): ExportedFile[] {
                   ? " (its data)"
                   : as === "deployed"
                     ? ` (runs in ${runsIn!.map((n) => n.name).join(", ")})`
-                    : "";
+                    : as === "lane"
+                      ? ` (its lane${lanes!.length === 1 ? "" : "s"}, ${lanes!.map((l) => l.name).join(", ")})`
+                      : "";
       lines.push("", "## Shown in", "", ...d.views.map((shown) => `- [${shown.view.title}](../views/${shown.view.id}.md)${how(shown)}`));
     }
     lines.push("", `[All views and elements](../README.md)`, "");

@@ -247,7 +247,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 20;
+export const FORMAT_VERSION = 21;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -506,6 +506,11 @@ export interface LaneData {
   id: string;
   name: string;
   description?: string;
+  /**
+   * Flowchart views only: the ID of the element of the model the lane is for, like the container
+   * or the person that does its steps.
+   */
+  element?: string;
 }
 
 /**
@@ -827,6 +832,8 @@ export interface Lane {
   number: number;
   name: string;
   description?: string;
+  /** Flowchart views only: the element it's for. */
+  element?: string;
 }
 
 export interface Card {

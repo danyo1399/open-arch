@@ -14,7 +14,7 @@ import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
  * the containers. A note beside them.
  */
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },

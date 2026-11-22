@@ -757,3 +757,96 @@ describe("flowchart lanes", () => {
     expect(page).toContain("| 9 | Done | End |  |  |");
   });
 });
+
+/** The return, with the customer's lane for the customer and the shop's for the API. */
+function forElements(): OpenArchDocument {
+  const doc = laned();
+  doc.views.returns!.lanes![0]!.element = "customer";
+  doc.views.returns!.lanes![1]!.element = "api";
+  return doc;
+}
+
+describe("flowchart lanes for elements", () => {
+  it("are read and written with the element, and are new in version 21: a version 20 file is read as it is", () => {
+    const text = serializeDocument(forElements());
+    expect(text).toContain(`      "lanes": [
+        { "id": "customer", "name": "Customer", "element": "customer" },
+        { "id": "shop", "name": "Shop", "description": "The online shop's staff", "element": "api" }
+      ],`);
+    const parsed = parseDocument(text);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.doc.views.returns).toEqual(forElements().views.returns);
+    expect(buildWorkspace(parsed.doc).views.get("returns")!.lanes.map((l) => l.element)).toEqual(["customer", "api"]);
+    expect(rules(forElements())).toEqual([]);
+    const old = parseDocument(JSON.stringify({ ...laned(), openarch: 20 }));
+    expect(old.diagnostics).toEqual([]);
+    expect(old.doc).toEqual(laned());
+  });
+
+  it("are only a flowchart's: an event view's lane can't be for an element", () => {
+    const doc = { ...shop(), views: { e: { title: "E", level: "event", lanes: [{ id: "a", name: "A", element: "customer" }], cards: [] }, f: { title: "F", level: "flowchart", lanes: [{ id: "b", name: "B", element: 5 }], blocks: [], flows: [] } } };
+    const parsed = parseDocument(JSON.stringify(doc));
+    expect(parsed.diagnostics.map((d) => [`${d.rule} ${d.path}`, d.message])).toEqual([
+      ["field-not-allowed views.e.lanes[0].element", "Only a flowchart's lanes can be for an element."],
+      ["field-type views.f.lanes[0].element", "Must be a string."],
+    ]);
+    expect(parsed.doc.views.e!.lanes).toEqual([{ id: "a", name: "A" }]);
+  });
+
+  it("are checked: the element is one of the model's", () => {
+    const doc = forElements();
+    doc.views.returns!.lanes![0]!.element = "custmer";
+    doc.views.returns!.lanes![1]!.element = "warehouse";
+    expect(checkWorkspace(buildWorkspace(doc)).map((d) => [d.rule, d.path, d.message, d.fix])).toEqual([
+      ["lane-element-unknown", "views.returns.lanes[0].element", 'Lane "customer" is for "custmer", which isn\'t an element.', 'Did you mean "customer"?'],
+      ["lane-element-unknown", "views.returns.lanes[1].element", 'Lane "shop" is for "warehouse", which isn\'t an element.', 'Name an element of the model, or take it off with `open-arch update-lane returns shop --element ""`.'],
+    ]);
+  });
+
+  it("are added and changed with an element, which names a new lane, and taken off it", () => {
+    const result = applyOperations(returns(), [
+      { op: "add-lane", view: "returns", id: "buyer", element: "customer" },
+      { op: "add-lane", view: "returns", id: "staff", name: "Shop staff", element: "api" },
+    ]);
+    expect(result.doc.views.returns!.lanes).toEqual([
+      { id: "buyer", name: "Customer", element: "customer" },
+      { id: "staff", name: "Shop staff", element: "api" },
+    ]);
+    const changed = apply(result.doc, { op: "update-lane", view: "returns", id: "staff", element: "web-app" });
+    expect(changed.views.returns!.lanes![1]).toEqual({ id: "staff", name: "Shop staff", element: "web-app" });
+    expect(apply(changed, { op: "update-lane", view: "returns", id: "staff", element: null }).views.returns!.lanes![1]).toEqual({ id: "staff", name: "Shop staff" });
+    expect(apply(changed, { op: "update-lane", view: "returns", id: "staff", element: "" }).views.returns!.lanes![1]).toEqual({ id: "staff", name: "Shop staff" });
+    expect(fails(returns(), { op: "add-lane", view: "returns", id: "x", element: "custmer" })).toBe('No element has the ID "custmer". Did you mean "customer"?');
+    expect(fails(changed, { op: "update-lane", view: "returns", id: "staff", element: "nope" })).toMatch(/^No element has the ID "nope"/);
+    const events = apply(shop(), { op: "add-view", id: "orders", level: "event", title: "Orders" });
+    expect(fails(events, { op: "add-lane", view: "orders", id: "x", element: "customer" })).toBe('View "orders" is an event view. Only a flowchart\'s lanes can be for an element.');
+    expect(parseOperations({ op: "update-lane", view: "returns", id: "staff", element: null })).toEqual([{ op: "update-lane", view: "returns", id: "staff", element: null }]);
+    expect(parseOperations({ op: "add-lane", view: "returns", id: "x", element: "api" })).toEqual([{ op: "add-lane", view: "returns", id: "x", element: "api" }]);
+  });
+
+  it("follow their element to a new ID, and stay, with their blocks, when it's removed", () => {
+    const renamed = apply(forElements(), { op: "rename", id: "api", to: "backend" });
+    expect(renamed.views.returns!.lanes![1]!.element).toBe("backend");
+    // The lane stays, with its blocks in it, for no element.
+    const removed = apply(forElements(), { op: "remove-element", id: "customer" });
+    expect(removed.views.returns!.lanes).toEqual([
+      { id: "customer", name: "Customer" },
+      { id: "shop", name: "Shop", description: "The online shop's staff", element: "api" },
+    ]);
+    expect(removed.views.returns!.blocks![0]!.lane).toBe("customer");
+    expect(rules(removed)).toEqual([]);
+  });
+
+  it("list the flowchart in their element's views, in show and on its page in the docs, and the lanes in the view's", () => {
+    const ws = buildWorkspace(forElements());
+    expect(describeElement(ws, "customer")!.views.find((v) => v.view.id === "returns")).toMatchObject({ as: "lane", lanes: [{ id: "customer" }] });
+    // The element a flowchart is of is drawn as its frame, its process, before its lanes.
+    expect(describeElement(ws, "api")!.views.find((v) => v.view.id === "returns")!.as).toBe("process");
+    const files = exportDocs(ws, "shop.openarch");
+    expect(files.find((f) => f.path === "elements/customer.md")!.content).toContain("- [Returns](../views/returns.md) (its lane, Customer)");
+    const page = files.find((f) => f.path === "views/returns.md")!.content;
+    expect(page).toContain(
+      ["## Lanes", "", "| Lane | Element | Description |", "|---|---|---|", "| Customer | [Customer](../elements/customer.md) |  |", "| Shop | [API](../elements/api.md) | The online shop's staff |"].join("\n"),
+    );
+  });
+});

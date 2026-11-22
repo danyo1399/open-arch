@@ -11,7 +11,7 @@ import { designer as open, put, SlowHost, write, type MenuDesigner } from "./men
 
 /** A return, each block placed, so nothing waits for ELK, with a note beside it. */
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" } },
   views: {
@@ -325,6 +325,24 @@ describe("a lane's right-click menu", () => {
     expect(view.lanes.map((l) => l.id)).toEqual(["shop"]);
     expect(view.blocks.filter((b) => b.lane === undefined).map((b) => b.id)).toEqual(["asked", "done"]);
     expect(d.details()).toBe("View");
+  });
+
+  it("shows the details of the element the lane is for, which say what kind it is under the lane's name", async () => {
+    const forShop = structuredClone(laned);
+    forShop.views.returns!.lanes![1]!.element = "shop";
+    const d = await designer(forShop);
+    expect(d.node("lane:shop")!.querySelector(".flow-lane-name")!.textContent).toBe("Shop[System]");
+    expect(d.node("lane:customer")!.querySelector(".flow-lane-kind")).toBeNull();
+    await d.rightClick(d.node("lane:shop")!);
+    expect(d.labels()).toEqual(["Add", "Show Shop", "Move left", "Delete lane"]);
+    await d.pick("Show Shop");
+    expect(d.details()).toBe("System");
+    // Find usages lists the flowchart, and goes back to the lane.
+    await click(button(d.host, "Find usages"));
+    const usage = [...d.host.querySelectorAll<HTMLButtonElement>(".usages .row")].find((r) => r.textContent!.startsWith("Returns"))!;
+    expect(usage.textContent).toBe("Returnsflowchart · its lane, Shop");
+    await click(usage);
+    expect(d.details()).toBe("Lane 2of 2");
   });
 
   it("is the diagram's on the column for blocks in no lane", async () => {

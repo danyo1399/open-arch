@@ -10,7 +10,7 @@ import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
 /** Three cards along the timeline, in two lanes, each coming from the one before, with a note beside them. */
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {},
   views: {

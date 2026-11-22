@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { followRenames, shownInProperties, viewAction, wireframeDeleteOps, wireframeSelectionGone } from "../src/model.js";
 
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, web: { kind: "container", name: "Web App", parent: "shop" } },
   views: {

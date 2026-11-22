@@ -92,6 +92,7 @@ import {
   followsName,
   idFromName,
   LEVEL_NAMES,
+  NEW_LANE_NAME,
   relationshipRef,
   SCOPE_LABELS,
   shownInProperties,
@@ -1374,7 +1375,7 @@ function InstanceProperties(props: PropertiesProps & { view: ViewDef; node: Depl
   );
 }
 
-function LaneProperties({ view, lane, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; lane: Lane }) {
+function LaneProperties({ ws, view, lane, isNew, edit, onSelect }: PropertiesProps & { view: ViewDef; lane: Lane }) {
   const set = (fields: Omit<Extract<Operation, { op: "update-lane" }>, "op" | "view" | "id">) => void edit([{ op: "update-lane", view: view.id, id: lane.id, ...fields }]);
   const others = view.lanes.map((l) => l.id);
   // An ID made from the name keeps following it, as an element's does; the selection follows the ID.
@@ -1392,6 +1393,21 @@ function LaneProperties({ view, lane, isNew, edit, onSelect }: PropertiesProps &
   // A flowchart's lanes are columns, left to right, and hold blocks.
   const flowchart = view.level === "flowchart";
   const blocks = view.blocks.filter((b) => b.lane === lane.id);
+  // A flowchart's lane can be for an element of the model, like the container that does its steps.
+  const element = lane.element ? ws.elements.get(lane.element) : undefined;
+  const elements = [...ws.elements.values()].sort(byName);
+  /**
+   * A lane still called what + Add calls it, or what its element is called, takes the name of the
+   * element picked for it, and its ID follows, as it does a new name.
+   */
+  const pickElement = (id: string) => {
+    if (!id) return set({ element: null });
+    const picked = ws.elements.get(id);
+    const name = picked && (lane.name === NEW_LANE_NAME || lane.name === element?.name) && picked.name !== lane.name ? picked.name : undefined;
+    const base = name ? idFromName(name) : "";
+    const newId = base && followsName(lane.id, lane.name) ? uniqueAmong(others, base, lane.id) : lane.id;
+    void edit([{ op: "update-lane", view: view.id, id: lane.id, element: id, ...(name && { name }), ...(newId !== lane.id && { newId }) }]).then((ok) => ok && newId !== lane.id && onSelect({ kind: "lane", id: newId }));
+  };
   return (
     <>
       <header className="props-header">
@@ -1401,6 +1417,35 @@ function LaneProperties({ view, lane, isNew, edit, onSelect }: PropertiesProps &
       <Field label="Name" value={lane.name} onCommit={(n) => n.trim() && rename(n)} autoFocus={isNew} />
       <Field label="ID" value={lane.id} onCommit={changeId} hint={idHint(followsName(lane.id, lane.name))} />
       <Field label="Description" value={lane.description ?? ""} multiline placeholder="One sentence, shown when you point at the lane" onCommit={(description) => set({ description: description || null })} />
+      {flowchart && (
+        <>
+          <label className="field">
+            <span className="field-label">For</span>
+            <select value={lane.element ?? ""} onChange={(e) => pickElement(e.target.value)}>
+              <option value="">(no element)</option>
+              {lane.element !== undefined && !element && <option value={lane.element}>{lane.element} (not an element)</option>}
+              {elements.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name} [{kindLabel(e)}]
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted small">
+            {element ? (
+              <>
+                The lane is for{" "}
+                <button className="link" onClick={() => onSelect({ kind: "element", id: element.id })}>
+                  {element.name}
+                </button>
+                , so its page in the docs lists this flowchart.
+              </>
+            ) : (
+              "Pick the element of the model that does the lane's steps, like a container or a person, to link the lane to it."
+            )}
+          </p>
+        </>
+      )}
       <h3>{flowchart ? "Blocks" : "Cards"}</h3>
       {(flowchart ? blocks : cards).length === 0 && <p className="muted small">None yet. Drag a {flowchart ? "block" : "card"} into this lane, or select the lane and use + Add.</p>}
       <ul className="plain">

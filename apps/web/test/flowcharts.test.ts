@@ -18,7 +18,7 @@ import { button, choose, click, menusFor, mount, select } from "./dom.js";
 
 /** A return, each block placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, customer: { kind: "person", name: "Customer" } },
   views: {
@@ -65,6 +65,7 @@ async function diagram(selection: Selection = null, model: OpenArchDocument = do
       ReactFlowProvider,
       null,
       createElement(FlowchartDiagram, {
+        ws: built,
         computed: computeView(built, built.views.get("returns")!),
         selection,
         onSelect: r.onSelect,
@@ -721,13 +722,15 @@ describe("a lane's name too long for one line", () => {
 });
 
 describe("a flowchart lane's details and a block's lane", () => {
-  /** The details panel for the laned flowchart. */
-  function lanedPanel(selection: Selection) {
+  /** The details panel for the laned flowchart, or another. */
+  function lanedPanel(selection: Selection, model = lanedDoc) {
     const r = { edits: [] as Operation[][], selected: [] as Selection[] };
+    const built = buildWorkspace(model);
+    const shown = built.views.get("returns")!;
     const element = createElement(Properties, {
-      ws: lanedWs,
-      view: lanedView as ViewDef,
-      computed: computeView(lanedWs, lanedView),
+      ws: built,
+      view: shown as ViewDef,
+      computed: computeView(built, shown),
       selection,
       isNew: false,
       syncsDocs: false,
@@ -735,7 +738,7 @@ describe("a flowchart lane's details and a block's lane", () => {
       docs: null,
       fileName: "shop.openarch",
       edit: async (e: Edit) => {
-        r.edits.push(typeof e === "function" ? e(lanedWs) : e);
+        r.edits.push(typeof e === "function" ? e(built) : e);
         return true;
       },
       onSelect: (s: Selection) => void r.selected.push(s),
@@ -751,6 +754,46 @@ describe("a flowchart lane's details and a block's lane", () => {
     });
     return { host: mount(element), ...r };
   }
+
+  it("make a lane for an element, which a lane still called New lane takes the name of, and take it off", async () => {
+    const { host, edits } = lanedPanel({ kind: "lane", id: "shop" });
+    const lane = select(host, "For");
+    expect([...lane.options].map((o) => o.textContent)).toEqual(["(no element)", "Customer [Person]", "Shop [System]"]);
+    expect(lane.value).toBe("");
+    // A lane named already keeps its name.
+    await choose(lane, "shop");
+    expect(edits).toEqual([[{ op: "update-lane", view: "returns", id: "shop", element: "shop" }]]);
+
+    const fresh = structuredClone(lanedDoc);
+    fresh.views.returns!.lanes!.push({ id: "new-lane", name: "New lane" });
+    const added = lanedPanel({ kind: "lane", id: "new-lane" }, fresh);
+    await choose(select(added.host, "For"), "customer");
+    // Its ID follows the name, as it does a new name: "customer" is taken.
+    expect(added.edits).toEqual([[{ op: "update-lane", view: "returns", id: "new-lane", element: "customer", name: "Customer", newId: "customer-2" }]]);
+    expect(added.selected).toEqual([{ kind: "lane", id: "customer-2" }]);
+  });
+
+  it("show the element a lane is for, a click away, and take it off", async () => {
+    const linked = structuredClone(lanedDoc);
+    linked.views.returns!.lanes![0]!.element = "customer";
+    const { host, edits, selected } = lanedPanel({ kind: "lane", id: "customer" }, linked);
+    expect(select(host, "For").value).toBe("customer");
+    expect(host.textContent).toContain("The lane is for Customer, so its page in the docs lists this flowchart.");
+    await click([...host.querySelectorAll<HTMLButtonElement>(".link")].find((b) => b.textContent === "Customer")!);
+    expect(selected).toEqual([{ kind: "element", id: "customer" }]);
+    // A lane named after its element takes the name of the next one.
+    await choose(select(host, "For"), "shop");
+    await choose(select(host, "For"), "");
+    expect(edits).toEqual([[{ op: "update-lane", view: "returns", id: "customer", element: "shop", name: "Shop", newId: "shop-2" }], [{ op: "update-lane", view: "returns", id: "customer", element: null }]]);
+    // An element the model doesn't have is still listed, as it's what the file says.
+    linked.views.returns!.lanes![0]!.element = "gone";
+    expect([...select(lanedPanel({ kind: "lane", id: "customer" }, linked).host, "For").options].map((o) => o.textContent)).toContain("gone (not an element)");
+  });
+
+  it("aren't for an element on an event view", () => {
+    const events: OpenArchDocument = { ...doc, views: { returns: { title: "Returns", level: "event", lanes: [{ id: "customer", name: "Customer" }], cards: [] } } };
+    expect(lanedPanel({ kind: "lane", id: "customer" }, events).host.textContent).not.toContain("(no element)");
+  });
 
   it("list a lane's blocks, and move it left or right", async () => {
     const { host, edits, selected } = lanedPanel({ kind: "lane", id: "customer" });

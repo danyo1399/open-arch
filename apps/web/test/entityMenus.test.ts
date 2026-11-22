@@ -10,7 +10,7 @@ import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
 /** A shop's data, each entity placed, so nothing waits for ELK, with a note beside them. */
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" } },
   views: {

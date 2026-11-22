@@ -1,7 +1,7 @@
 /** Read-only questions about the model, used by `show` and later by the designer. */
 import type { Workspace } from "./workspace.js";
 import { builtInto, childrenOf, compareElements, isInside } from "./model.js";
-import type { ArchElement, DeploymentNode, Relationship, ViewDef } from "./types.js";
+import type { ArchElement, DeploymentNode, Lane, Relationship, ViewDef } from "./types.js";
 import { computeView, scopeProblems, type ComputedView } from "./views.js";
 
 export interface ElementDescription {
@@ -20,10 +20,10 @@ export interface ElementDescription {
   /**
    * Views that draw this element: as a box, as the frame around the view, as what a state view
    * shows the states of, as the app a wireframe view shows the screens of, as what a flowchart
-   * shows the process of, as what an entity view shows the data of, or running in a deployment
-   * view's nodes, which `runsIn` lists.
+   * shows the process of, as what an entity view shows the data of, running in a deployment
+   * view's nodes, which `runsIn` lists, or as what a flowchart's lanes are for, which `lanes` lists.
    */
-  views: { view: ViewDef; as: "box" | "frame" | "states" | "screens" | "process" | "data" | "deployed"; runsIn?: DeploymentNode[] }[];
+  views: { view: ViewDef; as: "box" | "frame" | "states" | "screens" | "process" | "data" | "deployed" | "lane"; runsIn?: DeploymentNode[]; lanes?: Lane[] }[];
 }
 
 /** What a view of an element shows of it, on views that draw something of their own rather than its contents. */
@@ -46,7 +46,9 @@ export function describeElement(ws: Workspace, id: string): ElementDescription |
   }
   const views: ElementDescription["views"] = [];
   for (const cv of computeAllViews(ws)) {
+    const lanes = cv.view.level === "flowchart" ? cv.view.lanes.filter((l) => l.element === id) : [];
     if (cv.boundary?.id === id) views.push({ view: cv.view, as: OWN_AS[cv.view.level] ?? "frame" });
+    else if (lanes.length) views.push({ view: cv.view, as: "lane", lanes });
     else if (cv.deployment) {
       const runsIn = cv.deployment.nodes.filter((n) => cv.deployment!.instances.some((i) => i.node === n.id && i.element.id === id));
       if (runsIn.length) views.push({ view: cv.view, as: "deployed", runsIn });
