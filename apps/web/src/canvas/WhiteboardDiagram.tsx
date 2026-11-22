@@ -142,7 +142,7 @@ const TOUCH = "(any-pointer: coarse)";
 const DRAWING_Z = STICKY_Z + 2000;
 /** How far, on the screen, a drag has to go to draw something, not just click. */
 const DRAG_MIN = 6;
-/** Whether this is a Mac, asked as it's needed. */
+/** Whether this is a Mac, asked at each press rather than once as `isMac` is, so a test can say it is after the file has loaded. */
 const onMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const isMac = onMac();
 const MULTI_KEYS = isMac ? ["Meta", "Shift"] : ["Control", "Shift"];
