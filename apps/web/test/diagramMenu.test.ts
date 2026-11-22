@@ -917,7 +917,7 @@ describe("what a sequence view's right-click menu is for", () => {
 describe("what a whiteboard's right-click menu is for", () => {
   /** Two shapes joined by an arrow, a third with an arrow to it from a point, and a note. */
   const board: OpenArchDocument = {
-    openarch: 20,
+    openarch: 21,
     name: "Shop",
     elements: {},
     views: {

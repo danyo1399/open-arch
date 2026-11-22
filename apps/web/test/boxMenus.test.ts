@@ -8,7 +8,7 @@ import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
 /** A container view of the shop, placed, with a note on the web app and one on its own. */
 const doc: OpenArchDocument = {
-  openarch: 20,
+  openarch: 21,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
