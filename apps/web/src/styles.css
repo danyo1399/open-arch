@@ -3502,7 +3502,9 @@ button.active {
   min-height: 0;
   overflow: auto;
 }
-.ask-ai-settings p {
+/* A line of the settings, or one above the box, such as the tick for a folder's files: the form spaces them. */
+.ask-ai form p,
+.ask-ai form .check {
   margin: 0;
 }
 /* Where what's being dragged lines up with another box or note (see snap.tsx): a thin line, as thin at any zoom. */

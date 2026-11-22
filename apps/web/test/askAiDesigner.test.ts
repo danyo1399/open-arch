@@ -2,12 +2,13 @@
 import "fake-indexeddb/auto";
 import { loadWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { strFromU8, unzipSync } from "fflate";
-import { act, createElement, useState } from "react";
+import { act, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentBridge, AgentEvent, DesktopBridge } from "../src/bridge.js";
+import { App } from "../src/App.js";
 import { Designer } from "../src/Designer.js";
 import { FolderHost } from "../src/folders.js";
-import { BrowserHost, DesktopHost, MemoryHost, workspaceZip, type WorkspaceHost } from "../src/hosts.js";
+import { DesktopHost, MemoryHost, workspaceZip, type WorkspaceHost } from "../src/hosts.js";
 import { browserLibrary } from "../src/library.js";
 import { afterChange, canUndo } from "../src/panels/AskAI.js";
 import { button, checkbox, click, mount, type } from "./dom.js";
@@ -50,14 +51,13 @@ const until = async (done: () => boolean) => {
 /** The designer on a workspace, with Ask AI's model played by a script. */
 async function designer(script: Parameters<typeof fakeModel>[0] = [], file: WorkspaceHost = new MemoryHost("shop.openarch", serializeDocument(shop))) {
   const model = fakeModel(script);
-  // As the app does, it carries on with the copy a Save keeps.
-  const kept: WorkspaceHost[] = [];
-  const Shell = () => {
-    const [open, setOpen] = useState(file);
-    return createElement(Designer, { host: open, onClose() {}, onHostChange: (next) => (kept.push(next), setOpen(next)), askFetch: model.fetch });
-  };
-  const host = mount(createElement(Shell));
+  const host = mount(createElement(Designer, { host: file, onClose() {}, onHostChange() {}, askFetch: model.fetch }));
   await until(() => !!host.querySelector(".ws-name"));
+  return { file, model, ...driver(host) };
+}
+
+/** What a test does with the designer's Ask AI, in whatever it's mounted in. */
+function driver(host: HTMLElement) {
   const panel = () => host.querySelector<HTMLElement>(".ask-ai")!;
   const field = (label: string) => panel().querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
   /** Fills in the settings and saves them. */
@@ -97,7 +97,7 @@ async function designer(script: Parameters<typeof fakeModel>[0] = [], file: Work
   };
   /** Whether the panel offers to undo what the AI changed. */
   const offersUndo = () => [...panel().querySelectorAll("button")].some((b) => b.textContent?.trim() === "Undo AI change");
-  return { host, file, kept, model, panel, field, configure, ask, send, log, rename, offersUndo };
+  return { host, panel, field, configure, ask, send, log, rename, offersUndo };
 }
 
 describe("Ask AI in the web designer", () => {
@@ -392,24 +392,96 @@ describe("Ask AI in the web designer", () => {
     expect(panel().querySelector("textarea")!.disabled).toBe(false);
   });
 
-  it("changes the workspace where it's kept by then, when it's saved while a request runs", async () => {
+  it("waits to save a workspace that's only in this tab while a request runs, and starts afresh in the copy it keeps", async () => {
     localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
-    let answer: (response: Response) => void = () => {};
-    const change = { calls: [{ name: "change_model", args: { operations: [{ op: "update-workspace", description: "Sells things." }] } }] };
-    const { host, file, kept, send, panel } = await designer([() => new Promise<Response>((resolve) => (answer = resolve)), { text: "Described." }]);
+    // The app itself, which opens the copy a Save keeps as a workspace of its own.
+    const describe = { calls: [{ name: "change_model", args: { operations: [{ op: "update-workspace", description: "Sells things." }] } }] };
+    const model = fakeModel([describe, { text: "Described." }, (_asked, signal) => new Promise<Response>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason))), { text: "Hello." }]);
+    vi.stubGlobal("fetch", model.fetch);
+    const page = mount(createElement(App, {}));
+    await until(() => [...page.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Try the example"));
+    await click(button(page, "Try the example"));
+    await until(() => !!page.querySelector(".ws-name"));
+    const { host, ask, send, log, panel } = driver(page);
     await click(button(host, "Ask AI"));
-    await send("Describe the workspace");
-    // The example is kept in the browser while the model is still thinking.
+    // The panel says what Save does to the conversation, for a workspace that's only in this tab.
+    const note = "This workspace is only in this tab. Save opens the copy it keeps, which ends this conversation.";
+    expect(panel().textContent).toContain(note);
+    await ask("Describe the workspace");
+    await send("And say more");
+
+    // A request is running: saving now would cut it off, so it says so and saves nothing.
     await click(button(host, "Save"));
-    await until(() => kept.length === 1);
-    const saved = kept[0] as BrowserHost;
-    expect(saved).toBeInstanceOf(BrowserHost);
-    answer(reply(change));
-    await until(() => !!panel().querySelector(".ask-ai-done"));
-    // The change is in the copy the browser keeps, which is what's open now, not only in the example left behind.
-    expect(loadWorkspace((await browserLibrary.get(saved.id))!.text).doc.description).toBe("Sells things.");
-    expect(loadWorkspace(await file.load()).doc.description).toBeUndefined();
-    await browserLibrary.remove(saved.id);
+    await until(() => !!host.querySelector(".toast"));
+    expect(host.querySelector(".toast")!.textContent).toContain("Ask AI is still working on a request. Stop it, or wait for it to finish, then save: saving opens the copy that's kept, and ends the conversation.");
+    expect(location.hash).toBe("");
+    expect(host.querySelector(".storage")!.textContent).toBe("Not saved");
+    expect(log()).toEqual(["Describe the workspace", "Changed the model: updated workspace", "Described.", "And say more"]);
+    expect(button(panel(), "Stop")).toBeTruthy();
+
+    // Stopped, it saves: the copy has what the AI changed, and opens with Ask AI as new, the conversation gone.
+    await click(button(panel(), "Stop"));
+    await until(() => log().at(-1) === "Stopped.");
+    await click(button(host, "Save"));
+    await until(() => location.hash.length > 1 && host.querySelector(".storage")?.textContent === "Saved in this browser");
+    const id = location.hash.slice(1);
+    try {
+      expect(loadWorkspace((await browserLibrary.get(id))!.text).doc.description).toBe("Sells things.");
+      expect(panel().hidden).toBe(true);
+      await click(button(host, "Ask AI"));
+      expect(log()).toEqual([]);
+      // Kept in the browser, there's no Save to end a conversation.
+      expect(panel().textContent).not.toContain(note);
+      await ask("Hello");
+      expect(model.asked.at(-1)!.body.messages.map((m) => m.role)).toEqual(["system", "user"]);
+    } finally {
+      await browserLibrary.remove(id);
+      history.replaceState(null, "", location.pathname);
+    }
+  });
+
+  it("doesn't write over a change by hand that's still being saved when Undo AI change is pressed", async () => {
+    localStorage.setItem("open-arch.ai", JSON.stringify(SETTINGS));
+    const file = new MemoryHost("shop.openarch", serializeDocument(shop));
+    // A save that can be held, as a slow one is.
+    const save = file.save.bind(file);
+    let held: Promise<void> | null = null;
+    let letGo = () => {};
+    file.save = async (next: string) => {
+      await held;
+      return save(next);
+    };
+    const { host, ask, offersUndo, log, panel } = await designer([{ calls: [{ name: "change_model", args: { operations: [{ op: "update-element", id: "shop", description: "Sells things." }] } }] }, { text: "Described." }], file);
+    await click(button(host, "Ask AI"));
+    await ask("Describe the shop");
+    await until(offersUndo);
+
+    // A new name typed in the details, saved as its box is left, slowly.
+    held = new Promise((resolve) => (letGo = resolve));
+    await click(host.querySelector(".ws-name")!);
+    const name = host.querySelector<HTMLInputElement>(".properties input")!;
+    await type(name, "Shop, by hand");
+    await act(async () => void name.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    // Pressed before that save has finished, while the offer still shows.
+    expect(offersUndo()).toBe(true);
+    await click(button(panel(), "Undo AI change"));
+    held = null;
+    await act(async () => letGo());
+    await until(() => host.querySelector(".ws-name")!.textContent === "Shop, by hand");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+
+    // The rename is kept, the AI's change with it: nothing was put back over it, and the offer is gone.
+    const kept = loadWorkspace(await file.load());
+    expect(kept.doc.name).toBe("Shop, by hand");
+    expect(kept.elements.get("shop")?.description).toBe("Sells things.");
+    expect(log()).not.toContain("Undid the AI's change.");
+    expect(offersUndo()).toBe(false);
+    // Their change taken back, it's as the AI left it, and can be undone after all.
+    await click(button(host, "Undo"));
+    await until(offersUndo);
+    await click(button(panel(), "Undo AI change"));
+    await until(() => log().at(-1) === "Undid the AI's change.");
+    expect(await file.load()).toBe(serializeDocument(shop));
   });
 
   it("says what went wrong when the model's server refuses", async () => {
@@ -430,6 +502,7 @@ describe("Ask AI in the web designer", () => {
     await click(button(host, "Ask AI"));
     const tick = () => checkbox(panel(), "Let the AI read the files in shop-repo");
     expect(tick().checked).toBe(false);
+    expect(panel().textContent).not.toContain("only in this tab");
 
     await ask("Where's the cart kept?");
     expect(model.asked[0]!.body.tools!.map((t) => t.function.name)).toEqual(["show_model", "search_model", "check_model", "change_model", "read_guide"]);

@@ -5,7 +5,7 @@ import type { AgentEvent } from "../src/bridge.js";
 import type { Change } from "../src/state.js";
 import type { ToolHost } from "../src/ai/tools.js";
 import { FakeFolder } from "./fakeFolder.js";
-import { fakeModel, toolAnswers, type Asked, type Scripted } from "./llm.js";
+import { fakeModel, reply, toolAnswers, type Asked, type Scripted } from "./llm.js";
 
 const settings = { baseUrl: "https://llm.example/v1", apiKey: "sk-secret", model: "small" };
 
@@ -249,6 +249,23 @@ describe("Ask AI's agent, in the web app", () => {
       }
       expect(toolAnswers(model.asked[2]!).map((a) => a.split("\n")[0])).toEqual(["No problems.", "Shop: shop.openarch (2 elements, 1 views)", "(Stopped before this ran.)", "(Stopped before this ran.)"]);
     }
+  });
+
+  it("makes none of a reply's calls when it's stopped as the reply comes in", async () => {
+    const change = { calls: [{ name: "change_model", args: { operations: [{ op: "update-element", id: "shop", description: "Sells things." }] } }, { name: "check_model", args: {} }] };
+    const { agent, ask, model, state } = agentFor([
+      async () => {
+        // Stopped, but the server's reply was already on its way, and arrives whole.
+        agent.cancel();
+        return reply(change);
+      },
+      { text: "Carrying on." },
+    ]);
+    const before = state.text;
+    expect(shown(await ask("Describe the shop"))).toEqual(["✗ Stopped."]);
+    expect(state.text).toBe(before);
+    await ask("Carry on");
+    expect(toolAnswers(model.asked[1]!)).toEqual(["(Stopped before this ran.)", "(Stopped before this ran.)"]);
   });
 
   it("stops while the model is still answering", async () => {

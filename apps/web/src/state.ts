@@ -25,9 +25,11 @@ export interface WorkspaceState {
   change(ops: Operation[]): Promise<Change>;
   /**
    * Save an earlier version of the file, as one step that Undo takes back, which the History list
-   * calls `label`. Resolves to false if it couldn't be saved.
+   * calls `label`. With `from`, only if the file's text is still that when its turn comes: an
+   * edit made first, such as one still being saved, isn't written over. Resolves to false if it
+   * wasn't saved.
    */
-  restore(text: string, label: string): Promise<boolean>;
+  restore(text: string, label: string, from?: string): Promise<boolean>;
   /**
    * Calls `look` with the workspace once the edits queued before it have landed, or with null
    * when there's none. Unlike an edit, it gets a workspace whose file has errors too.
@@ -344,10 +346,10 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[],
   );
 
   const restore = useCallback(
-    (target: string, label: string) =>
+    (target: string, label: string, from?: string) =>
       enqueue(async () => {
         const before = current.current;
-        if (before === null) return false;
+        if (before === null || (from !== undefined && before !== from)) return false;
         if (target === before) return true;
         const renames = renamesFrom(before, target);
         try {
