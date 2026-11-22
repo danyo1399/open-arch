@@ -167,13 +167,14 @@ describe("the designer with a workspace in a folder", () => {
     }
   });
 
-  it("keeps the file's name in the top bar at every width without the More menu", () => {
+  it("leaves the file's name in the top bar at every width without the More menu, for as long as there's room", () => {
     // The More menu names the file only on a narrow screen (NARROW, in Designer.tsx), where the
-    // top bar doesn't draw it. At any wider one it's the top bar's to show, so no rule may hide it
-    // there: it gives way to the rest with an ellipsis instead, and its start always shows.
+    // top bar doesn't draw it. At any wider one it's the top bar's to show, so no rule that names
+    // it, alone or with others, may hide it at some width: it gives way to the rest instead.
     const css = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
-    expect(css).not.toMatch(/\.file-name\s*\{[^}]*display:\s*none/);
-    expect(css).toMatch(/\.topbar > \.file-name\s*\{[^}]*min-width: 4em;/);
+    const rules = [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter(([, selector]) => selector!.includes(".file-name"));
+    expect(rules.length).toBeGreaterThan(0);
+    for (const [, selector, body] of rules) expect(`${selector!.trim()} {${body}}`).not.toMatch(/display:\s*none/);
   });
 
   it("offers to export a zip once the file's gone, as nothing saves them any more", async () => {

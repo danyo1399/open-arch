@@ -701,7 +701,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
         {!narrow && (
           <>
             <span className="muted small file-name" title={fileName}>
-              {fileName}
+              <span>{fileName}</span>
             </span>
             <span className={`storage storage-${state.storage}${state.unsaved ? " unsaved" : ""}`}>{status}</span>
           </>

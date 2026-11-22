@@ -3337,13 +3337,17 @@ button.ws-name {
 }
 /*
  * When the top bar is tight, the file's name gives way before the workspace's name and the status
- * do: it shrinks so much faster that they keep their whole width until it's down to its start,
- * which stays to point at for the whole of it. On a narrow screen it's in the More menu.
+ * do: it shrinks so much faster that they keep their whole width until it's gone. The workspace's
+ * details still name the file then, and on a narrow screen the More menu does.
  */
 .topbar > .file-name {
   white-space: nowrap;
   flex-shrink: 999999;
-  min-width: 4em;
+  /* The gap before it is inside it, so once it's gone it takes no room at all, not even a gap. */
+  margin-left: -8px;
+}
+.topbar > .file-name > span {
+  padding-left: 8px;
 }
 .storage.unsaved {
   color: #b54708;
