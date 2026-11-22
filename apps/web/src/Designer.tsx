@@ -183,7 +183,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   const autoLayout = useRef<AutoLayout | null>(null);
   /** How many of them this render's IDs reflect. */
   const [renamesSeen, setRenamesSeen] = useState(0);
-  /** Everything edits did that a flowchart's right-click menu follows (see flowchartMenu.ts), in order, and how many of them this render reflects. */
+  /** Every change to the workspace that a flowchart's right-click menu follows (see flowchartMenu.ts), in order, and how many of them this render reflects. */
   const menuRenames = useRef<MenuRename[]>([]);
   const [menuRenamesSeen, setMenuRenamesSeen] = useState(0);
   /**
@@ -396,20 +396,23 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   );
   /**
    * For a flowchart's right-click menu, which opens once the edits made before the click have
-   * landed: tells `then` what the menu is for by then, and the flowchart as it then is. `on` is
-   * what was clicked in this render's flowchart, `viewId`. It's followed through what every edit
-   * this render doesn't show has done to it and to the view, the ones already on their way and
-   * any that landed since the render. Null when it's gone by then, or an edit lost track of it.
+   * landed: tells `then` what the menu is for by then, the flowchart as it then is, and how many
+   * of the changes a menu follows have been made by then, for it to follow the ones after. `on`
+   * is what was clicked in this render's flowchart, `viewId`. It's followed through what every
+   * change this render doesn't show has done to it and to the view, the ones already on their way
+   * and any that landed since the render. Null when it's gone by then, or was lost on the way.
    */
   const menuAfterEdits = useCallback(
-    (viewId: string, on: MenuFor, then: (on: MenuFor | null, view?: ViewDef) => void) =>
+    (viewId: string, on: MenuFor, then: (on: MenuFor | null, view?: ViewDef, followed?: number) => void) =>
       afterEdits((now) => {
         const landed = followMenu(on, viewId, menuRenames.current.slice(menuRenamesSeen));
         const view = now?.views.get(landed.view);
-        then(view && selectionOf(view, landed.on) !== undefined ? landed.on : null, view);
+        then(view && landed.on && selectionOf(view, landed.on) !== undefined ? landed.on : null, view, menuRenames.current.length);
       }),
     [afterEdits, menuRenamesSeen],
   );
+  /** The changes a flowchart's menu follows that this render reflects, for an open menu to follow. */
+  const shownMenuRenames = useMemo(() => menuRenames.current.slice(0, menuRenamesSeen), [menuRenamesSeen]);
   const notesOpener = useMemo(
     () => (viewId ? { element: (id: string) => openNotes({ kind: "element", id }), sticky: (id: string) => openNotes({ kind: "sticky", view: viewId, id }) } : null),
     [openNotes, viewId],
@@ -915,6 +918,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
                   onSelect={selectOnCanvas}
                   edit={edit}
                   menuAfterEdits={(on, then) => menuAfterEdits(view.id, on, then)}
+                  menuRenames={shownMenuRenames}
                   onError={(text) => state.notify({ kind: "error", text })}
                   exportItems={exportItems(computed)}
                   snap={snap}

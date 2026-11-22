@@ -5,9 +5,14 @@
  * text typed in the details is saved as the click takes the focus from it, and that can give a
  * block, a lane or the view itself a new ID, or a flow new text. So what was clicked is followed
  * through those edits by what they did, as the designer is told it, never by guessing from what
- * the flowchart looks like after: when there's no telling, there's no menu.
+ * the flowchart looks like after: when there's no telling, there's no menu. An open menu is
+ * followed the same way, and closes when what it's for is lost.
+ *
+ * An edit says what it did. Undo, Redo, going back in the History and a file changed outside the
+ * designer don't: they write a whole version of the file, where a block with the same ID needn't
+ * be the same block. Through one of those, everything but the diagram itself is lost.
  */
-import type { Flow, Operation, ViewDef, Workspace } from "@open-arch/core";
+import { isInside, type Flow, type Operation, type ViewDef, type Workspace } from "@open-arch/core";
 import type { Selection } from "./Canvas.js";
 
 /**
@@ -50,6 +55,12 @@ export function flowOf(view: ViewDef, on: FlowEnds): Flow | undefined {
   return found.length === 1 ? found[0] : undefined;
 }
 
+/** Whether the flow with this number shares its ends and text with another, so it has no menu. */
+export function sharesEnds(view: ViewDef, number: number): boolean {
+  const flow = view.flows[number - 1];
+  return !!flow && view.flows.some((f) => f !== flow && sameFlow(f, flow));
+}
+
 /**
  * What's selected while a menu for this is open, in the flowchart as it is now: what the menu is
  * for, or nothing for the diagram's. Undefined when the flowchart no longer has it.
@@ -72,54 +83,95 @@ export function sameSelection(a: Selection, b: Selection): boolean {
 }
 
 /**
- * Something an edit did that changes how a menu's flowchart, or what the menu is for, is found: a
- * view given a new ID, a block or a lane of a view given one, or a flow of a view given other
- * ends or text.
+ * Something a change to the workspace did that a menu follows. An edit gave a view a new ID, or
+ * a block or a lane of a view, or gave a flow of a view other ends or text. Or it deleted one of
+ * them, or a view, after which another can take its ID. Or it changed the flows of a view without
+ * saying which is which: `flows-lost`. Or a whole version of the file was written, which says
+ * nothing of what's in the views: `lost`.
  */
 export type MenuRename =
   | { kind: "view"; id: string; to: string }
+  | { kind: "view-gone"; id: string }
   | { kind: "block" | "lane"; view: string; id: string; to: string }
-  | { kind: "flow"; view: string; was: FlowEnds; now: FlowEnds };
+  | { kind: "gone"; what: "block" | "lane" | "sticky"; view: string; id: string }
+  | { kind: "flow"; view: string; was: FlowEnds; now: FlowEnds }
+  | { kind: "flow-gone"; view: string; was: FlowEnds }
+  | { kind: "flows-lost"; view: string }
+  | { kind: "lost" };
+
+const GONE = { "remove-block": "block", "remove-lane": "lane", "remove-sticky": "sticky" } as const;
 
 /**
- * What an edit's operations did that a flowchart's menu follows, in order. `before` is the
- * workspace they were applied to, which says which flow an update-flow changed: its number is a
- * place in the list as it was just then. So a flow is only followed through an edit that does
- * nothing else, as every edit of a flow in the designer is; through any other, it's lost.
- * Undo, Redo and a file changed outside the designer tell only of the views they rename.
+ * What a change to the workspace did that a flowchart's menu follows, in order. `ops` are an
+ * edit's operations. Every way an edit gives something a new ID, or deletes it, is here: nothing
+ * can be added or renamed under an ID that's taken, so what has an ID after an edit is what had
+ * it before, unless the edit says otherwise.
+ *
+ * `before` is the workspace the operations were applied to. It says which flow an update-flow or
+ * remove-flow means, as a flow's number is its place in the list just then, and which views go
+ * with an element that's deleted. That's only so for an edit's first operation, so a flow or an
+ * element changed by an edit that does more loses the view's flows, or everything: every such
+ * edit in the designer does nothing else.
+ *
+ * Without `before`, the change is a whole version of the file, written by Undo, Redo, the
+ * History or a change made outside the designer, and `ops` only the renames it made. Everything
+ * in the views is lost, and the views are followed to their new IDs.
  */
 export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[] {
-  return ops.flatMap((op): MenuRename[] => {
+  const first = ops.length === 1 ? before : undefined;
+  const followed = ops.flatMap((op): MenuRename[] => {
     // An element's new ID is here too. No view has an element's ID, so it changes nothing.
     if (op.op === "rename") return [{ kind: "view", id: op.id, to: op.to }];
+    if (op.op === "remove-view") return [{ kind: "view-gone", id: op.id }];
+    if (op.op === "remove-element") {
+      // The views of an element, and of what's inside it, are deleted with it.
+      if (!first) return [{ kind: "lost" }];
+      return [...first.views.values()].filter((v) => v.scope !== undefined && (v.scope === op.id || isInside(first, v.scope, op.id))).map((v) => ({ kind: "view-gone", id: v.id }));
+    }
     if ((op.op === "update-block" || op.op === "update-lane") && op.newId !== undefined && op.newId !== op.id) {
       return [{ kind: op.op === "update-block" ? "block" : "lane", view: op.view, id: op.id, to: op.newId }];
     }
-    if (op.op === "update-flow" && ops.length === 1) {
-      const was = before?.views.get(op.view)?.flows[op.flow - 1];
-      if (!was) return [];
+    if (op.op === "remove-block" || op.op === "remove-lane" || op.op === "remove-sticky") return [{ kind: "gone", what: GONE[op.op], view: op.view, id: op.id }];
+    if (op.op === "update-flow" || op.op === "remove-flow") {
+      const flow = first?.views.get(op.view)?.flows[op.flow - 1];
+      if (!flow) return [{ kind: "flows-lost", view: op.view }];
+      const was: FlowEnds = { from: flow.from, to: flow.to, text: flow.text };
+      if (op.op === "remove-flow") return [{ kind: "flow-gone", view: op.view, was }];
       // As update-flow makes it: text that's empty is none.
       const now: FlowEnds = { from: op.from ?? was.from, to: op.to ?? was.to, text: op.text === undefined ? was.text : op.text?.trim() || undefined };
-      return sameFlow(was, now) ? [] : [{ kind: "flow", view: op.view, was: { from: was.from, to: was.to, text: was.text }, now }];
+      return sameFlow(was, now) ? [] : [{ kind: "flow", view: op.view, was, now }];
     }
     return [];
   });
+  return before ? followed : [{ kind: "lost" }, ...followed];
 }
 
-/** What a menu is for, and the ID of its flowchart, after these, applied in order. */
-export function followMenu(on: MenuFor, view: string, renames: MenuRename[]): { on: MenuFor; view: string } {
+/**
+ * What a menu is for, and the ID of its flowchart, after these, applied in order. What it's for
+ * is null once it's deleted, or lost: there's no telling what it is now, if it's there at all.
+ * Nothing after brings it back, as what then has its ID is something else.
+ */
+export function followMenu(on: MenuFor | null, view: string, renames: MenuRename[]): { on: MenuFor | null; view: string } {
   for (const r of renames) {
     if (r.kind === "view") {
       if (r.id === view) view = r.to;
+    } else if (r.kind === "view-gone") {
+      if (r.id === view) on = null;
+    } else if (!on || on.kind === "diagram") {
+      continue;
+    } else if (r.kind === "lost") {
+      on = null;
     } else if (r.view !== view) {
       continue;
-    } else if (r.kind === "flow") {
-      if (on.kind === "flow" && sameFlow(on, r.was)) on = { kind: "flow", ...r.now };
-    } else if (on.kind === r.kind && on.id === r.id) {
+    } else if (on.kind === "flow") {
+      // A flow goes with either of its blocks, and its ends follow a block given a new ID.
+      if (r.kind === "flows-lost" || ((r.kind === "flow-gone" || r.kind === "flow") && sameFlow(on, r.was))) on = r.kind === "flow" ? { kind: "flow", ...r.now } : null;
+      else if (r.kind === "gone" && r.what === "block" && (on.from === r.id || on.to === r.id)) on = null;
+      else if (r.kind === "block") on = { ...on, from: on.from === r.id ? r.to : on.from, to: on.to === r.id ? r.to : on.to };
+    } else if (r.kind === "gone") {
+      if (on.kind === r.what && on.id === r.id) on = null;
+    } else if (r.kind === on.kind && r.id === on.id) {
       on = { ...on, id: r.to };
-    } else if (r.kind === "block" && on.kind === "flow") {
-      // A flow's ends follow a block given a new ID.
-      on = { ...on, from: on.from === r.id ? r.to : on.from, to: on.to === r.id ? r.to : on.to };
     }
   }
   return { on, view };
