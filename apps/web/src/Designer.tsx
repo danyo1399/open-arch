@@ -410,7 +410,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     let library = "";
     return edit((now) => {
       const container = now.elements.get(current(id));
-      if (container?.kind !== "container") throw new OpError("The container was changed or deleted elsewhere, so no library was added to it.");
+      if (container?.kind !== "container") throw new OpError("The container is gone, so no library was added to it.");
       library = uniqueId(now, "new-library");
       return [
         { op: "add-element", id: library, kind: "library", name: "New library" },

@@ -297,6 +297,31 @@ describe("adding a library from a container's details", () => {
     expect(ticks(d)).toEqual(["New library ✓", "New library ✓"]);
   });
 
+  it("keeps the new library in its container when another is ticked straight after the press", async () => {
+    const d = await designer();
+    await click(inTree(d, "Web"));
+    await click(button(d.host, "+ New library"));
+    await d.settle();
+    await add(d, "Container in Shop");
+    const tick = () => d.host.querySelector<HTMLInputElement>(".properties fieldset .check input")!;
+    // The save is slow, as one to a folder can be, so there's time for a tick before it lands.
+    let saved = () => {};
+    const save = MemoryHost.prototype.save;
+    vi.spyOn(MemoryHost.prototype, "save").mockImplementationOnce(function (this: MemoryHost, text: string) {
+      return new Promise<void>((resolve) => (saved = () => resolve(save.call(this, text))));
+    });
+    await click(button(d.host, "+ New library"));
+    // The tick is off until then: it would save the container's libraries as they were, over the new one.
+    expect(tick().disabled).toBe(true);
+    await act(async () => tick().click());
+    await act(async () => saved());
+    await d.settle();
+    expect(d.host.querySelector(".properties .badge")!.textContent).toBe("Library");
+    expect(ticks(d)).toEqual(["New container ✓", "Web"]);
+    await click(inTree(d, "New container"));
+    expect(ticks(d)).toEqual(["New library", "New library ✓"]);
+  });
+
   it("says so, and adds nothing, when the container is gone by the time it's added", async () => {
     const d = await designer();
     await add(d, "Container in Shop");

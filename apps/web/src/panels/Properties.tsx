@@ -217,7 +217,9 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
   /** Builds a container with a library, or takes it out. */
   const build = (container: ArchElement, library: string, built: boolean) =>
     void edit([{ op: "update-element", id: container.id, libraries: built ? [...container.libraries, library] : container.libraries.filter((l) => l !== library) }]);
-  // + New library is off until the library is added, so a double-click adds one.
+  // + New library is off until the library is added, so a double-click adds one. So are the
+  // libraries' ticks: one made meanwhile would save the container's libraries as they are in
+  // this render, without the new one.
   const [addingLibrary, setAddingLibrary] = useState(false);
   const newLibrary = () => {
     setAddingLibrary(true);
@@ -285,7 +287,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           <legend className="field-label">Libraries</legend>
           {libraries.map((l) => (
             <label key={l.id} className="check">
-              <input type="checkbox" checked={element.libraries.includes(l.id)} onChange={(e) => build(element, l.id, e.target.checked)} />
+              <input type="checkbox" checked={element.libraries.includes(l.id)} disabled={addingLibrary} onChange={(e) => build(element, l.id, e.target.checked)} />
               {l.name}
             </label>
           ))}

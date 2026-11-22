@@ -145,15 +145,20 @@ describe("a library's details", () => {
     expect(edits).toEqual([[{ op: "update-element", id: "web", libraries: ["logging"] }]]);
   });
 
-  it("ask for a new library in a container, once for a double-click", async () => {
+  it("ask for a new library in a container, once for a double-click, and take no ticks until it's added", async () => {
     let done = () => {};
-    const { host, newLibraries } = panel("web", ws, new Promise<void>((resolve) => (done = resolve)));
+    const { host, edits, newLibraries } = panel("web", ws, new Promise<void>((resolve) => (done = resolve)));
     await click(button(host, "+ New library"));
     expect(button(host, "+ New library").disabled).toBe(true);
     await click(button(host, "+ New library"));
     expect(newLibraries).toEqual(["web"]);
+    // A tick now would save the container's libraries without the new one.
+    expect(checkbox(host, "Logging").disabled).toBe(true);
+    await act(async () => checkbox(host, "Logging").click());
+    expect(edits).toEqual([]);
     await act(async () => done());
     expect(button(host, "+ New library").disabled).toBe(false);
+    expect(checkbox(host, "Logging").disabled).toBe(false);
   });
 
   it("offer a container's first library, in a workspace with none", () => {
