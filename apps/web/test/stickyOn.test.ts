@@ -142,30 +142,62 @@ describe("stickyChoices on a flowchart", () => {
 });
 
 describe("a note put on a block that has a new ID by the time the edit runs", () => {
-  /** A flowchart with these blocks, in order. */
-  const flowchart = (...blocks: string[]): OpenArchDocument => ({ ...doc, views: { returns: { title: "Returns", level: "flowchart", blocks: blocks.map((id) => ({ id, text: id })), flows: [], stickies: { n: { text: "N" } } } } });
+  type BlockData = NonNullable<OpenArchDocument["views"][string]["blocks"]>[number];
+  type FlowData = NonNullable<OpenArchDocument["views"][string]["flows"]>[number];
+  /** A flowchart with these blocks, in order, each by its ID or in full, and these flows. */
+  const flowchart = (blocks: (string | BlockData)[], flows: FlowData[] = []): OpenArchDocument => ({
+    ...doc,
+    views: { returns: { title: "Returns", level: "flowchart", blocks: blocks.map((b) => (typeof b === "string" ? { id: b, text: b } : b)), flows, stickies: { n: { text: "N" } } } },
+  });
   const blocksOf = (model: OpenArchDocument) => buildWorkspace(model).views.get("returns")!;
-  const was = flowchart("asked", "new-process", "done");
+  const was = flowchart(["asked", "new-process", "done"]);
+  /** The block a person pressed, with all a block can have, and the flows to and from it. */
+  const pressed: BlockData = { id: "new-process", kind: "subprocess", text: "New process", description: "By hand", lane: "shop", at: [10, 20] };
+  const flows = (id: string): FlowData[] => [
+    { from: "asked", to: id },
+    { from: id, to: "done", text: "Packed" },
+  ];
+  const full = flowchart(["asked", pressed, "done"], flows("new-process"));
+  /** What became of the pressed block, when `full` is followed by a view with this block in its place and these flows. */
+  const became = (block: BlockData, between = flows(block.id)) => blockNow(blocksOf(full), blocksOf(flowchart(["asked", block, "done"], between)), "new-process");
 
-  it("finds the block under its own ID, or the new one it was given, at its place in the list", () => {
+  it("finds the block under its own ID, or the new one it was given with its text", () => {
     expect(blockNow(blocksOf(was), blocksOf(was), "new-process")).toBe("new-process");
     // Its ID followed the text it was given.
-    expect(blockNow(blocksOf(was), blocksOf(flowchart("asked", "pack-it", "done")), "new-process")).toBe("pack-it");
-    // Others added or moved since leave it where it is.
-    expect(blockNow(blocksOf(was), blocksOf(flowchart("new-process", "asked", "done", "more")), "new-process")).toBe("new-process");
+    expect(blockNow(blocksOf(was), blocksOf(flowchart(["asked", "pack-it", "done"])), "new-process")).toBe("pack-it");
+    // Everything else about it is as it was, and so are its flows, which follow it.
+    expect(became({ ...pressed, id: "pack-it", text: "Pack it" })).toBe("pack-it");
+    // Others added or moved since leave it under its own ID.
+    expect(blockNow(blocksOf(was), blocksOf(flowchart(["new-process", "asked", "done", "more"])), "new-process")).toBe("new-process");
   });
 
   it("finds none for a block that's gone, or when it can't be told which it became", () => {
-    expect(blockNow(blocksOf(was), blocksOf(flowchart("asked", "done")), "new-process")).toBeUndefined();
+    expect(blockNow(blocksOf(was), blocksOf(flowchart(["asked", "done"])), "new-process")).toBeUndefined();
     // One came, but at another place: another block, added as this one went.
-    expect(blockNow(blocksOf(was), blocksOf(flowchart("asked", "done", "pack-it")), "new-process")).toBeUndefined();
+    expect(blockNow(blocksOf(was), blocksOf(flowchart(["asked", "done", "pack-it"])), "new-process")).toBeUndefined();
     // Two went and two came.
-    expect(blockNow(blocksOf(was), blocksOf(flowchart("asked", "pack-it", "finished")), "new-process")).toBeUndefined();
+    expect(blockNow(blocksOf(was), blocksOf(flowchart(["asked", "pack-it", "finished"])), "new-process")).toBeUndefined();
     expect(blockNow(blocksOf(was), blocksOf(was), "never")).toBeUndefined();
   });
 
+  it("finds none when another block took its place: one that differs in more than its ID and text", () => {
+    const other = { ...pressed, id: "store-credit", text: "Give store credit" };
+    expect(became(other)).toBe("store-credit");
+    expect(became({ ...other, kind: "process" })).toBeUndefined();
+    expect(became({ ...other, description: "As a voucher" })).toBeUndefined();
+    expect(became({ ...other, description: undefined })).toBeUndefined();
+    expect(became({ ...other, lane: "customer" })).toBeUndefined();
+    expect(became({ ...other, at: [10, 300] })).toBeUndefined();
+    // Its flows are others: one fewer, one that says something else, and one the other way.
+    expect(became(other, [{ from: "asked", to: "store-credit" }])).toBeUndefined();
+    expect(became(other, [{ from: "asked", to: "store-credit" }, { from: "store-credit", to: "done", text: "Sent" }])).toBeUndefined();
+    expect(became(other, [{ from: "store-credit", to: "asked" }, { from: "store-credit", to: "done", text: "Packed" }])).toBeUndefined();
+    // A flow between other blocks, added since, makes no difference.
+    expect(became(other, [{ from: "asked", to: "done" }, ...flows("store-credit")])).toBe("store-credit");
+  });
+
   it("moves the edits that put a note on it to its new ID, and leaves the rest as they are", () => {
-    const [before, now] = [buildWorkspace(was), buildWorkspace(flowchart("asked", "pack-it", "done"))];
+    const [before, now] = [buildWorkspace(was), buildWorkspace(flowchart(["asked", "pack-it", "done"]))];
     const same = (id: string) => id;
     const ops = [
       { op: "add-sticky" as const, view: "returns", id: "note", text: "New note", on: { block: "new-process" } },
@@ -190,15 +222,17 @@ describe("a note put on a block that has a new ID by the time the edit runs", ()
   });
 
   it("finds the view under the ID it has by then", () => {
-    const renamed = flowchart("asked", "pack-it", "done");
+    const renamed = flowchart(["asked", "pack-it", "done"]);
     renamed.views = { "handling-returns": renamed.views.returns! };
     const ops = [{ op: "update-sticky" as const, view: "returns", id: "n", on: { block: "new-process" } }];
     expect(followBlocks(ops, buildWorkspace(was), buildWorkspace(renamed), () => "handling-returns")).toEqual([{ op: "update-sticky", view: "returns", id: "n", on: { block: "pack-it" } }]);
   });
 
-  it("refuses to put a note on a block that's gone by then, and says why", () => {
+  it("refuses to put a note on a block that's gone by then, or that another took the place of, and says why", () => {
     const ops = [{ op: "add-sticky" as const, view: "returns", id: "note", text: "New note", on: { block: "new-process" } }];
-    expect(() => followBlocks(ops, buildWorkspace(was), buildWorkspace(flowchart("asked", "done")), (id) => id)).toThrow("The block is gone, so no note was put on it.");
+    const why = "The block was changed or deleted, so no note was put on it.";
+    expect(() => followBlocks(ops, buildWorkspace(was), buildWorkspace(flowchart(["asked", "done"])), (id) => id)).toThrow(why);
+    expect(() => followBlocks(ops, buildWorkspace(was), buildWorkspace(flowchart(["asked", { id: "refund", kind: "end", text: "Refund" }, "done"])), (id) => id)).toThrow(why);
   });
 });
 

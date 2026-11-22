@@ -614,22 +614,34 @@ export const blockText = (b: Pick<Block, "id" | "text">) => b.text.split(/\r?\n/
 /**
  * The ID a flowchart's block has in `now`, a later version of the view `was`: its own, while the
  * view has it. A new block's ID follows its text, so it can have a new one by then: that of the
- * only block that came, where it's the only one that went, at its place in the list. Undefined
- * for a block that's gone, or when it can't be told which it became.
+ * only block that came, where it's the only one that went, when the two match in everything but
+ * their ID and text, as renamesBetween matches elements: their place in the list, kind,
+ * description, lane and position, and the flows to and from them. Undefined for a block that's
+ * gone, or replaced by another, or when it can't be told which it became.
  */
-export function blockNow(was: Pick<ViewDef, "blocks">, now: Pick<ViewDef, "blocks">, id: string): string | undefined {
+export function blockNow(was: Pick<ViewDef, "blocks" | "flows">, now: Pick<ViewDef, "blocks" | "flows">, id: string): string | undefined {
   if (now.blocks.some((b) => b.id === id)) return id;
   const block = was.blocks.find((b) => b.id === id);
   const went = was.blocks.filter((b) => !now.blocks.some((n) => n.id === b.id));
-  const came = now.blocks.filter((b) => !was.blocks.some((w) => w.id === b.id));
-  return block && went.length === 1 && came.length === 1 && came[0]!.number === block.number ? came[0]!.id : undefined;
+  const [to, ...others] = now.blocks.filter((b) => !was.blocks.some((w) => w.id === b.id));
+  if (!block || went.length !== 1 || !to || others.length > 0) return undefined;
+  /** What a block of a view is, apart from its ID and text, with its flows in their order, its own ID in them read as `to`'s. */
+  const rest = (view: Pick<ViewDef, "flows">, b: Block) =>
+    canonical({
+      ...b,
+      id: undefined,
+      path: undefined,
+      text: undefined,
+      flows: view.flows.filter((f) => f.from === b.id || f.to === b.id).map((f) => ({ from: f.from === b.id ? to.id : f.from, to: f.to === b.id ? to.id : f.to, text: f.text })),
+    });
+  return rest(was, block) === rest(now, to) ? to.id : undefined;
 }
 
 /**
  * Operations that put a sticky note on a flowchart's block, made with the block's ID in `was`,
  * moved to the ID it has in `now`, the workspace as it is when they run (see blockNow). `viewNow`
- * gives a view's ID in `now`. A block `was` has that's gone from `now` is refused, with why. The
- * other operations are as they were.
+ * gives a view's ID in `now`. A block `was` has that can't be found in `now`, as it's gone or
+ * was changed, is refused, with why. The other operations are as they were.
  */
 export function followBlocks(ops: Operation[], was: Workspace, now: Workspace, viewNow: (id: string) => string): Operation[] {
   return ops.map((op): Operation => {
@@ -638,7 +650,7 @@ export function followBlocks(ops: Operation[], was: Workspace, now: Workspace, v
     const [before, after] = [was.views.get(op.view), now.views.get(viewNow(op.view))];
     if (!before?.blocks.some((b) => b.id === id) || !after) return op;
     const block = blockNow(before, after, id);
-    if (!block) throw new OpError("The block is gone, so no note was put on it.");
+    if (!block) throw new OpError("The block was changed or deleted, so no note was put on it.");
     return block === id ? op : { ...op, on: { block } };
   });
 }

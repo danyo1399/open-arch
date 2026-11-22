@@ -375,7 +375,7 @@ describe("a sticky note on a flowchart's block in the designer", () => {
     await d.settle();
     expect(d.node("new-process")).toBeNull();
     expect(d.host.querySelector(".react-flow__node-sticky")).toBeNull();
-    expect(d.host.querySelector('[role="alert"]')!.textContent).toContain("The block is gone, so no note was put on it.");
+    expect(d.host.querySelector('[role="alert"]')!.textContent).toContain("The block was changed or deleted, so no note was put on it.");
   });
 
   it("goes on the block its dot is let go on, stays where it is, and is selected", async () => {
