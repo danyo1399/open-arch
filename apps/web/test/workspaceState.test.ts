@@ -268,9 +268,20 @@ describe("the open workspace", () => {
       { op: "add-element", id: "customer", kind: "person", name: "Customer" },
       { op: "add-relationship", from: "customer", to: "shop" },
     ];
+    const opened = host.file;
     let done = await act(() => state().change(ops));
-    // What each operation did, the warnings they brought, and the file as they left it.
-    expect(done).toEqual({ ok: true, summary: ["added system shop", "added person customer", "added relationship customer -> shop"], warnings: [expect.objectContaining({ rule: "relationship-description", severity: "warning" })], text: host.file });
+    // What each operation did, the warnings they brought, and the file just before them and as they left it.
+    expect(done).toEqual({
+      ok: true,
+      summary: ["added system shop", "added person customer", "added relationship customer -> shop"],
+      warnings: [expect.objectContaining({ rule: "relationship-description", severity: "warning" })],
+      before: opened,
+      after: host.file,
+    });
+    expect(host.file).not.toBe(opened);
+    // One that changes nothing leaves the file as it was, and says so.
+    expect(await act(() => state().change([{ op: "update-element", id: "shop", name: "Shop" }]))).toMatchObject({ ok: true, before: host.file, after: host.file });
+    expect(state().versions).toHaveLength(2);
     expect(host.file).toContain('"customer"');
     expect(state().ws?.elements.has("shop")).toBe(true);
     expect(heard).toEqual([ops]);

@@ -1,6 +1,6 @@
 import { applyOperations, loadWorkspace, OPERATION_NAMES, OpError, serializeDocument, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { BrowserAgent, KEPT_LIMIT, ROUNDS_LIMIT, systemPrompt } from "../src/ai/agent.js";
+import { BrowserAgent, KEPT_LIMIT, ROUND_LIMIT, ROUNDS_LIMIT, systemPrompt } from "../src/ai/agent.js";
 import type { AgentEvent } from "../src/bridge.js";
 import type { Change } from "../src/state.js";
 import type { ToolHost } from "../src/ai/tools.js";
@@ -26,9 +26,10 @@ function agentFor(script: Parameters<typeof fakeModel>[0], { folder, configured 
     workspace: async () => loadWorkspace(state.text),
     change: async (ops: Operation[]): Promise<Change> => {
       try {
-        const result = applyOperations(loadWorkspace(state.text).doc, ops);
+        const before = state.text;
+        const result = applyOperations(loadWorkspace(before).doc, ops);
         state.text = serializeDocument(result.doc);
-        return { ok: true, summary: result.summary, warnings: result.warnings, text: state.text };
+        return { ok: true, summary: result.summary, warnings: result.warnings, before, after: state.text };
       } catch (error) {
         if (!(error instanceof OpError)) throw error;
         return { ok: false, error: error.message };
@@ -91,13 +92,14 @@ describe("Ask AI's agent, in the web app", () => {
       { calls: [{ name: "change_model", args: { operations: [{ op: "add-element", id: "cache", kind: "container", parent: "shop", name: "Cache" }, { op: "add-relationship", from: "customer", to: "cache", description: "Keeps a cart in" }] } }] },
       { text: "" },
     ]);
+    const opened = state.text;
     const events = await ask("Add a cache to the shop");
     expect(shown(events)).toEqual([expect.stringMatching(/^· Tried a change that was refused: /), "· Changed the model: added container cache; added relationship customer -> cache", "✓ Done."]);
     expect(toolAnswers(model.asked[1]!)[0]).toMatch(/^Refused, so nothing changed: /);
     expect(toolAnswers(model.asked[2]!)[1]).toMatch(/^Changed:\n- added container cache\n- added relationship customer -> cache/);
     expect(loadWorkspace(state.text).elements.get("cache")).toMatchObject({ kind: "container", parent: "shop" });
-    // It says what its change left the workspace as, once, for the change that went through: the refused one changed nothing.
-    expect(events.filter((e) => e.type === "changed")).toEqual([{ type: "changed", text: state.text }]);
+    // It says what the workspace was just before its change and what it left, once, for the change that went through: the refused one changed nothing.
+    expect(events.filter((e) => e.type === "changed")).toEqual([{ type: "changed", before: opened, after: state.text }]);
     expect(events.findIndex((e) => e.type === "changed")).toBeGreaterThan(events.findIndex((e) => e.type === "progress" && e.text.startsWith("Changed the model")));
     // A message with only tool calls is sent back with no text, not empty text.
     expect(model.asked[1]!.body.messages[2]).toMatchObject({ role: "assistant", content: null });
@@ -362,24 +364,36 @@ describe("Ask AI's agent, in the web app", () => {
     expect(answers.at(-2)).toBe(answers.at(-1));
   });
 
-  it("never leaves out an answer the model hasn't read, however much one reply asks for", async () => {
+  it("never leaves out an answer the model hasn't read, and cuts the later ones of a reply that asks for more than can be read at once", async () => {
     const folder = new FakeFolder("shop-repo");
     folder.put("big.txt", Array.from({ length: 400 }, () => "x".repeat(200)).join("\n"));
-    // One reply reads the big file more times than a conversation keeps, then another reads it once more.
+    // One reply reads the big file more times than a conversation keeps, checks the model and changes it. Then another reads the file once more.
     const many = Math.ceil(KEPT_LIMIT / 40_000) + 3;
     const read = { name: "read_file", args: { path: "big.txt" } };
-    const { ask, model } = agentFor([{ calls: Array.from({ length: many }, () => read) }, { calls: [read] }, { text: "Read." }], { folder });
+    const change = { name: "change_model", args: { operations: [{ op: "update-element", id: "shop", description: "Sells things." }] } };
+    const { ask, model, state } = agentFor([{ calls: [...Array.from({ length: many }, () => read), { name: "check_model", args: {} }, change] }, { calls: [read] }, { text: "Read." }], { folder });
     await ask("Read the big file many times at once");
-    // Every answer to the first reply reaches the model whole, though together they're over what's kept.
     const first = toolAnswers(model.asked[1]!);
-    expect(first).toHaveLength(many);
-    expect(first.reduce((sum, a) => sum + a.length, 0)).toBeGreaterThan(KEPT_LIMIT);
-    expect(first.every((a) => a.startsWith("big.txt (lines 1 to 400 of 400)") || a.startsWith("big.txt (400 lines)"))).toBe(true);
-    // Once it has read them, the oldest make room, and the new answer is whole.
+    expect(first).toHaveLength(many + 2);
+    const whole = first[0]!;
+    expect(whole).toMatch(/^big\.txt \(400 lines\):\n1: x/);
+    expect(whole).toMatch(/\n\(Cut short: this is the first 40000 characters\. Ask for less at once\.\)$/);
+    // The first ones are as whole as a single answer can be. Past what one reply's calls can come to, each is cut to its start, saying why. None is left out.
+    const cut = "\n(Cut short: the calls in this reply came to more than can be read at once. Call fewer tools in one reply.)";
+    const reads = first.slice(0, many);
+    const kept = reads.filter((a) => a === whole).length;
+    expect(kept).toBe(Math.floor(ROUND_LIMIT / whole.length));
+    for (const answer of reads.slice(kept)) expect(answer.endsWith(cut)).toBe(true);
+    expect(reads.at(-1)).toBe(whole.slice(0, 500) + cut);
+    expect(first.every((a) => a.startsWith("big.txt (400 lines):") || !a.startsWith("big.txt"))).toBe(true);
+    expect(first.reduce((sum, a) => sum + a.length, 0)).toBeLessThan(ROUND_LIMIT + (many + 2) * (500 + cut.length));
+    // A short answer after them is whole: the model still reads that its change was made, which it was.
+    expect(first.slice(many)).toEqual(["No problems.", "Changed:\n- updated shop"]);
+    expect(loadWorkspace(state.text).elements.get("shop")?.description).toBe("Sells things.");
+    // The next reply's answer has room of its own.
     const second = toolAnswers(model.asked[2]!);
-    expect(second).toHaveLength(many + 1);
-    expect(second[0]).toBe("(Left out to save room. Call the tool again if you still need it.)");
-    expect(second.at(-1)).toBe(first[0]);
-    expect(second.slice(0, many).reduce((sum, a) => sum + a.length, 0)).toBeLessThanOrEqual(KEPT_LIMIT);
+    expect(second).toHaveLength(many + 3);
+    expect(second.at(-1)).toBe(whole);
+    expect(second.slice(0, many + 2)).toEqual(first);
   });
 });
