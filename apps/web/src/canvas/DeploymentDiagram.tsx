@@ -5,7 +5,22 @@
  * box or a node to another to add an arrow: between two containers, that's a relationship in the
  * model; to or from a node, a connection of this view.
  */
-import { kindLabel, nodeKindLabel, type ComputedView, type DeploymentArrow, type DeploymentNode, type Operation, type Sticky, type ViewEdge, type Workspace } from "@open-arch/core";
+import {
+  ELEMENT_SHAPES,
+  kindLabel,
+  nodeKindLabel,
+  RUNNABLE_KINDS,
+  SHAPE_LABELS,
+  type ComputedView,
+  type Connection as ViewConnection,
+  type DeploymentArrow,
+  type DeploymentNode,
+  type Operation,
+  type RelationshipKind,
+  type Sticky,
+  type ViewEdge,
+  type Workspace,
+} from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -28,15 +43,17 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { uniqueNodeId } from "../model.js";
-import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
+import { accepts, byName, connectionEnds, uniqueNodeId } from "../model.js";
+import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, NODE_W, placeStickies, STICKY, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
 import { holdsAnything, layOutDeployment, placeDeploymentLabels, type DeploymentLayout } from "./deploymentLayout.js";
-import { ElementNotes, StickyNode, type StickyFlowNode } from "./nodes.js";
+import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
+import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
+import { ElementNotes, NotesOpener, StickyNode, type StickyFlowNode } from "./nodes.js";
 import { labelLines, measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 
@@ -206,6 +223,12 @@ interface DeploymentDiagramProps {
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   edit(edit: Edit): Promise<boolean>;
+  /** What the right-click menus need from the designer. */
+  menus: MenuHost;
+  /** What the designer's menu for an element of the model has, for one running in a node. */
+  elementItems(id: string): MenuItem[];
+  /** A right-click on an arrow between two elements, which the model's relationships draw, at that point on the screen. */
+  onArrowMenu(from: string, to: string, relation: RelationshipKind | undefined, at: { x: number; y: number }): void;
   /** A problem drawing the diagram, to tell the person about. */
   onError(text: string): void;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
@@ -214,7 +237,7 @@ interface DeploymentDiagramProps {
   snap: SnapControl;
 }
 
-export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit, onError, exportItems, snap }: DeploymentDiagramProps) {
+export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit, menus, elementItems, onArrowMenu, onError, exportItems, snap }: DeploymentDiagramProps) {
   const view = cv.view;
   const d = cv.deployment!;
   const rf = useReactFlow<FlowNode, DeploymentEdge>();
@@ -391,16 +414,18 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
 
   /** The node new ones go inside: the selected node, unless it's infrastructure, which holds none. */
   const holder = selection?.kind === "node" ? d.nodes.find((n) => n.id === selection.id && !n.infrastructure) : undefined;
-  const addNode = (infrastructure: boolean) => {
+  /** A new node goes inside `inside`: the selected node for + Add, the node a right-click menu was for, or nothing for the background's. */
+  const addNode = (infrastructure: boolean, inside: DeploymentNode | undefined = holder) => {
     const id = uniqueNodeId(ws, view, infrastructure ? "new-infrastructure" : "new-node");
-    void edit([{ op: "add-node", view: view.id, id, name: infrastructure ? "New infrastructure" : "New node", parent: holder?.id, infrastructure: infrastructure || undefined }]).then(
+    void edit([{ op: "add-node", view: view.id, id, name: infrastructure ? "New infrastructure" : "New node", parent: inside?.id, infrastructure: infrastructure || undefined }]).then(
       (ok) => ok && onSelect({ kind: "node", id }, { isNew: true }),
     );
   };
 
-  const addSticky = () => {
+  /** A new note goes in the middle of the canvas, or from a right-click menu, where that was. */
+  const addSticky = (at?: Point) => {
     const rect = wrapper.current!.getBoundingClientRect();
-    const center = rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    const center = at ?? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
     const id = newStickyId(view.stickies);
     const occupied = nodesRef.current.filter((n) => n.type === "deploymentBox" || n.type === "sticky").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
@@ -411,11 +436,123 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
     });
   };
 
-  const addItems: MenuAction[] = [
+  /**
+   * What + Add adds, with a node going inside the selected one. The background's right-click
+   * menu has the same: a node goes at the top, in no other, as nothing is selected then, and a
+   * note where the click was, `at`. The layout places the nodes, so a node has no place to be put.
+   */
+  const addItems = (at?: Point): MenuAction[] => [
     { label: holder ? `Deployment node in ${holder.name}` : "Deployment node", onSelect: () => addNode(false) },
     { label: holder ? `Infrastructure node in ${holder.name}` : "Infrastructure node", onSelect: () => addNode(true) },
-    { label: "Sticky note", divider: true, onSelect: addSticky },
+    { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
   ];
+
+  const notes = useContext(NotesOpener);
+  const edits: MenuEdits = { edit, select };
+  /**
+   * The ends a connection from this one can go to: another node, or for a node, something that
+   * runs in one, but nothing it's inside or that's inside it. Core says which, tried on a copy
+   * (see `accepts`), as it does for every item here that it could refuse.
+   */
+  const connectTo = (from: string): MenuItem[] => {
+    const number = view.connections.length + 1;
+    const items = connectionEnds(ws, view).flatMap((end) => {
+      const add: Operation = { op: "add-connection", view: view.id, from, to: end.id };
+      return accepts(ws, [add]) ? [{ label: end.label, onSelect: () => void edit([add]).then((ok) => ok && select({ kind: "connection", number })) }] : [];
+    });
+    return items.length ? [{ label: "Add connection to", items }] : [];
+  };
+
+  // Each item does what it does in the toolbar or the details, which have them all too.
+  const nodeMenu = (node: DeploymentNode): MenuItem[] => {
+    const update = (fields: Omit<Extract<Operation, { op: "update-node" }>, "op" | "view" | "id">): Operation => ({ op: "update-node", view: view.id, id: node.id, ...fields });
+    const set = (fields: Parameters<typeof update>[0]) => () => void edit([update(fields)]);
+    /** An item that changes the node this way, if it can be changed so. */
+    const item = (label: string, fields: Parameters<typeof update>[0]): MenuAction[] => (accepts(ws, [update(fields)]) ? [{ label, onSelect: set(fields) }] : []);
+    const holdsNodes = view.nodes.some((n) => n.parent === node.id);
+    // Not into infrastructure, itself or a node inside it, nor where a connection would join a node and something inside it.
+    const inside: MenuAction[] = [...view.nodes.filter((n) => n.id !== node.parent).flatMap((n) => item(n.name, { parent: n.id })), ...(node.parent !== undefined ? item("Nothing: at the top", { parent: null }) : [])];
+    const runnable = [...ws.elements.values()].filter((e) => RUNNABLE_KINDS.includes(e.kind) && !node.runs.includes(e.id)).sort(byName);
+    const run = runnable.flatMap((e) => item(`${e.name} [${kindLabel(e)}]`, { runs: [...node.runs, e.id] }));
+    // Infrastructure runs nothing and holds no nodes, so a node that does can't become it.
+    const kind = node.infrastructure ? item("Make it a deployment node", { infrastructure: false }) : item("Make it infrastructure", { infrastructure: true });
+    return withDelete(
+      edits,
+      [
+        ...(node.infrastructure
+          ? []
+          : [
+              {
+                label: "Add inside",
+                items: [
+                  { label: "Deployment node", onSelect: () => addNode(false, node) },
+                  { label: "Infrastructure node", onSelect: () => addNode(true, node) },
+                ],
+              },
+            ]),
+        ...(run.length ? [{ label: "Run here", items: run }] : []),
+        ...connectTo(node.id),
+        { label: "Shape", items: ELEMENT_SHAPES.filter((shape) => shape !== node.shape).map((shape) => ({ label: SHAPE_LABELS[shape], onSelect: set({ shape: shape === "box" ? null : shape }) })) },
+        ...(inside.length ? [{ label: "Move inside", items: inside }] : []),
+        ...kind,
+      ],
+      holdsNodes ? "Delete node and what's inside" : "Delete node",
+      { op: "remove-node", view: view.id, id: node.id },
+    );
+  };
+
+  /** A container or system running in a node: what's done with it there, then what the designer's menu for the element has. */
+  const instanceMenu = (node: DeploymentNode, element: string): MenuItem[] => {
+    const stop = () => void edit([{ op: "update-node", view: view.id, id: node.id, runs: node.runs.filter((id) => id !== element) }]).then(() => select({ kind: "node", id: node.id }));
+    const [first, ...rest] = elementItems(element);
+    return [{ label: "Stop running it here", onSelect: stop }, ...connectTo(element), ...(first ? [{ ...first, divider: true }, ...rest] : [])];
+  };
+
+  const connectionMenu = (connection: ViewConnection): MenuItem[] => {
+    const update = (fields: Omit<Extract<Operation, { op: "update-connection" }>, "op" | "view" | "connection">) => edit([{ op: "update-connection", view: view.id, connection: connection.number, ...fields }]);
+    const all = connectionEnds(ws, view);
+    // Only where the connection can go: see connectTo.
+    const ends = (end: "from" | "to") =>
+      all
+        .filter((e) => e.id !== connection[end] && accepts(ws, [{ op: "update-connection", view: view.id, connection: connection.number, [end]: e.id }]))
+        .map((e) => ({ label: e.label, onSelect: () => void update({ [end]: e.id }) }));
+    const [from, to] = [ends("from"), ends("to")];
+    return withDelete(
+      edits,
+      [
+        ...(from.length ? [{ label: "Change from", items: from }] : []),
+        ...(to.length ? [{ label: "Change to", items: to }] : []),
+        ...moveItems("connection", connection.number, view.connections.length, (to) => void update({ newConnection: to }).then((ok) => ok && select({ kind: "connection", number: to }))),
+      ],
+      "Delete connection",
+      { op: "remove-connection", view: view.id, connection: connection.number },
+    );
+  };
+
+  /**
+   * The right-click menus: for a node, what runs in one, a connection or a sticky note, which the
+   * click selects, and for the diagram, after a click on the background. An arrow between two
+   * elements is the model's, and has the menu the designer gives one on any view. See
+   * useDiagramMenu for how one opens and closes.
+   */
+  const menu = useDiagramMenu({
+    view,
+    selection,
+    select,
+    host: menus,
+    toDiagram: (point) => rf.screenToFlowPosition(point),
+    items: (on, at) => {
+      // The layout places everything but the notes, so there's nothing to lay out again.
+      if (on.kind === "diagram") return diagramItems(addItems(at), undefined, exportItems);
+      const node = (on.kind === "node" || on.kind === "instance") && view.nodes.find((n) => n.id === (on.kind === "node" ? on.id : on.node));
+      if (node) return on.kind === "instance" ? instanceMenu(node, on.element) : nodeMenu(node);
+      const connection = on.kind === "connection" && view.connections[on.number - 1];
+      if (connection) return connectionMenu(connection);
+      const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
+      if (!sticky) return [];
+      return stickyItems(edits, view.id, sticky, { editText: () => setEditing(sticky.id), openNotes: notes ? () => notes.sticky(sticky.id) : undefined, back: "Move beside the diagram" });
+    },
+  });
 
   const fitDiagram = useCallback(
     (options: { padding: number; maxZoom?: number } = FIT) => {
@@ -450,6 +587,21 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
         onNodeDragStart={(_, node) => node.type === "sticky" && select({ kind: "sticky", id: node.data.sticky.id })}
         onEdgeClick={(_, edge) => edge.data && selectArrow(edge.data.arrow)}
         onPaneClick={() => select(null)}
+        onNodeContextMenu={(event, node) => {
+          if (node.type === "sticky") return menu.open(event, { kind: "sticky", id: node.data.sticky.id });
+          if (node.type === "deploymentLabel") return menu.open(event, { kind: "node", id: node.data.node.id });
+          const { node: id, element } = boxEnd(node.id);
+          menu.open(event, element ? { kind: "instance", node: id, element } : { kind: "node", id });
+        }}
+        // An arrow's label is drawn apart from its line, but a right-click on it comes here too.
+        onEdgeContextMenu={(event, edge) => {
+          const arrow = edge.data?.arrow;
+          if (arrow?.connection) return menu.open(event, { kind: "connection", number: arrow.connection.number });
+          if (!arrow?.edge) return;
+          event.preventDefault();
+          onArrowMenu(arrow.edge.from, arrow.edge.to, undefined, menuPoint(event));
+        }}
+        onPaneContextMenu={(event) => menu.open(event, null)}
         nodeClickDistance={4}
         paneClickDistance={4}
         connectionMode={ConnectionMode.Loose}
@@ -476,7 +628,7 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
               </span>
             )}
           </div>
-          <MenuButton className="primary" items={addItems}>
+          <MenuButton className="primary" items={addItems()}>
             + Add
           </MenuButton>
           {exportItems.length > 0 && (
@@ -491,6 +643,7 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
           This view has no nodes yet. Use <strong>+ Add</strong> to add one, then choose what runs in it in its details.
         </div>
       )}
+      {menu.menu}
     </div>
   );
 }

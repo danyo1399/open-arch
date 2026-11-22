@@ -200,9 +200,10 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   /**
    * Which opening of a view this is: a number that tells the diagram that's open from the next
    * view opened, and stays the same when its view is only given a new ID. So a rename doesn't
-   * make the diagram of a flowchart, state, entity, event or wireframe view again, which would
-   * lose a right-click menu waiting for that rename to land. Set while rendering, so no render
-   * pairs a view with another's number.
+   * make the diagram of a view whose right-click menus wait for the edits before them again,
+   * which would lose a menu waiting for that rename to land: every kind of view's but a
+   * whiteboard's and the views of boxes. Set while rendering, so no render pairs a view with
+   * another's number.
    */
   const [opening, setOpening] = useState({ view: viewId, seen: renamesSeen, number: 0 });
   if (opening.view !== viewId || opening.seen !== renamesSeen) {
@@ -925,12 +926,13 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
           {view?.level === "sequence" ? (
             computed ? (
               <SequenceDiagram
-                key={view.id}
+                key={`${view.level}:${opening.number}`}
                 ws={ws}
                 computed={computed}
                 selection={selection}
                 onSelect={select}
                 edit={edit}
+                menus={menus!}
                 onElementMenu={openElementMenu}
                 onError={(text) => state.notify({ kind: "error", text })}
                 exportItems={exportItems(computed)}
@@ -996,8 +998,20 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             )
           ) : view?.level === "deployment" ? (
             computed ? (
-              <ReactFlowProvider key={view.id}>
-                <DeploymentDiagram ws={ws} computed={computed} selection={selection} onSelect={selectOnCanvas} edit={edit} onError={(text) => state.notify({ kind: "error", text })} exportItems={exportItems(computed)} snap={snap} />
+              <ReactFlowProvider key={`${view.level}:${opening.number}`}>
+                <DeploymentDiagram
+                  ws={ws}
+                  computed={computed}
+                  selection={selection}
+                  onSelect={selectOnCanvas}
+                  edit={edit}
+                  menus={menus!}
+                  elementItems={elementMenu}
+                  onArrowMenu={openArrowMenu}
+                  onError={(text) => state.notify({ kind: "error", text })}
+                  exportItems={exportItems(computed)}
+                  snap={snap}
+                />
               </ReactFlowProvider>
             ) : (
               <div className="canvas-message">This view can't be drawn: {scopeProblems(ws, view)[0]?.message}</div>

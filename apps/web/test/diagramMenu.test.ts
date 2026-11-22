@@ -62,6 +62,58 @@ const doc: OpenArchDocument = {
 };
 
 /**
+ * A sequence view and a deployment view of the same containers. Their steps and connections are
+ * numbered, and some go when an element is deleted from the model, a node from the deployment
+ * view, or a node is told what it runs.
+ */
+const live: OpenArchDocument = {
+  openarch: 20,
+  name: "Shop",
+  elements: {
+    buyer: { kind: "person", name: "Buyer", uses: [{ to: "web" }] },
+    shop: { kind: "system", name: "Shop" },
+    web: { kind: "container", name: "Web", parent: "shop", uses: [{ to: "api" }, { to: "cache" }] },
+    api: { kind: "container", name: "API", parent: "shop", uses: [{ to: "db" }] },
+    db: { kind: "container", name: "DB", parent: "shop" },
+    cache: { kind: "container", name: "Cache", parent: "shop" },
+  },
+  views: {
+    ordering: {
+      title: "Placing an order",
+      level: "sequence",
+      steps: [
+        { from: "buyer", to: "web", description: "Orders" },
+        { from: "web", to: "api", description: "Submits" },
+        { from: "api", to: "db", description: "Saves" },
+        { from: "api", to: "web", reply: true, description: "Says it's saved" },
+        { from: "web", to: "cache", description: "Remembers" },
+      ],
+      stickies: { note: { text: "Read me" } },
+    },
+    production: {
+      title: "Production",
+      level: "deployment",
+      nodes: {
+        region: { name: "Region" },
+        lb: { name: "Load balancer", parent: "region", infrastructure: true },
+        server: { name: "Server", parent: "region", runs: ["web", "api"] },
+        data: { name: "Database server", parent: "region", runs: ["db"] },
+        edge: { name: "Edge", runs: ["cache"] },
+      },
+      connections: [
+        { from: "lb", to: "web", description: "Forwards" },
+        { from: "lb", to: "server", description: "Checks" },
+        { from: "edge", to: "lb", description: "Routes" },
+        { from: "lb", to: "db", description: "Reads" },
+        { from: "data", to: "edge", description: "Backs up to" },
+        { from: "cache", to: "lb", description: "Falls back" },
+      ],
+      stickies: { note: { text: "Read me" } },
+    },
+  },
+};
+
+/**
  * What the menu for a right-click on this is for once these edits have landed, one after
  * another, and the ID its view then has: what was clicked, followed through what each did, then
  * looked for in the view as they leave it. Null when it isn't there.
@@ -183,12 +235,15 @@ describe("a menu's target, followed through the edits that land before it opens"
     expect(menuRenamesIn([{ op: "update-attribute", view: "data", entity: "customer", name: "email", newName: "email" }], buildWorkspace(doc))).toEqual([]);
   });
 
-  /** What says which one of a numbered list is which, however the list is renumbered. */
-  const LISTS: Record<NumberedPart, { view: string; ends: string[]; add(n: number, at?: number): Operation; move(from: number, to: number): Operation; remove(n: number): Operation; retext(n: number): Operation; cut(id: string): Operation }> = {
+  /**
+   * How one kind of numbered list is changed: by its own operations, and by the ones that delete
+   * from it with something else, `cuts`: a block, a state or an entity with its arrows, and for a
+   * connection or a step, a node, what a node runs, or an element of the model.
+   */
+  const LISTS: Record<NumberedPart, { view: string; from?: OpenArchDocument; cuts: Operation[]; add(n: number, at?: number): Operation; move(from: number, to: number): Operation; remove(n: number): Operation; retext(n: number): Operation }> = {
     flow: {
       view: "returns",
-      ends: ["refund", "say-no", "in-time"],
-      cut: (id) => ({ op: "remove-block", view: "returns", id }),
+      cuts: ["refund", "say-no", "in-time"].map((id) => ({ op: "remove-block", view: "returns", id })),
       add: (n, at) => ({ op: "add-flow", view: "returns", from: "asked", to: "done", text: `new ${n}`, ...(at !== undefined && { flow: at }) }),
       move: (from, to) => ({ op: "update-flow", view: "returns", flow: from, newFlow: to }),
       remove: (n) => ({ op: "remove-flow", view: "returns", flow: n }),
@@ -196,8 +251,7 @@ describe("a menu's target, followed through the edits that land before it opens"
     },
     transition: {
       view: "states",
-      ends: ["paid"],
-      cut: (id) => ({ op: "remove-state", view: "states", id }),
+      cuts: [{ op: "remove-state", view: "states", id: "paid" }],
       add: (n, at) => ({ op: "add-transition", view: "states", from: "placed", to: "shipped", action: `new ${n}`, ...(at !== undefined && { transition: at }) }),
       move: (from, to) => ({ op: "update-transition", view: "states", transition: from, newTransition: to }),
       remove: (n) => ({ op: "remove-transition", view: "states", transition: n }),
@@ -205,26 +259,58 @@ describe("a menu's target, followed through the edits that land before it opens"
     },
     link: {
       view: "data",
-      ends: ["order"],
-      cut: (id) => ({ op: "remove-entity", view: "data", id }),
+      cuts: [{ op: "remove-entity", view: "data", id: "order" }],
       add: (n, at) => ({ op: "add-link", view: "data", from: "line", to: "customer", text: `new ${n}`, ...(at !== undefined && { link: at }) }),
       move: (from, to) => ({ op: "update-link", view: "data", link: from, newLink: to }),
       remove: (n) => ({ op: "remove-link", view: "data", link: n }),
       retext: (n) => ({ op: "update-link", view: "data", link: n, to: "order" }),
     },
+    connection: {
+      view: "production",
+      from: live,
+      cuts: [
+        { op: "remove-node", view: "production", id: "edge" },
+        { op: "remove-node", view: "production", id: "data" },
+        { op: "update-node", view: "production", id: "server", runs: ["api"] },
+        { op: "remove-element", id: "db" },
+        // Deletes nothing: the node is told what it runs already, and a view of something else changes.
+        { op: "update-node", view: "production", id: "server", runs: ["web", "api"], technology: "Linux" },
+        { op: "remove-step", view: "ordering", step: 1 },
+      ],
+      add: (n, at) => ({ op: "add-connection", view: "production", from: "lb", to: "region", description: `new ${n}`, ...(at !== undefined && { connection: at }) }),
+      move: (from, to) => ({ op: "update-connection", view: "production", connection: from, newConnection: to }),
+      remove: (n) => ({ op: "remove-connection", view: "production", connection: n }),
+      retext: (n) => ({ op: "update-connection", view: "production", connection: n, technology: "HTTPS" }),
+    },
+    step: {
+      view: "ordering",
+      from: live,
+      cuts: [
+        { op: "remove-element", id: "cache" },
+        { op: "remove-element", id: "db" },
+        // Deletes nothing: a node of another view goes, with its connections.
+        { op: "remove-node", view: "production", id: "edge" },
+      ],
+      add: (n, at) => ({ op: "add-step", view: "ordering", from: "buyer", to: "web", description: `new ${n}`, ...(at !== undefined && { step: at }) }),
+      move: (from, to) => ({ op: "update-step", view: "ordering", step: from, newStep: to }),
+      remove: (n) => ({ op: "remove-step", view: "ordering", step: n }),
+      retext: (n) => ({ op: "update-step", view: "ordering", step: n, technology: "HTTPS" }),
+    },
   };
   /** The model with text on every flow, so each can be told from the others. */
   const labelled = structuredClone(doc);
   labelled.views.returns!.flows!.forEach((f, i) => (f.text = `flow ${i + 1}`));
-  /** What each one of a numbered list says, which stays with it wherever it goes: a flow's or a link's text, a transition's event or action. */
+  /** What each one of a numbered list says, which stays with it wherever it goes: a flow's or a link's text, a transition's event or action, a connection's or a step's description. */
   function labelsOf(list: NumberedPart, ws: ReturnType<typeof buildWorkspace>) {
     const view = ws.views.get(LISTS[list].view)!;
     if (list === "flow") return view.flows.map((f) => f.text ?? "");
     if (list === "transition") return view.transitions.map((t) => t.action ?? t.event ?? "");
+    if (list === "connection") return view.connections.map((c) => c.description ?? "");
+    if (list === "step") return view.steps.map((s) => s.description ?? "");
     return view.links.map((l) => l.text ?? "");
   }
 
-  it.each(["flow", "transition", "link"] as const)("follows a %s to the number it has however others are added, deleted and moved round it, in one edit or several, and when what's at one's end is deleted", (list) => {
+  it.each(["flow", "transition", "link", "connection", "step"] as const)("follows a %s to the number it has however others are added, deleted and moved round it, in one edit or several, and when something else that's deleted takes some with it", (list) => {
     const kit = LISTS[list];
     // The same sequences every run: a small generator stands in for chance.
     let seed = 7;
@@ -233,23 +319,23 @@ describe("a menu's target, followed through the edits that land before it opens"
       return seed % below;
     };
     for (let round = 0; round < 60; round++) {
-      let ws = buildWorkspace(labelled);
+      let ws = buildWorkspace(kit.from ?? labelled);
       const start = labelsOf(list, ws);
       const edits: Operation[][] = [];
       const renames: MenuRename[] = [];
-      // The blocks, states or entities that are still there to delete, each at an end of some of the arrows.
-      const ends = [...kit.ends];
+      // What's still there to delete, each of which takes some of the list with it.
+      const cuts = [...kit.cuts];
       for (let step = 0; step < 6; step++) {
         const ops: Operation[] = [];
         let now = ws;
         // One operation, or two in the same edit.
         for (let k = 0; k <= random(2); k++) {
           const count = labelsOf(list, now).length;
-          // Now and then, what's at the end of some of them is deleted, and they go with it.
-          const cut = ends.length > 0 && random(6) === 0;
+          // Now and then, something else is deleted, and some of them go with it.
+          const cut = cuts.length > 0 && random(6) === 0;
           const does = count === 0 ? 0 : random(5);
           const op = cut
-            ? kit.cut(ends.splice(random(ends.length), 1)[0]!)
+            ? cuts.splice(random(cuts.length), 1)[0]!
             : does === 0
               ? kit.add(round * 100 + step * 10 + k, random(3) === 0 ? undefined : 1 + random(count + 1))
               : does === 1
@@ -339,9 +425,13 @@ describe("a menu's target, followed through the edits that land before it opens"
     expect(menuRenamesIn(renamed, buildWorkspace(scoped))).toEqual([
       { kind: "view", id: "api", to: "gateway" },
       { kind: "view-gone", id: "returns" },
+      { kind: "element-gone", id: "gateway" },
     ]);
     // The workspace the edit started from has no such element, so it alone says nothing went.
-    expect(menuRenamesIn([renamed[1]!], buildWorkspace(applyOperations(buildWorkspace(scoped).doc, [renamed[0]!]).doc))).toEqual([{ kind: "view-gone", id: "returns" }]);
+    expect(menuRenamesIn([renamed[1]!], buildWorkspace(applyOperations(buildWorkspace(scoped).doc, [renamed[0]!]).doc))).toEqual([
+      { kind: "view-gone", id: "returns" },
+      { kind: "element-gone", id: "gateway" },
+    ]);
     expect(followMenu({ kind: "diagram" }, "returns", menuRenamesIn(renamed, buildWorkspace(scoped))).on).toBeNull();
     expect(followMenu({ kind: "diagram" }, "data", menuRenamesIn(renamed, buildWorkspace(scoped))).on).toEqual({ kind: "diagram" });
     // An element moved inside another, which is then deleted: its view goes with that one.
@@ -350,7 +440,11 @@ describe("a menu's target, followed through the edits that land before it opens"
       { op: "update-element", id: "db", parent: "store" },
       { op: "remove-element", id: "store" },
     ];
-    expect(menuRenamesIn(moved, buildWorkspace(scoped))).toEqual([{ kind: "view-gone", id: "data" }]);
+    expect(menuRenamesIn(moved, buildWorkspace(scoped))).toEqual([
+      { kind: "view-gone", id: "data" },
+      { kind: "element-gone", id: "db" },
+      { kind: "element-gone", id: "store" },
+    ]);
   });
 
   it("loses a view's arrows, or everything, where the workspace an operation was applied to can't be worked out", () => {
@@ -390,6 +484,10 @@ describe("a menu's target, followed through the edits that land before it opens"
       { kind: "cardArrow", from: "place-order", to: "order-placed" },
       { kind: "screen", id: "cart" },
       { kind: "widget", id: "pay" },
+      { kind: "node", id: "server" },
+      { kind: "instance", node: "server", element: "web" },
+      { kind: "connection", number: 1 },
+      { kind: "step", number: 1 },
     ] as const;
     for (const on of all) {
       expect(followMenu(on, "returns", undone), on.kind).toEqual({ on: null, view: "refunds" });
@@ -427,15 +525,25 @@ describe("a menu's target, followed through the edits that land before it opens"
     scoped.views.other = { title: "Other", level: "flowchart" };
     expect(menuRenamesIn([{ op: "remove-view", id: "returns" }], buildWorkspace(scoped))).toEqual([{ kind: "view-gone", id: "returns" }]);
     // Deleting the system deletes the container in it, and the flowchart of that.
-    expect(menuRenamesIn([{ op: "remove-element", id: "shop" }], buildWorkspace(scoped))).toEqual([{ kind: "view-gone", id: "returns" }]);
-    expect(menuRenamesIn([{ op: "remove-element", id: "api" }], buildWorkspace(scoped))).toEqual([{ kind: "view-gone", id: "returns" }]);
+    expect(menuRenamesIn([{ op: "remove-element", id: "shop" }], buildWorkspace(scoped))).toEqual([
+      { kind: "view-gone", id: "returns" },
+      { kind: "element-gone", id: "shop" },
+      { kind: "element-gone", id: "api" },
+    ]);
+    expect(menuRenamesIn([{ op: "remove-element", id: "api" }], buildWorkspace(scoped))).toEqual([
+      { kind: "view-gone", id: "returns" },
+      { kind: "element-gone", id: "api" },
+    ]);
     // The diagram's own menu goes with the view, even if another view then takes its ID.
     const gone: MenuRename[] = [{ kind: "view-gone", id: "returns" }, { kind: "view", id: "other", to: "returns" }];
     expect(followMenu({ kind: "diagram" }, "returns", gone).on).toBeNull();
     expect(followMenu({ kind: "block", id: "refund" }, "returns", gone).on).toBeNull();
     expect(followMenu({ kind: "diagram" }, "other", gone)).toEqual({ on: { kind: "diagram" }, view: "returns" });
     // In an edit that does more, too.
-    expect(menuRenamesIn([{ op: "update-view", id: "other", title: "Others" }, { op: "remove-element", id: "api" }], buildWorkspace(scoped))).toEqual([{ kind: "view-gone", id: "returns" }]);
+    expect(menuRenamesIn([{ op: "update-view", id: "other", title: "Others" }, { op: "remove-element", id: "api" }], buildWorkspace(scoped))).toEqual([
+      { kind: "view-gone", id: "returns" },
+      { kind: "element-gone", id: "api" },
+    ]);
   });
 });
 
@@ -628,5 +736,178 @@ describe("what a wireframe view's right-click menu is for", () => {
       expect(after({ kind: "screen", id: "cart" }, odd)).toEqual({ kind: "screen", id: "cart" });
       expect(followMenu({ kind: "card", id: "order-placed" }, "ordering", menuRenamesIn(odd, buildWorkspace(boards))).on).toEqual({ kind: "card", id: "order-placed" });
     }
+  });
+});
+
+describe("what a deployment view's right-click menu is for", () => {
+  const production = buildWorkspace(live).views.get("production")!;
+  const node = (id: string) => ({ kind: "node", id }) as const;
+  const runs = (node: string, element: string) => ({ kind: "instance", node, element }) as const;
+  const connection = (number: number) => ({ kind: "connection", number }) as const;
+  const after = (on: Selection, ops: Operation[], from = live) => followMenu(menuOn(on), "production", menuRenamesIn(ops, buildWorkspace(from))).on;
+
+  it("is a node, a connection, a note, or a container or system running in a node", () => {
+    for (const on of [node("region"), node("lb"), runs("server", "web"), connection(6), { kind: "sticky", id: "note" }] as const) {
+      expect(menuOn(on)).toEqual(on);
+      expect(menuThere(production, on), JSON.stringify(on)).toBe(true);
+      expect(isSelected(on, on)).toBe(true);
+    }
+    // It runs in another node, not this one.
+    expect(menuThere(production, runs("server", "db"))).toBe(false);
+    expect(menuThere(production, runs("nowhere", "web"))).toBe(false);
+    expect(menuThere(production, connection(7))).toBe(false);
+    expect(isSelected(runs("server", "web"), runs("server", "api"))).toBe(false);
+    // An arrow between two elements is the model's, and isn't followed here.
+    expect(menuOn({ kind: "arrow", from: "web", to: "api" })).toBeNull();
+  });
+
+  it("follows a node to its new ID, and what runs in one by the node's ID and its own", () => {
+    const renamed: Operation[] = [{ op: "update-node", view: "production", id: "server", name: "App server", newId: "app-server" }];
+    expect(after(node("server"), renamed)).toEqual(node("app-server"));
+    expect(after(runs("server", "web"), renamed)).toEqual(runs("app-server", "web"));
+    expect(after(runs("data", "db"), renamed)).toEqual(runs("data", "db"));
+    // The element's new ID is the model's to give.
+    const element: Operation[] = [{ op: "rename", id: "web", to: "website" }];
+    expect(landed("production", runs("server", "web"), [element, renamed], live)?.on).toEqual(runs("app-server", "website"));
+    expect(after(node("server"), element)).toEqual(node("server"));
+    // A node moved inside another, or changed some other way, is the same node.
+    expect(landed("production", node("edge"), [[{ op: "update-node", view: "production", id: "edge", parent: "region", technology: "CDN" }]], live)?.on).toEqual(node("edge"));
+  });
+
+  it("loses a node with the node it's inside, however deep, and what ran in each", () => {
+    const deep = structuredClone(live);
+    deep.views.production!.nodes!.rack = { name: "Rack", parent: "server" };
+    const gone: Operation[] = [{ op: "remove-node", view: "production", id: "region" }];
+    expect(["region", "lb", "server", "rack", "data", "edge"].map((id) => after(node(id), gone, deep))).toEqual([null, null, null, null, null, node("edge")]);
+    expect(after(runs("server", "web"), gone, deep)).toBeNull();
+    expect(after(runs("edge", "cache"), gone, deep)).toEqual(runs("edge", "cache"));
+    // Nothing brings one back: a node added under its ID after is another.
+    const replaced: Operation[][] = [gone, [{ op: "add-node", view: "production", id: "server", runs: ["web"] }]];
+    expect(landed("production", node("server"), replaced, deep)).toBeNull();
+    expect(landed("production", runs("server", "web"), replaced, deep)).toBeNull();
+  });
+
+  it("loses what a node no longer runs, and keeps what it still does", () => {
+    // Said with a space to trim, as update-node reads it.
+    const stopped: Operation[] = [{ op: "update-node", view: "production", id: "server", runs: [" api "] }];
+    expect(after(runs("server", "web"), stopped)).toBeNull();
+    expect(after(runs("server", "api"), stopped)).toEqual(runs("server", "api"));
+    expect(after(runs("data", "db"), stopped)).toEqual(runs("data", "db"));
+    expect(after(node("server"), stopped)).toEqual(node("server"));
+    for (const none of [null, []]) expect(after(runs("server", "api"), [{ op: "update-node", view: "production", id: "server", runs: none }])).toBeNull();
+    // It doesn't come back when it's run there again.
+    expect(landed("production", runs("server", "web"), [stopped, [{ op: "update-node", view: "production", id: "server", runs: ["api", "web"] }]], live)).toBeNull();
+    // Told what it runs and given a new ID at once: what it runs is said under the ID it had.
+    const both: Operation[] = [{ op: "update-node", view: "production", id: "server", runs: ["web"], newId: "app" }];
+    expect(after(runs("server", "web"), both)).toEqual(runs("app", "web"));
+    expect(after(runs("server", "api"), both)).toBeNull();
+    // A node changed without saying what it runs keeps it all.
+    expect(after(runs("server", "web"), [{ op: "update-node", view: "production", id: "server", instances: 3 }])).toEqual(runs("server", "web"));
+  });
+
+  it("loses what runs in a node when it's deleted from the model, on its own or with what it's inside", () => {
+    expect(after(runs("server", "web"), [{ op: "remove-element", id: "web" }])).toBeNull();
+    expect(after(runs("server", "api"), [{ op: "remove-element", id: "web" }])).toEqual(runs("server", "api"));
+    // The system goes, and every container in it.
+    expect(after(runs("edge", "cache"), [{ op: "remove-element", id: "shop" }])).toBeNull();
+    expect(after(node("edge"), [{ op: "remove-element", id: "shop" }])).toEqual(node("edge"));
+    // Another added under its ID, and run there, is another.
+    const replaced: Operation[][] = [
+      [{ op: "remove-element", id: "web" }],
+      [
+        { op: "add-element", id: "web", kind: "container", parent: "shop" },
+        { op: "update-node", view: "production", id: "server", runs: ["api", "web"] },
+      ],
+    ];
+    expect(landed("production", runs("server", "web"), replaced, live)).toBeNull();
+  });
+
+  it("follows the connections left when a node goes, with those to what only it ran", () => {
+    // Routes and Backs up to are the edge node's, and Falls back is from the cache, which only it runs.
+    const edge: Operation[] = [{ op: "remove-node", view: "production", id: "edge" }];
+    expect([1, 2, 3, 4, 5, 6].map((number) => after(connection(number), edge))).toEqual([connection(1), connection(2), null, connection(3), null, null]);
+    // Stopping the web app running in its node takes the connection to it, and no other.
+    const stopped: Operation[] = [{ op: "update-node", view: "production", id: "server", runs: ["api"] }];
+    expect([1, 2, 3].map((number) => after(connection(number), stopped))).toEqual([null, connection(1), connection(2)]);
+    // And deleting the database from the model, the one to it.
+    expect([3, 4, 5].map((number) => after(connection(number), [{ op: "remove-element", id: "db" }]))).toEqual([connection(3), null, connection(4)]);
+    // A node told what it runs already, or anything else, keeps them all, and so does a new ID.
+    const kept: Operation[] = [
+      { op: "update-node", view: "production", id: "server", runs: ["web", "api"] },
+      { op: "update-node", view: "production", id: "edge", newId: "cdn", technology: "CDN" },
+      { op: "rename", id: "cache", to: "store" },
+    ];
+    expect(menuRenamesIn(kept, buildWorkspace(live))).toEqual([
+      { kind: "runs", view: "production", node: "server", runs: ["web", "api"] },
+      { kind: "node", view: "production", id: "edge", to: "cdn" },
+      { kind: "view", id: "cache", to: "store" },
+    ]);
+    // In an edit that does more first: the load balancer's node goes before the edge's, so the numbers are the ones left by then.
+    const more: Operation[] = [
+      { op: "remove-connection", view: "production", connection: 1 },
+      { op: "remove-node", view: "production", id: "edge" },
+    ];
+    expect([2, 3, 4, 5, 6].map((number) => after(connection(number), more))).toEqual([connection(1), null, connection(2), null, null]);
+  });
+
+  it("loses the view's connections, and its nodes with what runs in them, where there's no telling what a delete took", () => {
+    // Told of operations that don't go with the workspace it's given: the first can't be applied to it.
+    const odd: Operation[] = [
+      { op: "update-view", id: "no-such-view", title: "Nothing" },
+      { op: "remove-node", view: "production", id: "data" },
+    ];
+    expect(menuRenamesIn(odd, buildWorkspace(live))).toEqual([
+      { kind: "gone", what: "node", view: "production", id: "data" },
+      { kind: "kinds-lost", kinds: ["node"], view: "production" },
+      { kind: "kinds-lost", kinds: ["connection"], view: "production" },
+    ]);
+    expect([node("edge"), runs("edge", "cache"), connection(1)].map((on) => after(on, odd))).toEqual([null, null, null]);
+    expect(after({ kind: "sticky", id: "note" }, odd)).toEqual({ kind: "sticky", id: "note" });
+    expect(followMenu({ kind: "step", number: 1 }, "ordering", menuRenamesIn(odd, buildWorkspace(live))).on).toEqual({ kind: "step", number: 1 });
+    // A delete the workspace it's told with can't have: what it took can't be read off.
+    const missing: Operation[] = [{ op: "remove-node", view: "production", id: "no-such-node" }];
+    expect(menuRenamesIn(missing, buildWorkspace(live))).toEqual([
+      { kind: "gone", what: "node", view: "production", id: "no-such-node" },
+      { kind: "kinds-lost", kinds: ["connection"], view: "production" },
+    ]);
+    // A view with no connections has none to lose.
+    const bare = structuredClone(live);
+    delete bare.views.production!.connections;
+    expect(menuRenamesIn([{ op: "remove-node", view: "production", id: "edge" }], buildWorkspace(bare))).toEqual([{ kind: "gone", what: "node", view: "production", id: "edge" }]);
+  });
+});
+
+describe("what a sequence view's right-click menu is for", () => {
+  const ordering = buildWorkspace(live).views.get("ordering")!;
+  const step = (number: number) => ({ kind: "step", number }) as const;
+  const after = (on: Selection, ops: Operation[]) => followMenu(menuOn(on), "ordering", menuRenamesIn(ops, buildWorkspace(live))).on;
+
+  it("is a step, by its number, or a note", () => {
+    expect(menuOn(step(5))).toEqual(step(5));
+    expect([1, 5, 6, 0].map((number) => menuThere(ordering, step(number)))).toEqual([true, true, false, false]);
+    expect(menuThere(ordering, { kind: "sticky", id: "note" })).toBe(true);
+    // An element's heading has the menu an element has on any view, which isn't followed here.
+    expect(menuOn({ kind: "element", id: "web" })).toBeNull();
+  });
+
+  it("follows the steps left when an element is deleted from the model, which takes the steps it's in", () => {
+    // Saves, step 3, is the API's call to the database.
+    const gone: Operation[] = [{ op: "remove-element", id: "db" }];
+    expect([1, 2, 3, 4, 5].map((number) => after(step(number), gone))).toEqual([step(1), step(2), null, step(3), step(4)]);
+    expect(menuRenamesIn(gone, buildWorkspace(live))).toEqual([
+      { kind: "element-gone", id: "db" },
+      { kind: "removed", list: "step", view: "ordering", number: 3 },
+      { kind: "removed", list: "connection", view: "production", number: 4 },
+    ]);
+    // Every step has an element of the system at an end.
+    expect([1, 5].map((number) => after(step(number), [{ op: "remove-element", id: "shop" }]))).toEqual([null, null]);
+    // An element's new ID, or its name, renumbers nothing.
+    expect(after(step(3), [{ op: "rename", id: "db", to: "database" }, { op: "update-element", id: "database", name: "Database" }])).toEqual(step(3));
+    // In an edit that does more first.
+    const more: Operation[] = [
+      { op: "add-step", view: "ordering", from: "buyer", to: "web", description: "Looks", step: 1 },
+      { op: "remove-element", id: "cache" },
+    ];
+    expect([1, 3, 5].map((number) => after(step(number), more))).toEqual([step(2), step(4), null]);
   });
 });

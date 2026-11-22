@@ -1,11 +1,14 @@
 /** Small questions about the model that the designer's UI asks. */
 import {
   allWidgets,
+  applyOperations,
   builtInto,
   computeAllViews,
   describeElement,
   isInside,
+  kindLabel,
   LEVEL_TITLE,
+  nodeKindLabel,
   representative,
   SCOPE_KINDS,
   stickyAnchor,
@@ -563,6 +566,39 @@ export function whiteboardSelectionLeft(view: ViewDef | undefined, selection: Se
 /** A flowchart block's text on one line, as lists and menus name it. */
 export function blockText(block: Pick<Block, "id" | "text">): string {
   return block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? block.id;
+}
+
+/** The nodes of a deployment view, and the containers and systems they run, for picking a connection's end. */
+export function connectionEnds(ws: Workspace, view: ViewDef): { id: string; label: string }[] {
+  const run = [...new Set(view.nodes.flatMap((n) => n.runs))].flatMap((id) => ws.elements.get(id) ?? []).sort(byName);
+  return [...view.nodes.map((n) => ({ id: n.id, label: `${n.name} [${nodeKindLabel(n)}]` })), ...run.map((e) => ({ id: e.id, label: `${e.name} [${kindLabel(e)}]` }))];
+}
+
+/** What `accepts` has found out about each workspace, so a menu drawn again doesn't ask again. */
+const accepted = new WeakMap<Workspace, Map<string, boolean>>();
+
+/**
+ * Whether an edit would be made, as the workspace stands: it's tried on a copy, and nothing is
+ * changed. An edit is refused for more than its own operations say, as the checks run on what it
+ * would leave: a deployment view's connection can't join a node and something inside it, so
+ * moving a node into another can be refused for a connection between the two. A menu asks this
+ * of what it's about to offer, so it only offers what can be done.
+ */
+export function accepts(ws: Workspace, ops: Operation[]): boolean {
+  let known = accepted.get(ws);
+  if (!known) accepted.set(ws, (known = new Map()));
+  const key = JSON.stringify(ops);
+  let ok = known.get(key);
+  if (ok === undefined) {
+    try {
+      applyOperations(ws.doc, ops);
+      ok = true;
+    } catch {
+      ok = false;
+    }
+    known.set(key, ok);
+  }
+  return ok;
 }
 
 /** A wireframe's widget as lists and menus name it: its kind, and its text's first line. */

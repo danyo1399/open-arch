@@ -11,7 +11,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, checkbox, choose, click, mount, select, type } from "./dom.js";
+import { button, checkbox, choose, click, menusFor, mount, select, type } from "./dom.js";
 
 /** A web app and an API in a cluster in a cloud region, a database beside it, behind a load balancer. */
 const doc: OpenArchDocument = {
@@ -165,7 +165,19 @@ describe("the deployment diagram", () => {
       createElement(
         ReactFlowProvider,
         null,
-        createElement(DeploymentDiagram, { ws, computed, selection: null, onSelect() {}, edit: async () => true, onError() {}, exportItems: [], snap: { settings: SNAP_DEFAULTS, set() {} } }),
+        createElement(DeploymentDiagram, {
+          ws,
+          computed,
+          selection: null,
+          onSelect() {},
+          edit: async () => true,
+          menus: menusFor(computed.view.id),
+          elementItems: () => [],
+          onArrowMenu() {},
+          onError() {},
+          exportItems: [],
+          snap: { settings: SNAP_DEFAULTS, set() {} },
+        }),
       ),
     );
     // ELK lays it out a moment later.

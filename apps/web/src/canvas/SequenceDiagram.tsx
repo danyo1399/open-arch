@@ -3,14 +3,16 @@
  * numbered arrows, top to bottom. Drag from one lifeline to another to add a step, or use
  * + Add step. Nothing is placed by hand, so nothing here saves positions.
  */
-import { isInside, kindLabel, type ComputedView, type Operation, type Workspace } from "@open-arch/core";
-import { useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { isInside, kindLabel, stepRelationships, type ComputedView, type Operation, type Step, type Workspace } from "@open-arch/core";
+import { useContext, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { byName } from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import type { Selection } from "./Canvas.js";
+import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
+import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { dropNumber, lifelineAt, SEQ, sequenceLayout, stepChoices, stepTargets, type StepChoice } from "./sequenceLayout.js";
-import { ElementNotes, StickyNotes } from "./nodes.js";
+import { ElementNotes, NotesOpener, StickyNotes } from "./nodes.js";
 
 interface SequenceProps {
   ws: Workspace;
@@ -18,6 +20,8 @@ interface SequenceProps {
   selection: Selection;
   onSelect(selection: Selection): void;
   edit(edit: Edit): Promise<boolean>;
+  /** What the right-click menus of a step, a note and the background need from the designer. */
+  menus: MenuHost;
   /** A right-click on an element's heading, at that point on the screen. */
   onElementMenu(id: string, at: { x: number; y: number }): void;
   /** A step that can't be drawn, to tell the person about. */
@@ -35,7 +39,16 @@ function newStickyId(ids: string[]): string {
   for (let i = 2; ; i++) if (!ids.includes(`note-${i}`)) return `note-${i}`;
 }
 
-export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, onElementMenu, onError, exportItems }: SequenceProps) {
+/**
+ * The elements either end of a step can move to, as update-step allows: those the model has a
+ * relationship for the step to go along, from the new end or to it, or for a reply, back along.
+ */
+export function stepEnds(ws: Workspace, step: Pick<Step, "from" | "to" | "reply">, end: "from" | "to") {
+  const goes = (id: string) => (end === "from" ? stepRelationships(ws, id, step.to, step.reply) : stepRelationships(ws, step.from, id, step.reply)).length > 0;
+  return [...ws.elements.values()].filter((e) => e.id !== step[end] && goes(e.id)).sort(byName);
+}
+
+export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, menus, onElementMenu, onError, exportItems }: SequenceProps) {
   const view = cv.view;
   const layout = useMemo(() => sequenceLayout(cv), [cv]);
   const surface = useRef<HTMLDivElement>(null);
@@ -97,6 +110,65 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
     if (e.target === e.currentTarget) onSelect(null);
   };
 
+  const notes = useContext(NotesOpener);
+  const edits: MenuEdits = { edit, select: onSelect };
+
+  // Each item does what it does in the details, which have them all too.
+  const stepMenu = (step: Step): MenuItem[] => {
+    const update = (fields: Omit<Extract<Operation, { op: "update-step" }>, "op" | "view" | "step">) => edit([{ op: "update-step", view: view.id, step: step.number, ...fields }]);
+    const ends = (end: "from" | "to") => stepEnds(ws, step, end).map((e) => ({ label: `${e.name} [${kindLabel(e)}]`, onSelect: () => void update({ [end]: e.id }) }));
+    const [from, to] = [ends("from"), ends("to")];
+    // A call can become a reply, or a reply a call, where the model has a relationship for that to go along.
+    const turns = stepRelationships(ws, step.from, step.to, !step.reply).length > 0;
+    return withDelete(
+      edits,
+      [
+        ...(from.length ? [{ label: "Change from", items: from }] : []),
+        ...(to.length ? [{ label: step.reply ? "Change who it replies to" : "Change what it calls", items: to }] : []),
+        ...(turns ? [{ label: step.reply ? "Make it a call" : "Make it a reply", onSelect: () => void update({ reply: !step.reply }) }] : []),
+        ...moveItems("step", step.number, view.steps.length, (to) => void update({ newStep: to }).then((ok) => ok && onSelect({ kind: "step", number: to }))),
+      ],
+      "Delete step",
+      { op: "remove-step", view: view.id, step: step.number },
+    );
+  };
+
+  /**
+   * The right-click menus: for a step or a sticky note, which the click selects, and for the
+   * diagram, after a click anywhere else but an element's heading. That has the menu the designer
+   * gives an element on any view. See useDiagramMenu for how one opens and closes.
+   */
+  const menu = useDiagramMenu({
+    view,
+    selection,
+    select: onSelect,
+    host: menus,
+    // Nothing here is placed, so where a menu opened says nothing.
+    toDiagram: (at) => at,
+    items: (on) => {
+      // The steps are drawn in their order, so there's nothing to lay out.
+      if (on.kind === "diagram") {
+        return diagramItems(
+          [
+            { label: "Step…", onSelect: () => setFormOpen(true) },
+            { label: "Sticky note", divider: true, onSelect: addNote },
+          ],
+          undefined,
+          exportItems,
+        );
+      }
+      const step = on.kind === "step" && view.steps[on.number - 1];
+      if (step) return stepMenu(step);
+      const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
+      return sticky ? stickyItems(edits, view.id, sticky, { openNotes: notes ? () => notes.sticky(sticky.id) : undefined }) : [];
+    },
+  });
+  /** Opens the menu of what a right-click was on. The click goes no further, so it isn't one on the background too. */
+  const openMenu = (e: MouseEvent, on: Selection) => {
+    e.stopPropagation();
+    menu.open(e, on);
+  };
+
   const target = drawing?.moved ? lifelineAt(layout, drawing.at.x) : undefined;
   const headTop = SEQ.pad;
   const lineTop = headTop + SEQ.headHeight;
@@ -137,7 +209,8 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
         </MenuButton>
       </div>
 
-      <div className="sequence-scroll" onClick={clickBackground}>
+      {/* A right-click anywhere here that nothing else takes is one on the background. */}
+      <div className="sequence-scroll" onClick={clickBackground} onContextMenu={(e) => menu.open(e, null)}>
         <div
           ref={surface}
           className={drawing?.moved ? "sequence-surface drawing" : "sequence-surface"}
@@ -164,7 +237,7 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
               const classes = ["step-arrow", s.reply ? "reply" : "call", s.number === selectedStep ? "selected" : "", s.sources.length ? "" : "unbacked"];
               const end = x2 > x1 ? x2 - 2 : x2 + 2;
               return (
-                <g key={s.number} className={classes.join(" ")} onClick={() => onSelect({ kind: "step", number: s.number })}>
+                <g key={s.number} className={classes.join(" ")} onClick={() => onSelect({ kind: "step", number: s.number })} onContextMenu={(e) => openMenu(e, { kind: "step", number: s.number })}>
                   <line className="step-hit" x1={x1} x2={x2} y1={y} y2={y} />
                   <line className="step-line" x1={x1} x2={end} y1={y} y2={y} markerEnd={`url(#seq-${s.reply ? "reply" : "call"})`} />
                 </g>
@@ -187,6 +260,7 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
                 style={{ left: left + Math.abs(x2 - x1) / 2 - width / 2, width, top: layout.y.get(s.number)! - 24 }}
                 title={`${s.number}. ${text}${s.sources.length ? "" : "\nThe model has no relationship for this step."}`}
                 onClick={() => onSelect({ kind: "step", number: s.number })}
+                onContextMenu={(e) => openMenu(e, { kind: "step", number: s.number })}
               >
                 <span className="step-number">{s.number}</span> {text}
               </button>
@@ -208,6 +282,7 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
                 onPointerCancel={() => setDrawing(null)}
                 onContextMenu={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   onSelect({ kind: "element", id: n.id });
                   onElementMenu(n.id, menuPoint(e));
                 }}
@@ -242,6 +317,7 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
                   key={s.id}
                   className={`sticky sticky-${s.color}${selection?.kind === "sticky" && selection.id === s.id ? " selected" : ""}`}
                   onClick={() => onSelect({ kind: "sticky", id: s.id })}
+                  onContextMenu={(e) => openMenu(e, { kind: "sticky", id: s.id })}
                 >
                   <div className="sticky-text">{s.text}</div>
                   <StickyNotes sticky={s} />
@@ -265,6 +341,7 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, o
           </div>
         )}
       </div>
+      {menu.menu}
     </div>
   );
 }

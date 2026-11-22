@@ -83,6 +83,7 @@ import {
   blockText,
   byName,
   cardArrowDeleteOps,
+  connectionEnds,
   findArrow,
   followsName,
   idFromName,
@@ -1161,12 +1162,6 @@ function TransitionProperties({ view, transition, edit, onSelect }: PropertiesPr
   );
 }
 
-/** The nodes of a deployment view, and the containers and systems they run, for picking a connection's end. */
-function connectionEnds(ws: Workspace, view: ViewDef): { id: string; label: string }[] {
-  const run = [...new Set(view.nodes.flatMap((n) => n.runs))].flatMap((id) => ws.elements.get(id) ?? []).sort(byName);
-  return [...view.nodes.map((n) => ({ id: n.id, label: `${n.name} [${nodeKindLabel(n)}]` })), ...run.map((e) => ({ id: e.id, label: `${e.name} [${kindLabel(e)}]` }))];
-}
-
 /** A connection's end, by name: a node's, or an element's. */
 function endName(ws: Workspace, view: ViewDef, id: string): string {
   return view.nodes.find((n) => n.id === id)?.name ?? ws.elements.get(id)?.name ?? id;
@@ -2222,7 +2217,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.connections.length}</dd>
           </dl>
           <p className="muted small">
-            A deployment view shows where containers run: the servers, clusters and cloud services, nested. Use + Add to add a node, inside the one selected, and choose what runs in it in its details. Arrows between containers come from the model's relationships; drag from the dot under a node to add a connection to it. It's laid out automatically.
+            A deployment view shows where containers run: the servers, clusters and cloud services, nested. Use + Add to add a node, inside the one selected, and choose what runs in it in its details. Arrows between containers come from the model's relationships; drag from the dot under a node to add a connection to it. It's laid out automatically. Right-click a node, a container in one, a connection, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : view.level === "state" ? (
@@ -2256,7 +2251,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.steps.length}</dd>
           </dl>
           <p className="muted small">
-            A sequence shows what happens, in order. Each step goes along a relationship in the model. Drag from one lifeline to another to add a step there, or use + Add step. Select a step to change it, or move it up or down.
+            A sequence shows what happens, in order. Each step goes along a relationship in the model. Drag from one lifeline to another to add a step there, or use + Add step. Select a step to change it, or move it up or down. Right-click a step, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : (

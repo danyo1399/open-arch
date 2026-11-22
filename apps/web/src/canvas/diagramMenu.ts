@@ -3,8 +3,8 @@
  *
  * A right-click selects at once, but its menu opens once the edits made before it have landed:
  * text typed in the details is saved as the click takes the focus from it, and that can give a
- * block, a state, an entity, a card, a screen, a widget, a lane or the view itself a new ID. So
- * what was clicked is followed through those edits by what they did, as the designer is told it,
+ * block, a state, an entity, a card, a screen, a widget, a node, a lane or the view itself a new
+ * ID. So what was clicked is followed through those edits by what they did, as the designer is told it,
  * never by guessing from what the diagram looks like after: when there's no telling, there's no
  * menu. An open menu is followed the same way, and closes when what it's for is lost.
  *
@@ -26,18 +26,22 @@ const ID_PARTS = {
   screen: (view: ViewDef) => view.screens,
   // Wherever it is: on a screen, or inside a row or a panel.
   widget: (view: ViewDef) => allWidgets(view),
+  node: (view: ViewDef) => view.nodes,
 } satisfies Record<string, (view: ViewDef) => readonly { id: string }[]>;
 export type IdPart = keyof typeof ID_PARTS;
 
 /**
  * The things of a view that go by their number, their place in a list: 1 is the first. A number
  * says which one only until another is added before it, deleted or moved, so each of those is
- * followed too. Each is an arrow between two of the view's things.
+ * followed too. Each is an arrow between two things: a connection's can be nodes of the view or
+ * elements of the model, and a step's are elements.
  */
 const NUMBERED = {
   flow: (view: ViewDef) => view.flows,
   transition: (view: ViewDef) => view.transitions,
   link: (view: ViewDef) => view.links,
+  connection: (view: ViewDef) => view.connections,
+  step: (view: ViewDef) => view.steps,
 } satisfies Record<string, (view: ViewDef) => readonly { from: string; to: string }[]>;
 export type NumberedPart = keyof typeof NUMBERED;
 
@@ -53,13 +57,19 @@ const isNumbered = (kind: string): kind is NumberedPart => Object.hasOwn(NUMBERE
  * the first of them, as it is in the details.
  *
  * An event view's arrow goes by the cards at its ends: there's one at most from a card to another.
+ *
+ * A container or system running in a deployment view's node goes by the node and by its own ID,
+ * an element's of the model.
  */
-export type MenuFor = Extract<Selection, { kind: IdPart | NumberedPart | "attribute" | "cardArrow" }> | { kind: "diagram" };
+export type MenuFor = Extract<Selection, { kind: IdPart | NumberedPart | "attribute" | "cardArrow" | "instance" }> | { kind: "diagram" };
+
+/** The kinds that go by more than an ID or a number of their own. */
+const isComposite = (kind: string): kind is "attribute" | "cardArrow" | "instance" => kind === "attribute" || kind === "cardArrow" || kind === "instance";
 
 /** What a right-click is for: `on` is what the click selects, or null for the background. Null for a selection no menu is for. */
 export function menuOn(on: Selection): MenuFor | null {
   if (!on) return { kind: "diagram" };
-  return isIdPart(on.kind) || isNumbered(on.kind) || on.kind === "attribute" || on.kind === "cardArrow" ? (on as MenuFor) : null;
+  return isIdPart(on.kind) || isNumbered(on.kind) || isComposite(on.kind) ? (on as MenuFor) : null;
 }
 
 /** Whether a view has what a menu is for. */
@@ -67,6 +77,7 @@ export function menuThere(view: ViewDef, on: MenuFor): boolean {
   if (on.kind === "diagram") return true;
   if (on.kind === "attribute") return !!view.entities.find((e) => e.id === on.entity)?.attributes.some((a) => a.name === on.name);
   if (on.kind === "cardArrow") return cardArrows(view).some((a) => a.from === on.from && a.to === on.to);
+  if (on.kind === "instance") return !!view.nodes.find((n) => n.id === on.node)?.runs.includes(on.element);
   if ("number" in on) return Number.isInteger(on.number) && on.number >= 1 && on.number <= NUMBERED[on.kind](view).length;
   return ID_PARTS[on.kind](view).some((x) => x.id === on.id);
 }
@@ -92,9 +103,14 @@ export function isSelected(on: MenuFor, selection: Selection): boolean {
  * is which kind of thing), or deleted it (`gone`), after which another can take its ID. It added
  * one to a numbered list at a place that isn't the end, deleted one, or moved one, each of which
  * renumbers the ones after. It gave an attribute a new name, or deleted it. It said which cards a
- * card comes from, so the arrows to it from any other card are gone: `comes-from`. Or it deleted
- * some of a view's things of these kinds, and which ones couldn't be worked out: `kinds-lost`. Or
- * a whole version of the file was written, which says nothing of what's in the views: `lost`.
+ * card comes from, so the arrows to it from any other card are gone: `comes-from`. It said what
+ * a node runs, so anything else stopped running there: `runs`. It deleted an element of the
+ * model, which no node runs after: `element-gone`. Or it deleted some of a view's things of these
+ * kinds, and which ones couldn't be worked out: `kinds-lost`. Or a whole version of the file was
+ * written, which says nothing of what's in the views: `lost`.
+ *
+ * `view` is said for an element's new ID too, as `rename` gives both: no view has an element's
+ * ID, so it's no view's, and what runs in a node goes by it.
  */
 export type MenuRename =
   | { kind: "view"; id: string; to: string }
@@ -106,6 +122,8 @@ export type MenuRename =
   | { kind: "attribute"; view: string; entity: string; name: string; to: string }
   | { kind: "attribute-gone"; view: string; entity: string; name: string }
   | { kind: "comes-from"; view: string; card: string; from: string[] }
+  | { kind: "runs"; view: string; node: string; runs: string[] }
+  | { kind: "element-gone"; id: string }
   | { kind: "kinds-lost"; kinds: (IdPart | NumberedPart)[]; view: string }
   | { kind: "lost" };
 
@@ -118,17 +136,19 @@ const RENAMES: Partial<Record<Operation["op"], IdPart>> = {
   "update-card": "card",
   "update-screen": "screen",
   "update-widget": "widget",
+  "update-node": "node",
 };
 
 /**
  * The operation that deletes each kind of thing, and what of its view goes with it. `loses` are
  * the numbered lists it deletes from too: a block's flows go with it, a state's transitions and
  * an entity's links, the ones with it at either end. `holds` are the things with an ID of their
- * own that go with it, as the view had them before: the widgets on a screen, and the ones inside
- * a row or a panel.
+ * own that go with it, as the view had them before: the widgets on a screen, the ones inside a
+ * row or a panel, and the nodes inside a node.
  *
- * An entity's attributes go with it too, and a card's arrows. Those go by the entity's ID and the
- * cards', so they're followed by that (see `followed`), and aren't here.
+ * An entity's attributes go with it too, a card's arrows, and what runs in a node. Those go by
+ * the entity's ID, the cards' and the node's, so they're followed by that (see `followed`), and
+ * aren't here. Nor are a node's connections: see SWEEPS.
  */
 const REMOVES: Partial<Record<Operation["op"], { what: IdPart; loses?: NumberedPart[]; holds?: { what: IdPart; of(was: ViewDef, id: string): readonly { id: string }[] } }>> = {
   "remove-block": { what: "block", loses: ["flow"] },
@@ -139,7 +159,74 @@ const REMOVES: Partial<Record<Operation["op"], { what: IdPart; loses?: NumberedP
   "remove-card": { what: "card" },
   "remove-screen": { what: "screen", holds: { what: "widget", of: (was, id) => allWidgets(was).filter((w) => w.screen === id) } },
   "remove-widget": { what: "widget", holds: { what: "widget", of: (was, id) => allWidgets(was).filter((w) => w.id === id).flatMap((w) => allWidgets(w)) } },
+  "remove-node": { what: "node", holds: { what: "node", of: (was, id) => was.nodes.filter((n) => isInsideNode(was, n.id, id)) } },
 };
+
+/** Whether a deployment view's node is inside another, however deep. */
+function isInsideNode(view: ViewDef, id: string, holder: string): boolean {
+  const seen = new Set<string>();
+  for (let at = view.nodes.find((n) => n.id === id)?.parent; at !== undefined && !seen.has(at); at = view.nodes.find((n) => n.id === at)?.parent) {
+    if (at === holder) return true;
+    seen.add(at);
+  }
+  return false;
+}
+
+/**
+ * The operations that delete from a numbered list that isn't theirs, by rules only applying them
+ * says: a node that's deleted, or told what it runs, takes the connections left with nothing at an
+ * end, and an element deleted from the model takes those and the steps it's in, in every view.
+ * What each did is read off a copy of the workspace: see `swept`.
+ */
+const SWEEPS: Partial<Record<Operation["op"], NumberedPart[]>> = {
+  "remove-node": ["connection"],
+  "update-node": ["connection"],
+  "remove-element": ["connection", "step"],
+};
+
+/**
+ * What an operation of SWEEPS deleted from the numbered lists of these kinds, in the views of the
+ * workspace it was applied to, `was`. It's applied to a copy in which each connection and each
+ * step is described by its number, so the ones still there after say which they were: none of
+ * these operations reads or writes a connection's description, or a step's. An operation on one
+ * view changes no other, so only that view is looked at. Where the copy can't say, as when the
+ * operation is refused on its own, the lists are lost.
+ */
+function swept(was: Workspace, op: Operation, lists: NumberedPart[]): MenuRename[] {
+  const only = "view" in op ? op.view : undefined;
+  const marked = structuredClone(was.doc);
+  const had: { view: string; list: NumberedPart; count: number }[] = [];
+  for (const view of was.views.values()) {
+    if (only !== undefined && view.id !== only) continue;
+    for (const list of lists) {
+      // The file keeps each list under its kind's name and an s.
+      const items = (marked.views[view.id] as Record<string, { description?: string }[] | undefined> | undefined)?.[`${list}s`];
+      if (!items?.length) continue;
+      items.forEach((item, at) => (item.description = String(at + 1)));
+      had.push({ view: view.id, list, count: items.length });
+    }
+  }
+  if (had.length === 0) return [];
+  let after: Workspace["doc"] | undefined;
+  try {
+    after = applyOperations(marked, [op]).doc;
+  } catch {
+    after = undefined;
+  }
+  return had.flatMap(({ view, list, count }): MenuRename[] => {
+    // A view deleted with the element is followed as that.
+    if (after && !after.views[view]) return [];
+    const left = ((after?.views[view] as Record<string, { description?: string }[] | undefined> | undefined)?.[`${list}s`] ?? []).map((item) => Number(item.description));
+    // The ones left are in the order they were in, each one of those there before.
+    const kept = !!after && left.every((number, at) => Number.isInteger(number) && number >= 1 && number <= count && (at === 0 || number > left[at - 1]!));
+    if (!kept) return [{ kind: "kinds-lost", kinds: [list], view }];
+    const still = new Set(left);
+    const out: MenuRename[] = [];
+    // From the last, so each one's number is still its number as the ones after it go.
+    for (let number = count; number >= 1; number--) if (!still.has(number)) out.push({ kind: "removed", list, view, number });
+    return out;
+  });
+}
 
 /** The operations that add to, change and delete from each numbered list. Each names its number in a field called as the list is, and the number it moves to in `new` and that, as in `newFlow`. */
 const LISTED: Partial<Record<Operation["op"], { list: NumberedPart; does: "add" | "update" | "remove" }>> = Object.fromEntries(
@@ -180,15 +267,20 @@ export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[
     }
     return seen;
   };
-  const followed = ops.flatMap((op, place): MenuRename[] => {
-    // An element's new ID is here too. No view has an element's ID, so it changes nothing.
+  /** What the operation at this place did, but for what it swept from lists that aren't its own. */
+  const did = (op: Operation, place: number): MenuRename[] => {
+    // An element's new ID is here too. No view has an element's ID, so it's no view's.
     if (op.op === "rename") return [{ kind: "view", id: op.id, to: op.to }];
     if (op.op === "remove-view") return [{ kind: "view-gone", id: op.id }];
     if (op.op === "remove-element") {
-      // The views of an element, and of what's inside it, are deleted with it.
+      // What's inside an element is deleted with it, and so are the views of each.
       const was = appliedTo(place);
       if (!was) return [{ kind: "lost" }];
-      return [...was.views.values()].filter((v) => v.scope !== undefined && (v.scope === op.id || isInside(was, v.scope, op.id))).map((v) => ({ kind: "view-gone", id: v.id }));
+      const gone = (id: string) => id === op.id || isInside(was, id, op.id);
+      return [
+        ...[...was.views.values()].filter((v) => v.scope !== undefined && gone(v.scope)).map((v): MenuRename => ({ kind: "view-gone", id: v.id })),
+        ...[...was.elements.keys()].filter(gone).map((id): MenuRename => ({ kind: "element-gone", id })),
+      ];
     }
     const renamed = RENAMES[op.op];
     if (renamed) {
@@ -196,6 +288,8 @@ export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[
       const out: MenuRename[] = [];
       // The cards a card comes from are said under the ID it had, as update-card reads them: each trimmed, and none for null.
       if (op.op === "update-card" && op.from !== undefined) out.push({ kind: "comes-from", view, card: id, from: (op.from ?? []).map((from) => from.trim()) });
+      // And what a node runs, as update-node reads it.
+      if (op.op === "update-node" && op.runs !== undefined) out.push({ kind: "runs", view, node: id, runs: (op.runs ?? []).map((run) => run.trim()) });
       if (newId !== undefined && newId !== id) out.push({ kind: renamed, view, id, to: newId });
       return out;
     }
@@ -236,23 +330,37 @@ export function menuRenamesIn(ops: Operation[], before?: Workspace): MenuRename[
     }
     if (op.op === "remove-attribute") return [{ kind: "attribute-gone", view: op.view, entity: op.entity, name: op.name }];
     return [];
+  };
+  const followed = ops.flatMap((op, place): MenuRename[] => {
+    const out = did(op, place);
+    const lists = SWEEPS[op.op];
+    // A node told anything but what it runs keeps its view's connections.
+    if (!lists || (op.op === "update-node" && op.runs === undefined)) return out;
+    const was = appliedTo(place);
+    if (was) return [...out, ...swept(was, op, lists)];
+    // An element deleted from a workspace there's no telling of has lost everything already.
+    return "view" in op ? [...out, { kind: "kinds-lost", kinds: lists, view: op.view }] : out;
   });
   return before ? followed : [{ kind: "lost" }, ...followed];
 }
 
-type InView = Exclude<MenuRename, { kind: "view" | "view-gone" | "lost" }>;
+type InView = Exclude<MenuRename, { kind: "view" | "view-gone" | "element-gone" | "lost" }>;
 
 /** One thing of a view after something an edit did to the view, or null once it's deleted or lost. */
 function followed(on: Exclude<MenuFor, { kind: "diagram" }>, r: InView): MenuFor | null {
   if (r.kind === "gone") {
-    // An entity's attributes go with it, and a card's arrows.
+    // An entity's attributes go with it, a card's arrows, and what runs in a node.
     if (on.kind === "attribute") return r.what === "entity" && on.entity === r.id ? null : on;
     if (on.kind === "cardArrow") return r.what === "card" && (on.from === r.id || on.to === r.id) ? null : on;
+    if (on.kind === "instance") return r.what === "node" && on.node === r.id ? null : on;
     return on.kind === r.what && on.id === r.id ? null : on;
   }
-  if (r.kind === "kinds-lost") return (r.kinds as string[]).includes(on.kind) ? null : on;
+  // Where there's no telling which nodes went, there's none which of what ran in them did.
+  if (r.kind === "kinds-lost") return (r.kinds as string[]).includes(on.kind === "instance" ? "node" : on.kind) ? null : on;
   // An arrow to the card from one it no longer comes from is gone.
   if (r.kind === "comes-from") return on.kind === "cardArrow" && on.to === r.card && !r.from.includes(on.from) ? null : on;
+  // And so is what the node no longer runs.
+  if (r.kind === "runs") return on.kind === "instance" && on.node === r.node && !r.runs.includes(on.element) ? null : on;
   if (r.kind === "added" || r.kind === "removed" || r.kind === "moved") {
     if (on.kind !== r.list) return on;
     // One added at a number takes it, and the ones from there on go up by one.
@@ -268,9 +376,10 @@ function followed(on: Exclude<MenuFor, { kind: "diagram" }>, r: InView): MenuFor
     if (on.kind !== "attribute" || on.entity !== r.entity || on.name !== r.name) return on;
     return r.kind === "attribute" ? { ...on, name: r.to } : null;
   }
-  // A new ID. An attribute goes by its entity's, and an arrow by the cards' at its ends.
+  // A new ID. An attribute goes by its entity's, an arrow by the cards' at its ends, and what runs in a node by the node's.
   if (on.kind === "attribute") return r.kind === "entity" && on.entity === r.id ? { ...on, entity: r.to } : on;
   if (on.kind === "cardArrow") return r.kind === "card" ? { ...on, from: on.from === r.id ? r.to : on.from, to: on.to === r.id ? r.to : on.to } : on;
+  if (on.kind === "instance") return r.kind === "node" && on.node === r.id ? { ...on, node: r.to } : on;
   return on.kind === r.kind && on.id === r.id ? { ...on, id: r.to } : on;
 }
 
@@ -283,8 +392,13 @@ export function followMenu(on: MenuFor | null, view: string, renames: MenuRename
   for (const r of renames) {
     if (r.kind === "view") {
       if (r.id === view) view = r.to;
+      // An element's new ID: what runs in a node goes by it too.
+      if (on?.kind === "instance" && on.element === r.id) on = { ...on, element: r.to };
     } else if (r.kind === "view-gone") {
       if (r.id === view) on = null;
+    } else if (r.kind === "element-gone") {
+      // Deleted from the model, it runs nowhere.
+      if (on?.kind === "instance" && on.element === r.id) on = null;
     } else if (!on || on.kind === "diagram") {
       continue;
     } else if (r.kind === "lost") {

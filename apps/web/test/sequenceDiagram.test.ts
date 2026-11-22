@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
 import { SequenceDiagram } from "../src/canvas/SequenceDiagram.js";
 import type { Edit } from "../src/state.js";
-import { button, checkbox, choose, click, mount, press, select } from "./dom.js";
+import { button, checkbox, choose, click, menusFor, mount, press, select } from "./dom.js";
 
 /** A shop whose web app calls a controller inside its API, and a mail system nothing uses. */
 const shop: OpenArchDocument = {
@@ -48,6 +48,7 @@ function diagram(model: OpenArchDocument = shop, view = "order", selection: Sele
         edits.push(typeof e === "function" ? e(ws) : e);
         return true;
       },
+      menus: menusFor(view),
       onElementMenu() {},
       onError() {},
       exportItems: [
