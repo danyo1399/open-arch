@@ -160,6 +160,15 @@ describe("what a deployment view's menus can offer", () => {
     // Telling a node what it runs drops the first, which renumbers the second, and core takes the error under its new number for a new one.
     ["a connection to what nothing runs, then one between a node and one inside it", broken((v) => v.connections!.push({ from: "lb", to: "cache" }, { from: "region", to: "lb" }))],
     ["a connection from something to itself, and one between two elements", broken((v) => v.connections!.push({ from: "lb", to: "lb" }, { from: "web", to: "db" }))],
+    // Moving it out is the edit that puts it right: it holds nothing once it isn't inside itself.
+    ["infrastructure inside itself", broken((v) => (v.nodes!.lb!.parent = "lb"))],
+    ["a node inside itself", broken((v) => (v.nodes!.edge!.parent = "edge"))],
+    ["infrastructure and a node inside one another", broken((v) => ((v.nodes!.region!.parent = "lb"), (v.nodes!.lb!.parent = "region")))],
+    ["a node with an element's ID", broken((v) => ((v.nodes!.web = { name: "Web node" }), v.connections!.push({ from: "edge", to: "web" })))],
+    ["a connection to something the view doesn't have", broken((v) => v.connections!.unshift({ from: "lb", to: "nothing" }))],
+    ["what a node runs said twice, and with spaces round it", broken((v) => (v.nodes!.server!.runs = ["web", " api ", "web"]))],
+    // Valid, but more to tell apart: the web app runs in two nodes, one of them inside the region.
+    ["a container that runs in two nodes", broken((v) => ((v.nodes!.edge!.runs = ["web"]), v.connections!.push({ from: "region", to: "web" })))],
   ] as const)("is what core makes when asked, for every edit a menu might offer: with %s", (_, model) => {
     const workspace = buildWorkspace(model);
     const production = workspace.views.get("production")!;
@@ -168,7 +177,9 @@ describe("what a deployment view's menus can offer", () => {
     const [offered, refused] = [offers.filter((op) => made(model, op)), offers.filter((op) => !made(model, op))];
     // Some of each, so both answers are compared.
     expect(Math.min(offered.length, refused.length)).toBeGreaterThan(10);
-    for (const op of offers) expect(deploymentOffers(workspace, production, op), JSON.stringify(op)).toBe(made(model, op));
+    // Every one that differs is named, not only the first.
+    const differ = offers.filter((op) => deploymentOffers(workspace, production, op) !== made(model, op));
+    expect(differ.map((op) => `${made(model, op) ? "made" : "refused"}: ${JSON.stringify(op)}`)).toEqual([]);
   });
 
   it("have for a connection's ends the view's nodes, then what they run, by name", () => {

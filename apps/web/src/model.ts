@@ -597,7 +597,7 @@ export function deploymentAfter(ws: Workspace, view: ViewDef, op: DeploymentOffe
   const change = (node: DeploymentNode): DeploymentNode => {
     const { parent, ...rest } = node;
     const inside = op.parent === undefined ? parent : (op.parent ?? undefined);
-    return { ...rest, ...(inside !== undefined && { parent: inside }), runs: op.runs === undefined ? node.runs : (op.runs ?? []), infrastructure: op.infrastructure ?? node.infrastructure };
+    return { ...rest, ...(inside !== undefined && { parent: inside }), runs: op.runs === undefined ? node.runs : runList(op.runs), infrastructure: op.infrastructure ?? node.infrastructure };
   };
   const nodes = view.nodes.map((n) => (n.id === op.id ? change(n) : n));
   if (op.runs === undefined) return { ...view, nodes };
@@ -625,16 +625,26 @@ function deploymentRules(ws: Workspace, view: ViewDef, op: DeploymentOffer): boo
   }
   const changed = node(op.id);
   if (!changed) return false;
-  if (op.parent != null && op.parent !== changed.parent) {
+  // In update-node's order: where it is, what it runs, then what it is, each as the ones before leave it.
+  let parent = changed.parent;
+  if (op.parent === null) parent = undefined;
+  else if (op.parent !== undefined && op.parent !== changed.parent) {
     // Inside a node that isn't infrastructure, and isn't itself or inside it.
     if (!node(op.parent) || node(op.parent)!.infrastructure) return false;
     for (let at: string | undefined = op.parent, steps = 0; at !== undefined && steps <= view.nodes.length; at = node(at)?.parent, steps++) if (at === op.id) return false;
+    parent = op.parent;
   }
   // What it's told to run is all containers and systems of the model.
-  const runs = op.runs === undefined ? changed.runs : (op.runs ?? []);
+  const runs = op.runs === undefined ? changed.runs : runList(op.runs);
   if (op.runs !== undefined && !runs.every((id) => RUNNABLE_KINDS.includes(ws.elements.get(id)?.kind as ElementKind))) return false;
-  // Infrastructure runs nothing and holds no nodes.
-  return !((op.infrastructure ?? changed.infrastructure) && (runs.length > 0 || view.nodes.some((n) => n.parent === op.id)));
+  // Infrastructure runs nothing and holds no nodes: not even itself, once it's been moved.
+  const holds = view.nodes.some((n) => (n.id === op.id ? parent : n.parent) === op.id);
+  return !((op.infrastructure ?? changed.infrastructure) && (runs.length > 0 || holds));
+}
+
+/** What a node is told to run, as update-node reads it: each ID trimmed, and once. */
+function runList(runs: string[] | null): string[] {
+  return [...new Set((runs ?? []).map((id) => id.trim()).filter(Boolean))];
 }
 
 /** The errors a view's own checks find in it, each by its rule and what it says, as an edit compares them. */
