@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { FORMAT_VERSION } from "@open-arch/core";
 import { SKILL_TARGETS as INIT_TARGETS } from "../../../packages/cli/src/commands/init.js";
 import { VERSION } from "../../../packages/cli/src/io.js";
 import { SKILL_TARGETS, skillFiles } from "../src/skill.js";
@@ -22,5 +23,15 @@ describe("the agent skill the web app puts beside a workspace", () => {
     expect(skillFiles).toEqual(onDisk);
     expect(skillFiles.map((f) => f.path)).toContain("SKILL.md");
     expect(skillFiles.some((f) => f.content.includes("{{version}}"))).toBe(false);
+  });
+
+  it("names the format version the tools write, wherever its format page gives one", () => {
+    const format = skillFiles.find((f) => f.path === "references/format.md")!.content;
+    const older = FORMAT_VERSION - 1;
+    expect(format).toContain(`# The open-arch workspace (format version ${FORMAT_VERSION})`);
+    expect(format).toContain(`"openarch": ${FORMAT_VERSION},`);
+    expect(format).toContain(`| \`openarch\` | Format version, always \`${FORMAT_VERSION}\` |`);
+    expect(format).toContain(`Tools read version 1 to ${older} files too, and write them back as version ${FORMAT_VERSION}.`);
+    expect(format).toContain(`| \`version-unsupported\` | error | \`openarch\` is missing, or not \`${FORMAT_VERSION}\` (or \`1\` to \`${older}\`, which are upgraded) |`);
   });
 });
