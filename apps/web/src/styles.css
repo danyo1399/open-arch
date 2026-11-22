@@ -3444,6 +3444,23 @@ button.active {
 .ask-ai[hidden] {
   display: none;
 }
+/* On the Ask AI button, or the More button on a phone: what Ask AI did while it was hidden. */
+button:has(> .ask-ai-news) {
+  position: relative;
+}
+.ask-ai-news {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: var(--accent);
+}
+.ask-ai-news-waiting {
+  background: var(--danger);
+}
 .ask-ai-header {
   display: flex;
   align-items: baseline;

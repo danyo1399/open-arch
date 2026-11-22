@@ -658,8 +658,105 @@ describe("Ask AI in the desktop app", () => {
     expect(host.querySelector(".toast")).toBeNull();
     // What changed since the request was sent is taken to be the agent's, which doesn't say what it changed.
     expect([...panel().querySelectorAll("button")].map((b) => b.textContent?.trim())).toContain("Undo AI change");
-    await click(panel().querySelector('button[aria-label="Close Ask AI"]')!);
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
     expect(host.querySelector(".toast")!.textContent).toContain("The workspace changed outside this window, so it was reloaded.");
+  });
+
+  it("carries on with a request while it's hidden, and shows on its button when it waits for approval and when it's finished", async () => {
+    let emit: (event: AgentEvent) => void = () => {};
+    let finish = () => {};
+    const agent: AgentBridge = {
+      run: (_path, _prompt, _context, onEvent) =>
+        new Promise<void>((resolve) => {
+          emit = onEvent;
+          finish = resolve;
+        }),
+      reply: async () => {},
+      cancel: async () => {},
+    };
+    const bridge = desktop(agent);
+    const { host, send, log, panel } = await designer([], new DesktopHost(bridge, "/work/shop.openarch", "shop.openarch"));
+    const askButton = () => button(host, "Ask AI");
+    const news = () => askButton().querySelector(".ask-ai-news");
+    await click(askButton());
+    await send("Tidy up");
+    expect(panel().querySelector('button[aria-label="Hide Ask AI"]')!.textContent).toBe("");
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+    expect(panel().hidden).toBe(true);
+    expect(news()).toBeNull();
+
+    // It asks for approval while it's hidden: the button says it's waiting.
+    await act(async () => emit({ type: "permission", id: "p1", description: "run ls" }));
+    expect(news()!.classList.contains("ask-ai-news-waiting")).toBe(true);
+    expect(askButton().title).toBe("Ask AI is waiting for you to approve something.");
+    await click(askButton());
+    expect(news()).toBeNull();
+    await click(button(panel(), "Approve"));
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+
+    // It finishes while it's hidden: the button says so, until it's opened to read the answer.
+    await act(async () => {
+      emit({ type: "done", summary: "Tidied." });
+      finish();
+    });
+    expect(news()!.classList.contains("ask-ai-news-finished")).toBe(true);
+    expect(askButton().title).toBe("Ask AI has finished. Open it to read the answer.");
+    expect(askButton().getAttribute("aria-description")).toBe("Ask AI has finished. Open it to read the answer.");
+    await click(askButton());
+    expect(panel().hidden).toBe(false);
+    expect(log()).toEqual(["Tidy up", "The AI asks to: run lsApproved", "Tidied."]);
+    expect(news()).toBeNull();
+    expect(askButton().title).toBe("Ask an AI agent to change the model");
+  });
+
+  it("shows on the More button and in its menu, on a narrow screen, when it finished while it was hidden", async () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ matches: true, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    try {
+      let finish = () => {};
+      const agent: AgentBridge = {
+        run: (_path, _prompt, _context, onEvent) =>
+          new Promise<void>((resolve) => {
+            finish = () => {
+              onEvent({ type: "done", summary: "Tidied." });
+              resolve();
+            };
+          }),
+        reply: async () => {},
+        cancel: async () => {},
+      };
+      const bridge = desktop(agent);
+      const { host, send, panel } = await designer([], new DesktopHost(bridge, "/work/shop.openarch", "shop.openarch"));
+      const more = () => host.querySelector<HTMLButtonElement>('button[aria-label^="More"]')!;
+      const item = (text: string) => [...document.querySelectorAll<HTMLElement>('.context-menu [role="menuitem"]')].find((i) => i.textContent?.trim() === text);
+      await click(more());
+      await click(item("Ask AI")!);
+      await send("Tidy up");
+      await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+      await act(async () => finish());
+      expect(more().getAttribute("aria-label")).toBe("More. Ask AI has finished. Open it to read the answer.");
+      expect(more().querySelector(".ask-ai-news")).not.toBeNull();
+      await click(more());
+      await click(item("Ask AI · finished")!);
+      expect(panel().hidden).toBe(false);
+      expect(more().getAttribute("aria-label")).toBe("More");
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
+  it("doesn't show news on its button for a request that finished while it was open", async () => {
+    const agent: AgentBridge = {
+      run: async (_path, _prompt, _context, onEvent) => onEvent({ type: "done", summary: "Nothing to change." }),
+      reply: async () => {},
+      cancel: async () => {},
+    };
+    const bridge = desktop(agent);
+    const { host, ask, panel } = await designer([], new DesktopHost(bridge, "/work/shop.openarch", "shop.openarch"));
+    await click(button(host, "Ask AI"));
+    await ask("Tidy up");
+    await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+    expect(button(host, "Ask AI").querySelector(".ask-ai-news")).toBeNull();
   });
 
   it("isn't offered where the app has no agent for the workspace, such as an example", async () => {

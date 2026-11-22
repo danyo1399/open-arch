@@ -70,7 +70,7 @@ import {
   type NotesOwner,
   type Rename,
 } from "./model.js";
-import { AskAI, type Asker } from "./panels/AskAI.js";
+import { AskAI, NEWS_TEXT, type AskNews, type Asker } from "./panels/AskAI.js";
 import { BrowserAskAI } from "./panels/BrowserAskAI.js";
 import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, HistoryDialog, NewViewDialog, NotesEditor } from "./panels/dialogs.js";
@@ -179,6 +179,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   /** How many times the notes editor has opened. */
   const notesOpened = useRef(0);
   const [askOpen, setAskOpen] = useState(false);
+  /** What Ask AI did while it was hidden, for its button to show. */
+  const [askNews, setAskNews] = useState<AskNews | null>(null);
   /** Whether the web app's Ask AI is working on a request. */
   const asking = useRef(false);
   /** Whether a Save is under way that opens the copy it keeps, as a workspace of its own. */
@@ -631,7 +633,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     text: state.text,
     restore: (text: string, from?: string) => state.restore(text, "Undid the AI's change", from),
     open: askOpen,
-    onClose: () => setAskOpen(false),
+    onHide: () => setAskOpen(false),
+    onNews: setAskNews,
   };
   // While the desktop app's Ask AI is open, its agent's edits reload the file again and again, and the panel already says what it changed.
   const message = state.message?.kind === "info" && askOpen && fileAgent ? null : state.message;
@@ -741,7 +744,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     ...(canShare ? [{ label: "Share a link…", onSelect: () => setDialog({ kind: "share" }) }] : []),
     ...(computed && canAutoLayout(computed) ? [{ label: "Auto layout", onSelect: () => autoLayout.current?.run() }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
-    ...(canAsk ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
+    ...(canAsk ? [{ label: askOpen ? "Hide Ask AI" : askNews === "waiting" ? "Ask AI · waiting for you" : askNews ? "Ask AI · finished" : "Ask AI", onSelect: toggleAsk }] : []),
     { label: "History", onSelect: () => setDialog({ kind: "history" }) },
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
     { label: "Close", onSelect: onClose },
@@ -852,8 +855,15 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
           </button>
         )}
         {!narrow && canAsk && (
-          <button className={askOpen ? "active" : ""} aria-pressed={askOpen} onClick={toggleAsk} title={desktop ? "Ask an AI agent to change the model" : "Ask an AI model about the workspace, or to change it"}>
+          <button
+            className={askOpen ? "active" : ""}
+            aria-pressed={askOpen}
+            onClick={toggleAsk}
+            title={askNews ? NEWS_TEXT[askNews] : desktop ? "Ask an AI agent to change the model" : "Ask an AI model about the workspace, or to change it"}
+            aria-description={askNews ? NEWS_TEXT[askNews] : undefined}
+          >
             Ask AI
+            {askNews && <span className={`ask-ai-news ask-ai-news-${askNews}`} aria-hidden="true" />}
           </button>
         )}
         <button className={narrow ? "square" : ""} onClick={state.undo} disabled={!state.canUndo} title={`Undo (${mod}Z)`} aria-label="Undo">
@@ -869,8 +879,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
           </button>
         )}
         {narrow ? (
-          <MenuButton items={moreItems} note={`${fileName} · ${status}`} from="right" className="square" title="More" label="More">
+          <MenuButton items={moreItems} note={`${fileName} · ${status}`} from="right" className="square" title={askNews ? `More. ${NEWS_TEXT[askNews]}` : "More"} label={askNews ? `More. ${NEWS_TEXT[askNews]}` : "More"}>
             <Icon d={MORE_ICON} stroke={3} />
+            {askNews && <span className={`ask-ai-news ask-ai-news-${askNews}`} aria-hidden="true" />}
           </MenuButton>
         ) : (
           <button onClick={onClose}>Close</button>

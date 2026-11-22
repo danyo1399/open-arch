@@ -68,6 +68,18 @@ export function canUndo(undoable: Undoable | null, text: string): boolean {
   return undoable.after === undefined || text === undoable.after;
 }
 
+/**
+ * What happened while the panel was hidden, for the Ask AI button to show: the request finished,
+ * with an answer or an error, or the agent asks for approval and is waiting for it.
+ */
+export type AskNews = "finished" | "waiting";
+
+/** What the Ask AI button says of the news, for its tooltip and for screen readers. */
+export const NEWS_TEXT: Record<AskNews, string> = {
+  finished: "Ask AI has finished. Open it to read the answer.",
+  waiting: "Ask AI is waiting for you to approve something.",
+};
+
 interface AskAIProps {
   /** The same one for as long as the panel is there: a new one stops the request the last was running. */
   agent: Asker;
@@ -86,7 +98,10 @@ interface AskAIProps {
   /** Why a request can't be sent just now, such as the workspace being saved somewhere else, or null when it can. */
   hold?(): string | null;
   open: boolean;
-  onClose(): void;
+  /** Hides the panel. A request that's running carries on. */
+  onHide(): void;
+  /** Hears what happened while the panel was hidden, and null once it's shown again. */
+  onNews?(news: AskNews | null): void;
   /** What the box is for, where it isn't only for changes. */
   asks?: { label: string; placeholder: string };
   /** Shown in place of the log and the box while no request is running, such as settings to fill in first. */
@@ -115,7 +130,7 @@ function formatted(text: string): ReactNode[] {
   });
 }
 
-export function AskAI({ agent, context, contextLabel, text, restore, onRunning, hold, open, onClose, asks = CHANGES, setup: wanted, actions, note }: AskAIProps) {
+export function AskAI({ agent, context, contextLabel, text, restore, onRunning, hold, open, onHide, onNews, asks = CHANGES, setup: wanted, actions, note }: AskAIProps) {
   const [prompt, setPrompt] = useState("");
   const [log, setLog] = useState<Entry[]>([]);
   const [running, setRunning] = useState(false);
@@ -127,6 +142,20 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
   // A request that's running keeps its log and its Stop button, whatever else there is to show.
   const setup = running ? undefined : wanted;
   const logEnd = useRef<HTMLDivElement>(null);
+  /** What happened while the panel was hidden. A request's events come in long after it was sent, so they read whether it's shown now. */
+  const [news, setNews] = useState<AskNews | null>(null);
+  const shown = useRef(open);
+  shown.current = open;
+  const tell = (what: AskNews) => {
+    if (!shown.current) setNews((now) => (now === "finished" ? now : what));
+  };
+  // Showing the panel shows what happened.
+  useEffect(() => {
+    if (open) setNews(null);
+  }, [open]);
+  const onNewsNow = useRef(onNews);
+  onNewsNow.current = onNews;
+  useEffect(() => onNewsNow.current?.(news), [news]);
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "end" });
@@ -157,7 +186,10 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
       changes.current = afterChange(changes.current, event);
       setUndoable(changes.current === "mixed" ? null : changes.current);
     }
-    else if (event.type === "permission") add({ kind: "permission", id: event.id, text: event.description });
+    else if (event.type === "permission") {
+      add({ kind: "permission", id: event.id, text: event.description });
+      tell("waiting");
+    }
     else if (event.type === "permission-replied") setAnswer(event.id, "answered", true);
     else if (event.type === "error") add({ kind: "error", text: problemText(event.message) });
     else {
@@ -191,6 +223,8 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
       busy.current = false;
       setRunning(false);
       onRunning?.(false);
+      // An answer or an error: either way it's finished, and there's something to read.
+      tell("finished");
     }
   };
 
@@ -231,8 +265,10 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
           </button>
         )}
         {!running && actions}
-        <button className="icon" onClick={onClose} aria-label="Close Ask AI">
-          ×
+        <button className="icon" onClick={onHide} aria-label="Hide Ask AI" title="Hide Ask AI. A request carries on while it's hidden, and the Ask AI button shows when it's finished.">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
         </button>
       </header>
       {setup}

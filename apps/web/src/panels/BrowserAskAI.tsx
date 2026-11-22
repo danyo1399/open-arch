@@ -12,7 +12,7 @@ import { FolderHost } from "../folders.js";
 import type { WorkspaceHost } from "../hosts.js";
 import { problemText } from "../problems.js";
 import type { WorkspaceState } from "../state.js";
-import { AskAI } from "./AskAI.js";
+import { AskAI, type AskNews } from "./AskAI.js";
 
 interface BrowserAskAIProps {
   host: WorkspaceHost;
@@ -27,7 +27,8 @@ interface BrowserAskAIProps {
   onRunning?(running: boolean): void;
   hold?(): string | null;
   open: boolean;
-  onClose(): void;
+  onHide(): void;
+  onNews?(news: AskNews | null): void;
   /** The page's `fetch`, unless a test gives its own. */
   fetch?: typeof fetch;
 }

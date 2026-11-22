@@ -61,7 +61,7 @@ describe("what went wrong", () => {
   it("in Ask AI, from the agent or the desktop app, says so when it gives no reason", async () => {
     const errors = async (run: Asker["run"]) => {
       const agent: Asker = { run, reply: async () => {}, cancel: async () => {} };
-      const host = mount(createElement(AskAI, { agent, context: { selection: [] }, contextLabel: "", text: "", restore: async () => true, open: true, onClose() {} }));
+      const host = mount(createElement(AskAI, { agent, context: { selection: [] }, contextLabel: "", text: "", restore: async () => true, open: true, onHide() {} }));
       const box = host.querySelector("textarea")!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "Add a cache");

@@ -302,6 +302,8 @@ Which panels are collapsed, and their sizes, are yours: they're kept in the brow
 
 Each request tells the model which view you have open, and its level, and what you've selected: elements, a relationship, sticky notes, or a view's own things, such as a step, a node, an entity or a whiteboard's shapes. They're named by their IDs, never by their names or titles, so text in a workspace someone else made can't pass for what you asked. Past 50 things, it says how many more there are. So "Describe this" or "Rename these" works on what you picked. The panel shows the same above the box. The desktop app's Ask AI tells its agent the same.
 
+The arrow at the panel's top right hides it. A request carries on while it's hidden, and a dot on the **Ask AI** button, or on **More** on a phone, says when it's finished, so you can open the panel to read the answer.
+
 The page talks to the model's server itself. Nothing goes through a server of open-arch's. The first time, it asks for three settings:
 
 - **Server address**: where the server's API is, such as `https://api.openai.com/v1`. Any server that speaks OpenAI's chat completions API will do: OpenAI, OpenRouter and most other providers, or a model on your own computer, served by Ollama or LM Studio.
@@ -327,7 +329,7 @@ A request stops after 30 steps, in case a model never finishes: ask it to carry 
 
 **Ask AI** sends a request, with the open view and the selection, to OpenCode's local background service, starting it if needed (`opencode serve --service`). Each request gets its own OpenCode session in the file's folder, with the project's `open-arch` skill if `open-arch init` installed it, or else the app's copy.
 
-The agent changes the model only by running the CLI bundled with the app, which checks every change. It asks before running any other command or editing any other file, and it can't edit the .openarch file directly. Approve or deny its requests in the panel. **Undo AI change** puts the file back as it was before the request.
+The agent changes the model only by running the CLI bundled with the app, which checks every change. It asks before running any other command or editing any other file, and it can't edit the .openarch file directly. Approve or deny its requests in the panel. The panel can be hidden while a request runs, as in the web app. If the agent asks for something while it's hidden, a red dot on **Ask AI** says it's waiting for you. **Undo AI change** puts the file back as it was before the request.
 
 OpenCode's default model is used. To use another, start the app with `OPEN_ARCH_AGENT_MODEL=<provider>/<model>`.
 
