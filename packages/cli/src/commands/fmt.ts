@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
-import { pruneLayouts, serializeDocument } from "@open-arch/core";
+import { formatDiagnostic, pruneLayouts, serializeDocument } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile, writeWorkspaceFile } from "../workspace.js";
-import { formatDiagnostic } from "./check.js";
 
 export interface FmtOptions {
   file?: string;

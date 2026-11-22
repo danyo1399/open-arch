@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkspace, checkWorkspace, computeView, exportDocs, GENERATED_MARKER, renderMermaid, viewMarkdown, type OpenArchDocument } from "../src/index.js";
+import { buildWorkspace, checkWorkspace, computeView, exportDocs, formatDiagnostic, GENERATED_MARKER, renderMermaid, viewMarkdown, type OpenArchDocument } from "../src/index.js";
 import { apply, rules, shop } from "./helpers.js";
 
 describe("checkWorkspace", () => {
@@ -24,6 +24,15 @@ describe("checkWorkspace", () => {
       "parent-not-allowed elements.top.parent",
       "view-scope-kind views.bad.scope",
     ]);
+  });
+
+  it("prints a problem with where it is, what's wrong and how to fix it", () => {
+    const doc = shop();
+    doc.elements.customer!.uses = [{ to: "web-ap", description: "Buys" }];
+    const [problem] = checkWorkspace(buildWorkspace(doc));
+    expect(formatDiagnostic(problem!)).toBe('elements.customer.uses[0].to: error [relationship-unknown-target] "web-ap" isn\'t an element.\n  fix: Did you mean "web-app"?');
+    // One with no place in the file, and no fix to suggest.
+    expect(formatDiagnostic({ severity: "warning", rule: "some-rule", message: "Something's off.", path: "" })).toBe("(file): warning [some-rule] Something's off.");
   });
 
   it("warns about a shape on a person, which is always drawn as a person", () => {

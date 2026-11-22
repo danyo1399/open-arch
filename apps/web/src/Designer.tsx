@@ -68,7 +68,8 @@ import {
   type NotesOwner,
   type Rename,
 } from "./model.js";
-import { AskAI } from "./panels/AskAI.js";
+import { AskAI, type Asker } from "./panels/AskAI.js";
+import { BrowserAskAI } from "./panels/BrowserAskAI.js";
 import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, HistoryDialog, NewViewDialog, NotesEditor } from "./panels/dialogs.js";
 import { ShareDialog } from "./panels/ShareDialog.js";
@@ -158,9 +159,11 @@ interface DesignerProps {
   onClose(): void;
   /** After saving an example, or a workspace deleted in another tab: carry on with the saved copy. */
   onHostChange(host: WorkspaceHost): void;
+  /** What the web app's Ask AI reaches its model with: the page's `fetch`, unless a test gives its own. */
+  askFetch?: typeof fetch;
 }
 
-export function Designer({ host, onClose, onHostChange }: DesignerProps) {
+export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProps) {
   const [viewId, setViewId] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   /** What's selected in the latest render, for a press's edit that lands after it. */
@@ -248,6 +251,16 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
   }
   const desktop = desktopBridge();
   const agent = host instanceof DesktopHost ? desktop?.agent : undefined;
+  // The desktop app's agent, asked about the open file: the same one until the file or the agent changes, as a new one stops a request.
+  const fileAgent = useMemo<Asker | undefined>(
+    () =>
+      agent && host instanceof DesktopHost
+        ? { run: (prompt, context, onEvent) => agent.run(host.path, prompt, context, onEvent), reply: (id, allow) => agent.reply(id, allow), cancel: () => agent.cancel() }
+        : undefined,
+    [agent, host],
+  );
+  // The web app asks a model itself, whatever the workspace is kept in. The desktop app asks its agent, which works on a file.
+  const canAsk = !!fileAgent || !desktop;
 
   // Keep a valid view open: the current one if it still exists, else the first in the Views list.
   const { loaded: settingsLoaded, order: viewOrder, pins } = viewSettings;
@@ -597,8 +610,17 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           : selection?.kind === "arrow"
             ? [selection.from, selection.to]
             : [];
-  // While Ask AI is open, the agent's edits reload the file again and again, and the panel already says what it changed.
-  const message = state.message?.kind === "info" && askOpen ? null : state.message;
+  // What either Ask AI panel is given: where the person is, and the file's text, to undo what the AI changed.
+  const ask = {
+    context: { viewId: view?.id, selection: selected },
+    contextLabel: [view ? `In “${view.title}”` : "No view open", selected.length > 0 && `${selected.join(", ")} selected`].filter(Boolean).join(" · "),
+    text: state.text,
+    restore: (text: string) => state.restore(text, "Undid the AI's change"),
+    open: askOpen,
+    onClose: () => setAskOpen(false),
+  };
+  // While the desktop app's Ask AI is open, its agent's edits reload the file again and again, and the panel already says what it changed.
+  const message = state.message?.kind === "info" && askOpen && fileAgent ? null : state.message;
   const syncsDocs = savesDocs(host, state.storage);
   const status =
     state.storage === "file"
@@ -705,7 +727,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     ...(canShare ? [{ label: "Share a link…", onSelect: () => setDialog({ kind: "share" }) }] : []),
     ...(computed && canAutoLayout(computed) ? [{ label: "Auto layout", onSelect: () => autoLayout.current?.run() }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
-    ...(agent ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
+    ...(canAsk ? [{ label: askOpen ? "Hide Ask AI" : "Ask AI", onSelect: toggleAsk }] : []),
     { label: "History", onSelect: () => setDialog({ kind: "history" }) },
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
     { label: "Close", onSelect: onClose },
@@ -813,8 +835,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             Share
           </button>
         )}
-        {!narrow && agent && (
-          <button className={askOpen ? "active" : ""} aria-pressed={askOpen} onClick={toggleAsk} title="Ask an AI agent to change the model">
+        {!narrow && canAsk && (
+          <button className={askOpen ? "active" : ""} aria-pressed={askOpen} onClick={toggleAsk} title={desktop ? "Ask an AI agent to change the model" : "Ask an AI model about the workspace, or to change it"}>
             Ask AI
           </button>
         )}
@@ -1006,18 +1028,8 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           )}
         </NotesOpener.Provider>
         {usagesOf && <Usages ws={ws} id={usagesOf} viewId={viewId} onGo={goToUsage} onClose={() => setUsagesOf(null)} />}
-        {agent && host instanceof DesktopHost && (
-          <AskAI
-            agent={agent}
-            path={host.path}
-            context={{ viewId: view?.id, selection: selected }}
-            contextLabel={[view ? `In “${view.title}”` : "No view open", selected.length > 0 && `${selected.join(", ")} selected`].filter(Boolean).join(" · ")}
-            text={state.text}
-            restore={(text) => state.restore(text, "Undid the AI's change")}
-            open={askOpen}
-            onClose={() => setAskOpen(false)}
-          />
-        )}
+        {fileAgent && <AskAI agent={fileAgent} {...ask} />}
+        {!desktop && <BrowserAskAI host={host} storage={state.storage} change={state.change} afterEdits={state.afterEdits} fetch={askFetch} {...ask} />}
       </main>
 
       <Properties

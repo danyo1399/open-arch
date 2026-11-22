@@ -5,10 +5,9 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { aOrAn, applyOperations, buildWorkspace, OpError, parseOperations, type ArrowEnd, type AttributeKey, type Cardinality, type NewElements, type Operation, type Position, type RelationshipKind, type StickyTargetData, type TagChanges, type Tags } from "@open-arch/core";
+import { aOrAn, applyOperations, buildWorkspace, formatDiagnostic, OpError, parseOperations, type ArrowEnd, type AttributeKey, type Cardinality, type NewElements, type Operation, type Position, type RelationshipKind, type StickyTargetData, type TagChanges, type Tags } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile, syncDocs, writeWorkspaceFile } from "../workspace.js";
-import { formatDiagnostic } from "./check.js";
 import { describeDocs } from "./export.js";
 
 export type Values = Record<string, string | boolean | string[] | undefined>;
