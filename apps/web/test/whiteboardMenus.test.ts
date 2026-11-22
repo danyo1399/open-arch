@@ -271,7 +271,46 @@ describe("the right-click menus of a whiteboard's notes and background", () => {
     await d.rightClick(d.node("db")!);
     expect(d.details()).toBe("Ellipse3 of 4 from the back");
     expect(d.labels()).toContain("Fill");
-    expect((await d.saved()).shapes).toHaveLength(4);
+    await key(document.activeElement!, "Escape");
+    await d.rightClick(d.edge("arrow:reads")!);
+    expect(d.details()).toBe("Arrow");
+    await d.pick("Edit text");
+    expect(document.activeElement!.tagName).toBe("TEXTAREA");
+    await key(document.activeElement!, "Escape");
+    await d.rightClick(d.node("end:look:from")!);
+    expect(d.details()).toBe("Arrow");
+    await key(document.activeElement!, "Escape");
+    await d.rightClick(d.pane(), { x: 1000, y: 1200 });
+    expect(d.details()).toBe("View");
+    await d.pick("Add", "Text");
+    const box = d.host.querySelector<HTMLTextAreaElement>(".wb-text-draft textarea")!;
+    expect(document.activeElement).toBe(box);
+    await write(box, "Later");
+    await d.settle();
+    expect((await d.saved()).shapes.map((s) => s.text ?? s.kind)).toEqual(["Faster checkout", "Cache the menus", "Orders DB", "pen", "Later"]);
+  });
+
+  it("opens no menu while a stroke is being drawn, as a long press on a touch screen asks for one", async () => {
+    const d = await designer();
+    await click(d.host.querySelector('[aria-label="Rectangle"]')!);
+    const at = (x: number, y: number) => ({ bubbles: true, button: 0, pointerId: 7, ...d.onScreen({ x, y }) });
+    await act(async () => {
+      d.pane().dispatchEvent(new PointerEvent("pointerdown", at(1000, 1000)));
+    });
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ...d.onScreen({ x: 1000, y: 1000 }) });
+    await act(async () => {
+      d.node("db")!.dispatchEvent(event);
+      await new Promise<void>((resolve) => setTimeout(resolve));
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(d.menuOpen()).toBe(false);
+    expect(d.details()).toBe("View");
+    // The stroke is drawn as it was going to be.
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent("pointerup", at(1200, 1100)));
+    });
+    await d.settle();
+    expect((await d.saved()).shapes.at(-1)).toMatchObject({ kind: "rectangle", at: [1000, 1000, 200, 100] });
   });
 });
 
@@ -301,6 +340,23 @@ describe("a whiteboard's right-click menu, opened with the keyboard or after an 
       expect(view.arrows.map((a) => a.id), target).toEqual(["look"]);
       expect(view.shapes.some((s) => s.id === "orders"), target).toBe(target !== "db");
     }
+  });
+
+  it("opens on what was clicked while text just typed on the board is being saved, and keeps it selected", async () => {
+    const [d, file] = await slow();
+    await d.rightClick(d.pane(), { x: 1000, y: 1200 });
+    await d.pick("Add", "Text");
+    file.hold = true;
+    // Clicking away saves the text, as a new shape, which is selected once it's saved.
+    await write(d.host.querySelector<HTMLTextAreaElement>(".wb-text-draft textarea")!, "Later");
+    await d.rightClick(d.node("db")!);
+    expect(d.menuOpen()).toBe(false);
+    file.release();
+    await d.settle();
+    expect((await d.saved()).shapes.at(-1)).toMatchObject({ kind: "text", text: "Later" });
+    expect(d.menuOpen()).toBe(true);
+    expect(d.details()).toBe("Ellipse3 of 5 from the back");
+    expect(d.labels()).toContain("Fill");
   });
 
   it("doesn't open on an arrow that goes with a shape deleted just before", async () => {

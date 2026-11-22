@@ -625,7 +625,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
   const picked = useMemo(() => selectedShapes(selection, boxes), [selection, boxes]);
   /** The arrows for ELK to lay out, with their labels' sizes. */
   const arrows = useMemo(() => layoutEdges(cv?.edges ?? []), [cv]);
-  const graphKey = `${view.id}|${ids.join(",")}|${arrows.map((e) => `${e.from}>${e.to}`).join(",")}|${rowGap(arrows)}`;
+  // Not the view's ID: another view is drawn by another canvas, and one given a new ID keeps its layout.
+  const graphKey = `${ids.join(",")}|${arrows.map((e) => `${e.from}>${e.to}`).join(",")}|${rowGap(arrows)}`;
   const missing = ids.some((id) => !saved[id]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
