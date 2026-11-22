@@ -706,6 +706,19 @@ describe("renamesBetween", () => {
     ]);
   });
 
+  it("finds a flowchart's rename when an element one of its lanes is for is renamed too", () => {
+    const flow = applyOperations(shop, [
+      { op: "add-view", id: "buying", level: "flowchart", title: "Buying" },
+      { op: "add-lane", view: "buying", id: "buyer", element: "customer" },
+    ]).doc;
+    const renamed = applyOperations(flow, [
+      { op: "rename", id: "customer", to: "shopper" },
+      { op: "update-view", id: "buying", title: "Shopping" },
+      { op: "rename", id: "buying", to: "shopping" },
+    ]).doc;
+    expect(renamesBetween(buildWorkspace(flow), buildWorkspace(renamed)).map((r) => `${r.id}>${r.to}`)).toEqual(["customer>shopper", "buying>shopping"]);
+  });
+
   it("finds an element's rename once that of the element it's in, or uses, is known", () => {
     expect(
       between([

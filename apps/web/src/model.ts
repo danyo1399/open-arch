@@ -946,6 +946,7 @@ export function renamesBetween(before: Workspace, after: Workspace): Rename[] {
       steps: v.steps?.map((step) => ({ ...step, from: to(step.from), to: to(step.to) })),
       stickies: v.stickies && Object.fromEntries(Object.entries(v.stickies).map(([id, s]) => [id, { ...s, on: s.on && followTarget(s.on, to) }])),
       nodes: v.nodes && Object.fromEntries(Object.entries(v.nodes).map(([id, n]) => [id, { ...n, runs: n.runs?.map(to) }])),
+      lanes: v.lanes?.map((l) => ({ ...l, element: l.element && to(l.element) })),
       connections: v.connections?.map((c) => ({ ...c, from: Object.hasOwn(v.nodes ?? {}, c.from) ? c.from : to(c.from), to: Object.hasOwn(v.nodes ?? {}, c.to) ? c.to : to(c.to) })),
     });
 
@@ -1024,8 +1025,6 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
       case "update-transition":
       case "remove-transition":
       // So are an event view's lanes and cards.
-      case "add-lane":
-      case "update-lane":
       case "remove-lane":
       case "add-card":
       case "update-card":
@@ -1064,6 +1063,10 @@ export function followRenames(ops: Operation[], renames: Rename[]): Operation[] 
         return { ...op, view: follow(op.view) };
       case "add-step":
         return { ...op, view: follow(op.view), from: follow(op.from), to: follow(op.to) };
+      // A lane's ID is its view's own; the element a flowchart's lane is for is an element.
+      case "add-lane":
+      case "update-lane":
+        return { ...op, view: follow(op.view), ...(op.element && { element: follow(op.element) }) };
       // A node's ID is its view's own; what it runs, and a connection's ends when they aren't nodes, are elements.
       case "add-node":
       case "update-node":

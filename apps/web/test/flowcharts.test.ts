@@ -404,6 +404,17 @@ describe("a flowchart view in the designer", () => {
     expect(followRenames([{ op: "add-flow", view: "returns", from: "asked", to: "done" }], renames)).toEqual([{ op: "add-flow", view: "refunds", from: "asked", to: "done" }]);
     expect(followRenames([{ op: "update-block", view: "returns", id: "asked", text: "Hi" }], renames)).toEqual([{ op: "update-block", view: "refunds", id: "asked", text: "Hi" }]);
   });
+
+  it("follows a renamed element in the lane operations that make a lane for it", () => {
+    const renames = [
+      { op: "rename" as const, id: "returns", to: "refunds" },
+      { op: "rename" as const, id: "customer", to: "shopper" },
+    ];
+    expect(followRenames([{ op: "add-lane", view: "returns", id: "customer", element: "customer" }], renames)).toEqual([{ op: "add-lane", view: "refunds", id: "customer", element: "shopper" }]);
+    expect(followRenames([{ op: "update-lane", view: "returns", id: "customer", element: "customer" }], renames)).toEqual([{ op: "update-lane", view: "refunds", id: "customer", element: "shopper" }]);
+    // A lane's own ID isn't an element's, and taking it off its element stays as it is.
+    expect(followRenames([{ op: "update-lane", view: "returns", id: "customer", element: null }], renames)).toEqual([{ op: "update-lane", view: "refunds", id: "customer", element: null }]);
+  });
 });
 
 describe("a block's details", () => {
