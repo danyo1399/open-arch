@@ -336,12 +336,11 @@ describe("a menu's target, followed through the edits that land before it opens"
       { op: "rename", id: "api", to: "gateway" },
       { op: "remove-element", id: "gateway" },
     ];
-    // The workspace the edit started from has no such element, so it alone says nothing went.
     expect(menuRenamesIn(renamed, buildWorkspace(scoped))).toEqual([
       { kind: "view", id: "api", to: "gateway" },
       { kind: "view-gone", id: "returns" },
     ]);
-    // The delete alone, told with the workspace the rename left, loses the same view.
+    // The workspace the edit started from has no such element, so it alone says nothing went.
     expect(menuRenamesIn([renamed[1]!], buildWorkspace(applyOperations(buildWorkspace(scoped).doc, [renamed[0]!]).doc))).toEqual([{ kind: "view-gone", id: "returns" }]);
     expect(followMenu({ kind: "diagram" }, "returns", menuRenamesIn(renamed, buildWorkspace(scoped))).on).toBeNull();
     expect(followMenu({ kind: "diagram" }, "data", menuRenamesIn(renamed, buildWorkspace(scoped))).on).toEqual({ kind: "diagram" });

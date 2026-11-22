@@ -365,7 +365,10 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, menus, e
   };
 
   /** An arrow's menu deletes it: the card it goes to no longer comes from the other. */
-  const arrowMenu = (from: string, to: string): MenuItem[] => cardArrowDeleteOps(view, from, to).flatMap((op) => withDelete(edits, [], "Delete arrow", op));
+  const arrowMenu = (from: string, to: string): MenuItem[] => {
+    const [remove] = cardArrowDeleteOps(view, from, to);
+    return remove ? withDelete(edits, [], "Delete arrow", remove) : [];
+  };
 
   /**
    * The right-click menus: for a card, an arrow, a lane or a sticky note, which the click selects,

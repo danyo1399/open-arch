@@ -197,6 +197,11 @@ describe("a widget's right-click menu", () => {
     await d.rightClick(d.node("widget:card")!);
     await d.pick("Add after", "Divider");
     expect(on(await d.saved()).payment).toEqual(["card(input)", "divider", "blank"]);
+    // A row takes one inside it as a panel does, after the ones it has.
+    await d.rightClick(d.node("widget:actions")!);
+    await d.pick("Add inside", "Image");
+    expect(on(await d.saved()).cart).toEqual(["title", "actions(pay checkbox back image)"]);
+    expect(d.details()).toBe("Image4 of 4 in row actions");
   });
 
   it("changes its kind: what holds widgets can only become the other kind that does", async () => {
@@ -252,6 +257,17 @@ describe("a widget's right-click menu", () => {
     expect(d.labels()).toEqual(["Panel: Card [card]"]);
     await d.pick("Panel: Card [card]");
     expect(on(await d.saved()).payment).toEqual(["card(back)", "blank"]);
+    // From inside a panel, another screen is the screen itself, not a row or a panel on it.
+    await d.rightClick(d.node("widget:back")!);
+    await d.pick("Move to screen", "Cart");
+    expect(on(await d.saved())).toEqual({ cart: ["title", "actions(pay)", "back"], payment: ["card", "blank"], done: [] });
+    // And from inside a row, with what's inside it going along.
+    const deep = structuredClone(doc);
+    deep.views.checkout!.screens![0]!.widgets![1]!.widgets!.push({ id: "more", kind: "panel", widgets: [{ id: "help", kind: "link", text: "Help" }] });
+    const m = await designer(deep);
+    await m.rightClick(m.node("widget:more")!);
+    await m.pick("Move to screen", "Done");
+    expect(on(await m.saved())).toEqual({ cart: ["title", "actions(pay back)"], payment: ["card", "blank"], done: ["more(help)"] });
     // A panel can't go into itself, or into what's inside it.
     const nested = structuredClone(doc);
     nested.views.checkout!.screens![1]!.widgets = [{ id: "card", kind: "panel", text: "Card", widgets: [{ id: "inner", kind: "row" }] }, { id: "other", kind: "panel" }];
