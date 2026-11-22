@@ -571,7 +571,7 @@ export function blockText(block: Pick<Block, "id" | "text">): string {
   return block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? block.id;
 }
 
-/** What each choice of heads for a whiteboard's arrow is called, where one is picked. */
+/** Each way a whiteboard's arrow can have heads, as the details and its menu list them. */
 export const HEADS_TEXT: Record<ArrowHeads, string> = { end: "Arrow: one way", both: "Arrow: both ways", none: "Line: no heads" };
 
 /** The nodes of a deployment view, and the containers and systems they run, for picking a connection's end. */

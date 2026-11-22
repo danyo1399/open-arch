@@ -52,7 +52,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@fontsource/architects-daughter/400.css";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import { boardItemsOf, HEADS_TEXT, newStickyId, selectBoard, uniqueAmong, whiteboardDeleteOps } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
@@ -399,15 +399,17 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
 
   /**
    * Adds a shape or an arrow, with its kind as its ID, or its kind and a number, that nothing has,
-   * not even what an edit still on its way adds. Says its ID once it's saved, or null when it's
-   * refused, which frees the ID again.
+   * not even what an edit still on its way adds, and selects it once it's saved. A refused one
+   * frees the ID again. It's selected straight on from the edit, as an edit's own select is on
+   * every view: a right-click menu waiting for the edit opens a step after, on what was clicked.
    */
-  const addNew = async (base: string, make: (id: string) => Operation): Promise<string | null> => {
+  const addNew = (base: string, make: (id: string) => Operation, selects?: (id: string) => Selection) => {
     const id = uniqueAmong([...view.shapes.map((s) => s.id), ...view.arrows.map((a) => a.id), ...issued.current], base);
     issued.current.add(id);
-    const ok = await edit([make(id)]);
-    if (!ok) issued.current.delete(id);
-    return ok ? id : null;
+    void edit([make(id)]).then((ok) => {
+      if (!ok) issued.current.delete(id);
+      else if (selects) select(selects(id));
+    });
   };
 
   const finishShape = useCallback(
@@ -650,7 +652,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
   /** Draws an arrow from a shape to another, or to a point. */
   const addArrow = useCallback(
     (from: ArrowEnd, to: ArrowEnd, line = false) => {
-      void addNew(line ? "line" : "arrow", (id) => ({ op: "add-arrow", view: view.id, id, from, to, heads: line ? "none" : undefined })).then((id) => id && select({ kind: "boardArrow", id }));
+      addNew(line ? "line" : "arrow", (id) => ({ op: "add-arrow", view: view.id, id, from, to, heads: line ? "none" : undefined }), (id) => ({ kind: "boardArrow", id }));
     },
     // addNew reads the view, which is in the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -680,7 +682,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
 
   /** Adds a shape, and selects it. */
   const addShape = (kind: ShapeKind, at: [number, number, number, number]) => {
-    void addNew(kind, (id) => ({ op: "add-shape", view: view.id, id, kind, at })).then((id) => id && select({ kind: "shape", id }));
+    addNew(kind, (id) => ({ op: "add-shape", view: view.id, id, kind, at }), (id) => ({ kind: "shape", id }));
   };
 
   /** + Add's shapes go in the middle of the canvas, where nothing else starts. */
@@ -710,7 +712,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
     setDraft(null);
     setTool("select");
     if (!at || text === null || !text.trim()) return;
-    void addNew("text", (id) => ({ op: "add-shape", view: view.id, id, kind: "text", text, at: [Math.round(at.x), Math.round(at.y)] })).then((id) => id && select({ kind: "shape", id }));
+    addNew("text", (id) => ({ op: "add-shape", view: view.id, id, kind: "text", text, at: [Math.round(at.x), Math.round(at.y)] }), (id) => ({ kind: "shape", id }));
   };
 
   /** What a drag with a drawing tool made, once it's let go. */
@@ -727,7 +729,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
     } else if (d.tool === "pen") {
       // Points nearer the line than a pixel on the screen add nothing to it.
       const line = simplifyLine(d.points, 1 / zoom);
-      void addNew("pen", (id) => ({ op: "add-shape", view: view.id, id, kind: "pen", at: line.at, points: line.points }));
+      addNew("pen", (id) => ({ op: "add-shape", view: view.id, id, kind: "pen", at: line.at, points: line.points }));
     } else if (d.tool === "text") {
       // On a shape that has text, the text tool writes in it.
       const on = view.shapes.find((s) => s.id === shapeAt(inOrder, d.start));
@@ -999,6 +1001,13 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
   });
   /** What a right-click on one of these is for: the several selected together, when it's one of them, or else itself. */
   const clicked = (which: "shapes" | "arrows" | "stickies", id: string, alone: Selection): Selection => (selection?.kind === "board" && items[which].includes(id) ? selection : alone);
+  /** A stroke being drawn, as the press that started it left it: a menu asked for mid-stroke, as a long press on a touch screen asks for one, isn't opened. */
+  const drawingNow = useRef(false);
+  drawingNow.current = drawing !== null;
+  const openMenu = (event: ReactMouseEvent | MouseEvent, on: Selection) => {
+    if (drawingNow.current) return event.preventDefault();
+    menu.open(event, on);
+  };
 
   const empty = view.shapes.length === 0 && view.arrows.length === 0 && view.stickies.length === 0;
   const selecting = tool === "select";
@@ -1046,12 +1055,12 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
           // A right-click opens a menu whichever tool is picked: only the left button draws.
           onNodeContextMenu={(event, node) => {
             // An arrow's grip is its arrow's.
-            if (node.type === "end") return menu.open(event, clicked("arrows", (node as EndFlowNode).data.arrow, { kind: "boardArrow", id: (node as EndFlowNode).data.arrow }));
+            if (node.type === "end") return openMenu(event, clicked("arrows", (node as EndFlowNode).data.arrow, { kind: "boardArrow", id: (node as EndFlowNode).data.arrow }));
             const picked = pickedBy(node);
-            if (picked) menu.open(event, clicked(picked.which, picked.id, picked.selection));
+            if (picked) openMenu(event, clicked(picked.which, picked.id, picked.selection));
           }}
-          onEdgeContextMenu={(event, edge) => edge.data && menu.open(event, clicked("arrows", edge.data.arrow.id, { kind: "boardArrow", id: edge.data.arrow.id }))}
-          onPaneContextMenu={(event) => menu.open(event, null)}
+          onEdgeContextMenu={(event, edge) => edge.data && openMenu(event, clicked("arrows", edge.data.arrow.id, { kind: "boardArrow", id: edge.data.arrow.id }))}
+          onPaneContextMenu={(event) => openMenu(event, null)}
           onSelectionStart={() => {
             boxed.current = new Set();
           }}

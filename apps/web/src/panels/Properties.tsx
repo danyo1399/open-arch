@@ -1807,7 +1807,6 @@ function Swatches<T extends string>({ label, value, options, look, none, onChang
   );
 }
 
-/** Each way an arrow can have heads, as the panel lists them. */
 
 /** A shape's ID, or an arrow's, as the panel changes it: a new one that's free among both. */
 function boardIdFor(view: ViewDef, id: string) {
