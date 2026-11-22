@@ -1358,14 +1358,15 @@ function setScope(doc: OpenArchDocument, viewId: string, scope: string | null) {
   const is = `View "${viewId}" is ${aOrAn(level)} ${level} view`;
   if (!kinds.length) throw new OpError(`${is}, which doesn't take a scope.`);
   if (!OPTIONAL_SCOPE_LEVELS.includes(level)) throw new OpError(`${is}. Its scope is what it draws, so it can't change: add a view of the other ${kindList(kinds)} instead.`);
-  if (scope === null || !scope.trim()) {
+  const id = scope?.trim();
+  if (!id) {
     delete view.scope;
     return;
   }
   const ws = buildWorkspace(doc);
-  const problems = scopeProblems(ws, { ...ws.views.get(viewId)!, scope });
+  const problems = scopeProblems(ws, { ...ws.views.get(viewId)!, scope: id });
   if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
-  view.scope = scope;
+  view.scope = id;
 }
 
 /**

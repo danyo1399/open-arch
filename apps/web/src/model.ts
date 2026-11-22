@@ -259,6 +259,9 @@ export function addViewOp(ws: Workspace, level: ViewLevel, scope: string | undef
   return { op: "add-view", id: uniqueId(ws, idFromName(title) || "view"), level, scope, title };
 }
 
+/** The label of the field that picks what a state, wireframe, flowchart or entity view is of, in the New view dialog and the view's details. */
+export const SCOPE_LABELS: Partial<Record<ViewLevel, string>> = { state: "The states of", wireframe: "The screens of", flowchart: "The process of", entity: "The data of" };
+
 /** What a view of each level is called in a menu. */
 export const LEVEL_NAMES: Record<ViewLevel, string> = {
   landscape: "Landscape view",

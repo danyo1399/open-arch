@@ -1,5 +1,6 @@
 import {
   allWidgets,
+  aOrAn,
   ARROW_HEADS,
   ARROW_SIDES,
   arrowName,
@@ -16,6 +17,7 @@ import {
   endShape,
   endSide,
   kindLabel,
+  kindList,
   nodeKindLabel,
   OPTIONAL_SCOPE_LEVELS,
   PARENT_KINDS,
@@ -91,6 +93,7 @@ import {
   idFromName,
   LEVEL_NAMES,
   relationshipRef,
+  SCOPE_LABELS,
   shownInProperties,
   stickyChoices,
   stickyKey,
@@ -2250,13 +2253,16 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
 function ScopeField({ ws, view, edit }: { ws: Workspace; view: ViewDef; edit: PropertiesProps["edit"] }) {
   const kinds = SCOPE_KINDS[view.level];
   const scopes = [...ws.elements.values()].filter((e) => kinds.includes(e.kind)).sort(byName);
-  const label = view.level === "wireframe" ? "The screens of" : view.level === "flowchart" ? "The process of" : view.level === "entity" ? "The data of" : "The states of";
+  // A file can be linked to what isn't an element, or to one this view can't be of. Say which.
+  const current = view.scope ? ws.elements.get(view.scope) : undefined;
   return (
     <label className="field">
-      <span className="field-label">{label}</span>
+      <span className="field-label">{SCOPE_LABELS[view.level]}</span>
       <select value={view.scope ?? ""} onChange={(e) => void edit([{ op: "update-view", id: view.id, scope: e.target.value || null }])}>
         <option value="">Nothing in particular</option>
-        {view.scope && !scopes.some((e) => e.id === view.scope) && <option value={view.scope}>{view.scope} (not an element)</option>}
+        {view.scope && !scopes.some((e) => e.id === view.scope) && (
+          <option value={view.scope}>{current ? `${current.name} [${kindLabel(current)}] (not ${aOrAn(kinds[0]!)} ${kindList(kinds)})` : `${view.scope} (not an element)`}</option>
+        )}
         {scopes.map((e) => (
           <option key={e.id} value={e.id}>
             {e.name} [{kindLabel(e)}]

@@ -142,6 +142,16 @@ describe("What a view is of, in its details", () => {
     expect(options(field)).toEqual(["Nothing in particular", "Shop [System]", "Web [Container]"]);
   });
 
+  it("says when a view is linked to what isn't an element, or to one it can't be of", () => {
+    const linked = (scope: string) => select(mount(panel({ ...model, views: { ...model.views, screens: { title: "Screens", level: "wireframe", scope } } }, "screens", null).element), "The screens of");
+    const wrongKind = linked("customer");
+    expect(wrongKind.value).toBe("customer");
+    expect(options(wrongKind)).toEqual(["Nothing in particular", "Customer [Person] (not a system or container)", "Shop [System]", "Web [Container]"]);
+    const unknown = linked("gone");
+    expect(unknown.value).toBe("gone");
+    expect(options(unknown)).toEqual(["Nothing in particular", "gone (not an element)", "Shop [System]", "Web [Container]"]);
+  });
+
   it("offers no choice where the scope is what the view draws, or it takes none", () => {
     const host = mount(panel(model, "shop-containers", null).element);
     expect(host.textContent).toContain("ScopeShop");

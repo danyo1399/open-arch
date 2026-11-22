@@ -1,5 +1,5 @@
 import { kindLabel, kindList, LEVEL_TITLE, SCOPE_KINDS, VIEW_LEVELS, type Operation, type ViewLevel, type Workspace } from "@open-arch/core";
-import { addViewOp, deletePlan } from "../model.js";
+import { addViewOp, deletePlan, SCOPE_LABELS } from "../model.js";
 import type { Version } from "../state.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Format, RichNotes } from "./richNotes.js";
@@ -530,7 +530,7 @@ export function NewViewDialog({ ws, onCreate, onClose }: { ws: Workspace; onCrea
       )}
       {optional && (
         <label className="field">
-          <span className="field-label">{level === "wireframe" ? "The screens of" : level === "flowchart" ? "The process of" : level === "entity" ? "The data of" : "The states of"}</span>
+          <span className="field-label">{SCOPE_LABELS[level]}</span>
           <select value={scopeId ?? ""} onChange={(e) => setScope(e.target.value)}>
             <option value="">Nothing in particular</option>
             {scopes.map((s) => (

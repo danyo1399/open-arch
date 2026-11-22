@@ -218,6 +218,7 @@ describe("views", () => {
     expect(doc.views.returns!.scope).toBeUndefined();
     expect(doc.views.returns!.blocks).toHaveLength(1);
     expect(apply(doc, { op: "update-view", id: "returns", scope: "" }).views.returns!.scope).toBeUndefined();
+    expect(apply(doc, { op: "update-view", id: "returns", scope: " web-app " }).views.returns!.scope).toBe("web-app");
 
     doc = apply(doc, { op: "add-view", id: "order-states", level: "state", scope: "api" }, { op: "update-view", id: "order-states", scope: "customer" });
     expect(doc.views["order-states"]!.scope).toBe("customer");
