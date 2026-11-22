@@ -1,14 +1,14 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, computeView, type ArchElement, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, type ArchElement, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
-import { addableKinds, withFrame, type Selection } from "../src/canvas/Canvas.js";
+import { addableKinds, addElementOps, withFrame, type Selection } from "../src/canvas/Canvas.js";
 import type { ElementFlowNode, FrameFlowNode } from "../src/canvas/nodes.js";
 import { deletePlan, followRenames, renamesBetween, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import type { Edit } from "../src/state.js";
-import { checkbox, choose, click, mount } from "./dom.js";
+import { button, checkbox, choose, click, mount } from "./dom.js";
 
 /** A shop whose API is built with a logging library, and whose web app isn't. */
 const shop: OpenArchDocument = {
@@ -42,6 +42,31 @@ describe("a library on the diagram", () => {
     expect(addableKinds(ws, ws.views.get("components")!)).toContainEqual({ kind: "library", builtInto: "api", label: "Library built into API" });
   });
 
+  it("can be added to a container view, built into nothing yet", () => {
+    expect(addableKinds(ws, ws.views.get("containers")!)).toEqual([
+      { kind: "container", parent: "shop", label: "Container in Shop" },
+      { kind: "library", label: "Shared library" },
+      { kind: "person", label: "Person" },
+      { kind: "system", label: "Software system" },
+    ]);
+  });
+
+  it("is added to a component view as a box, and its container is built with it", () => {
+    const layout = { orders: [0, 0] as [number, number] };
+    expect(addElementOps(ws, ws.views.get("components")!, "new-library", { kind: "library", builtInto: "api" }, layout, { x: 40, y: 200 })).toEqual([
+      { op: "add-element", id: "new-library", kind: "library", parent: undefined, name: "New library" },
+      { op: "update-element", id: "api", libraries: ["logging", "new-library"] },
+      { op: "show-in-view", view: "components", id: "new-library" },
+      { op: "set-layout", view: "components", positions: { orders: [0, 0], "new-library": [40, 200] } },
+    ]);
+  });
+
+  it("is added from a container view to the model only, as that view draws no libraries", () => {
+    const ops = addElementOps(ws, ws.views.get("containers")!, "new-library", { kind: "library" }, { api: [0, 0] }, { x: 40, y: 200 });
+    expect(ops).toEqual([{ op: "add-element", id: "new-library", kind: "library", parent: undefined, name: "New library" }]);
+    expect(applyOperations(shop, ops).doc.elements["new-library"]).toEqual({ kind: "library", name: "New library" });
+  });
+
   it("is shown and hidden only where a view could draw it", () => {
     const action = (view: string, id: string) => viewAction(ws, ws.views.get(view)!, computeView(ws, ws.views.get(view)!), id);
     expect(action("components", "logging")).toBe("hide");
@@ -66,9 +91,10 @@ describe("a library in the model", () => {
   });
 });
 
-/** The details panel showing an element, keeping the edits it sends. */
-function panel(id: string) {
+/** The details panel showing an element of `ws`, keeping the edits it sends and what it selects. */
+function panel(id: string, ws = buildWorkspace(shop)) {
   const edits: Operation[][] = [];
+  const selected: { selection: Selection; isNew?: boolean }[] = [];
   const view = ws.views.get("components")!;
   const element = createElement(Properties, {
     ws,
@@ -84,7 +110,7 @@ function panel(id: string) {
       edits.push(typeof e === "function" ? e(ws) : e);
       return true;
     },
-    onSelect() {},
+    onSelect: (selection: Selection, options?: { isNew?: boolean }) => void selected.push({ selection, ...options }),
     onHide() {},
     onDelete() {},
     onFindUsages() {},
@@ -93,7 +119,7 @@ function panel(id: string) {
     onDeleteView() {},
     onEditNotes() {},
   });
-  return { host: mount(element), edits };
+  return { host: mount(element), edits, selected };
 }
 
 describe("a library's details", () => {
@@ -110,6 +136,27 @@ describe("a library's details", () => {
     const { host, edits } = panel("web");
     await click(checkbox(host, "Logging"));
     expect(edits).toEqual([[{ op: "update-element", id: "web", libraries: ["logging"] }]]);
+  });
+
+  it("add a new library to a container, and open it to name it", async () => {
+    const { host, edits, selected } = panel("web");
+    await click(button(host, "+ New library"));
+    expect(edits).toEqual([
+      [
+        { op: "add-element", id: "new-library", kind: "library", name: "New library" },
+        { op: "update-element", id: "web", libraries: ["new-library"] },
+      ],
+    ]);
+    expect(selected).toEqual([{ selection: { kind: "element", id: "new-library" }, isNew: true }]);
+  });
+
+  it("add a container's first library, in a workspace with none", async () => {
+    const { logging: _logging, logger: _logger, ...elements } = shop.elements;
+    const none = buildWorkspace({ ...shop, elements: { ...elements, api: { kind: "container", name: "API", parent: "shop" } } });
+    const { host, edits } = panel("api", none);
+    expect(host.textContent).toContain("Libraries");
+    await click(button(host, "+ New library"));
+    expect(edits[0]![1]).toEqual({ op: "update-element", id: "api", libraries: ["new-library"] });
   });
 
   it("offer a library as a class's parent", () => {
