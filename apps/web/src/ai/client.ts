@@ -109,17 +109,21 @@ class Calls {
     const name = typeof part.function?.name === "string" ? part.function.name : "";
     // By its number; without one, by its ID; with neither, it's more of the last call.
     let at = typeof part.index === "number" ? this.places.get(part.index) : id ? this.calls.findIndex((c) => c.id === id) : this.calls.length - 1;
-    // Some servers number every call 0. A new ID there starts a new call. So does a name, with no ID, once the call
-    // before has all its arguments, or has none and another name: a call that takes none can come with no text for them.
+    // Some servers number every call 0. A new ID there starts a new call. Where the server gives no IDs at all, a name
+    // does, once the call before has all its arguments, or has none and another name: a call that takes none can come
+    // with no text for them. A server that gives IDs marks each new call with one, so a name without one is more of the
+    // call's own name.
     const last = at !== undefined && at >= 0 ? this.calls[at]! : undefined;
-    if (last && (id ? last.id && last.id !== id : name && last.name && (complete(last.args) || (last.args === "" && name !== last.name)))) at = undefined;
+    const another = last && (id ? !!last.id && last.id !== id : !!name && !last.id && !!last.name && (complete(last.args) || (last.args === "" && name !== last.name)));
+    if (another) at = undefined;
     if (at === undefined || at < 0) {
       at = this.calls.push({ id, name: "", args: "" }) - 1;
       if (typeof part.index === "number") this.places.set(part.index, at);
     }
     const call = this.calls[at]!;
     call.id ||= id;
-    // The name comes whole with the call's first piece. A server that sends it again with later pieces sends the same one.
+    // The name usually comes whole with the call's first piece. A server that sends it again with later pieces sends the
+    // same one, and one that sends it in pieces has each go on the end.
     if (name && name !== call.name) call.name = id || !call.name ? name : call.name + name;
     const args = part.function?.arguments;
     if (typeof args === "string") call.args += args;

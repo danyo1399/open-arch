@@ -104,6 +104,18 @@ describe("asking a model from the page", () => {
     // The same, for calls that take no arguments and come with no text for them: another name is another call.
     const bare = await names([call({ index: 0, function: { name: "show_model", arguments: "" } }), call({ index: 0, function: { name: "check_model", arguments: "" } }), call({ index: 0, function: { name: "read_guide" } })]);
     expect(bare.map((c) => c.replace(/^call_\d+ /, ""))).toEqual(["show_model ", "check_model ", "read_guide "]);
+    // A name that comes in pieces, from a server that gives IDs: one call, as each new call there has an ID of its own.
+    expect(
+      await names([
+        call({ index: 0, id: "a", function: { name: "show_", arguments: "" } }),
+        call({ index: 0, function: { name: "model" } }),
+        call({ index: 0, function: { arguments: '{"id":"shop"}' } }),
+        call({ index: 1, id: "b", function: { name: "check_", arguments: "" } }),
+        call({ index: 1, function: { name: "model", arguments: "{}" } }),
+      ]),
+    ).toEqual(['a show_model {"id":"shop"}', "b check_model {}"]);
+    // And every call numbered 0 there: a piece with a name and no ID is still more of the same call, even once its arguments are whole.
+    expect(await names([call({ index: 0, id: "a", function: { name: "show_model", arguments: "{}" } }), call({ index: 0, function: { name: "show_model", arguments: "" } }), call({ index: 0, id: "b", function: { name: "check_model", arguments: "{}" } })])).toEqual(["a show_model {}", "b check_model {}"]);
     // A server that sends the name again with each piece of one call's arguments: still one call, with its name once.
     const repeated = await names([
       call({ index: 0, function: { name: "show_model", arguments: '{"id":' } }),
