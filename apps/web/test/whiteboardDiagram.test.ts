@@ -8,7 +8,7 @@ import { boxedSelection, drawnArrowEnds, drawnBox, dropEnd, endAt, moveOps, Whit
 import type { PlacedShape } from "../src/canvas/whiteboard.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, click, key, mount } from "./dom.js";
+import { button, click, key, menusFor, mount } from "./dom.js";
 
 const shop: OpenArchDocument = {
   openarch: 20,
@@ -52,6 +52,7 @@ async function diagram(model: OpenArchDocument = shop, selection: Selection = nu
           edits.push(typeof e === "function" ? e(ws) : e);
           return true;
         },
+        menus: menusFor("ideas"),
         exportItems: [],
         snap: { settings: SNAP_DEFAULTS, set() {} },
       }),
@@ -87,6 +88,7 @@ async function waiting() {
         selection: null,
         onSelect() {},
         edit: (e: Edit) => new Promise<boolean>((resolve) => void edits.push({ ops: typeof e === "function" ? e(buildWorkspace(model)) : e, done: resolve })),
+        menus: menusFor(computed.view.id),
         exportItems: [],
         snap: { settings: SNAP_DEFAULTS, set() {} },
       }),

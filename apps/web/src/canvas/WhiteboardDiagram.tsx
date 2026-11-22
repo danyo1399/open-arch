@@ -9,7 +9,25 @@
  * draw an arrow. Shapes snap as they're moved and resized. Double-click the background to type
  * text there.
  */
-import { endShape, endSide, SHAPE_KIND_LABELS, SHAPE_SIZE, type Arrow, type ArrowEnd, type ComputedView, type Operation, type Shape, type ShapeKind, type Sticky, type ViewDef } from "@open-arch/core";
+import {
+  ARROW_HEADS,
+  ARROW_SIDES,
+  endShape,
+  endSide,
+  SHAPE_COLORS,
+  SHAPE_FILLS,
+  SHAPE_KIND_LABELS,
+  SHAPE_SIZE,
+  TEXT_SIZES,
+  type Arrow,
+  type ArrowEnd,
+  type ComputedView,
+  type Operation,
+  type Shape,
+  type ShapeKind,
+  type Sticky,
+  type ViewDef,
+} from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -36,12 +54,14 @@ import {
 import "@fontsource/architects-daughter/400.css";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { boardItemsOf, newStickyId, selectBoard, uniqueAmong } from "../model.js";
-import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
+import { boardItemsOf, HEADS_TEXT, newStickyId, selectBoard, uniqueAmong, whiteboardDeleteOps } from "../model.js";
+import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, placeStickies, STICKY, TOUCH_STICKY } from "./autoLayout.js";
 import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
-import { StickyNode, type StickyFlowNode } from "./nodes.js";
+import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
+import { diagramItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
+import { NotesOpener, StickyNode, type StickyFlowNode } from "./nodes.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import {
   arrowEnds,
@@ -320,6 +340,8 @@ interface WhiteboardDiagramProps {
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   edit(edit: Edit): Promise<boolean>;
+  /** What the right-click menus need from the designer. */
+  menus: MenuHost;
   /** The toolbar's Export menu: ways to take the diagram elsewhere. */
   exportItems: MenuItem[];
   /** What shapes and notes snap to as they're dragged or resized, and its buttons. */
@@ -331,7 +353,7 @@ function between(a: Point, b: Point): Rect {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 }
 
-export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exportItems, snap }: WhiteboardDiagramProps) {
+export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, menus, exportItems, snap }: WhiteboardDiagramProps) {
   const view = cv.view;
   const rf = useReactFlow<FlowNode, ArrowFlowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -669,8 +691,9 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     addShape(kind, [Math.round(spot.x), Math.round(spot.y), 160, 80]);
   };
 
-  const addSticky = () => {
-    const c = middleOfCanvas();
+  /** A new note goes in the middle of the canvas, or from a right-click menu, where that was. */
+  const addSticky = (at?: Point) => {
+    const c = at ?? middleOfCanvas();
     const id = newStickyId(view);
     const occupied = nodesRef.current.map((n) => n.position);
     const spot = freeSpotAmong({ x: c.x - stickySize.width / 2, y: c.y - 50 }, occupied);
@@ -863,6 +886,120 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
     return null;
   })();
 
+  /**
+   * What + Add adds, in the middle of the canvas, and the background's right-click menu, where the
+   * click was: a shape with its middle there, as it's meant to go just there, text beside the
+   * point, as a double-click types it, and a note by it.
+   */
+  const addItems = (at?: Point): MenuAction[] => [
+    ...(["rectangle", "ellipse", "diamond"] as const).map((kind) => ({
+      label: SHAPE_KIND_LABELS[kind],
+      onSelect: () => (at ? addShape(kind, [Math.round(at.x - 80), Math.round(at.y - 40), 160, 80]) : addInMiddle(kind)),
+    })),
+    { label: "Text", onSelect: () => setDraft(textCorner(at ?? middleOfCanvas())) },
+    { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
+  ];
+
+  const notes = useContext(NotesOpener);
+  const edits: MenuEdits = { edit, select };
+  const named = (text: string) => text[0]!.toUpperCase() + text.slice(1);
+  /** The colours a shape or an arrow can be given: every one but its own. */
+  const colours = (now: string, set: (color: (typeof SHAPE_COLORS)[number]) => () => void): MenuAction[] => SHAPE_COLORS.filter((color) => color !== now).map((color) => ({ label: named(color), onSelect: set(color) }));
+
+  // Each item does what it does in the details, which have them all too, or what a double-click does.
+  const shapeMenu = (shape: Shape): MenuItem[] => {
+    const set = (fields: Omit<Extract<Operation, { op: "update-shape" }>, "op" | "view" | "id">) => () => void edit([{ op: "update-shape", view: view.id, id: shape.id, ...fields }]);
+    const pen = shape.kind === "pen";
+    const count = view.shapes.length;
+    // Text with nothing to say would be nothing on the board, so a shape with none can't be made text alone.
+    const kinds = (["rectangle", "ellipse", "diamond", "text"] as const).filter((kind) => kind !== shape.kind && (kind !== "text" || !!shape.text?.trim()));
+    const fills: MenuAction[] = [
+      ...(shape.fill ? [{ label: "None: see-through", onSelect: set({ fill: null }) }] : []),
+      ...SHAPE_FILLS.filter((fill) => fill !== shape.fill).map((fill) => ({ label: named(fill), onSelect: set({ fill }) })),
+    ];
+    return withDelete(
+      edits,
+      [
+        // A line drawn with the pen has no text, and is no other shape.
+        ...(pen
+          ? []
+          : [
+              { label: "Edit text", onSelect: () => setEditing({ kind: "shape", id: shape.id }) },
+              { label: "Shape", items: kinds.map((kind) => ({ label: SHAPE_KIND_LABELS[kind], onSelect: set({ kind }) })) },
+            ]),
+        { label: "Colour", items: colours(shape.color, (color) => set({ color })) },
+        ...(pen
+          ? []
+          : [
+              { label: "Fill", items: fills },
+              { label: "Text size", items: TEXT_SIZES.filter((size) => size !== shape.size).map((size) => ({ label: named(size), onSelect: set({ size }) })) },
+            ]),
+        ...(shape.kind === "text" ? [] : [{ label: shape.dashed ? "Make it solid" : "Make it dashed", onSelect: set({ dashed: !shape.dashed }) }]),
+        ...(shape.number < count ? [{ label: "Bring to front", onSelect: set({ position: count }) }] : []),
+        ...(shape.number > 1 ? [{ label: "Send to back", onSelect: set({ position: 1 }) }] : []),
+      ],
+      "Delete",
+      { op: "remove-shape", view: view.id, id: shape.id },
+    );
+  };
+
+  const arrowMenu = (arrow: Arrow): MenuItem[] => {
+    const set = (fields: Omit<Extract<Operation, { op: "update-arrow" }>, "op" | "view" | "id">) => () => void edit([{ op: "update-arrow", view: view.id, id: arrow.id, ...fields }]);
+    /** An end that's on a shape stays on one side of it, or faces the other end. An end at a point has no sides. */
+    const side = (end: ArrowEnd, which: "from" | "to"): MenuItem[] => {
+      if (!view.shapes.some((s) => s.id === endShape(end))) return [];
+      const now = endSide(end);
+      const field = which === "from" ? "fromSide" : "toSide";
+      return [
+        {
+          label: which === "from" ? "Side its start is on" : "Side its end is on",
+          items: [...(now ? [{ label: "Any side, facing the other end", onSelect: set({ [field]: null }) }] : []), ...ARROW_SIDES.filter((s) => s !== now).map((s) => ({ label: named(s), onSelect: set({ [field]: s }) }))],
+        },
+      ];
+    };
+    return withDelete(
+      edits,
+      [
+        { label: "Edit text", onSelect: () => setEditing({ kind: "arrow", id: arrow.id }) },
+        { label: "Heads", items: ARROW_HEADS.filter((heads) => heads !== arrow.heads).map((heads) => ({ label: HEADS_TEXT[heads], onSelect: set({ heads }) })) },
+        { label: "Colour", items: colours(arrow.color, (color) => set({ color })) },
+        { label: arrow.dashed ? "Make it solid" : "Make it dashed", onSelect: set({ dashed: !arrow.dashed }) },
+        ...side(arrow.from, "from"),
+        ...side(arrow.to, "to"),
+      ],
+      "Delete",
+      { op: "remove-arrow", view: view.id, id: arrow.id },
+    );
+  };
+
+  /**
+   * The right-click menus: for a shape, an arrow or a sticky note, which the click selects, and
+   * for the board, after a click on the background. Several selected together stay selected when
+   * the click is on one of them, and have a menu of their own. See useDiagramMenu for how one
+   * opens and closes.
+   */
+  const menu = useDiagramMenu({
+    view,
+    selection,
+    select,
+    host: menus,
+    toDiagram: (point) => rf.screenToFlowPosition(point),
+    items: (on, at) => {
+      // Everything on a whiteboard is where it was put, so there's nothing to lay out.
+      if (on.kind === "diagram") return diagramItems(addItems(at), undefined, exportItems);
+      if (on.kind === "board") return [{ label: "Delete them", danger: true, onSelect: () => void edit(whiteboardDeleteOps(view, on)).then((ok) => ok && select(null)) }];
+      const shape = on.kind === "shape" && view.shapes.find((s) => s.id === on.id);
+      if (shape) return shapeMenu(shape);
+      const arrow = on.kind === "boardArrow" && view.arrows.find((a) => a.id === on.id);
+      if (arrow) return arrowMenu(arrow);
+      const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
+      if (!sticky) return [];
+      return stickyItems(edits, view.id, sticky, { editText: () => setEditing({ kind: "sticky", id: sticky.id }), openNotes: notes ? () => notes.sticky(sticky.id) : undefined, back: "Move beside the diagram" });
+    },
+  });
+  /** What a right-click on one of these is for: the several selected together, when it's one of them, or else itself. */
+  const clicked = (which: "shapes" | "arrows" | "stickies", id: string, alone: Selection): Selection => (selection?.kind === "board" && items[which].includes(id) ? selection : alone);
+
   const empty = view.shapes.length === 0 && view.arrows.length === 0 && view.stickies.length === 0;
   const selecting = tool === "select";
   return (
@@ -906,6 +1043,15 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
           onEdgeDoubleClick={(_, edge) => edge.data && setEditing({ kind: "arrow", id: edge.data.arrow.id })}
           onMove={clearHover}
           onPaneClick={() => !drew.current && select(null)}
+          // A right-click opens a menu whichever tool is picked: only the left button draws.
+          onNodeContextMenu={(event, node) => {
+            // An arrow's grip is its arrow's.
+            if (node.type === "end") return menu.open(event, clicked("arrows", (node as EndFlowNode).data.arrow, { kind: "boardArrow", id: (node as EndFlowNode).data.arrow }));
+            const picked = pickedBy(node);
+            if (picked) menu.open(event, clicked(picked.which, picked.id, picked.selection));
+          }}
+          onEdgeContextMenu={(event, edge) => edge.data && menu.open(event, clicked("arrows", edge.data.arrow.id, { kind: "boardArrow", id: edge.data.arrow.id }))}
+          onPaneContextMenu={(event) => menu.open(event, null)}
           onSelectionStart={() => {
             boxed.current = new Set();
           }}
@@ -967,16 +1113,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
                 </span>
               )}
             </div>
-            <MenuButton
-              className="primary"
-              items={[
-                { label: "Rectangle", onSelect: () => addInMiddle("rectangle") },
-                { label: "Ellipse", onSelect: () => addInMiddle("ellipse") },
-                { label: "Diamond", onSelect: () => addInMiddle("diamond") },
-                { label: "Text", onSelect: () => setDraft(textCorner(middleOfCanvas())) },
-                { label: "Sticky note", divider: true, onSelect: addSticky },
-              ]}
-            >
+            <MenuButton className="primary" items={addItems()}>
               + Add
             </MenuButton>
             {exportItems.length > 0 && (
@@ -1001,6 +1138,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, exp
           This whiteboard is empty. Pick a tool at the bottom and drag to draw, or double-click to type.
         </div>
       )}
+      {menu.menu}
     </div>
   );
 }

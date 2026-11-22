@@ -1,7 +1,7 @@
 import { applyOperations, buildWorkspace, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
-import { followMenu, isSelected, menuOn, menuRenamesIn, menuThere, selectionFor, type MenuRename, type NumberedPart } from "../src/canvas/diagramMenu.js";
+import { followMenu, isSelected, menuOn, menuRenamesIn, menuThere, selectionFor, type MenuFor, type MenuRename, type NumberedPart } from "../src/canvas/diagramMenu.js";
 
 /** A flowchart in two lanes, a state view and an entity view, each with a note. */
 const doc: OpenArchDocument = {
@@ -488,8 +488,10 @@ describe("a menu's target, followed through the edits that land before it opens"
       { kind: "instance", node: "server", element: "web" },
       { kind: "connection", number: 1 },
       { kind: "step", number: 1 },
+      { kind: "shape", id: "cache" },
+      { kind: "boardArrow", id: "reads" },
     ] as const;
-    for (const on of all) {
+    for (const on of [...all, { kind: "board", shapes: ["cache"], arrows: [], stickies: ["note"] } as MenuFor]) {
       expect(followMenu(on, "returns", undone), on.kind).toEqual({ on: null, view: "refunds" });
       // Nothing after brings it back.
       expect(followMenu(on, "returns", [...undone, { kind: "block", view: "refunds", id: "refund", to: "pay-back" }]).on, on.kind).toBeNull();
@@ -909,5 +911,97 @@ describe("what a sequence view's right-click menu is for", () => {
       { op: "remove-element", id: "cache" },
     ];
     expect([1, 3, 5].map((number) => after(step(number), more))).toEqual([step(2), step(4), null]);
+  });
+});
+
+describe("what a whiteboard's right-click menu is for", () => {
+  /** Two shapes joined by an arrow, a third with an arrow to it from a point, and a note. */
+  const board: OpenArchDocument = {
+    openarch: 20,
+    name: "Shop",
+    elements: {},
+    views: {
+      ideas: {
+        title: "Ideas",
+        level: "whiteboard",
+        shapes: [
+          { id: "cache", kind: "rectangle", text: "Cache", at: [0, 0] },
+          { id: "db", kind: "ellipse", text: "DB", at: [300, 0] },
+          { id: "queue", kind: "diamond", text: "Queue", at: [600, 0] },
+        ],
+        arrows: [
+          { id: "reads", from: "cache", to: { shape: "db", side: "left" } },
+          { id: "look", from: [900, 300], to: "queue" },
+        ],
+        stickies: { note: { text: "Read me", at: [0, 300] } },
+      },
+    },
+  };
+  const ideas = buildWorkspace(board).views.get("ideas")!;
+  const shape = (id: string) => ({ kind: "shape", id }) as const;
+  const arrow = (id: string) => ({ kind: "boardArrow", id }) as const;
+  const several = (shapes: string[], arrows: string[], stickies: string[]) => ({ kind: "board", shapes, arrows, stickies }) as const;
+  const after = (on: Selection, ops: Operation[]) => followMenu(menuOn(on), "ideas", menuRenamesIn(ops, buildWorkspace(board))).on;
+
+  it("is a shape, an arrow, a note, or several of them selected together while every one is there", () => {
+    for (const on of [shape("db"), arrow("look"), { kind: "sticky", id: "note" }, several(["cache", "db"], ["reads"], ["note"])] as const) {
+      expect(menuOn(on)).toEqual(on);
+      expect(menuThere(ideas, on), JSON.stringify(on)).toBe(true);
+    }
+    // A shape's ID is no arrow's.
+    expect(menuThere(ideas, arrow("db"))).toBe(false);
+    expect(menuThere(ideas, several(["cache", "gone"], [], []))).toBe(false);
+    expect(menuThere(ideas, several([], ["reads"], ["gone"]))).toBe(false);
+    // The same several, in another order, are what's selected.
+    expect(isSelected(several(["cache", "db"], ["reads"], []), several(["db", "cache"], ["reads"], []))).toBe(true);
+    expect(isSelected(several(["cache", "db"], [], []), several(["cache"], [], []))).toBe(false);
+    expect(isSelected(several(["cache"], [], []), shape("cache"))).toBe(false);
+  });
+
+  it("follows a shape and an arrow to the new ID typed for each", () => {
+    expect(after(shape("db"), [{ op: "update-shape", view: "ideas", id: "db", newId: "orders" }])).toEqual(shape("orders"));
+    expect(after(arrow("reads"), [{ op: "update-arrow", view: "ideas", id: "reads", newId: "fetches" }])).toEqual(arrow("fetches"));
+    // An arrow keeps its ID when a shape at its end gets a new one.
+    expect(after(arrow("reads"), [{ op: "update-shape", view: "ideas", id: "db", newId: "orders" }])).toEqual(arrow("reads"));
+    // A shape moved, or brought to the front, is the same shape.
+    expect(after(shape("db"), [{ op: "update-shape", view: "ideas", id: "db", position: 3, at: [10, 10] }])).toEqual(shape("db"));
+  });
+
+  it("loses a shape with its arrows, and an arrow on its own, whatever takes their IDs after", () => {
+    const gone: Operation[] = [{ op: "remove-shape", view: "ideas", id: "db" }];
+    expect(menuRenamesIn(gone, buildWorkspace(board))).toEqual([
+      { kind: "gone", what: "shape", view: "ideas", id: "db" },
+      { kind: "gone", what: "boardArrow", view: "ideas", id: "reads" },
+    ]);
+    expect([shape("db"), arrow("reads"), arrow("look"), shape("cache")].map((on) => after(on, gone))).toEqual([null, null, arrow("look"), shape("cache")]);
+    expect([arrow("look"), shape("queue")].map((on) => after(on, [{ op: "remove-arrow", view: "ideas", id: "look" }]))).toEqual([null, shape("queue")]);
+    const replaced: Operation[][] = [gone, [{ op: "add-arrow", view: "ideas", id: "reads", from: "cache", to: "queue" }]];
+    expect(landed("ideas", arrow("reads"), replaced, board)).toBeNull();
+  });
+
+  it("follows several selected together to each one's new ID, and loses them with any one of them", () => {
+    const them = several(["cache", "db"], ["look"], ["note"]);
+    expect(after(them, [{ op: "update-shape", view: "ideas", id: "db", newId: "orders" }, { op: "update-arrow", view: "ideas", id: "look", newId: "see" }])).toEqual(several(["cache", "orders"], ["see"], ["note"]));
+    // Deleting the queue takes the arrow that's one of them.
+    for (const ops of [
+      [{ op: "remove-shape", view: "ideas", id: "queue" }],
+      [{ op: "remove-sticky", view: "ideas", id: "note" }],
+      [{ op: "remove-shape", view: "ideas", id: "cache" }],
+    ] as Operation[][]) {
+      expect(after(them, ops), JSON.stringify(ops)).toBeNull();
+    }
+    expect(after(several(["cache"], [], []), [{ op: "remove-arrow", view: "ideas", id: "look" }])).toEqual(several(["cache"], [], []));
+  });
+
+  it("loses the arrows, and several selected that have one, where there's no telling which went with a shape", () => {
+    const odd: Operation[] = [
+      { op: "update-view", id: "no-such-view", title: "Nothing" },
+      { op: "remove-shape", view: "ideas", id: "db" },
+    ];
+    expect(menuRenamesIn(odd, buildWorkspace(board))).toEqual([
+      { kind: "gone", what: "shape", view: "ideas", id: "db" },
+      { kind: "kinds-lost", kinds: ["boardArrow"], view: "ideas" },
+    ]);
+    expect([arrow("look"), shape("queue"), several(["queue"], ["look"], []), several(["queue"], [], ["note"])].map((on) => after(on, odd))).toEqual([null, shape("queue"), null, several(["queue"], [], ["note"])]);
   });
 });

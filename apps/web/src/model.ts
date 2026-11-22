@@ -18,6 +18,7 @@ import {
   WIDGET_KIND_LABELS,
   type ArchElement,
   type Arrow,
+  type ArrowHeads,
   type Attribute,
   type Block,
   type Card,
@@ -569,6 +570,9 @@ export function whiteboardSelectionLeft(view: ViewDef | undefined, selection: Se
 export function blockText(block: Pick<Block, "id" | "text">): string {
   return block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? block.id;
 }
+
+/** What each choice of heads for a whiteboard's arrow is called, where one is picked. */
+export const HEADS_TEXT: Record<ArrowHeads, string> = { end: "Arrow: one way", both: "Arrow: both ways", none: "Line: no heads" };
 
 /** The nodes of a deployment view, and the containers and systems they run, for picking a connection's end. */
 export function connectionEnds(ws: Workspace, view: ViewDef): { id: string; label: string }[] {

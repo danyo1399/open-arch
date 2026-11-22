@@ -38,7 +38,7 @@ import {
   type FitViewOptions,
   type NodeChange,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import {
   arrowRelation,
@@ -54,10 +54,12 @@ import {
   type Rename,
   type Shapes,
 } from "../model.js";
-import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
+import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type LayoutEdge, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
-import { classHeight, FrameNotes, nodeTypes, StickyLines, StickyLinking, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
+import { diagramItems, stickyItems } from "./menuItems.js";
+import { classHeight, FrameNotes, nodeTypes, NotesOpener, StickyLines, StickyLinking, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -153,6 +155,8 @@ interface CanvasProps {
   selection: Selection;
   onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   edit(edit: Edit): Promise<boolean>;
+  /** What the right-click menus of a sticky note and the background need from the designer. */
+  menus: MenuHost;
   /** A right-click on an element's box or on the frame, at that point on the screen. */
   onElementMenu(id: string, at: { x: number; y: number }): void;
   /** A right-click on an arrow or its label, at that point on the screen. */
@@ -594,7 +598,7 @@ export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<strin
   return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky, snap, autoLayoutHandle }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky, snap, autoLayoutHandle }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -929,13 +933,14 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
   const linkingNode = linking ? nodes.find((n): n is StickyFlowNode => n.id === stickyNodeId(linking.sticky)) : undefined;
   const linkLine = linking && linkingNode ? stickyLine(noteRect(linkingNode, stickySize), { point: linking.at }) : null;
 
-  // Fit the diagram to the window once per view, after its boxes have been measured.
-  const fitted = useRef<string | null>(null);
+  // Fit the diagram to the window once, after its boxes have been measured. Another view is drawn
+  // by another canvas, and a view given a new ID by this one, as it was.
+  const fitted = useRef(false);
   useEffect(() => {
-    if (!ready || fitted.current === view.id) return;
-    fitted.current = view.id;
+    if (!ready || fitted.current) return;
+    fitted.current = true;
     requestAnimationFrame(() => requestAnimationFrame(() => fitDiagram()));
-  }, [ready, view.id, fitDiagram]);
+  }, [ready, fitDiagram]);
 
   // Turning a phone or tablet round fits the diagram to its new shape, once the canvas has it.
   // (Not a window crossing square as it's resized: that keeps the zoom.) Browsers report the
@@ -1081,9 +1086,32 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
   ];
 
-  /** The diagram's right-click menu: where it opened on the screen, and that point on the diagram. */
-  const [paneMenu, setPaneMenu] = useState<{ x: number; y: number; at: Point } | null>(null);
-  const closePaneMenu = useCallback(() => setPaneMenu(null), []);
+  const notes = useContext(NotesOpener);
+  /**
+   * The right-click menus of a sticky note, which the click selects, and of the diagram, after a
+   * click on the background: what the toolbar does, with what's added put where the click was. A
+   * box, the frame and an arrow are the model's, and have the menus the designer gives them. See
+   * useDiagramMenu for how one opens and closes.
+   */
+  const menu = useDiagramMenu({
+    view,
+    selection,
+    select: onSelect,
+    host: menus,
+    toDiagram: (point) => rf.screenToFlowPosition(point),
+    items: (on, at) => {
+      if (on.kind === "diagram") return diagramItems(addItems(at), ids.length > 0 ? autoLayout.run : undefined, exportItems);
+      const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
+      if (!sticky) return [];
+      // A note that was moved goes back beside what it's on, when that's drawn, or else beside the diagram.
+      const drawn = !!(cv && sticky.on && stickyAnchor(ws, cv, sticky.on));
+      return stickyItems({ edit, select: onSelect }, view.id, sticky, {
+        editText: () => setEditing(sticky.id),
+        openNotes: notes ? () => notes.sticky(sticky.id) : undefined,
+        back: drawn ? "Move next to what it's on" : "Move beside the diagram",
+      });
+    },
+  });
 
   if (scopeErrors.length) {
     return <div className="canvas-message">This view can't be drawn: {scopeErrors[0]!.message}</div>;
@@ -1102,6 +1130,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
         isValidConnection={(c) => c.source !== c.target && c.target !== FRAME_ID && c.source !== FRAME_ID}
         onNodeClick={clickNode}
         onNodeContextMenu={(event, node) => {
+          if (node.type === "sticky") return menu.open(event, { kind: "sticky", id: node.data.sticky.id });
           if (node.type !== "element") return;
           event.preventDefault();
           onElementMenu(elementOfNode(node), menuPoint(event));
@@ -1121,15 +1150,14 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           event.preventDefault();
           onArrowMenu(elementOf.get(edge.source) ?? edge.source, elementOf.get(edge.target) ?? edge.target, edge.data?.edge.kind === "association" ? undefined : edge.data?.edge.kind, menuPoint(event));
         }}
-        // Right-clicking the diagram's background offers what + Add does, added where it was
-        // clicked. On the frame, it's the menu for the element the frame is.
+        // Right-clicking the diagram's background offers what the toolbar does, with what's added
+        // put where it was clicked. On the frame, it's the menu for the element the frame is.
         onPaneContextMenu={(event) => {
-          event.preventDefault();
           const point = { x: event.clientX, y: event.clientY };
-          const at = rf.screenToFlowPosition(point);
-          const frame = frameAt(nodesRef.current, at);
-          if (frame) onElementMenu(elementOfNode(frame), point);
-          else setPaneMenu({ ...point, at });
+          const frame = frameAt(nodesRef.current, rf.screenToFlowPosition(point));
+          if (!frame) return menu.open(event, null);
+          event.preventDefault();
+          onElementMenu(elementOfNode(frame), point);
         }}
         // With a mouse, dragging the background draws a box, and selects the boxes and notes
         // inside it, as in most diagram editors. So the scroll wheel pans, as do Space and drag
@@ -1207,7 +1235,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
           This view has no elements yet. Use <strong>+ Add</strong> to create one.
         </div>
       )}
-      {paneMenu && <ContextMenu x={paneMenu.x} y={paneMenu.y} items={[{ label: "Add", items: addItems(paneMenu.at) }]} onClose={closePaneMenu} />}
+      {menu.menu}
     </div>
   );
 }

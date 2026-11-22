@@ -86,6 +86,7 @@ import {
   connectionEnds,
   findArrow,
   followsName,
+  HEADS_TEXT,
   idFromName,
   LEVEL_NAMES,
   relationshipRef,
@@ -1807,7 +1808,6 @@ function Swatches<T extends string>({ label, value, options, look, none, onChang
 }
 
 /** Each way an arrow can have heads, as the panel lists them. */
-const HEADS_TEXT: Record<ArrowHeads, string> = { end: "Arrow: one way", both: "Arrow: both ways", none: "Line: no heads" };
 
 /** A shape's ID, or an arrow's, as the panel changes it: a new one that's free among both. */
 function boardIdFor(view: ViewDef, id: string) {
@@ -2167,7 +2167,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.arrows.length}</dd>
           </dl>
           <p className="muted small">
-            A whiteboard is a freehand sketch, to share an idea. Pick a tool at the bottom of the diagram, or press its key, and drag to draw a rectangle, an ellipse, a diamond, an arrow, a line or with the pen; click to type text. Double-click a shape or an arrow to write in it, or the board to type there. None of it is part of the model.
+            A whiteboard is a freehand sketch, to share an idea. Pick a tool at the bottom of the diagram, or press its key, and drag to draw a rectangle, an ellipse, a diamond, an arrow, a line or with the pen; click to type text. Double-click a shape or an arrow to write in it, or the board to type there. Right-click a shape, an arrow, a sticky note or the board for a menu of what you can do there. None of it is part of the model.
           </p>
         </>
       ) : view.level === "wireframe" ? (
