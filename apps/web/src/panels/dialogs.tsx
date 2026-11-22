@@ -398,23 +398,14 @@ export function changeTime(at: number, now = Date.now()): string {
 /**
  * The History list: the changes made here, newest first, to go back to the workspace as it was
  * just after any of them, or forward again to one that was undone. It opens on the one showing
- * now, and stays open after a pick, to try another. `problem` is what went wrong, if anything
- * did, such as a version that couldn't be saved: the list then stays as it was.
+ * now, and stays open after a pick, to try another. `onGo` resolves to what went wrong when the
+ * version picked couldn't be saved. The dialog says so itself, as the designer's own message is
+ * under it, until a pick goes through: only the last pick's problem, not another message that
+ * happens to be up.
  */
-export function HistoryDialog({
-  versions,
-  current,
-  problem,
-  onGo,
-  onClose,
-}: {
-  versions: Version[];
-  current: number;
-  problem: string | null;
-  onGo(version: number): void;
-  onClose(): void;
-}) {
+export function HistoryDialog({ versions, current, onGo, onClose }: { versions: Version[]; current: number; onGo(version: number): Promise<string | null>; onClose(): void }) {
   const now = versions.findIndex((v) => v.number === current);
+  const [problem, setProblem] = useState<string | null>(null);
   const shown = useRef<HTMLButtonElement>(null);
   // After the dialog has opened, which puts the focus on its first button.
   useEffect(() => {
@@ -434,7 +425,7 @@ export function HistoryDialog({
           {versions
             .map((v, i) => (
               <li key={v.number}>
-                <button ref={i === now ? shown : undefined} className={i > now ? "row undone" : i === now ? "row active" : "row"} aria-current={i === now} onClick={() => onGo(v.number)}>
+                <button ref={i === now ? shown : undefined} className={i > now ? "row undone" : i === now ? "row active" : "row"} aria-current={i === now} onClick={() => void onGo(v.number).then(setProblem)}>
                   <span className="grow">{v.change ?? "Before these changes"}</span>
                   {i >= now && <span className="small">{i === now ? "Now" : "Undone"}</span>}
                   {v.at !== null && (

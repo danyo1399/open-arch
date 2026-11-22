@@ -619,9 +619,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
     { label: "Save as SVG…", onSelect: () => saveImage(cv, "svg", SVG_FILE) },
     { label: "Save as PDF…", onSelect: () => saveImage(cv, "pdf", PDF_FILE) },
   ];
-  // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu, History too. The diagram's
-  // toolbar has no room for its Auto layout button or Export menu there either, so they're in
-  // this menu too.
+  // A narrow top bar keeps saving, Undo and Redo, and puts the rest in a menu, History too. The
+  // diagram's toolbar has no room for its Auto layout button or Export menu there either, so
+  // they're in this menu too.
   const moreItems: MenuItem[] = [
     ...(desktop ? [] : providers.map((provider) => ({ label: provider.exportLabel, onSelect: () => exportTo(provider) }))),
     ...(syncsDocs ? [] : [{ label: "Export zip", onSelect: exportZip }]),
@@ -1073,14 +1073,9 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog?.kind === "history" && <HistoryDialog
-          versions={state.versions}
-          current={state.version}
-          // What went wrong, such as a version that couldn't be saved: the message under the dialog is hard to see, and can't be reached.
-          problem={message?.kind === "error" ? message.text : null}
-          onGo={state.goTo}
-          onClose={() => setDialog(null)}
-        />}
+      {dialog?.kind === "history" && (
+        <HistoryDialog versions={state.versions} current={state.version} onGo={state.goTo} onClose={() => setDialog(null)} />
+      )}
       {dialog?.kind === "share" && shareClient && (
         <ShareDialog client={shareClient} workspace={host.key} file={{ name: host.name, text: state.text }} designer={designer} onClose={() => setDialog(null)} />
       )}
