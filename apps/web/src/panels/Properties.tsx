@@ -119,7 +119,8 @@ interface PropertiesProps {
   /** The workspace's file, for display: for one in a folder, with the folder and the path in it. */
   fileName: string;
   edit(edit: Edit): Promise<boolean>;
-  onSelect(selection: Selection): void;
+  /** `isNew`: it was just created, so its name gets the focus. */
+  onSelect(selection: Selection, options?: { isNew?: boolean }): void;
   /** These four are on an element's right-click menu too, which touch screens may have no way to open. */
   onHide(id: string): void;
   onDelete(id: string): void;
@@ -209,6 +210,14 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
   /** Builds a container with a library, or takes it out. */
   const build = (container: ArchElement, library: string, built: boolean) =>
     void edit([{ op: "update-element", id: container.id, libraries: built ? [...container.libraries, library] : container.libraries.filter((l) => l !== library) }]);
+  /** Adds a library built into this container, and opens its details, to name it and tick the other containers built with it. */
+  const newLibrary = () => {
+    const id = uniqueId(ws, "new-library");
+    void edit([
+      { op: "add-element", id, kind: "library", name: "New library" },
+      { op: "update-element", id: element.id, libraries: [...element.libraries, id] },
+    ]).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
+  };
   const canHide = viewAction(ws, view, computed, element.id) === "hide";
   const noteOn = stickyTargetFor(ws, computed, { kind: "element", id: element.id });
 
@@ -266,7 +275,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
           Outside our organisation (external)
         </label>
       )}
-      {element.kind === "container" && libraries.length > 0 && (
+      {element.kind === "container" && (
         <fieldset className="field">
           <legend className="field-label">Libraries</legend>
           {libraries.map((l) => (
@@ -275,7 +284,10 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
               {l.name}
             </label>
           ))}
-          <span className="field-hint">The shared libraries built into it. Its component views draw each one inside the frame.</span>
+          <button className="link" onClick={newLibrary}>
+            + New library
+          </button>
+          <span className="field-hint">The shared libraries built into it: code several containers are built with, like a logging library. Its component views draw each one inside the frame.</span>
         </fieldset>
       )}
       {element.kind === "library" && (

@@ -171,17 +171,29 @@ interface CanvasProps {
   autoLayoutHandle?: RefObject<AutoLayout | null>;
 }
 
+/** Something + Add can add to a view: an element of this kind, with the parent it gets. */
+export interface Addable {
+  kind: ElementKind;
+  parent?: string;
+  /** For a library added to a component view: the view's container, which is built with it. */
+  builtInto?: string;
+  label: string;
+}
+
 /**
  * Element kinds that can be added to a view at its level, and the parent each gets. A library
- * added to a component view is built into the view's container: `builtInto`.
+ * added to a component view is built into the view's container: `builtInto`. One added to a
+ * container view is built into nothing yet: its details say which containers it's built into.
  */
-export function addableKinds(ws: Workspace, view: ViewDef): { kind: ElementKind; parent?: string; builtInto?: string; label: string }[] {
+export function addableKinds(ws: Workspace, view: ViewDef): Addable[] {
   const scope = view.scope ? ws.elements.get(view.scope) : undefined;
   const top = [
     { kind: "person" as const, label: "Person" },
     { kind: "system" as const, label: "Software system" },
   ];
-  if (view.level === "container" && scope) return [{ kind: "container", parent: scope.id, label: `Container in ${scope.name}` }, ...top];
+  if (view.level === "container" && scope) {
+    return [{ kind: "container", parent: scope.id, label: `Container in ${scope.name}` }, { kind: "library", label: "Shared library" }, ...top];
+  }
   if (view.level === "component" && scope?.kind === "library") {
     return [{ kind: "component", parent: scope.id, label: `Component in ${scope.name}` }, { kind: "class", parent: scope.id, label: `Class in ${scope.name}` }, ...top];
   }
@@ -227,6 +239,24 @@ export function moveOps(view: string, layout: Record<string, Position> | null, n
   return [
     ...(layout ? [{ op: "set-layout" as const, view, positions: layout }] : []),
     ...Object.entries(notes).map(([id, at]) => ({ op: "update-sticky" as const, view, id, at })),
+  ];
+}
+
+/**
+ * The edit that adds a new element to a view, as one step for Undo: the element, at `spot` among
+ * the boxes' positions as shown. A library is built into `added.builtInto`, a component view's
+ * container. A view that can't draw a library, such as a container view, keeps its boxes as they
+ * are: the library is only in the model, for its details to build containers with.
+ */
+export function addElementOps(ws: Workspace, view: ViewDef, id: string, added: Omit<Addable, "label">, layout: Record<string, Position>, spot: Point): Operation[] {
+  const container = added.builtInto ? ws.elements.get(added.builtInto) : undefined;
+  const element: Operation = { op: "add-element", id, kind: added.kind, parent: added.parent, name: `New ${added.kind}` };
+  if (added.kind === "library" && !container) return [element];
+  return [
+    element,
+    ...(container ? [{ op: "update-element" as const, id: container.id, libraries: [...container.libraries, id] }] : []),
+    { op: "show-in-view", view: view.id, id },
+    { op: "set-layout", view: view.id, positions: { ...layout, [id]: [spot.x, spot.y] } },
   ];
 }
 
@@ -1027,13 +1057,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, onEle
     const id = uniqueId(ws, `new-${kind}`);
     const existing = currentLayout();
     const spot = freeSpotAmong({ x: center.x - NODE_W / 2, y: center.y - NODE_H / 2 }, Object.values(existing).map(([x, y]) => ({ x, y })));
-    const container = builtInto ? ws.elements.get(builtInto) : undefined;
-    void edit([
-      { op: "add-element", id, kind, parent, name: `New ${kind}` },
-      ...(container ? [{ op: "update-element" as const, id: container.id, libraries: [...container.libraries, id] }] : []),
-      { op: "show-in-view", view: view.id, id },
-      { op: "set-layout", view: view.id, positions: { ...existing, [id]: [spot.x, spot.y] } },
-    ]).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
+    void edit(addElementOps(ws, view, id, { kind, parent, builtInto }, existing, spot)).then((ok) => ok && onSelect({ kind: "element", id }, { isNew: true }));
   };
 
   const addSticky = (at?: Point) => {
