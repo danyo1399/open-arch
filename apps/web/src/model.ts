@@ -559,6 +559,11 @@ export function whiteboardSelectionLeft(view: ViewDef | undefined, selection: Se
   return same ? selection : selectBoard(left);
 }
 
+/** A flowchart block's text on one line, as lists and menus name it. */
+export function blockText(block: Pick<Block, "id" | "text">): string {
+  return block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? block.id;
+}
+
 /** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
 export function newStickyId(view: ViewDef): string {
   const taken = new Set(view.stickies.map((s) => s.id));

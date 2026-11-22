@@ -2,9 +2,11 @@
  * A flowchart view's diagram: its blocks, each in its kind's shape (a pill where the process
  * starts and ends, a box for a step, a diamond for a decision, and so on), and the flows between
  * them as arrows, each with its text. Drag a block to move it, or from the dot under one to
- * another to add a flow. The element whose process it is, if the view says, is the frame.
+ * another to add a flow. The element whose process it is, if the view says, is the frame. A
+ * right-click on a block, a flow, a lane, a sticky note or the background opens a menu of what
+ * can be done there.
  */
-import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, type Block, type BlockKind, type ComputedView, type Flow, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
+import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, STICKY_COLORS, type Block, type BlockKind, type ComputedView, type Flow, type Lane, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -27,15 +29,15 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { idFromName, newStickyId, uniqueAmong } from "../model.js";
-import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
+import { blockText, idFromName, newStickyId, uniqueAmong } from "../model.js";
+import { ContextMenu, MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
-import { FrameNode, FrameNotes, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { FrameNode, FrameNotes, NotesOpener, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -310,6 +312,40 @@ export function newBlockPlace(view: ViewDef, kind: BlockKind, selection: Selecti
   return column ? { at: savedAt(column, spot), lane: column.lane?.id } : dropInLane(columns, spot, width);
 }
 
+/**
+ * Where a new block of this kind goes when it's added at a point on the diagram, from a
+ * right-click menu: with its middle there, or in the nearest free spot. In a flowchart with
+ * lanes it's in `lane`, the one that was clicked, or else in the lane it lands in.
+ */
+export function blockPlaceAt(kind: BlockKind, point: Point, { columns, occupied }: Pick<Surroundings, "columns" | "occupied">, lane?: string): { at: [number, number]; lane?: string } {
+  const width = blockWidth(kind);
+  const spot = freeSpotAmong({ x: point.x - width / 2, y: point.y - blockHeight({ kind, text: newBlockText(kind) }) / 2 }, occupied);
+  const column = lane === undefined ? undefined : columns?.find((c) => c.lane?.id === lane);
+  if (column) return { at: savedAt(column, spot), lane };
+  return columns?.length ? dropInLane(columns, spot, width) : { at: [spot.x, spot.y] };
+}
+
+/**
+ * Whether the view can have a flow from one block to another with this text, as add-flow and
+ * update-flow check: not from a block to itself, and not one it has already, with the same ends
+ * and text. `but` is the flow being changed, which doesn't count.
+ */
+export function canFlow(view: Pick<ViewDef, "flows">, from: string, to: string, text?: string, but?: Flow): boolean {
+  return from !== to && !view.flows.some((f) => f !== but && f.from === from && f.to === to && (f.text ?? "") === (text ?? ""));
+}
+
+/**
+ * A right-click menu that's open: where it opened on the screen, and that point on the diagram.
+ * It's for what's selected, as a right-click selects what it's on, so it follows a block given a
+ * new ID meanwhile; or for the diagram, after a right-click on the background.
+ */
+interface OpenMenu {
+  x: number;
+  y: number;
+  at: Point;
+  on: "selection" | "diagram";
+}
+
 interface FlowchartDiagramProps {
   computed: ComputedView;
   selection: Selection;
@@ -562,10 +598,15 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   };
 
-  const addBlock = (kind: BlockKind) => {
+  /**
+   * Adds a block of this kind. From + Add, and a block's menu, it goes after the block selected,
+   * or in the lane selected. From a right-click on a lane or the background, it goes where that
+   * was, `at`, on its own: after no block, so with no flow to it.
+   */
+  const addBlock = (kind: BlockKind, at?: Point, lane?: string) => {
     const occupied = nodesRef.current.filter((n) => n.type === "block" || n.type === "sticky").map((n) => n.position);
-    const place = newBlockPlace(view, kind, selection, { columns, boxes, top: laneNodes[0]?.position.y ?? 0, middle: middle(), occupied });
-    const { ops, id } = addBlockOps(view, kind, selection, place.at, place.lane);
+    const place = at ? blockPlaceAt(kind, at, { columns, occupied }, lane) : newBlockPlace(view, kind, selection, { columns, boxes, top: laneNodes[0]?.position.y ?? 0, middle: middle(), occupied });
+    const { ops, id } = addBlockOps(view, kind, at ? null : selection, place.at, place.lane);
     void edit([...fixPlaced(), ...ops]).then((ok) => ok && onSelect({ kind: "block", id }, { isNew: true }));
   };
 
@@ -576,8 +617,9 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
     void edit([...fixPlaced(), { op: "add-lane", view: view.id, id, name: "New lane", ...(after && { position: after.number + 1 }) }]).then((ok) => ok && onSelect({ kind: "lane", id }, { isNew: true }));
   };
 
-  const addSticky = () => {
-    const center = middle();
+  /** A new note goes in the middle of the canvas, or from a right-click menu, where that was. */
+  const addSticky = (at?: Point) => {
+    const center = at ?? middle();
     const id = newStickyId(view);
     const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
     const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
@@ -621,11 +663,132 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
 
   // Process first, as most blocks are steps, then the rest in the order they're listed.
   const kinds: BlockKind[] = ["process", ...BLOCK_KINDS.filter((k) => k !== "process")];
-  const addItems: MenuItem[] = [
-    ...kinds.map((kind) => ({ label: BLOCK_KIND_LABELS[kind], onSelect: () => addBlock(kind) })),
+  /** What + Add adds, and the right-click menus: from a menu, a block or a note goes where it was clicked, `at`, and the block in `lane`, when that was clicked. */
+  const addItems = (at?: Point, lane?: string): MenuAction[] => [
+    ...kinds.map((kind) => ({ label: BLOCK_KIND_LABELS[kind], onSelect: () => addBlock(kind, at, lane) })),
     { label: "Lane", divider: true, onSelect: addLane },
-    { label: "Sticky note", onSelect: addSticky },
+    { label: "Sticky note", onSelect: () => addSticky(at) },
   ];
+
+  const [menu, setMenu] = useState<OpenMenu | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  /**
+   * Opens the right-click menu for a block, a flow, a lane or a sticky note, which it selects, so
+   * it's clear what the menu is for; or with none of them, for the diagram, with nothing selected,
+   * as after a click on the background.
+   */
+  const openMenu = (event: ReactMouseEvent | MouseEvent, on: Selection) => {
+    event.preventDefault();
+    // Opened with the keyboard, it goes under what it's for.
+    const point = event.currentTarget instanceof Element ? menuPoint({ clientX: event.clientX, clientY: event.clientY, currentTarget: event.currentTarget }) : { x: event.clientX, y: event.clientY };
+    select(on);
+    setMenu({ ...point, at: rf.screenToFlowPosition(point), on: on ? "selection" : "diagram" });
+  };
+  const notes = useContext(NotesOpener);
+
+  /** The edit that deletes something, which then isn't selected. */
+  const remove = (op: Operation) => () => void edit([op]).then(() => select(null));
+  /** A menu's items, and after them the one that deletes, set apart by a line when it isn't the only one. */
+  const withDelete = (items: MenuItem[], label: string, op: Operation): MenuItem[] => [...items, { label, danger: true, divider: items.length > 0, onSelect: remove(op) }];
+
+  // Each item does what it does in the toolbar or the details, which have them all too.
+  const blockMenu = (block: Block): MenuItem[] => {
+    const set = (fields: Omit<Extract<Operation, { op: "update-block" }>, "op" | "view" | "id">) => () => void edit([{ op: "update-block", view: view.id, id: block.id, ...fields }]);
+    const addFlow = (to: string) => () => {
+      const number = view.flows.length + 1;
+      void edit([{ op: "add-flow", view: view.id, from: block.id, to }]).then((ok) => ok && select({ kind: "flow", number }));
+    };
+    const flowTo = view.blocks.filter((b) => canFlow(view, block.id, b.id));
+    // In another lane, its place was in its old one, where it could land on a block in the new one: it's laid out again.
+    const lanes: MenuAction[] = [
+      ...view.lanes.filter((l) => l.id !== block.lane).map((l) => ({ label: l.name, onSelect: set({ lane: l.id, at: null }) })),
+      ...(block.lane !== undefined ? [{ label: "No lane", onSelect: set({ lane: null, at: null }) }] : []),
+    ];
+    return withDelete(
+      [
+        { label: "Add after", items: kinds.map((kind) => ({ label: BLOCK_KIND_LABELS[kind], onSelect: () => addBlock(kind) })) },
+        ...(flowTo.length ? [{ label: "Add flow to", items: flowTo.map((b) => ({ label: blockText(b), onSelect: addFlow(b.id) })) }] : []),
+        { label: "Change kind", items: kinds.filter((kind) => kind !== block.kind).map((kind) => ({ label: BLOCK_KIND_LABELS[kind], onSelect: set({ kind }) })) },
+        ...(lanes.length ? [{ label: "Move to lane", items: lanes }] : []),
+        ...(block.at ? [{ label: "Lay out again", onSelect: set({ at: null }) }] : []),
+      ],
+      "Delete block",
+      { op: "remove-block", view: view.id, id: block.id },
+    );
+  };
+
+  const flowMenu = (flow: Flow): MenuItem[] => {
+    const update = (fields: Omit<Extract<Operation, { op: "update-flow" }>, "op" | "view" | "flow">) => edit([{ op: "update-flow", view: view.id, flow: flow.number, ...fields }]);
+    const move = (to: number) => () => void update({ newFlow: to }).then((ok) => ok && select({ kind: "flow", number: to }));
+    const ends = (end: "from" | "to") =>
+      view.blocks
+        .filter((b) => b.id !== flow[end] && canFlow(view, end === "from" ? b.id : flow.from, end === "to" ? b.id : flow.to, flow.text, flow))
+        .map((b) => ({ label: blockText(b), onSelect: () => void update({ [end]: b.id }) }));
+    const [from, to] = [ends("from"), ends("to")];
+    return withDelete(
+      [
+        ...(from.length ? [{ label: "Change from", items: from }] : []),
+        ...(to.length ? [{ label: "Change to", items: to }] : []),
+        // Its number is its place in the list of flows, as the docs list them.
+        ...(flow.number > 1 ? [{ label: `Move up, to flow ${flow.number - 1}`, onSelect: move(flow.number - 1) }] : []),
+        ...(flow.number < view.flows.length ? [{ label: `Move down, to flow ${flow.number + 1}`, onSelect: move(flow.number + 1) }] : []),
+      ],
+      "Delete flow",
+      { op: "remove-flow", view: view.id, flow: flow.number },
+    );
+  };
+
+  const laneMenu = (lane: Lane, at: Point): MenuItem[] => {
+    const move = (position: number) => () => void edit([{ op: "update-lane", view: view.id, id: lane.id, position }]);
+    return withDelete(
+      [
+        { label: "Add", items: addItems(at, lane.id) },
+        ...(lane.number > 1 ? [{ label: "Move left", onSelect: move(lane.number - 1) }] : []),
+        ...(lane.number < view.lanes.length ? [{ label: "Move right", onSelect: move(lane.number + 1) }] : []),
+      ],
+      "Delete lane",
+      { op: "remove-lane", view: view.id, id: lane.id },
+    );
+  };
+
+  const stickyMenu = (sticky: Sticky): MenuItem[] => {
+    const set = (fields: Omit<Extract<Operation, { op: "update-sticky" }>, "op" | "view" | "id">) => () => void edit([{ op: "update-sticky", view: view.id, id: sticky.id, ...fields }]);
+    return withDelete(
+      [
+        { label: "Edit text", onSelect: () => setEditing(sticky.id) },
+        { label: "Colour", items: STICKY_COLORS.filter((color) => color !== sticky.color).map((color) => ({ label: color[0]!.toUpperCase() + color.slice(1), onSelect: set({ color }) })) },
+        ...(notes ? [{ label: "Edit notes…", onSelect: () => notes.sticky(sticky.id) }] : []),
+        ...(sticky.at ? [{ label: "Move beside the diagram", onSelect: set({ at: null }) }] : []),
+      ],
+      "Delete note",
+      { op: "remove-sticky", view: view.id, id: sticky.id },
+    );
+  };
+
+  /** The background's menu: what the toolbar does, with what's added put where the click was. */
+  const diagramMenu = (at: Point): MenuItem[] => [
+    { label: "Add", items: addItems(at) },
+    ...(view.blocks.length > 0 ? [{ label: "Auto layout", onSelect: autoLayout.run }] : []),
+    ...(exportItems.length > 0 ? [{ label: "Export", items: exportItems }] : []),
+  ];
+
+  /** The open menu's items: none once what it was for is gone, as when the file changed elsewhere. */
+  const menuItems = (open: OpenMenu): MenuItem[] => {
+    if (open.on === "diagram") return diagramMenu(open.at);
+    const block = selection?.kind === "block" && view.blocks.find((b) => b.id === selection.id);
+    if (block) return blockMenu(block);
+    const flow = selection?.kind === "flow" && view.flows[selection.number - 1];
+    if (flow) return flowMenu(flow);
+    const lane = selection?.kind === "lane" && view.lanes.find((l) => l.id === selection.id);
+    if (lane) return laneMenu(lane, open.at);
+    const sticky = selection?.kind === "sticky" && view.stickies.find((s) => s.id === selection.id);
+    return sticky ? stickyMenu(sticky) : [];
+  };
+  const shown = menu ? menuItems(menu) : [];
+  const menuGone = !!menu && shown.length === 0;
+  useEffect(() => {
+    if (menuGone) setMenu(null);
+  }, [menuGone]);
 
   const scope = cv.boundary;
   return (
@@ -650,6 +813,18 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
         }}
         onEdgeClick={(_, edge) => edge.data && select({ kind: "flow", number: edge.data.flow.number })}
         onPaneClick={() => select(null)}
+        onNodeContextMenu={(event, node) => {
+          // A note's text box, while it's typed in, keeps the browser's own menu, to paste into it.
+          if (event.target instanceof Element && event.target.closest("textarea")) return;
+          if (node.type === "block") openMenu(event, { kind: "block", id: node.id });
+          else if (node.type === "sticky") openMenu(event, { kind: "sticky", id: node.data.sticky.id });
+          // The column for blocks in no lane is no lane: it's the diagram's menu there.
+          else if (node.type === "lane") openMenu(event, node.data.column.lane ? { kind: "lane", id: node.data.column.lane.id } : null);
+        }}
+        // A flow's text is drawn apart from its line, but a right-click on it comes here too.
+        onEdgeContextMenu={(event, edge) => edge.data && openMenu(event, { kind: "flow", number: edge.data.flow.number })}
+        // The frame takes no clicks, so a right-click on it is one on the background.
+        onPaneContextMenu={(event) => openMenu(event, null)}
         nodeClickDistance={4}
         paneClickDistance={4}
         connectionMode={ConnectionMode.Loose}
@@ -679,7 +854,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
           </div>
           <MenuButton
             className="primary"
-            items={addItems}
+            items={addItems()}
             title={
               selection?.kind === "block"
                 ? "Add a block after the one selected, a lane or a sticky note"
@@ -711,6 +886,7 @@ export function FlowchartDiagram({ computed: cv, selection, onSelect, edit, onEr
           )}
         </div>
       )}
+      {menu && shown.length > 0 && <ContextMenu x={menu.x} y={menu.y} items={shown} onClose={closeMenu} />}
     </div>
   );
 }

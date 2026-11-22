@@ -35,6 +35,7 @@ import { useMediaQuery } from "./mediaQuery.js";
 import {
   arrowDeleteOps,
   arrowRemovals,
+  blockText,
   buildOps,
   eventDeleteOps,
   eventSelectionGone,
@@ -119,7 +120,7 @@ export function detailsName(ws: Workspace, view: ViewDef | null, computed: Compu
   if (shown.kind === "step") return `Step ${shown.step.number}`;
   if (shown.kind === "state") return shown.state.name;
   if (shown.kind === "transition") return `Transition ${shown.transition.number}`;
-  if (shown.kind === "block") return shown.block.text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? shown.block.id;
+  if (shown.kind === "block") return blockText(shown.block);
   if (shown.kind === "flow") return `Flow ${shown.flow.number}`;
   if (shown.kind === "entity") return shown.entity.name;
   if (shown.kind === "attribute") return shown.attribute.name;
