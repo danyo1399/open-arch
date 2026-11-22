@@ -17,8 +17,11 @@ export interface WorkspaceState {
   loadError: string | null;
   /** Apply operations and save. Resolves to false when they were refused. */
   edit(edit: Edit): Promise<boolean>;
-  /** Save an earlier version of the file, as one step that Undo takes back. Resolves to false if it couldn't be saved. */
-  restore(text: string): Promise<boolean>;
+  /**
+   * Save an earlier version of the file, as one step that Undo takes back, which the History list
+   * calls `label`. Resolves to false if it couldn't be saved.
+   */
+  restore(text: string, label: string): Promise<boolean>;
   /**
    * Calls `look` with the workspace once the edits queued before it have landed, or with null
    * when there's none. Unlike an edit, it gets a workspace whose file has errors too.
@@ -302,7 +305,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
   );
 
   const restore = useCallback(
-    (target: string) =>
+    (target: string, label: string) =>
       enqueue(async () => {
         const before = current.current;
         if (before === null) return false;
@@ -314,7 +317,7 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[])
           showSaveProblem(`Couldn't save: ${problemText(error)}`);
           return false;
         }
-        updateHistory((h) => withStep(h, { label: "Restored an earlier version", before, after: target, renames }));
+        updateHistory((h) => withStep(h, { label, before, after: target, renames }));
         return true;
       }),
     [enqueue, write],

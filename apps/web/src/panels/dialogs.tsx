@@ -388,15 +388,32 @@ export function ConfirmDialog({ title, text, confirm, onConfirm, onClose }: { ti
   );
 }
 
-/** When a change was made, as the History list shows it: the time of day, to the minute. */
-export const changeTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+/** When a change was made, as the History list shows it: the time of day, to the minute, after the day when that isn't today. */
+export function changeTime(at: number, now = Date.now()): string {
+  const time: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
+  const today = new Date(at).toDateString() === new Date(now).toDateString();
+  return today ? new Date(at).toLocaleTimeString([], time) : new Date(at).toLocaleString([], { month: "short", day: "numeric", ...time });
+}
 
 /**
  * The History list: the changes made here, newest first, to go back to the workspace as it was
  * just after any of them, or forward again to one that was undone. It opens on the one showing
- * now, and stays open after a pick, to try another.
+ * now, and stays open after a pick, to try another. `problem` is what went wrong, if anything
+ * did, such as a version that couldn't be saved: the list then stays as it was.
  */
-export function HistoryDialog({ versions, current, onGo, onClose }: { versions: Version[]; current: number; onGo(version: number): void; onClose(): void }) {
+export function HistoryDialog({
+  versions,
+  current,
+  problem,
+  onGo,
+  onClose,
+}: {
+  versions: Version[];
+  current: number;
+  problem: string | null;
+  onGo(version: number): void;
+  onClose(): void;
+}) {
   const now = versions.findIndex((v) => v.number === current);
   const shown = useRef<HTMLButtonElement>(null);
   // After the dialog has opened, which puts the focus on its first button.
@@ -411,7 +428,7 @@ export function HistoryDialog({ versions, current, onGo, onClose }: { versions: 
       </p>
       <p className="muted small">This list is kept only while the workspace is open here. It isn't saved in the file, exported or shared.</p>
       {versions.length === 1 ? (
-        <p className="muted">No changes yet.</p>
+        <p className="muted">No changes since the workspace was opened, or reloaded.</p>
       ) : (
         <ol className="history">
           {versions
@@ -420,12 +437,21 @@ export function HistoryDialog({ versions, current, onGo, onClose }: { versions: 
                 <button ref={i === now ? shown : undefined} className={i > now ? "row undone" : i === now ? "row active" : "row"} aria-current={i === now} onClick={() => onGo(v.number)}>
                   <span className="grow">{v.change ?? "Before these changes"}</span>
                   {i >= now && <span className="small">{i === now ? "Now" : "Undone"}</span>}
-                  {v.at !== null && <time className="muted small">{changeTime(v.at)}</time>}
+                  {v.at !== null && (
+                    <time className="muted small" dateTime={new Date(v.at).toISOString()}>
+                      {changeTime(v.at)}
+                    </time>
+                  )}
                 </button>
               </li>
             ))
             .reverse()}
         </ol>
+      )}
+      {problem !== null && (
+        <p className="error" role="alert">
+          {problem}
+        </p>
       )}
     </Modal>
   );

@@ -2,6 +2,8 @@
 import "fake-indexeddb/auto";
 import { serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { act, createElement } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Designer } from "../src/Designer.js";
 import { MemoryHost } from "../src/hosts.js";
@@ -70,7 +72,46 @@ describe("History in the designer", () => {
     const { host, open, rows } = await designer();
     await click(open()!);
     expect(rows()).toEqual([]);
-    expect(host.querySelector(".modal")!.textContent).toContain("No changes yet.");
+    expect(host.querySelector(".modal")!.textContent).toContain("No changes since the workspace was opened, or reloaded.");
+  });
+
+  it("says so in the list when a version can't be saved, and stays on the one showing", async () => {
+    const { host, file, named, rename, open, rows } = await designer();
+    await rename("Shop B");
+    await click(open()!);
+    file.save = async () => {
+      throw new Error("The folder is gone.");
+    };
+    await click(rows()[1]!);
+    await until(() => !!host.querySelector('.modal [role="alert"]'));
+    expect(host.querySelector('.modal [role="alert"]')!.textContent).toBe("Couldn't save: The folder is gone.");
+    expect(named()).toBe("Shop B");
+    expect(rows().map((r) => r.className)).toEqual(["row active", "row"]);
+
+    // Once it can be saved, the pick goes through, and the message comes down.
+    file.save = MemoryHost.prototype.save;
+    await click(rows()[1]!);
+    await until(() => named() === "Shop");
+    expect(named()).toBe("Shop");
+    expect(host.querySelector('.modal [role="alert"]')).toBeNull();
+  });
+
+  it("has an icon for a button, as tall as the buttons with text beside it, which keeps its size when the top bar is tight", async () => {
+    // This page has no layout, so it reads the stylesheet.
+    const style = document.createElement("style");
+    style.textContent = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+    document.head.append(style);
+    try {
+      const { open } = await designer();
+      expect(open()!.className).toBe("square");
+      expect(open()!.querySelector("svg")).not.toBeNull();
+      // A line of text, and a text button's padding and border.
+      expect(getComputedStyle(open()!).minHeight).toBe("calc(1lh + 12px)");
+      // Only the text gives way.
+      expect(getComputedStyle(open()!).flexShrink).toBe("0");
+    } finally {
+      style.remove();
+    }
   });
 
   it("is in the menu on a narrow screen", async () => {

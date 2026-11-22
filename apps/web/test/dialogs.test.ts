@@ -401,9 +401,9 @@ describe("HistoryDialog", () => {
     { number: 9, change: "Removed shop", at: noon + 120_000 },
   ];
   /** The dialog on these versions, showing the one numbered `current`. It keeps the versions picked. */
-  function history(list: Version[], current: number) {
+  function history(list: Version[], current: number, problem: string | null = null) {
     const picked: number[] = [];
-    const host = mount(createElement(HistoryDialog, { versions: list, current, onGo: (version: number) => void picked.push(version), onClose() {} }));
+    const host = mount(createElement(HistoryDialog, { versions: list, current, problem, onGo: (version: number) => void picked.push(version), onClose() {} }));
     return { host, picked, rows: [...host.querySelectorAll<HTMLButtonElement>(".history button")] };
   }
 
@@ -415,7 +415,8 @@ describe("HistoryDialog", () => {
       ["Added system shop", changeTime(noon)],
       ["Before these changes"],
     ]);
-    expect(changeTime(noon)).toMatch(/12.00/);
+    expect(rows.map((r) => r.querySelector("time")?.dateTime)).toEqual([new Date(noon + 120_000).toISOString(), new Date(noon + 60_000).toISOString(), new Date(noon).toISOString(), undefined]);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(rows.map((r) => r.className)).toEqual(["row undone", "row active", "row", "row"]);
     expect(rows.map((r) => r.getAttribute("aria-current"))).toEqual(["false", "true", "false", "false"]);
     expect(host.textContent).toContain("It isn't saved in the file, exported or shared.");
@@ -434,9 +435,44 @@ describe("HistoryDialog", () => {
     expect(picked).toEqual([5, 4, 9]);
   });
 
-  it("says so when no changes have been made", () => {
+  it("says so when no changes have been made since the workspace was opened or reloaded", () => {
     const { host, rows } = history([{ number: 0, change: null, at: null }], 0);
     expect(rows).toEqual([]);
-    expect(host.textContent).toContain("No changes yet.");
+    expect(host.textContent).toContain("No changes since the workspace was opened, or reloaded.");
+  });
+
+  it("says when a change was made: the time of day, after the day when that wasn't today", () => {
+    const options: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
+    expect(changeTime(noon, noon + 3_600_000)).toBe(new Date(noon).toLocaleTimeString([], options));
+    expect(changeTime(noon, noon + 3_600_000)).toMatch(/^12.00/);
+    // A workspace left open overnight: yesterday's noon isn't taken for today's.
+    const nextDay = noon + 24 * 3_600_000;
+    expect(changeTime(noon, nextDay)).toBe(new Date(noon).toLocaleString([], { month: "short", day: "numeric", ...options }));
+    expect(changeTime(noon, nextDay)).toMatch(/5/);
+    expect(changeTime(noon, nextDay)).not.toBe(changeTime(nextDay, nextDay));
+  });
+
+  it("says what went wrong in the dialog, where the designer's own message is under it", () => {
+    const { host, rows } = history(versions, 6, "Couldn't save: The folder is gone.");
+    const alert = host.querySelector('dialog [role="alert"]')!;
+    expect(alert.textContent).toBe("Couldn't save: The folder is gone.");
+    // The list is as it was.
+    expect(rows.map((r) => r.className)).toEqual(["row undone", "row active", "row", "row"]);
+  });
+
+  it("shows all of a long change, on as many lines as it needs, with when it was made on one", () => {
+    // This page has no layout, so it reads the stylesheet. Other rows cut their text short on one
+    // line, which would leave two long changes that differ at the end looking the same.
+    const style = document.createElement("style");
+    style.textContent = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+    document.head.append(style);
+    try {
+      const { rows } = history([...versions, { number: 10, change: "Added transition 3 to view order-states-of-the-checkout: placed -> paid", at: noon }], 10);
+      const [label, , time] = [...rows[0]!.children];
+      expect(getComputedStyle(label!)).toMatchObject({ whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere" });
+      expect(getComputedStyle(time!).whiteSpace).toBe("nowrap");
+    } finally {
+      style.remove();
+    }
   });
 });

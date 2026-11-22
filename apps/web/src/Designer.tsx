@@ -934,7 +934,7 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
             context={{ viewId: view?.id, selection: selected }}
             contextLabel={[view ? `In “${view.title}”` : "No view open", selected.length > 0 && `${selected.join(", ")} selected`].filter(Boolean).join(" · ")}
             text={state.text}
-            restore={state.restore}
+            restore={(text) => state.restore(text, "Undid the AI's change")}
             open={askOpen}
             onClose={() => setAskOpen(false)}
           />
@@ -1073,7 +1073,14 @@ export function Designer({ host, onClose, onHostChange }: DesignerProps) {
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog?.kind === "history" && <HistoryDialog versions={state.versions} current={state.version} onGo={state.goTo} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "history" && <HistoryDialog
+          versions={state.versions}
+          current={state.version}
+          // What went wrong, such as a version that couldn't be saved: the message under the dialog is hard to see, and can't be reached.
+          problem={message?.kind === "error" ? message.text : null}
+          onGo={state.goTo}
+          onClose={() => setDialog(null)}
+        />}
       {dialog?.kind === "share" && shareClient && (
         <ShareDialog client={shareClient} workspace={host.key} file={{ name: host.name, text: state.text }} designer={designer} onClose={() => setDialog(null)} />
       )}
