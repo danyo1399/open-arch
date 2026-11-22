@@ -13,7 +13,7 @@ import { FILE_EXTENSION, loadWorkspace, type OpenArchDocument } from "@open-arch
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import type { AgentContext } from "../../web/src/bridge.js";
 import { problemText } from "../../web/src/problems.js";
-import type { AgentBackend, AgentEvent } from "./agent.js";
+import { agentContext, type AgentBackend, type AgentEvent } from "./agent.js";
 import { AgentSetup } from "./agent-setup.js";
 import { OpenCodeBackend } from "./opencode.js";
 import { newDocument, Saver } from "./saving.js";
@@ -223,9 +223,7 @@ handle("agentRun", async (event, run: number, path: string, prompt: string, cont
   try {
     const file = allowed(path);
     if (typeof prompt !== "string" || !prompt.trim()) throw new Error("Say what to change.");
-    const selection = Array.isArray(context?.selection) ? context.selection.filter((thing) => typeof thing === "string") : [];
-    const text = (value: unknown) => (typeof value === "string" ? value : undefined);
-    await agentFor(sender).run({ file, prompt, selection, viewId: text(context?.viewId), viewTitle: text(context?.viewTitle), viewLevel: text(context?.viewLevel) }, emit);
+    await agentFor(sender).run({ file, prompt, ...agentContext(context) }, emit);
   } catch (error) {
     emit({ type: "error", message: problemText(error) });
   }

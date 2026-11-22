@@ -2,19 +2,27 @@
  * Where the person is in the designer, as either Ask AI is told it with each request: the view
  * they have open, and everything they have selected on it, named as the operations name it.
  */
-import type { ComputedView, ViewDef, Workspace } from "@open-arch/core";
+import { ID_PATTERN, type ComputedView, type ViewDef, type Workspace } from "@open-arch/core";
 import type { AgentContext } from "../bridge.js";
 import type { Selection } from "../canvas/Canvas.js";
 import { arrowRelationships, boardItemsOf } from "../model.js";
+import { NAMED_LIMIT } from "./where.js";
 
-const code = (id: string) => `\`${id}\``;
+/**
+ * An ID as the agent is told it. Only an ID in the form IDs take goes into the request, as what's
+ * in it reads as the person's own words: any other text, from whoever made the file, could be
+ * written to read as an instruction.
+ */
+const code = (id: string) => (ID_PATTERN.test(id) ? `\`${id}\`` : "(an ID that isn't valid)");
 
 /**
  * What's selected, each thing as the agent is told it, with its IDs in backticks: "`shop`", "the
  * sticky note `n1`", "step 3". A relationship is named by its ends, and its index when it isn't
- * the first between them, as the operations name it. Nothing when nothing is selected.
+ * the first between them, as the operations name it. Nothing when nothing is selected. Nothing
+ * that's free text, such as a name or a title, is in it, for the same reason as in `code`: an
+ * attribute is named by its number among its entity's attributes, and the agent reads its name.
  */
-export function selectedThings(ws: Workspace, computed: ComputedView | null, selection: Selection): string[] {
+export function selectedThings(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, selection: Selection): string[] {
   if (!selection) return [];
   switch (selection.kind) {
     case "element":
@@ -62,8 +70,10 @@ export function selectedThings(ws: Workspace, computed: ComputedView | null, sel
       return [`flow ${selection.number}`];
     case "entity":
       return [`the entity ${code(selection.id)}`];
-    case "attribute":
-      return [`the attribute ${code(selection.name)} of the entity ${code(selection.entity)}`];
+    case "attribute": {
+      const at = view?.entities.find((e) => e.id === selection.entity)?.attributes.findIndex((a) => a.name === selection.name) ?? -1;
+      return [`${at < 0 ? "an attribute" : `attribute ${at + 1}`} of the entity ${code(selection.entity)}`];
+    }
     case "link":
       return [`link ${selection.number}`];
     case "workspace":
@@ -71,10 +81,13 @@ export function selectedThings(ws: Workspace, computed: ComputedView | null, sel
   }
 }
 
-/** What either Ask AI is given of where the person is, and the line its panel shows them of it. */
+/** What either Ask AI is given of where the person is, and the line its panel shows them of it, with the view's title. */
 export function askContext(ws: Workspace, view: ViewDef | null, computed: ComputedView | null, selection: Selection): { context: AgentContext; label: string } {
-  const selected = selectedThings(ws, computed, selection);
-  const context: AgentContext = view ? { viewId: view.id, viewTitle: view.title, viewLevel: view.level, selection: selected } : { selection: selected };
+  const all = selectedThings(ws, view, computed, selection);
+  // A lot selected, such as everything on a big view, is named only in part, so it doesn't swell every request.
+  const selected = all.length > NAMED_LIMIT ? [...all.slice(0, NAMED_LIMIT), `${all.length - NAMED_LIMIT} more`] : all;
+  // The view's title is free text, so the agent is given its ID and level, and reads the title if it needs it.
+  const context: AgentContext = view ? { viewId: view.id, viewLevel: view.level, selection: selected } : { selection: selected };
   const label = [view ? `In “${view.title}”` : "No view open", selected.length > 0 && `${selected.join(", ").replaceAll("`", "")} selected`].filter(Boolean).join(" · ");
   return { context, label };
 }

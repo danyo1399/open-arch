@@ -4,8 +4,9 @@
  * checks every change, and the designer's file watcher shows the result.
  * `opencode.ts` implements this with OpenCode 2.
  */
+import { ID_PATTERN, VIEW_LEVELS } from "@open-arch/core";
 import type { AgentEvent } from "../../web/src/bridge.js";
-import { whereText } from "../../web/src/ai/where.js";
+import { NAMED_LIMIT, whereText } from "../../web/src/ai/where.js";
 
 export type { AgentEvent };
 
@@ -16,9 +17,8 @@ export interface AgentRequest {
   prompt: string;
   /** Everything selected in the designer, for context, each as the agent is told it: "`shop`", "the sticky note `n1`". */
   selection: string[];
-  /** The view open in the designer, with its title and level, for context. */
+  /** The view open in the designer, and its level, for context. */
   viewId?: string;
-  viewTitle?: string;
   viewLevel?: string;
 }
 
@@ -28,6 +28,24 @@ export interface AgentBackend {
   /** Answer a permission request raised during `run`. */
   reply(permissionId: string, allow: boolean): Promise<void>;
   cancel(): Promise<void>;
+}
+
+/** How long a thing selected can be, as the designer words it: one longer isn't what it sends. */
+const SELECTED_LENGTH = 200;
+
+/**
+ * Where the person is in the designer, from what the page sent, as the agent is told it: only
+ * strings, an ID in the form IDs take, a level there is, and no more of the selection than a
+ * request names, each of a length the designer writes.
+ */
+export function agentContext(context: unknown): Pick<AgentRequest, "selection" | "viewId" | "viewLevel"> {
+  const given = (typeof context === "object" && context !== null ? context : {}) as Record<string, unknown>;
+  const things = Array.isArray(given.selection) ? given.selection.filter((thing): thing is string => typeof thing === "string" && thing.length <= SELECTED_LENGTH) : [];
+  // The designer names no more than this, and then how many more there are.
+  const selection = things.slice(0, NAMED_LIMIT + 1);
+  const viewId = typeof given.viewId === "string" && ID_PATTERN.test(given.viewId) ? given.viewId : undefined;
+  const viewLevel = viewId && (VIEW_LEVELS as readonly unknown[]).includes(given.viewLevel) ? (given.viewLevel as string) : undefined;
+  return { selection, viewId, viewLevel };
 }
 
 /** Quote a path for the agent's shell when it needs it. */

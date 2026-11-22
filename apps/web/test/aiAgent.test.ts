@@ -130,12 +130,12 @@ describe("Ask AI's agent, in the web app", () => {
 
   it("tells the model where the person is in the designer", async () => {
     const { ask, model } = agentFor([{ text: "a" }, { text: "b" }, { text: "c" }]);
-    await ask("Describe this", { viewId: "context", viewTitle: "Shop context", viewLevel: "context", selection: ["`shop`"] });
+    await ask("Describe this", { viewId: "context", viewLevel: "context", selection: ["`shop`"] });
     await ask("And these", { viewId: undefined, selection: ["`shop`", "the relationship from `customer` to `shop`"] });
     await ask("And this view", { viewId: "context", selection: [] });
     const said = model.asked[2]!.body.messages.flatMap((m) => (m.role === "user" ? [m.content] : []));
     expect(said).toEqual([
-      "(In the designer, the view `context` (“Shop context”, level `context`) is open, and `shop` is selected.)\n\nDescribe this",
+      "(In the designer, the view `context` (level `context`) is open, and `shop` is selected.)\n\nDescribe this",
       "(In the designer, `shop`, the relationship from `customer` to `shop` are selected.)\n\nAnd these",
       "(In the designer, the view `context` is open.)\n\nAnd this view",
     ]);

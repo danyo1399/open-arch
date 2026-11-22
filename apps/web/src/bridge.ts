@@ -53,9 +53,8 @@ export interface DesktopBridge {
 
 /** Where the user is in the designer, for the agent's context. */
 export interface AgentContext {
-  /** The view open in the designer, with its title and level. */
+  /** The view open in the designer, and its level. */
   viewId?: string;
-  viewTitle?: string;
   viewLevel?: string;
   /** Everything selected, each as the agent is told it, with its IDs in backticks: "`shop`", "the sticky note `n1`", "step 3". */
   selection: string[];
