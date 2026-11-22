@@ -85,8 +85,11 @@ describe("asking a model from the page", () => {
         call({ id: "b", function: { name: "check_model", arguments: "}" } }),
       ]),
     ).toEqual(['a show_model {"id":"shop"}', "b check_model {}"]);
-    // No IDs at all, and the arguments written out, not as text: each call still gets an ID of its own.
-    expect(await names([call({ index: 0, function: { name: "show_model", arguments: { id: "shop" } } }), call({ index: 1, function: { name: "check_model", arguments: {} } })])).toEqual(['call_1 show_model {"id":"shop"}', "call_2 check_model {}"]);
+    // No IDs at all, and the arguments written out, not as text: each call still gets an ID of its own, which no later reply's call gets too.
+    const unnamed = [call({ index: 0, function: { name: "show_model", arguments: { id: "shop" } } }), call({ index: 1, function: { name: "check_model", arguments: {} } })];
+    const made = [...(await names(unnamed)), ...(await names(unnamed))];
+    expect(made.map((c) => c.replace(/^call_\d+ /, ""))).toEqual(['show_model {"id":"shop"}', "check_model {}", 'show_model {"id":"shop"}', "check_model {}"]);
+    expect(new Set(made.map((c) => c.split(" ")[0])).size).toBe(4);
   });
 
   it("reads an answer sent whole, from a server that doesn't stream", async () => {

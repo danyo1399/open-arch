@@ -104,7 +104,7 @@ export function BrowserAskAI({ host, storage, change, afterEdits, fetch: send, .
       note={
         folder && (
           <>
-            <label className="check small" title="It can find, read and search the files in this folder, but not change them. Hidden files and folders, such as .env and .git, and node_modules are left out. What it reads is sent to the model's server.">
+            <label className="check small" title="It can find, read and search the files in this folder, but not change them. Hidden files and folders, such as .env and .git, node_modules, and files named as keys and secrets usually are, such as id_rsa and secrets.yaml, are left out. What it reads is sent to the model's server.">
               <input type="checkbox" checked={ai.readsFiles} onChange={(e) => keep(() => ai.setReadsFiles(e.target.checked))} />
               Let the AI read the files in {folder.name}
             </label>

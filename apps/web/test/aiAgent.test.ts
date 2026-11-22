@@ -28,7 +28,7 @@ function agentFor(script: Parameters<typeof fakeModel>[0], { folder, configured 
       try {
         const result = applyOperations(loadWorkspace(state.text).doc, ops);
         state.text = serializeDocument(result.doc);
-        return { ok: true, summary: result.summary, warnings: result.warnings };
+        return { ok: true, summary: result.summary, warnings: result.warnings, text: state.text };
       } catch (error) {
         if (!(error instanceof OpError)) throw error;
         return { ok: false, error: error.message };
@@ -44,11 +44,12 @@ function agentFor(script: Parameters<typeof fakeModel>[0], { folder, configured 
   return { agent, ask, model, state, host };
 }
 
-/** The events with the pieces of each message put together, as the panel shows them. */
+/** The events with the pieces of each message put together, as the panel shows them. What it changed isn't a line of its own there. */
 function shown(events: AgentEvent[]): string[] {
   const out: string[] = [];
   let writing = false;
   for (const event of events) {
+    if (event.type === "changed") continue;
     if (event.type === "delta") {
       if (writing) out[out.length - 1] += event.text;
       else out.push(`… ${event.text}`);
@@ -70,6 +71,8 @@ describe("Ask AI's agent, in the web app", () => {
     const events = await ask("What's in the model?");
     expect(shown(events)).toEqual(["… Let me look.", "· Looked at the model", "… The shop has one system, `shop`, which a customer buys from.", "✓ The shop has one system, `shop`, which a customer buys from."]);
     expect(state.text).toBe(before);
+    // Reading changes nothing, and it doesn't say it did.
+    expect(events.some((e) => e.type === "changed")).toBe(false);
 
     // The first request has the system prompt, the question and the tools; the second adds the call and its answer.
     expect(roles(model.asked[0]!)).toEqual(["system", "user"]);
@@ -93,6 +96,9 @@ describe("Ask AI's agent, in the web app", () => {
     expect(toolAnswers(model.asked[1]!)[0]).toMatch(/^Refused, so nothing changed: /);
     expect(toolAnswers(model.asked[2]!)[1]).toMatch(/^Changed:\n- added container cache\n- added relationship customer -> cache/);
     expect(loadWorkspace(state.text).elements.get("cache")).toMatchObject({ kind: "container", parent: "shop" });
+    // It says what its change left the workspace as, once, for the change that went through: the refused one changed nothing.
+    expect(events.filter((e) => e.type === "changed")).toEqual([{ type: "changed", text: state.text }]);
+    expect(events.findIndex((e) => e.type === "changed")).toBeGreaterThan(events.findIndex((e) => e.type === "progress" && e.text.startsWith("Changed the model")));
     // A message with only tool calls is sent back with no text, not empty text.
     expect(model.asked[1]!.body.messages[2]).toMatchObject({ role: "assistant", content: null });
   });
@@ -215,6 +221,34 @@ describe("Ask AI's agent, in the web app", () => {
     expect(toolAnswers(model.asked[1]!)).toEqual([expect.stringMatching(/^Changed:\n- updated shop/), "(Stopped before this ran.)"]);
   });
 
+  it("leaves a conversation the model can carry on when it's stopped in a later round, whatever IDs the server gives its calls", async () => {
+    // A server that numbers each reply's calls afresh, so the same IDs come round again, and one that gives none.
+    const reusing = (calls: string[]) => () =>
+      new Response(calls.map((name, index) => `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index, id: `call_${index}`, function: { name, arguments: "{}" } }] } }] })}\n\n`).join(""));
+    const unnamed = (calls: string[]) => () =>
+      new Response(calls.map((name, index) => `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index, function: { name, arguments: "{}" } }] } }] })}\n\n`).join(""));
+    for (const server of [reusing, unnamed]) {
+      const { agent, ask, model, host } = agentFor([server(["check_model"]), server(["show_model", "check_model", "search_model"]), { text: "Carrying on." }]);
+      // Stopped as the second round's first call runs: its other two never do.
+      let looked = 0;
+      const workspace = host.workspace;
+      host.workspace = async () => {
+        if (++looked === 2) agent.cancel();
+        return workspace();
+      };
+      expect(shown(await ask("Check it twice"))).toEqual(["· Checked the model for problems", "· Looked at the model", "✗ Stopped."]);
+      await ask("Carry on");
+      const sent = model.asked[2]!.body.messages;
+      expect(sent.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "assistant", "tool", "tool", "tool", "user"]);
+      // Each call is answered straight after the message that made it, in order, under its own ID.
+      for (const [at, message] of sent.entries()) {
+        if (message.role !== "assistant" || !message.tool_calls) continue;
+        expect(sent.slice(at + 1, at + 1 + message.tool_calls.length).map((m) => (m.role === "tool" ? m.tool_call_id : m.role))).toEqual(message.tool_calls.map((c) => c.id));
+      }
+      expect(toolAnswers(model.asked[2]!).map((a) => a.split("\n")[0])).toEqual(["No problems.", "Shop: shop.openarch (2 elements, 1 views)", "(Stopped before this ran.)", "(Stopped before this ran.)"]);
+    }
+  });
+
   it("stops while the model is still answering", async () => {
     const { agent, ask, model } = agentFor([
       async () => {
@@ -322,9 +356,30 @@ describe("Ask AI's agent, in the web app", () => {
     const answers = toolAnswers(model.asked[reads]!);
     expect(answers).toHaveLength(reads);
     expect(answers.at(-1)).toMatch(/\n\(Cut short: this is the first 40000 characters\. Ask for less at once\.\)$/);
-    expect(answers[0]).toBe("(Left out to save room: it was read a while ago. Call the tool again if you need it.)");
+    expect(answers[0]).toBe("(Left out to save room. Call the tool again if you still need it.)");
     expect(answers.reduce((sum, a) => sum + a.length, 0)).toBeLessThanOrEqual(KEPT_LIMIT);
     // The newest are kept whole.
     expect(answers.at(-2)).toBe(answers.at(-1));
+  });
+
+  it("never leaves out an answer the model hasn't read, however much one reply asks for", async () => {
+    const folder = new FakeFolder("shop-repo");
+    folder.put("big.txt", Array.from({ length: 400 }, () => "x".repeat(200)).join("\n"));
+    // One reply reads the big file more times than a conversation keeps, then another reads it once more.
+    const many = Math.ceil(KEPT_LIMIT / 40_000) + 3;
+    const read = { name: "read_file", args: { path: "big.txt" } };
+    const { ask, model } = agentFor([{ calls: Array.from({ length: many }, () => read) }, { calls: [read] }, { text: "Read." }], { folder });
+    await ask("Read the big file many times at once");
+    // Every answer to the first reply reaches the model whole, though together they're over what's kept.
+    const first = toolAnswers(model.asked[1]!);
+    expect(first).toHaveLength(many);
+    expect(first.reduce((sum, a) => sum + a.length, 0)).toBeGreaterThan(KEPT_LIMIT);
+    expect(first.every((a) => a.startsWith("big.txt (lines 1 to 400 of 400)") || a.startsWith("big.txt (400 lines)"))).toBe(true);
+    // Once it has read them, the oldest make room, and the new answer is whole.
+    const second = toolAnswers(model.asked[2]!);
+    expect(second).toHaveLength(many + 1);
+    expect(second[0]).toBe("(Left out to save room. Call the tool again if you still need it.)");
+    expect(second.at(-1)).toBe(first[0]);
+    expect(second.slice(0, many).reduce((sum, a) => sum + a.length, 0)).toBeLessThanOrEqual(KEPT_LIMIT);
   });
 });

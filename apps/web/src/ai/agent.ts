@@ -15,12 +15,12 @@ import { ANSWER_LIMIT, runTool, toolSpecs, type ToolHost } from "./tools.js";
 /** How many times a request can go round, model to tools and back, before it's stopped: a model that never finishes shouldn't run for ever. */
 export const ROUNDS_LIMIT = 30;
 
-/** How much of the tools' answers a conversation keeps, in characters: past it, the oldest are left out, so a long one still fits the model. */
+/** How much of the tools' answers a conversation keeps, in characters: past it, the oldest the model has read are left out, so a long one still fits the model. */
 export const KEPT_LIMIT = 300_000;
 
 const NOT_SET_UP = "Ask AI isn't set up yet: give the server's address, the key and the model in its settings.";
 
-const LEFT_OUT = "(Left out to save room: it was read a while ago. Call the tool again if you need it.)";
+const LEFT_OUT = "(Left out to save room. Call the tool again if you still need it.)";
 
 /** The operations on the model itself, whose fields the model is told at the start. The rest are for what views hold, and it reads the guide for them. */
 const MODEL_OPERATIONS = [
@@ -94,6 +94,8 @@ export interface AgentSetup {
 }
 
 export class BrowserAgent {
+  /** It says when it changes the workspace, with a "changed" event, so only its own changes are offered to undo. */
+  readonly reportsChanges = true;
   /** The conversation so far, without the system prompt, which is written afresh for each request. */
   private messages: ChatMessage[] = [];
   private running: AbortController | null = null;
@@ -102,8 +104,8 @@ export class BrowserAgent {
 
   /**
    * Runs one request, as part of the conversation so far. Calls `onEvent` with each piece of the
-   * model's reply ("delta") and each thing it did ("progress"), then once with "done" or "error",
-   * and resolves after that.
+   * model's reply ("delta"), each thing it did ("progress") and each change it made to the
+   * workspace ("changed"), then once with "done" or "error", and resolves after that.
    */
   async run(prompt: string, context: AgentContext, onEvent: (event: AgentEvent) => void): Promise<void> {
     if (this.running) return onEvent({ type: "error", message: "It's still working on the last request. Stop that one, or wait for it." });
@@ -139,6 +141,7 @@ export class BrowserAgent {
           const result = await runTool(host, call.function.name, call.function.arguments, stop.signal);
           calls++;
           onEvent({ type: "progress", text: result.did });
+          if (result.changed !== undefined) onEvent({ type: "changed", text: result.changed });
           messages.push({ role: "tool", tool_call_id: call.id, content: clipped(result.answer) });
           // Stopped while it ran: what it did is kept, and the calls after it aren't made.
           stop.signal.throwIfAborted();
@@ -167,27 +170,36 @@ export class BrowserAgent {
   }
 }
 
+/** Where the model's last message is in a conversation, or -1 when it has none. */
+const lastReply = (messages: ChatMessage[]) => messages.findLastIndex((m) => m.role === "assistant");
+
 /**
  * Leaves a conversation one the model can carry on, after a request stopped partway. A request
  * that got no reply at all is forgotten, so asking again doesn't ask twice. Tools the model
- * called that didn't run get an answer saying so, as every call needs one.
+ * called that didn't run get an answer saying so, as every call needs one. The calls are answered
+ * in order, each answer after the message that made the call, so the ones left are those past
+ * the answers there are: an ID doesn't say, as a server can use one again in a later message.
  */
 function mend(messages: ChatMessage[], asked: number): void {
   if (messages.length === asked + 1) {
     messages.length = asked;
     return;
   }
-  const answered = new Set(messages.flatMap((m) => (m.role === "tool" ? [m.tool_call_id] : [])));
-  for (const message of [...messages]) {
-    if (message.role !== "assistant") continue;
-    for (const call of message.tool_calls ?? []) if (!answered.has(call.id)) messages.push({ role: "tool", tool_call_id: call.id, content: "(Stopped before this ran.)" });
-  }
+  const at = lastReply(messages);
+  const reply = messages[at];
+  if (reply?.role !== "assistant") return;
+  for (const call of (reply.tool_calls ?? []).slice(messages.length - 1 - at)) messages.push({ role: "tool", tool_call_id: call.id, content: "(Stopped before this ran.)" });
 }
 
-/** Leaves out the oldest of the tools' answers once a conversation keeps too much of them. */
+/**
+ * Leaves out the oldest of the tools' answers once a conversation keeps too much of them. The
+ * answers to the model's last message are never left out, however much they come to: it hasn't
+ * read them yet.
+ */
 function trim(messages: ChatMessage[]): void {
+  const unread = lastReply(messages);
   let kept = messages.reduce((sum, m) => sum + (m.role === "tool" ? m.content.length : 0), 0);
-  for (const message of messages) {
+  for (const message of messages.slice(0, Math.max(unread, 0))) {
     if (kept <= KEPT_LIMIT) return;
     if (message.role !== "tool" || message.content === LEFT_OUT) continue;
     kept -= message.content.length - LEFT_OUT.length;

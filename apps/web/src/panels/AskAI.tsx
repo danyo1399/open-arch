@@ -28,6 +28,29 @@ export interface Asker {
   cancel(): Promise<void> | void;
   /** Forget the conversation so far, for an agent that keeps one: the next request starts another. */
   reset?(): void;
+  /**
+   * Whether it says when it changes the workspace, with a "changed" event. Then only its own
+   * changes are offered to undo. One that doesn't, such as the desktop app's, which changes the
+   * file on disk, is taken to have made any change there is after a request.
+   */
+  reportsChanges?: boolean;
+}
+
+/**
+ * What Undo AI change puts back: the file's text before the last request, and, from an agent
+ * that says when it changes the workspace, the text its last change left.
+ */
+type Undoable = { before: string; after?: string };
+
+/**
+ * Whether the workspace is as the agent's change left it, so Undo AI change takes back the
+ * agent's work and nobody else's. With an agent that says what it changed, that's while the text
+ * is still what its last change left: once the person changes something too, Undo and History
+ * are the way back. With one that doesn't say, it's any difference since the request was sent.
+ */
+export function canUndo(undoable: Undoable | null, text: string): boolean {
+  if (!undoable || text === undoable.before) return false;
+  return undoable.after === undefined || text === undoable.after;
 }
 
 interface AskAIProps {
@@ -43,7 +66,7 @@ interface AskAIProps {
   onClose(): void;
   /** What the box is for, where it isn't only for changes. */
   asks?: { label: string; placeholder: string };
-  /** Shown in place of the log and the box, such as settings to fill in first. */
+  /** Shown in place of the log and the box while no request is running, such as settings to fill in first. */
   setup?: ReactNode;
   /** More buttons for the header, while no request is running. */
   actions?: ReactNode;
@@ -69,13 +92,17 @@ function formatted(text: string): ReactNode[] {
   });
 }
 
-export function AskAI({ agent, context, contextLabel, text, restore, open, onClose, asks = CHANGES, setup, actions, note }: AskAIProps) {
+export function AskAI({ agent, context, contextLabel, text, restore, open, onClose, asks = CHANGES, setup: wanted, actions, note }: AskAIProps) {
   const [prompt, setPrompt] = useState("");
   const [log, setLog] = useState<Entry[]>([]);
   const [running, setRunning] = useState(false);
-  /** The file before the last request, for "Undo AI change". */
-  const [before, setBefore] = useState<string | null>(null);
+  /** What "Undo AI change" puts back, once the last request changed something. */
+  const [undoable, setUndoable] = useState<Undoable | null>(null);
+  /** The file as it was when the running request was sent. */
+  const sent = useRef("");
   const busy = useRef(false);
+  // A request that's running keeps its log and its Stop button, whatever else there is to show.
+  const setup = running ? undefined : wanted;
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -102,6 +129,8 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
         const last = l[l.length - 1];
         return last?.kind === "progress" && last.writing ? [...l.slice(0, -1), { ...last, text: last.text + event.text }] : [...l, { kind: "progress", text: event.text, writing: true }];
       });
+    // What the agent says it changed is what there is to undo: back to before this request.
+    else if (event.type === "changed") setUndoable({ before: sent.current, after: event.text });
     else if (event.type === "permission") add({ kind: "permission", id: event.id, text: event.description });
     else if (event.type === "permission-replied") setAnswer(event.id, "answered", true);
     else if (event.type === "error") add({ kind: "error", text: problemText(event.message) });
@@ -120,7 +149,9 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
     busy.current = true;
     setRunning(true);
     setPrompt("");
-    setBefore(text);
+    sent.current = text;
+    // An agent that says what it changes has changed nothing yet. Any other is taken to have made whatever changes from here.
+    setUndoable(agent.reportsChanges ? null : { before: text });
     add({ kind: "prompt", text: request });
     try {
       await agent.run(request, context, onEvent);
@@ -143,8 +174,8 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
   };
 
   const undo = async () => {
-    if (before !== null && (await restore(before))) {
-      setBefore(null);
+    if (undoable && (await restore(undoable.before))) {
+      setUndoable(null);
       add({ kind: "progress", text: "Undid the AI's change." });
     }
   };
@@ -153,7 +184,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
   const startAgain = () => {
     agent.reset?.();
     setLog([]);
-    setBefore(null);
+    setUndoable(null);
   };
 
   return (
@@ -180,7 +211,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, open, onClo
           <div ref={logEnd} />
         </div>
       )}
-      {!setup && !running && before !== null && text !== before && (
+      {!setup && !running && canUndo(undoable, text) && (
         <div className="ask-ai-undo">
           <span className="small muted grow">The AI changed the model.</span>
           <button onClick={() => void undo()} title="Put the file back as it was before this request. Undo takes this back.">
