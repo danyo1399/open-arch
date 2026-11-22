@@ -92,6 +92,15 @@ describe("asking a model from the page", () => {
       call({ index: 0, function: { name: "check_model", arguments: "{}" } }),
     ]);
     expect(unmarked.map((c) => c.replace(/^call_\d+ /, ""))).toEqual(['read_file {"path":"a.ts"}', 'read_file {"path":"b.ts"}', "check_model {}"]);
+    // The same, with each call's arguments in pieces after its name, as most servers stream them.
+    const streamed = await names([
+      call({ index: 0, function: { name: "read_file", arguments: "" } }),
+      call({ index: 0, function: { arguments: '{"path":' } }),
+      call({ index: 0, function: { arguments: '"a.ts"}' } }),
+      call({ index: 0, function: { name: "read_file", arguments: "" } }),
+      call({ index: 0, function: { arguments: '{"path":"b.ts"}' } }),
+    ]);
+    expect(streamed.map((c) => c.replace(/^call_\d+ /, ""))).toEqual(['read_file {"path":"a.ts"}', 'read_file {"path":"b.ts"}']);
     // A server that sends the name again with each piece of one call's arguments: still one call, with its name once.
     const repeated = await names([
       call({ index: 0, function: { name: "show_model", arguments: '{"id":' } }),

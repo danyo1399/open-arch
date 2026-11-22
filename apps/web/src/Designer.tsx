@@ -175,6 +175,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   /** How many times the notes editor has opened. */
   const notesOpened = useRef(0);
   const [askOpen, setAskOpen] = useState(false);
+  /** Whether the web app's Ask AI is working on a request. */
+  const asking = useRef(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [usagesOf, setUsagesOf] = useState<string | null>(null);
   /** Every rename applied, in order. */
@@ -532,6 +534,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const save = () =>
     attempt(async () => {
       if (state.text === null) return;
+      // Saved, it's opened as the copy that's kept, with Ask AI started afresh: a request still running would be cut off, and a change it was making lost.
+      if (asking.current) throw new Error("Ask AI is still working on a request. Stop it, or wait for it to finish, then save: saving opens the copy that's kept, and ends the conversation.");
       // Saved, it's kept under another key, and keeps the views pinned here.
       const carryOn = async (next: WorkspaceHost) => {
         await userSettings.setPins(next.key, viewSettings.pins).catch(() => undefined);
@@ -578,7 +582,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     context: { viewId: view?.id, selection: selected },
     contextLabel: [view ? `In “${view.title}”` : "No view open", selected.length > 0 && `${selected.join(", ")} selected`].filter(Boolean).join(" · "),
     text: state.text,
-    restore: (text: string) => state.restore(text, "Undid the AI's change"),
+    restore: (text: string, from?: string) => state.restore(text, "Undid the AI's change", from),
     open: askOpen,
     onClose: () => setAskOpen(false),
   };
@@ -989,7 +993,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         </NotesOpener.Provider>
         {usagesOf && <Usages ws={ws} id={usagesOf} viewId={viewId} onGo={goToUsage} onClose={() => setUsagesOf(null)} />}
         {fileAgent && <AskAI agent={fileAgent} {...ask} />}
-        {!desktop && <BrowserAskAI host={host} storage={state.storage} change={state.change} afterEdits={state.afterEdits} fetch={askFetch} {...ask} />}
+        {!desktop && <BrowserAskAI host={host} storage={state.storage} change={state.change} afterEdits={state.afterEdits} fetch={askFetch} onRunning={(running) => (asking.current = running)} {...ask} />}
       </main>
 
       <Properties

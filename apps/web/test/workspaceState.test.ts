@@ -488,6 +488,41 @@ describe("the History list", () => {
     ]);
   });
 
+  it("puts an earlier version back only over the text it's told to expect, when it's told one", async () => {
+    const host = new TestHost("browser");
+    const state = await workspaceFor(host);
+    const opened = host.file;
+    await name(state, "B");
+    const renamed = host.file;
+    // The file is as expected: it's put back, as a change of its own.
+    expect(await act(() => state().restore(opened, "Put back", renamed))).toBe(true);
+    expect(host.file).toBe(opened);
+    expect(changes(state)).toEqual([null, "Updated workspace", "Put back"]);
+
+    // An edit that's still being saved when the restore is asked for lands first, and isn't written over.
+    let letGo = () => {};
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    const save = host.save;
+    host.save = async (next) => {
+      await held;
+      return save(next);
+    };
+    const editing = state().edit([{ op: "update-workspace", name: "C" }]);
+    const restoring = state().restore(renamed, "Put back again", opened);
+    await act(async () => {
+      letGo();
+      await editing;
+    });
+    expect(await act(() => restoring)).toBe(false);
+    expect(host.file).toBe(text("C"));
+    expect(changes(state)).toEqual([null, "Updated workspace", "Put back", "Updated workspace"]);
+    expect(state().message).toBeNull();
+    // Without one, it's put back whatever is there, as before.
+    host.save = save;
+    expect(await act(() => state().restore(opened, "Put back, whatever"))).toBe(true);
+    expect(host.file).toBe(opened);
+  });
+
   it("lists an earlier version put back as a change of its own, called what it's given", async () => {
     const host = new TestHost("file");
     const state = await workspaceFor(host);
