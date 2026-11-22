@@ -20,6 +20,7 @@ export {
   stickyTargetText,
   STICKY_TARGET_LEVELS,
   SCOPE_KINDS,
+  OPTIONAL_SCOPE_LEVELS,
   RUNNABLE_KINDS,
   type LibraryCopy,
   type ComputedView,

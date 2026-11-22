@@ -288,9 +288,14 @@ component or library whose data it is, like a database. It takes no include or e
     { level: s, scope: s, title: s, description: s, include: s, exclude: s, notes: s, "notes-file": s },
   ),
   "update-view": writer(
-    `Usage: open-arch update-view <id> [--title <title>] [--description <text>] [--include <a,b>] [--exclude <a,b>]
-                            [--new-elements <show|hide>] [--notes <markdown>]
+    `Usage: open-arch update-view <id> [--title <title>] [--description <text>] [--scope <id>]
+                            [--include <a,b>] [--exclude <a,b>] [--new-elements <show|hide>]
+                            [--notes <markdown>]
 
+--scope links a state, wireframe, flowchart or entity view to another element: the one
+whose states, screens, process or data it shows (see add-view). What's on the view stays
+as it is. An empty value links it to nothing in particular. Other views' scope is what
+they draw, so it can't change: add a new view instead.
 --new-elements says whether elements added to the model later appear in this view.
 show puts * back in include, so they appear on their own. hide lists the view's boxes in
 include, so it shows only those until you add more with show-in-view. Either way, the view
@@ -298,7 +303,7 @@ keeps the boxes it shows now.
 --notes takes markdown, or use --notes-file <path> (- for stdin).
 An empty value removes a field.
 `,
-    { title: s, description: s, include: s, exclude: s, "new-elements": s, notes: s, "notes-file": s },
+    { title: s, description: s, scope: s, include: s, exclude: s, "new-elements": s, notes: s, "notes-file": s },
   ),
   "remove-view": writer(`Usage: open-arch remove-view <id>\n`, {}),
   "show-in-view": writer(`Usage: open-arch show-in-view <view> <id>...\n\nShows elements in a view, removing them from its exclude list or adding them to include.\n`, {}),

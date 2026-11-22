@@ -203,7 +203,41 @@ describe("views", () => {
     expect(doc.views["web-components"]!.notes).toBe("Only the storefront.");
     doc = apply(doc, { op: "update-view", id: "web-components", description: null, notes: "" });
     expect(doc.views["web-components"]).toEqual({ title: "Web App components", level: "component", scope: "web-app", include: ["*"] });
-    expect(fails(doc, { op: "update-view", id: "web-components" })).toBe("Say what to change: title, description, include, exclude, new elements or notes.");
+    expect(fails(doc, { op: "update-view", id: "web-components" })).toBe("Say what to change: title, description, scope, include, exclude, new elements or notes.");
+  });
+
+  it("links a flowchart, state, wireframe or entity view to another element, or to nothing, keeping what's on it", () => {
+    let doc = apply(
+      shop(),
+      { op: "add-view", id: "returns", level: "flowchart", scope: "api", title: "Returns" },
+      { op: "add-block", view: "returns", id: "asked", kind: "start", text: "Return asked for" },
+    );
+    doc = apply(doc, { op: "update-view", id: "returns", scope: "controller" });
+    expect(doc.views.returns).toEqual({ title: "Returns", level: "flowchart", scope: "controller", blocks: [{ id: "asked", kind: "start", text: "Return asked for" }], flows: [] });
+    doc = apply(doc, { op: "update-view", id: "returns", scope: null });
+    expect(doc.views.returns!.scope).toBeUndefined();
+    expect(doc.views.returns!.blocks).toHaveLength(1);
+    expect(apply(doc, { op: "update-view", id: "returns", scope: "" }).views.returns!.scope).toBeUndefined();
+
+    doc = apply(doc, { op: "add-view", id: "order-states", level: "state", scope: "api" }, { op: "update-view", id: "order-states", scope: "customer" });
+    expect(doc.views["order-states"]!.scope).toBe("customer");
+    doc = apply(doc, { op: "add-view", id: "screens", level: "wireframe" }, { op: "update-view", id: "screens", scope: "web-app" });
+    expect(doc.views.screens!.scope).toBe("web-app");
+    doc = apply(doc, { op: "add-view", id: "data", level: "entity", scope: "db" }, { op: "update-view", id: "data", scope: "api", title: "API data" });
+    expect(doc.views.data).toMatchObject({ title: "API data", scope: "api" });
+
+    // The element has to be one the view can be of.
+    expect(fails(doc, { op: "update-view", id: "returns", scope: "nope" })).toMatch(/^Scope "nope" isn't an element\./);
+    expect(fails(doc, { op: "update-view", id: "screens", scope: "controller" })).toBe('A wireframe view\'s scope must be a system or container, but "controller" is a component.');
+    expect(fails(doc, { op: "update-view", id: "data", scope: "customer" })).toBe('An entity view\'s scope must be a system, container, component or library, but "customer" is a person.');
+    // A view of boxes draws what's in its scope, and some views take none.
+    expect(fails(doc, { op: "update-view", id: "shop-containers", scope: "payments" })).toBe(
+      'View "shop-containers" is a container view. Its scope is what it draws, so it can\'t change: add a view of the other system instead.',
+    );
+    expect(fails(doc, { op: "update-view", id: "api-components", scope: null })).toMatch(/^View "api-components" is a component view\. Its scope is what it draws/);
+    const seq = apply(doc, { op: "add-view", id: "order", level: "sequence" });
+    expect(fails(seq, { op: "update-view", id: "order", scope: "api" })).toBe('View "order" is a sequence view, which doesn\'t take a scope.');
+    expect(parseOperations({ op: "update-view", id: "returns", scope: null })).toEqual([{ op: "update-view", id: "returns", scope: null }]);
   });
 
   it("hides and shows elements, and refuses ones the view can't draw", () => {

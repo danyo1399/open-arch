@@ -151,6 +151,12 @@ export const SCOPE_KINDS: Record<ViewLevel, readonly ElementKind[]> = {
   entity: ["system", "container", "component", "library"],
 };
 
+/**
+ * The views whose scope is optional: what they draw is their own, and the scope only says what
+ * it's of, like the element whose process a flowchart shows. So it can change, or go.
+ */
+export const OPTIONAL_SCOPE_LEVELS: readonly ViewLevel[] = ["state", "wireframe", "flowchart", "entity"];
+
 /** Problems with a view's level and scope. A view with any of these can't be computed. */
 export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
   const at = { path: `${view.path}.${view.scope === undefined ? "level" : "scope"}` };
@@ -170,7 +176,7 @@ export function scopeProblems(ws: Workspace, view: ViewDef): Diagnostic[] {
     return view.scope === undefined ? [] : [{ ...at, severity: "error", rule: "view-scope-not-allowed", message, fix: "Remove `scope`." }];
   }
   if (view.scope === undefined) {
-    if (view.level === "state" || view.level === "wireframe" || view.level === "flowchart" || view.level === "entity") return [];
+    if (OPTIONAL_SCOPE_LEVELS.includes(view.level)) return [];
     return [{ ...at, severity: "error", rule: "view-scope-required", message: `${aOrAn(view.level) === "an" ? "An" : "A"} ${view.level} view needs \`scope\`: the ID of the ${wanted} it shows.` }];
   }
   const scope = ws.elements.get(view.scope);

@@ -324,7 +324,7 @@ export const BUILDERS: Record<string, Builder> = {
   },
   "update-view": (io, v, p, usage) => {
     const [id] = need(p, ["<id>"], usage);
-    return [{ op: "update-view", id: id!, title: text(v.title), description: clearable(v.description), include: list(v.include), exclude: list(v.exclude), newElements: text(v["new-elements"]) as NewElements | undefined, notes: notes(io, v) }];
+    return [{ op: "update-view", id: id!, title: text(v.title), description: clearable(v.description), scope: clearable(v.scope), include: list(v.include), exclude: list(v.exclude), newElements: text(v["new-elements"]) as NewElements | undefined, notes: notes(io, v) }];
   },
   "remove-view": (_io, _v, p, usage) => [{ op: "remove-view", id: need(p, ["<id>"], usage)[0]! }],
   "show-in-view": (_io, _v, p, usage) => {

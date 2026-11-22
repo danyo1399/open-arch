@@ -134,6 +134,8 @@ A note stays where you put it, and its line follows the box as it moves. One you
 
 To zoom in on a box, right-click it, or its name in the Model list, and choose **New view**, then the kind of view: a container view of a system, a component view of a container, a class view of a component, and so on. The view is made and opened, named after the element, such as "Orders API components". Change its title in its details. On a touch screen, use **New view** in the element's details.
 
+A state, wireframe, flowchart or entity view can be linked to another element at any time. Select its background, and in its details pick the element under **The states of**, **The screens of**, **The process of** or **The data of**, or **Nothing in particular**. Its states, screens, blocks or entities stay as they are; only the element it's of changes, and so do the docs pages that link to it. The title stays too, so change it if it named the old element. A view of boxes draws what's inside its scope, so for another system or container, make a new view.
+
 ### What a view shows
 
 A new view shows everything in its scope, and elements added to the model later turn up in it on their own. To keep one view to the boxes you chose, select its background and set **New elements** to **Show only when added here**. It keeps the boxes it has now, and nothing new appears in it unless you add it on that diagram or choose **Show in this view**. Set it back to **Show here automatically** for a view that should always show everything, such as an overview. Either way, **Hide from this view** takes a box out of just that view.

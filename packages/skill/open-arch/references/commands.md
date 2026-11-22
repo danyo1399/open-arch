@@ -40,7 +40,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `update-relationship <from> <to>` | `--index <n>`, `--new-from <id>` / `--new-to <id>` (move an end to another element; it keeps its description, technology, tags and notes), `--kind` (`--kind ""` makes it an association again), `--bidirectional` / `--one-way`, `--description`, `--technology`, `--tag <name[=value]>`, `--remove-tag <name>`, `--notes`, `--notes-file` |
 | `remove-relationship <from> <to>` | `--index <n>` |
 | `add-view <id>` | `--level <landscape\|context\|container\|component\|class\|sequence\|state\|deployment\|event\|wireframe\|whiteboard\|flowchart\|entity>` (required), `--scope <id>` (a container or library for a component view, a component or library for a class view, for a state view, optionally, the element of any kind whose states it shows, for a wireframe view, optionally, the system or container whose screens it shows, for a flowchart view, optionally, the element of any kind whose process it shows, and for an entity view, optionally, the system, container, component or library whose data it shows), `--title`, `--description`, `--include <a,b>`, `--exclude <a,b>`, `--notes <markdown>` or `--notes-file <path\|->`. Sequence, deployment, event and whiteboard views take no scope, include or exclude, and state, wireframe, flowchart and entity views no include or exclude |
-| `update-view <id>` | `--title`, `--description`, `--include`, `--exclude`, `--new-elements <show\|hide>`, `--notes`, `--notes-file`. `--new-elements hide` lists the view's boxes in include, so elements added later stay out; `show` puts `*` back, excluding what it would add. Either keeps the boxes the view has now |
+| `update-view <id>` | `--title`, `--description`, `--scope <id>`, `--include`, `--exclude`, `--new-elements <show\|hide>`, `--notes`, `--notes-file`. `--new-elements hide` lists the view's boxes in include, so elements added later stay out; `show` puts `*` back, excluding what it would add. Either keeps the boxes the view has now. `--scope` links a state, wireframe, flowchart or entity view to another element, keeping what's on it; `--scope ""` links it to nothing in particular. Other views' scope can't change |
 | `remove-view <id>` | |
 | `show-in-view <view> <id>...` | Removes them from the view's exclude list, or adds them to include |
 | `hide-in-view <view> <id>...` | Removes them from include, or adds them to exclude; the model is unchanged |
@@ -130,7 +130,7 @@ Each operation has `"op"` and the fields below. In `update-*` operations, `null`
 | `update-relationship` | **from**, **to**, index, newFrom, newTo (the elements it moves to), kind, bidirectional (`false` makes it one-way), description, technology, tags (merged, like an element's), notes |
 | `remove-relationship` | **from**, **to**, index |
 | `add-view` | **id**, **level**, scope, title, description, include, exclude, notes |
-| `update-view` | **id**, title, description, include, exclude, newElements (`"show"` or `"hide"`, not with include or exclude), notes |
+| `update-view` | **id**, title, description, scope (state, wireframe, flowchart and entity views only; `null` for nothing in particular), include, exclude, newElements (`"show"` or `"hide"`, not with include or exclude), notes |
 | `remove-view` | **id** |
 | `show-in-view` | **view**, **id** |
 | `hide-in-view` | **view**, **id** |

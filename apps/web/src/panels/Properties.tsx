@@ -17,10 +17,12 @@ import {
   endSide,
   kindLabel,
   nodeKindLabel,
+  OPTIONAL_SCOPE_LEVELS,
   PARENT_KINDS,
   RELATIONSHIP_KIND_LABELS,
   RELATIONSHIP_KINDS,
   RUNNABLE_KINDS,
+  SCOPE_KINDS,
   SCREEN_DEVICE_LABELS,
   SCREEN_DEVICES,
   SHAPE_COLORS,
@@ -2106,6 +2108,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
         onCommit={(notes) => void edit([{ op: "update-view", id: view.id, notes: notes || null }])}
         onExpand={(text) => onEditNotes({ kind: "view", id: view.id }, text)}
       />
+      {OPTIONAL_SCOPE_LEVELS.includes(view.level) && <ScopeField ws={ws} view={view} edit={edit} />}
       {view.level !== "sequence" &&
         view.level !== "state" &&
         view.level !== "deployment" &&
@@ -2119,12 +2122,6 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
           <dl className="facts">
             <dt>Level</dt>
             <dd>entity</dd>
-            {scope && (
-              <>
-                <dt>The data of</dt>
-                <dd>{scope.name}</dd>
-              </>
-            )}
             <dt>Entities</dt>
             <dd>{view.entities.length}</dd>
             <dt>Links</dt>
@@ -2139,12 +2136,6 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
           <dl className="facts">
             <dt>Level</dt>
             <dd>flowchart</dd>
-            {scope && (
-              <>
-                <dt>The process of</dt>
-                <dd>{scope.name}</dd>
-              </>
-            )}
             <dt>Lanes</dt>
             <dd>{view.lanes.length}</dd>
             <dt>Blocks</dt>
@@ -2175,12 +2166,6 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
           <dl className="facts">
             <dt>Level</dt>
             <dd>wireframe</dd>
-            {scope && (
-              <>
-                <dt>The screens of</dt>
-                <dd>{scope.name}</dd>
-              </>
-            )}
             <dt>Screens</dt>
             <dd>{view.screens.length}</dd>
             <dt>Widgets</dt>
@@ -2225,12 +2210,6 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
           <dl className="facts">
             <dt>Level</dt>
             <dd>state</dd>
-            {scope && (
-              <>
-                <dt>The states of</dt>
-                <dd>{scope.name}</dd>
-              </>
-            )}
             <dt>States</dt>
             <dd>{view.states.length}</dd>
             <dt>Transitions</dt>
@@ -2264,6 +2243,27 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
         </button>
       </div>
     </>
+  );
+}
+
+/** What a state, wireframe, flowchart or entity view is of: the element whose states, screens, process or data it shows. */
+function ScopeField({ ws, view, edit }: { ws: Workspace; view: ViewDef; edit: PropertiesProps["edit"] }) {
+  const kinds = SCOPE_KINDS[view.level];
+  const scopes = [...ws.elements.values()].filter((e) => kinds.includes(e.kind)).sort(byName);
+  const label = view.level === "wireframe" ? "The screens of" : view.level === "flowchart" ? "The process of" : view.level === "entity" ? "The data of" : "The states of";
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select value={view.scope ?? ""} onChange={(e) => void edit([{ op: "update-view", id: view.id, scope: e.target.value || null }])}>
+        <option value="">Nothing in particular</option>
+        {view.scope && !scopes.some((e) => e.id === view.scope) && <option value={view.scope}>{view.scope} (not an element)</option>}
+        {scopes.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.name} [{kindLabel(e)}]
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

@@ -112,6 +112,43 @@ describe("Properties", () => {
   });
 });
 
+describe("What a view is of, in its details", () => {
+  const model: OpenArchDocument = {
+    ...doc,
+    elements: { ...doc.elements, web: { kind: "container", name: "Web", parent: "shop" } },
+    views: {
+      ...doc.views,
+      returns: { title: "Returns", level: "flowchart", scope: "shop", blocks: [{ id: "asked", kind: "start", text: "Return asked for" }] },
+      screens: { title: "Screens", level: "wireframe" },
+      "shop-containers": { title: "Shop containers", level: "container", scope: "shop" },
+    },
+  };
+  const options = (field: HTMLSelectElement) => [...field.options].map((o) => o.textContent);
+
+  it("links a flowchart to another element, or to nothing in particular", async () => {
+    const { element, edits } = panel(model, "returns", null);
+    const host = mount(element);
+    const field = select(host, "The process of");
+    expect(field.value).toBe("shop");
+    expect(options(field)).toEqual(["Nothing in particular", "Customer [Person]", "Shop [System]", "Web [Container]"]);
+    await choose(field, "web");
+    await choose(field, "");
+    expect(edits).toEqual([[{ op: "update-view", id: "returns", scope: "web" }], [{ op: "update-view", id: "returns", scope: null }]]);
+  });
+
+  it("offers only the elements a view can be of", () => {
+    const field = select(mount(panel(model, "screens", null).element), "The screens of");
+    expect(field.value).toBe("");
+    expect(options(field)).toEqual(["Nothing in particular", "Shop [System]", "Web [Container]"]);
+  });
+
+  it("offers no choice where the scope is what the view draws, or it takes none", () => {
+    const host = mount(panel(model, "shop-containers", null).element);
+    expect(host.textContent).toContain("ScopeShop");
+    for (const label of ["The process of", "The states of", "The screens of", "The data of"]) expect(() => select(host, label)).toThrow();
+  });
+});
+
 describe("New view in an element's details", () => {
   const model: OpenArchDocument = {
     ...doc,

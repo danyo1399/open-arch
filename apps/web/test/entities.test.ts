@@ -452,7 +452,8 @@ describe("a link's details", () => {
 describe("the view's details", () => {
   it("say what's in it and how to add to it, without a choice of new elements", () => {
     const { host } = panel(null);
-    expect(host.textContent).toContain("LevelentityThe data ofDBEntities3Links2");
+    expect(select(host, "The data of").value).toBe("db");
+    expect(host.textContent).toContain("LevelentityEntities3Links2");
     expect(host.textContent).toContain("An entity view is an entity-relationship diagram");
     expect(host.textContent).not.toContain("New elements");
   });

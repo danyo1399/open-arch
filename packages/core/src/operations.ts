@@ -73,7 +73,7 @@ import {
   type WidgetData,
   type WidgetKind,
 } from "./types.js";
-import { computeView, RUNNABLE_KINDS, scopeProblems, stepRelationships, STICKY_TARGET_LEVELS, stickyTargetText } from "./views.js";
+import { computeView, OPTIONAL_SCOPE_LEVELS, RUNNABLE_KINDS, SCOPE_KINDS, scopeProblems, stepRelationships, STICKY_TARGET_LEVELS, stickyTargetText } from "./views.js";
 import { buildWorkspace } from "./workspace.js";
 
 /**
@@ -137,7 +137,12 @@ export type Operation =
     }
   | { op: "remove-relationship"; from: string; to: string; index?: number }
   | { op: "add-view"; id: string; level: ViewLevel; scope?: string; title?: string; description?: string; include?: string[]; exclude?: string[]; notes?: string }
-  | { op: "update-view"; id: string; title?: string; description?: string | null; include?: string[]; exclude?: string[]; newElements?: NewElements; notes?: string | null }
+  /**
+   * `scope`: the element a state, wireframe, flowchart or entity view is of, like the one whose
+   * process a flowchart shows; null makes it of nothing in particular. Other views' scope is what
+   * they draw, so it can't change.
+   */
+  | { op: "update-view"; id: string; title?: string; description?: string | null; scope?: string | null; include?: string[]; exclude?: string[]; newElements?: NewElements; notes?: string | null }
   | { op: "remove-view"; id: string }
   | { op: "show-in-view"; view: string; id: string }
   | { op: "hide-in-view"; view: string; id: string }
@@ -421,7 +426,7 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   },
   "update-view": {
     required: ["id"],
-    fields: { id: "string", title: "string", description: "nullable-string", include: "strings", exclude: "strings", newElements: "string", notes: "nullable-string" },
+    fields: { id: "string", title: "string", description: "nullable-string", scope: "nullable-string", include: "strings", exclude: "strings", newElements: "string", notes: "nullable-string" },
   },
   "remove-view": { required: ["id"], fields: { id: "string" } },
   "show-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
@@ -1300,9 +1305,10 @@ export const LEVEL_TITLE: Record<ViewLevel, string> = {
 
 function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-view" }>): string {
   const view = requireView(doc, op.id);
-  if (op.title === undefined && op.description === undefined && op.include === undefined && op.exclude === undefined && op.newElements === undefined && op.notes === undefined) {
-    throw new OpError("Say what to change: title, description, include, exclude, new elements or notes.");
+  if (op.title === undefined && op.description === undefined && op.scope === undefined && op.include === undefined && op.exclude === undefined && op.newElements === undefined && op.notes === undefined) {
+    throw new OpError("Say what to change: title, description, scope, include, exclude, new elements or notes.");
   }
+  if (op.scope !== undefined) setScope(doc, op.id, op.scope);
   if (op.newElements !== undefined) {
     if (op.newElements !== "show" && op.newElements !== "hide") throw new OpError(`Unknown new-elements setting "${op.newElements}". Use show or hide.`);
     if (op.include !== undefined || op.exclude !== undefined) {
@@ -1338,6 +1344,28 @@ function updateView(doc: OpenArchDocument, op: Extract<Operation, { op: "update-
   }
   if (op.newElements !== undefined) setNewElements(doc, op.id, op.newElements);
   return `updated view ${op.id}`;
+}
+
+/**
+ * Links a state, wireframe, flowchart or entity view to another element, or with null, to nothing
+ * in particular. What's on the view stays as it is: its states, screens, blocks or entities aren't
+ * the element's. Other views draw what's in their scope, so they'd need a new view instead.
+ */
+function setScope(doc: OpenArchDocument, viewId: string, scope: string | null) {
+  const view = doc.views[viewId]!;
+  const level = view.level;
+  const kinds = SCOPE_KINDS[level];
+  const is = `View "${viewId}" is ${aOrAn(level)} ${level} view`;
+  if (!kinds.length) throw new OpError(`${is}, which doesn't take a scope.`);
+  if (!OPTIONAL_SCOPE_LEVELS.includes(level)) throw new OpError(`${is}. Its scope is what it draws, so it can't change: add a view of the other ${kindList(kinds)} instead.`);
+  if (scope === null || !scope.trim()) {
+    delete view.scope;
+    return;
+  }
+  const ws = buildWorkspace(doc);
+  const problems = scopeProblems(ws, { ...ws.views.get(viewId)!, scope });
+  if (problems.length) throw new OpError(`${problems[0]!.message}${problems[0]!.fix ? ` ${problems[0]!.fix}` : ""}`);
+  view.scope = scope;
 }
 
 /**

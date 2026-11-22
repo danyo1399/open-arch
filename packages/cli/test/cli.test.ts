@@ -524,6 +524,22 @@ Flows:
     expect(cli(dir, "check").code).toBe(0);
   });
 
+  it("links a view to another element, or to nothing, without losing what's on it", () => {
+    const dir = example();
+    const blocks = JSON.parse(read(dir)).views["checking-out"].blocks;
+    expect(cli(dir, "update-view", "checking-out", "--scope", "web-app").out).toContain("updated view checking-out");
+    expect(JSON.parse(read(dir)).views["checking-out"]).toMatchObject({ scope: "web-app", blocks });
+    expect(cli(dir, "show", "checking-out").out).toContain("flowchart view of web-app (Web App)");
+    expect(read(dir, "docs/elements/web-app.md")).toContain("(../views/checking-out.md) (its process)");
+    expect(read(dir, "docs/elements/checkout-api.md")).not.toContain("(../views/checking-out.md)");
+    expect(cli(dir, "update-view", "checking-out", "--scope", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views["checking-out"].scope).toBeUndefined();
+    expect(cli(dir, "update-view", "order-states", "--scope", "ordr").err).toContain('Scope "ordr" isn\'t an element. Did you mean "order"?');
+    expect(cli(dir, "update-view", "shop-containers", "--scope", "warehouse").err).toContain("Its scope is what it draws, so it can't change: add a view of the other system instead.");
+    expect(cli(dir, "update-view", "--help").out).toContain("--scope links a state, wireframe, flowchart or entity view to another element");
+    expect(cli(dir, "check").code).toBe(0);
+  });
+
   it("puts a flowchart's blocks in lanes, moves them out, and shows the lanes", () => {
     const dir = example();
     expect(cli(dir, "add-view", "returns", "--level", "flowchart").code).toBe(0);
