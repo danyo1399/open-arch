@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentContext, AgentEvent } from "../bridge.js";
 import { problemText, UNKNOWN_PROBLEM } from "../problems.js";
+import { formatted, Markdown } from "./Markdown.js";
 
 type Answer = "approved" | "denied" | "answered";
 
@@ -121,15 +122,6 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
 /** Errors from the main process arrive as "Error invoking remote method 'x': Error: message". What's left once that's taken off may be nothing. */
 function errorText(error: unknown): string {
   return problemText(error).replace(/^Error invoking remote method '[^']*': (\w*Error: )?/, "").trim() || UNKNOWN_PROBLEM;
-}
-
-/** Show the agent's `code` and **bold** markdown. */
-function formatted(text: string): ReactNode[] {
-  return text.split(/(`[^`]+`|\*\*[^*]+\*\*)/).map((part, i) => {
-    if (/^`.+`$/s.test(part)) return <code key={i}>{part.slice(1, -1)}</code>;
-    if (/^\*\*.+\*\*$/s.test(part)) return <strong key={i}>{part.slice(2, -2)}</strong>;
-    return part;
-  });
 }
 
 export function AskAI({ agent, context, contextLabel, text, restore, onRunning, hold, open, onHide, onNews, asks = CHANGES, setup: wanted, actions, note }: AskAIProps) {
@@ -335,9 +327,9 @@ function LogEntry({ entry, onAnswer }: { entry: Entry; onAnswer(id: string, allo
       return <p className="ask-ai-prompt">{entry.text}</p>;
     case "progress":
       // Commands the agent runs are shown as they are.
-      return entry.text.startsWith("$ ") ? <p className="ask-ai-progress command">{entry.text}</p> : <p className="ask-ai-progress">{formatted(entry.text)}</p>;
+      return entry.text.startsWith("$ ") ? <p className="ask-ai-progress command">{entry.text}</p> : <Markdown className="ask-ai-progress" text={entry.text} />;
     case "done":
-      return <p className="ask-ai-done">{formatted(entry.text)}</p>;
+      return <Markdown className="ask-ai-done" text={entry.text} />;
     case "error":
       return <p className="ask-ai-error error">{entry.text}</p>;
     case "permission":

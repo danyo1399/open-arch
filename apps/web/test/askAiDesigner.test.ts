@@ -77,7 +77,7 @@ function driver(host: HTMLElement) {
     await act(async () => void box.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     await until(() => !!panel().querySelector(".ask-ai-done, .ask-ai-error"));
   };
-  const log = () => [...panel().querySelectorAll(".ask-ai-log > p, .ask-ai-log > div.ask-ai-permission")].map((e) => e.textContent);
+  const log = () => [...panel().querySelectorAll(".ask-ai-log > p, .ask-ai-log > div.markdown, .ask-ai-log > div.ask-ai-permission")].map((e) => e.textContent);
   /** Types a request and sends it, without waiting for anything. */
   const send = async (prompt: string) => {
     const box = panel().querySelector("textarea")!;
