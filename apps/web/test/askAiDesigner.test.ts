@@ -179,10 +179,11 @@ describe("Ask AI in the web designer", () => {
     await click(button(host, "Ask AI"));
     await send("Which system is there?");
     await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
-    expect(news()).toBeNull();
+    // A spinner while it works.
+    expect(news()!.classList.contains("ask-ai-news-working")).toBe(true);
+    expect(button(host, "Ask AI").title).toBe("Ask AI is working on your request. Open it to follow along.");
     await act(async () => answer(reply({ text: "It's shop." })));
-    await until(() => !!news());
-    expect(news()!.classList.contains("ask-ai-news-finished")).toBe(true);
+    await until(() => !!news()?.classList.contains("ask-ai-news-finished"));
     await click(button(host, "Ask AI"));
     expect(log()).toEqual(["Which system is there?", "It's shop."]);
     expect(news()).toBeNull();
@@ -700,7 +701,9 @@ describe("Ask AI in the desktop app", () => {
     expect(panel().querySelector('button[aria-label="Hide Ask AI"]')!.textContent).toBe("");
     await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
     expect(panel().hidden).toBe(true);
-    expect(news()).toBeNull();
+    // Working on it: a spinner, which says so.
+    expect(news()!.classList.contains("ask-ai-news-working")).toBe(true);
+    expect(askButton().getAttribute("aria-description")).toBe("Ask AI is working on your request. Open it to follow along.");
 
     // It asks for approval while it's hidden: the button says it's waiting.
     await act(async () => emit({ type: "permission", id: "p1", description: "run ls" }));
@@ -713,14 +716,14 @@ describe("Ask AI in the desktop app", () => {
     expect(news()!.classList.contains("ask-ai-news-waiting")).toBe(true);
     // Answered elsewhere, such as in OpenCode itself: nothing's waiting.
     await act(async () => emit({ type: "permission-replied", id: "p1" }));
-    expect(news()).toBeNull();
+    expect(news()!.classList.contains("ask-ai-news-working")).toBe(true);
     // Another, which is answered here.
     await act(async () => emit({ type: "permission", id: "p2", description: "run cat" }));
     expect(news()!.classList.contains("ask-ai-news-waiting")).toBe(true);
     await click(askButton());
     await click(button(panel(), "Approve"));
     await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
-    expect(news()).toBeNull();
+    expect(news()!.classList.contains("ask-ai-news-working")).toBe(true);
 
     // It finishes while it's hidden: the button says so, until it's opened to read the answer.
     await act(async () => {
@@ -737,7 +740,7 @@ describe("Ask AI in the desktop app", () => {
     expect(askButton().title).toBe("Ask an AI agent to change the model");
   });
 
-  it("shows on the More button and in its menu, on a narrow screen, when it finished while it was hidden", async () => {
+  it("shows on the More button and in its menu, on a narrow screen, while it works and when it finished while it was hidden", async () => {
     const real = window.matchMedia;
     window.matchMedia = ((query: string) => ({ matches: true, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
     try {
@@ -761,6 +764,12 @@ describe("Ask AI in the desktop app", () => {
       await click(item("Ask AI")!);
       await send("Tidy up");
       await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
+      // While it works, More has the spinner, and its menu says so.
+      expect(more().getAttribute("aria-label")).toBe("More. Ask AI is working on your request. Open it to follow along.");
+      expect(more().querySelector(".ask-ai-news-working")).not.toBeNull();
+      await click(more());
+      expect(item("Ask AI · working")).toBeDefined();
+      await click(more());
       await act(async () => finish());
       expect(more().getAttribute("aria-label")).toBe("More. Ask AI has finished. Open it to read the answer.");
       expect(more().querySelector(".ask-ai-news")).not.toBeNull();
@@ -825,7 +834,7 @@ describe("Ask AI in the desktop app", () => {
     });
     await send("Try again");
     await click(panel().querySelector('button[aria-label="Hide Ask AI"]')!);
-    expect(button(host, "Ask AI").querySelector(".ask-ai-news")).toBeNull();
+    expect(button(host, "Ask AI").querySelector(".ask-ai-news-working")).not.toBeNull();
     await act(async () => emit({ type: "permission", id: "p2", description: "run cat" }));
     expect(button(host, "Ask AI").querySelector(".ask-ai-news-waiting")).not.toBeNull();
   });

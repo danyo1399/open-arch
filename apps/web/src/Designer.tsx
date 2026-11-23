@@ -141,6 +141,14 @@ export function detailsName(ws: Workspace, view: ViewDef | null, computed: Compu
   return shown.kind === "view" ? "This view" : "Workspace";
 }
 
+/** How the phone's menu says what Ask AI is doing while it's hidden. */
+const NEWS_LABELS: Record<AskNews, string> = { working: "working", waiting: "waiting for you", finished: "finished" };
+
+/** On the Ask AI button, or More on a phone, while Ask AI is hidden: a spinner while it works, and a dot when it needs you or has finished. */
+function AskNewsMark({ news }: { news: AskNews }) {
+  return <span className={`ask-ai-news ask-ai-news-${news}`} aria-hidden="true" />;
+}
+
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /** A line icon on a 24 × 24 grid, in the text colour. */
@@ -748,7 +756,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     ...(canShare ? [{ label: "Share a link…", onSelect: () => setDialog({ kind: "share" }) }] : []),
     ...(computed && canAutoLayout(computed) ? [{ label: "Auto layout", onSelect: () => autoLayout.current?.run() }] : []),
     ...(computed ? [{ label: "Export this view", items: exportItems(computed) }] : []),
-    ...(canAsk ? [{ label: askOpen ? "Hide Ask AI" : askNews === "waiting" ? "Ask AI · waiting for you" : askNews ? "Ask AI · finished" : "Ask AI", onSelect: toggleAsk }] : []),
+    ...(canAsk ? [{ label: askOpen ? "Hide Ask AI" : askNews ? `Ask AI · ${NEWS_LABELS[askNews]}` : "Ask AI", onSelect: toggleAsk }] : []),
     { label: "History", onSelect: () => setDialog({ kind: "history" }) },
     { label: "Workspace settings", onSelect: () => showDetails({ kind: "workspace" }) },
     { label: "Close", onSelect: onClose },
@@ -867,7 +875,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
             aria-description={askNews ? NEWS_TEXT[askNews] : undefined}
           >
             Ask AI
-            {askNews && <span className={`ask-ai-news ask-ai-news-${askNews}`} aria-hidden="true" />}
+            {askNews && <AskNewsMark news={askNews} />}
           </button>
         )}
         <button className={narrow ? "square" : ""} onClick={state.undo} disabled={!state.canUndo} title={`Undo (${mod}Z)`} aria-label="Undo">
@@ -885,7 +893,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         {narrow ? (
           <MenuButton items={moreItems} note={`${fileName} · ${status}`} from="right" className="square" title={askNews ? `More. ${NEWS_TEXT[askNews]}` : "More"} label={askNews ? `More. ${NEWS_TEXT[askNews]}` : "More"}>
             <Icon d={MORE_ICON} stroke={3} />
-            {askNews && <span className={`ask-ai-news ask-ai-news-${askNews}`} aria-hidden="true" />}
+            {askNews && <AskNewsMark news={askNews} />}
           </MenuButton>
         ) : (
           <button onClick={onClose}>Close</button>

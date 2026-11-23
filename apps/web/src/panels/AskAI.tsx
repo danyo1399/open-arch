@@ -69,15 +69,17 @@ export function canUndo(undoable: Undoable | null, text: string): boolean {
 }
 
 /**
- * What happened while the panel was hidden, for the Ask AI button to show: the request finished,
- * with an answer or an error, or the agent asks for approval and is waiting for it.
+ * What's going on while the panel is hidden, for the Ask AI button to show: a request is still
+ * being worked on, the agent asks for approval and is waiting for it, or the request finished,
+ * with an answer or an error.
  */
-export type AskNews = "finished" | "waiting";
+export type AskNews = "working" | "waiting" | "finished";
 
 /** What the Ask AI button says of the news, for its tooltip and for screen readers. */
 export const NEWS_TEXT: Record<AskNews, string> = {
-  finished: "Ask AI has finished. Open it to read the answer.",
+  working: "Ask AI is working on your request. Open it to follow along.",
   waiting: "Ask AI is waiting for you to approve something.",
+  finished: "Ask AI has finished. Open it to read the answer.",
 };
 
 interface AskAIProps {
@@ -153,7 +155,7 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
   // What to show on the Ask AI button while the panel is hidden. It waits for as long as an approval it asked for has no answer, here or elsewhere, so hiding the panel again without answering still says so.
   // Only the running request's: one an earlier request asked for and was stopped before an answer isn't waited for.
   const waiting = running && log.slice(log.findLastIndex((e) => e.kind === "prompt")).some((e) => e.kind === "permission" && !e.answer);
-  const news: AskNews | null = open ? null : finishedUnseen ? "finished" : waiting ? "waiting" : null;
+  const news: AskNews | null = open ? null : finishedUnseen ? "finished" : waiting ? "waiting" : running ? "working" : null;
   const onNewsNow = useRef(onNews);
   onNewsNow.current = onNews;
   useEffect(() => onNewsNow.current?.(news), [news]);

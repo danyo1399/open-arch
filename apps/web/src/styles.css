@@ -3461,6 +3461,23 @@ button:has(> .ask-ai-news) {
 .ask-ai-news-waiting {
   background: var(--danger);
 }
+/* While a request is worked on: a ring that turns, with a gap in it. */
+.ask-ai-news-working {
+  background: var(--panel);
+  border-color: var(--accent);
+  border-top-color: transparent;
+  animation: ask-ai-spin 0.9s linear infinite;
+}
+@keyframes ask-ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-ai-news-working {
+    animation-duration: 3s;
+  }
+}
 .ask-ai-header {
   display: flex;
   align-items: baseline;
