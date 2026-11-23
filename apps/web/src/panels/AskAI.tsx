@@ -154,8 +154,8 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
   // Without the panel, there's nothing to show on the button.
   useEffect(() => () => onNewsNow.current?.(null), []);
 
-  // Loaded as the panel is, so an answer is drawn from its markdown from the start, as a rule.
-  const parse = useMarkdownParser();
+  // Loaded once the panel is opened, so an answer is drawn from its markdown from the start, as a rule.
+  const parse = useMarkdownParser(open || log.length > 0);
   // Drawing an answer from its markdown, once the parser is there, can make it taller: its end is scrolled to then too.
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "end" });

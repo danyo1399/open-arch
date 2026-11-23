@@ -1,9 +1,9 @@
 /**
  * Markdown as Ask AI shows it: an answer drawn with its headings, lists, tables, code, links,
- * footnotes and the rest. It's drawn from the parsed tree as React elements, never as HTML, so
- * what a model writes can't run anything or style the page: HTML in it shows as the text it is,
- * a link opens only to an address of a kind the notes link to, and an image is a link to it, not
- * loaded.
+ * footnotes and the rest. The parser is loaded the first time Ask AI is opened, or an answer is
+ * shown. An answer is drawn from the parsed tree as React elements, never as HTML, so what a
+ * model writes can't run anything or style the page: HTML in it shows as the text it is, a link
+ * opens only to an address of a kind the notes link to, and an image is a link to it, not loaded.
  */
 import type { Definition, Nodes, Parents, Root, Table } from "mdast";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -14,31 +14,32 @@ type Parse = (text: string) => Root;
 
 /** The parser, once it's loaded: until then, and if it can't be, the text is shown as it's written. */
 let parser: Parse | null = null;
+/** Who's told when it's loaded, whichever load it is: after one fails, the next that's asked for can work. */
+const waiting = new Set<(parse: Parse) => void>();
 export const loadParser = loadOnce(() =>
   import("./markdownParse.js").then(({ parseMarkdown }) => {
     parser = parseMarkdown;
+    for (const tell of waiting) tell(parseMarkdown);
     return parseMarkdown;
   }),
 );
 
 /**
- * The parser, loading it the first time it's needed: null until it's loaded, and if it can't be.
- * Whatever asks for it is drawn again once it's there.
+ * The parser: null until it's loaded, and if it can't be. Whatever uses it is drawn again once
+ * it's there, whoever's load it was. With `load`, it's loaded now if it isn't yet, and asked for
+ * again if that failed before.
  */
-export function useMarkdownParser(): Parse | null {
+export function useMarkdownParser(load = true): Parse | null {
   const [parse, setParse] = useState<Parse | null>(() => parser);
   useEffect(() => {
-    if (parse) return;
-    let live = true;
-    loadParser().then(
-      (loaded) => live && setParse(() => loaded),
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
-  }, [parse]);
-  // Loaded for another part of the page since this was last drawn.
+    const hear = (loaded: Parse) => setParse(() => loaded);
+    if (parser) hear(parser);
+    else waiting.add(hear);
+    return () => void waiting.delete(hear);
+  }, []);
+  useEffect(() => {
+    if (load && !parser) loadParser().catch(() => {});
+  }, [load]);
   return parse ?? parser;
 }
 

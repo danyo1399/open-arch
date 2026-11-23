@@ -3524,6 +3524,7 @@ button:has(> .ask-ai-news) {
   gap: 6px;
   overflow-wrap: anywhere;
 }
+/* A line break in an answer shows as one, as in a chat, though markdown would join the lines. */
 .ask-ai-log .markdown p {
   white-space: pre-line;
 }

@@ -59,6 +59,43 @@ describe("Ask AI's answers while the markdown parser loads", () => {
     expect(scrolled.at(-1)).toBe(true);
   });
 
+  it("draws answers, and scrolls to them, when the parser loads after a first load failed", async () => {
+    let tries = 0;
+    let arrive = () => {};
+    const arrived = new Promise<void>((resolve) => (arrive = resolve));
+    vi.doMock("../src/panels/markdownParse.js", async () => {
+      // The first time, as when offline: the next works, once it's let.
+      if (tries++ === 0) throw new Error("Failed to fetch dynamically imported module");
+      await arrived;
+      return { parseMarkdown };
+    });
+    const scrolled: boolean[] = [];
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+      scrolled.push(!!document.querySelector(".ask-ai-done table"));
+    });
+    // Opening it loads the parser, which fails; the answer asks for it again.
+    const host = await askAI();
+    expect(tries).toBe(2);
+    expect(host.querySelector(".ask-ai-done .markdown-plain")).not.toBeNull();
+    arrive();
+    for (let i = 0; i < 200 && !host.querySelector(".ask-ai-done h3"); i++) await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    expect(host.querySelector(".ask-ai-done h3")!.textContent).toBe("Changes");
+    expect(scrolled.at(-1)).toBe(true);
+  });
+
+  it("doesn't load the parser until Ask AI is opened, or an answer is shown", async () => {
+    let tries = 0;
+    vi.doMock("../src/panels/markdownParse.js", () => {
+      tries++;
+      return { parseMarkdown };
+    });
+    const { AskAI } = await import("../src/panels/AskAI.js");
+    const agent = { run: async () => {}, cancel: async () => {} };
+    mount(createElement(AskAI, { agent, context: { selection: [] }, contextLabel: "", text: "", restore: async () => true, open: false, onHide() {} }));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(tries).toBe(0);
+  });
+
   it("keeps the answer as it's written when the parser can't be loaded", async () => {
     vi.doMock("../src/panels/markdownParse.js", () => {
       throw new Error("Failed to fetch dynamically imported module");
