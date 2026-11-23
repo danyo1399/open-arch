@@ -3527,6 +3527,14 @@ button:has(> .ask-ai-news) {
 .ask-ai-log .markdown p {
   white-space: pre-line;
 }
+.ask-ai-log .markdown p.markdown-plain {
+  white-space: pre-wrap;
+}
+.ask-ai-log .markdown-footnote {
+  display: flex;
+  gap: 4px;
+  font-size: 12px;
+}
 .ask-ai-log .markdown :is(h3, h4, h5, h6) {
   margin: 4px 0 0;
   font-size: 13px;

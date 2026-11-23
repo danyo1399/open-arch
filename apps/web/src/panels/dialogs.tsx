@@ -35,14 +35,20 @@ interface NotesEditorProps {
   onClose(): void;
 }
 
-/** The kinds of address the formatted view links to, as Milkdown does: it shows any other, such as javascript:, as text that goes nowhere. */
-const LINK_SCHEMES = ["http:", "https:", "mailto:", "tel:", "ftp:"];
+/** The kinds of address the formatted view links to, as Milkdown does: it shows any other, such as javascript:, as text that goes nowhere. Ask AI's answers link to the same. */
+export const LINK_SCHEMES = ["http:", "https:", "mailto:", "tel:", "ftp:"];
+
+/** An address's scheme, such as "https:", in lowercase, or undefined when it has none. */
+export function schemeOf(href: string): string | undefined {
+  // Browsers skip spaces and control characters in a scheme, so "java script:" is still one.
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href.replace(/[\u0000-\u0020]/g, ""))?.[1];
+  return scheme && `${scheme.toLowerCase()}:`;
+}
 
 /** Whether an address can be a link in notes: one of those, or one with no scheme, relative to the page the notes are on. */
 export function linkable(href: string): boolean {
-  // Browsers skip spaces and control characters in a scheme, so "java script:" is still one.
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href.replace(/[\u0000-\u0020]/g, ""))?.[1];
-  return !scheme || LINK_SCHEMES.includes(`${scheme.toLowerCase()}:`);
+  const scheme = schemeOf(href);
+  return !scheme || LINK_SCHEMES.includes(scheme);
 }
 
 /** The formatted view's toolbar: what each button does, what it shows, and what it says it does. */

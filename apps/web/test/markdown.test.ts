@@ -81,8 +81,28 @@ describe("Ask AI's markdown", () => {
       ["mail", "mailto:a@example.com", "_blank", "noopener noreferrer"],
     ]);
     expect(answer.textContent).toBe("docs, mail, script and file");
-    expect(linkTo("javascript:alert(1)")).toBeNull();
-    expect(linkTo("/relative")).toBeNull();
+    // The kinds of address notes link to, and nothing relative: an answer is on no page.
+    for (const url of ["https://example.com", "mailto:a@example.com", "tel:+441234", "ftp://example.com/f"]) expect(linkTo(url)).toBe(url);
+    for (const url of ["javascript:alert(1)", " java\tscript:alert(1)", "data:text/html,x", "file:///etc/passwd", "/relative", "docs/setup.md", "#top"]) expect(linkTo(url)).toBeNull();
+  });
+
+  it("follows reference links and images to their definitions, which aren't shown themselves", async () => {
+    const answer = await drawn(["See [the docs][docs] and [nowhere][missing].", "", "![a diagram][pic] ![gone][missing]", "", '[docs]: https://example.com/docs "The docs"', "[pic]: https://example.com/d.png"].join("\n"));
+    expect([...answer.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("href"), a.title])).toEqual([
+      ["the docs", "https://example.com/docs", "The docs"],
+      ["a diagram", "https://example.com/d.png", ""],
+    ]);
+    expect(answer.querySelector("img")).toBeNull();
+    // One with no definition isn't a reference, in markdown: it's the text as written.
+    expect(answer.textContent).toBe("See the docs and [nowhere][missing].a diagram ![gone][missing]");
+  });
+
+  it("keeps footnotes, with what they say", async () => {
+    const answer = await drawn("The cache is shared.[^1]\n\n[^1]: Both containers read it.");
+    expect(answer.querySelector("p > sup")!.textContent).toBe("[1]");
+    const note = answer.querySelector(".markdown-footnote")!;
+    expect(note.querySelector("sup")!.textContent).toBe("[1]");
+    expect(note.textContent).toContain("Both containers read it.");
   });
 
   it("shows HTML as the text it is, and doesn't load images", async () => {

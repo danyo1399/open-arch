@@ -302,7 +302,7 @@ Which panels are collapsed, and their sizes, are yours: they're kept in the brow
 
 Each request tells the model which view you have open, and its level, and what you've selected: elements, a relationship, sticky notes, or a view's own things, such as a step, a node, an entity or a whiteboard's shapes. They're named by their IDs, never by their names or titles, so text in a workspace someone else made can't pass for what you asked. Past 50 things, it says how many more there are. So "Describe this" or "Rename these" works on what you picked. The panel shows the same above the box. The desktop app's Ask AI tells its agent the same.
 
-Answers are drawn from their markdown: headings, lists, tables, task lists, code, quotes and links. A link opens in your browser, and only to a web or mail address. HTML in an answer shows as text, and images aren't loaded: each is a link to it.
+Answers are drawn from their markdown: headings, lists, tables, task lists, code, quotes, footnotes and links. A link opens in your browser, and only to the kinds of address notes link to, such as a web or mail address. HTML in an answer shows as text, and images aren't loaded: each is a link to it.
 
 The arrow at the panel's top right hides it. A request carries on while it's hidden: a spinner on the **Ask AI** button, or on **More** on a phone, says it's still working, and a dot says when it's finished, so you can open the panel to read the answer.
 

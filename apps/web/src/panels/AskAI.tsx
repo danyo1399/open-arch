@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentContext, AgentEvent } from "../bridge.js";
 import { problemText, UNKNOWN_PROBLEM } from "../problems.js";
-import { formatted, Markdown } from "./Markdown.js";
+import { formatted, Markdown, useMarkdownParser } from "./Markdown.js";
 
 type Answer = "approved" | "denied" | "answered";
 
@@ -154,9 +154,12 @@ export function AskAI({ agent, context, contextLabel, text, restore, onRunning, 
   // Without the panel, there's nothing to show on the button.
   useEffect(() => () => onNewsNow.current?.(null), []);
 
+  // Loaded as the panel is, so an answer is drawn from its markdown from the start, as a rule.
+  const parse = useMarkdownParser();
+  // Drawing an answer from its markdown, once the parser is there, can make it taller: its end is scrolled to then too.
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "end" });
-  }, [log]);
+  }, [log, parse]);
   // Closing the file stops a request that's still running.
   useEffect(
     () => () => {
