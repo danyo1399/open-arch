@@ -134,8 +134,8 @@ export interface FilePlace {
 
 /**
  * The workspace as a zip, with everything in one folder: the .openarch file (`text`) and its
- * generated markdown docs. Not the agent skill or AGENTS.md, which tell agents to use the CLI:
- * `open-arch init` adds those where it's installed.
+ * generated markdown docs. Not the agent skill or AGENTS.md, which are for changing the model with
+ * the CLI, usually not installed beside a workspace made here: `open-arch init` adds them.
  *
  * For a workspace from a folder (`place`), the zip's folder is that folder: the file is at its path
  * there, and the docs are where a save in the folder writes them. Otherwise the zip's folder is named

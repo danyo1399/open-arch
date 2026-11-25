@@ -8,7 +8,7 @@ describe("the AGENTS.md section", () => {
     expect(section.endsWith("<!-- open-arch:end -->\n")).toBe(true);
     expect(section).toContain("in `arch/shop.openarch`. Readable docs generated from it are in `docs/architecture/`.");
     expect(section).toContain("Never edit `arch/shop.openarch` or `docs/architecture/` by hand.");
-    expect(section).toContain("Read the docs, or `arch/shop.openarch`, and when asked to change the architecture, say what to change in the designer.");
+    expect(section).toContain("Read the docs, or `arch/shop.openarch`, and when asked to change the architecture, say what to change in the open-arch designer.");
     // Without docs, it doesn't mention them.
     expect(agentsSection("a.openarch", undefined)).not.toContain("docs");
     expect(agentsSection("a.openarch", undefined)).toContain("Read `a.openarch`, and when asked");
@@ -17,8 +17,8 @@ describe("the AGENTS.md section", () => {
   it("tells agents without the CLI to say what to change in the designer, not to look for the CLI or install it", () => {
     // A workspace made in the web app usually has no CLI beside it, and the CLI isn't published to install.
     const section = agentsSection("a.openarch", "docs");
-    expect(section).toContain("If the `open-arch` command runs here (try `open-arch --version`), read with `open-arch show`, and change the model only with `open-arch` commands");
-    expect(section).toContain("If it doesn't, the model is made in the open-arch designer, and there's no command to change it with here: don't look for one, and don't try to install one.");
+    expect(section).toContain("If the `open-arch` command runs here (try `open-arch --version`), or you were given another command that runs it, read with `open-arch show`, and change the model only with `open-arch` commands");
+    expect(section).toContain("If neither, there's no command to change it with here: don't look for one, and don't try to install one.");
     expect(section).not.toContain("npx");
   });
 

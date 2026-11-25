@@ -23,8 +23,10 @@ describe("the agent skill the designer has, for Ask AI and the desktop app's sav
   it("tells agents without the CLI to say what to change in the designer, not to install the CLI", () => {
     const skill = skillFiles.find((f) => f.path === "SKILL.md")!.content;
     expect(skill).toContain("## Without the `open-arch` command");
-    expect(skill).toContain("If it doesn't, the model was made in the open-arch designer, and there's no command to change it with here: don't look for one, and don't try to install one.");
-    expect(skill).toContain("When asked to change the architecture, say what to change in the designer");
+    expect(skill).toContain("If it doesn't, there's no command to change the model with here: don't look for one, and don't try to install one.");
+    expect(skill).toContain("When asked to change the architecture, say what to change in the open-arch designer");
+    // Only a save to the workspace's file rewrites the docs.
+    expect(skill).toContain("The designer rewrites the docs when it saves the workspace to its file, opened from its folder or in the desktop app. A copy edited in the browser has to be exported again.");
     // The CLI isn't published, so an npx command would fail.
     expect(skillFiles.some((f) => f.content.includes("npx"))).toBe(false);
   });

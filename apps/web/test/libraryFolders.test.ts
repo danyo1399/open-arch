@@ -124,7 +124,7 @@ describe("opening a folder from the start page", () => {
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
     const doc = loadWorkspace(root.files()["architecture.openarch"]!).doc;
     expect(doc).toMatchObject({ name: "My Repo", export: { docs: "." } });
-    // No agent skill or AGENTS.md: they'd send agents looking for the CLI.
+    // No agent skill or AGENTS.md: only the file and its docs.
     expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch"]);
     expect(root.files()["README.md"]).toContain("# My Repo");
     expect(opened.map((h) => (h as FolderHost).path)).toEqual(["architecture.openarch"]);

@@ -1146,7 +1146,7 @@ describe("init", () => {
       const skill = read(project, `${target}/SKILL.md`);
       expect(skill).toContain("name: open-arch");
       // Agents without the CLI aren't sent to install it: it isn't published.
-      expect(skill).toContain("If it doesn't, the model was made in the open-arch designer");
+      expect(skill).toContain("If it doesn't, there's no command to change the model with here: don't look for one, and don't try to install one.");
       expect(skill).not.toContain("npx");
     }
     const agents = read(project, "AGENTS.md");

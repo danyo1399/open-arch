@@ -40,7 +40,7 @@ describe("hosts", () => {
     expect(Object.keys(files)).toContain(`shop/${docs}/README.md`);
     expect(strFromU8(files[`shop/${docs}/views/shop-containers.md`]!)).toContain("```mermaid");
     expect(Object.keys(files).every((path) => path.startsWith("shop/"))).toBe(true);
-    // No agent skill or AGENTS.md: they tell agents to use the CLI, which usually isn't installed beside a workspace made here.
+    // No agent skill or AGENTS.md: they're for the CLI, which usually isn't installed beside a workspace made here.
     expect(Object.keys(files).some((path) => path.includes("/.agents/") || path.includes("/.claude/") || path.endsWith("AGENTS.md"))).toBe(false);
   });
 

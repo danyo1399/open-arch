@@ -40,7 +40,7 @@ The workspaces kept in the web app's browser storage are only in that browser, o
 
 **Export zip**, in the top bar, downloads the open workspace as a .zip with one folder in it. It's there for every workspace that isn't saved to a file: one kept in the browser, an example, a shared link, or one whose folder's file was deleted or moved. The folder holds the .openarch file and its docs.
 
-The web app doesn't write the agent skill or an `AGENTS.md`, in a zip or in a folder. They tell agents to change the model with the `open-arch` CLI, which usually isn't installed beside a workspace made in the web app, so agents would go looking for it. Agents can read the generated docs as they are. To give a project's agents the skill and the section, run `open-arch init` for its file where the CLI is installed, or open the file in the desktop app.
+The web app doesn't write the agent skill or an `AGENTS.md`, in a zip or in a folder: only the .openarch file and its docs. The skill and the section are for changing the model with the `open-arch` CLI, which usually isn't installed beside a workspace made in the web app. Agents there can read the generated docs as they are. To give a project's agents the skill and the section, run `open-arch init` for its file where the CLI is installed, or open the file in the desktop app.
 
 Where the zip puts things:
 

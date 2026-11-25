@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { OpenCodeClient, OpenCodeEvent } from "@opencode/client";
+import { agentsSection } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
 import { UNKNOWN_PROBLEM } from "../../web/src/problems.js";
 import { agentContext, agentPrompt, type AgentEvent, type AgentRequest } from "../src/agent.js";
@@ -161,6 +164,14 @@ describe("agent prompt", () => {
     expect(text).toContain('pass `--file "/My Work/shop.openarch"` to every one');
     expect(text).toContain("In the designer, the view `shop-containers` (level `container`) is open, and `checkout-api`, the sticky note `n1` are selected.");
     expect(text).toContain("Add a cart cache");
+  });
+
+  it("gives the agent its command for open-arch in a way the skill and AGENTS.md take, so it doesn't stop because `open-arch` isn't on its PATH", () => {
+    // The CLI runs through the app's own command, which isn't on the agent's PATH.
+    expect(agentPrompt(request, "/bin/open-arch")).toContain("`/bin/open-arch` is the command that runs open-arch here: run it wherever the skill says `open-arch`.");
+    const skill = readFileSync(fileURLToPath(new URL("../../../packages/skill/open-arch/SKILL.md", import.meta.url)), "utf8");
+    expect(skill).toContain("If you were given another command that runs open-arch, such as a path to it, run that wherever this skill says `open-arch`.");
+    expect(agentsSection("shop.openarch", "docs")).toContain("or you were given another command that runs it");
   });
 });
 

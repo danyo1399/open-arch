@@ -1,6 +1,6 @@
 /**
- * Saving a workspace from the desktop app: the file, its docs folder, and, as the web app's folder
- * saves do, the agent skill and the AGENTS.md section (AgentSetup). Kept apart from the Electron
+ * Saving a workspace from the desktop app: the file, its docs folder, and, as `open-arch init`
+ * installs them, the agent skill and the AGENTS.md section (AgentSetup). Kept apart from the Electron
  * main process, so it can be tested.
  */
 import { readFileSync } from "node:fs";
@@ -43,7 +43,7 @@ export class Saver {
 
   /**
    * Make a new file (New workspace, Save as): save it as the first save after it's opened, so the
-   * skill and AGENTS.md are set up at once, as the web app's create does. Only once it's saved is
+   * skill and AGENTS.md are set up at once, as `open-arch init` does. Only once it's saved is
    * it opened with `open`, which remembers it as the last file: a save that fails leaves the file
    * remembered before as it was. What the save did comes back with the file, for the designer to say.
    */

@@ -59,7 +59,7 @@ export function agentPrompt(request: AgentRequest, cli: string): string {
   const lines = [
     `Change the architecture model in the open-arch workspace ${file} as the user asks below.`,
     "",
-    `Use the open-arch skill. Change the model only with open-arch commands: run them as \`${cli}\` and pass \`--file ${file}\` to every one. Never edit the .openarch file or its docs folder directly.`,
+    `Use the open-arch skill. \`${cli}\` is the command that runs open-arch here: run it wherever the skill says \`open-arch\`. Change the model only with open-arch commands, and pass \`--file ${file}\` to every one. Never edit the .openarch file or its docs folder directly.`,
   ];
   const where = whereText(request);
   if (where) lines.push(`In the designer, ${where}.`);

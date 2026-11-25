@@ -1,6 +1,6 @@
 /**
- * What the desktop app's saves set up for AI agents beside a workspace, as the web app's folder
- * saves do: the agent skill and the open-arch section in AGENTS.md, at the top of the Git
+ * What the desktop app's saves set up for AI agents beside a workspace, as `open-arch init` does:
+ * the agent skill and the open-arch section in AGENTS.md, at the top of the Git
  * repository the file is in. Outside a repository, and in the home folder even when it is one,
  * nothing is written: the user only picked a file, and the home folder's .claude/ and .agents/
  * hold their own skills for every project.

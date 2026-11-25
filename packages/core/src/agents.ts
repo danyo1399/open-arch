@@ -1,9 +1,8 @@
 /**
  * The section `open-arch init` adds to a project's AGENTS.md, telling AI agents the architecture is
- * an open-arch model and never to edit it by hand: to change it only with the CLI where it's
- * installed, and otherwise to say what to change in the designer. The CLI writes it, and so do the
- * desktop app and the web app, in an exported zip and in a folder opened from its start page, where
- * the CLI usually isn't installed.
+ * an open-arch model and never to edit it by hand: to change it only with the CLI where they can
+ * run it, and otherwise to say what to change in the designer. The CLI writes it, and so do the
+ * desktop app's saves.
  */
 
 import { GENERATED_MARKER } from "./export.js";
@@ -46,8 +45,8 @@ export function agentsSection(workspace: string, docs: string | undefined, eol =
     "",
     "- Load the `open-arch` skill before reading or changing the architecture. If your tool doesn't support skills, read `.agents/skills/open-arch/SKILL.md`.",
     `- Never edit ${leave} by hand.`,
-    "- If the `open-arch` command runs here (try `open-arch --version`), read with `open-arch show`, and change the model only with `open-arch` commands; each one is checked before it's saved.",
-    `- If it doesn't, the model is made in the open-arch designer, and there's no command to change it with here: don't look for one, and don't try to install one. Read ${read}, and when asked to change the architecture, say what to change in the designer.`,
+    "- If the `open-arch` command runs here (try `open-arch --version`), or you were given another command that runs it, read with `open-arch show`, and change the model only with `open-arch` commands; each one is checked before it's saved.",
+    `- If neither, there's no command to change it with here: don't look for one, and don't try to install one. Read ${read}, and when asked to change the architecture, say what to change in the open-arch designer.`,
     SECTION_END,
     "",
   ].join(eol);

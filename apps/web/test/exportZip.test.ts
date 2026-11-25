@@ -70,7 +70,7 @@ describe("Export to folder", () => {
     await until(() => !!host.textContent?.includes("Exported shop.openarch"));
     expect(host.textContent).toContain("Exported shop.openarch to repo, as a workspace there, with its docs. Open it from Folders on the start page to keep working on it there.");
     expect(loadWorkspace(root.files()["shop.openarch"]!).doc.name).toBe("Shop 2");
-    // No agent skill or AGENTS.md: they'd send agents looking for the CLI, which usually isn't installed beside a workspace made here.
+    // No agent skill or AGENTS.md: they're for the CLI, which usually isn't installed beside a workspace made here.
     expect(Object.keys(root.files()).some((path) => path.startsWith(".agents/") || path.startsWith(".claude/") || path === "AGENTS.md")).toBe(false);
     expect(host.querySelector(".storage")?.textContent).not.toBe("Not saved");
     // Listed by the workspace's name.

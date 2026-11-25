@@ -13,7 +13,7 @@ Run commands from anywhere in the project; the CLI finds the `.openarch` file (o
 
 ## Without the `open-arch` command
 
-First check that `open-arch --version` runs. If it doesn't, the model was made in the open-arch designer, and there's no command to change it with here: don't look for one, and don't try to install one. Read the generated docs instead: the docs folder's `README.md` lists every view, and its `views/` and `elements/` pages describe each diagram and element, with their relationships. The `.openarch` file has the rest, and `references/format.md` says what's in it. Never edit either by hand. When asked to change the architecture, say what to change in the designer: which element, relationship or view, and what to set on it. Saving it there rewrites the docs.
+If you were given another command that runs open-arch, such as a path to it, run that wherever this skill says `open-arch`. Otherwise, first check that `open-arch --version` runs. If it doesn't, there's no command to change the model with here: don't look for one, and don't try to install one. Read the generated docs instead: the docs folder's `README.md` lists every view, and its `views/` and `elements/` pages describe each diagram and element, with their relationships. The `.openarch` file has the rest, and `references/format.md` says what's in it. Never edit either by hand. When asked to change the architecture, say what to change in the open-arch designer: which element, relationship or view, and what to set on it. The designer rewrites the docs when it saves the workspace to its file, opened from its folder or in the desktop app. A copy edited in the browser has to be exported again.
 
 ## Workflow
 

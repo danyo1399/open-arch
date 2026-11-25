@@ -190,7 +190,7 @@ describe("a workspace in a folder", () => {
 
 describe("leaving agent files alone", () => {
   it("writes no agent skill or AGENTS.md, and leaves ones already there as they are", async () => {
-    // They tell agents to use the CLI, which usually isn't installed beside a workspace made here.
+    // They're for the CLI, which usually isn't installed beside a workspace made here.
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
     expect(await new FolderHost("1", root, "a.openarch").save(workspace("B"))).toEqual({ docs: null });
