@@ -8,7 +8,7 @@ import type { WorkspaceHost } from "../src/hosts.js";
 import { WorkspaceLibrary } from "../src/library.js";
 import { LibraryPage } from "../src/LibraryPage.js";
 import { button, click, mount } from "./dom.js";
-import { FakeFolder, skillInFolder } from "./fakeFolder.js";
+import { FakeFolder } from "./fakeFolder.js";
 
 /** The folders opened, kept in memory. A browser's IndexedDB keeps a handle's methods; fake-indexeddb's copy drops them. */
 class MemoryFolders {
@@ -124,7 +124,8 @@ describe("opening a folder from the start page", () => {
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
     const doc = loadWorkspace(root.files()["architecture.openarch"]!).doc;
     expect(doc).toMatchObject({ name: "My Repo", export: { docs: "." } });
-    expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch", "AGENTS.md", ...Object.keys(skillInFolder())].sort());
+    // No agent skill or AGENTS.md: they'd send agents looking for the CLI.
+    expect(Object.keys(root.files()).sort()).toEqual(["README.md", "architecture.openarch"]);
     expect(root.files()["README.md"]).toContain("# My Repo");
     expect(opened.map((h) => (h as FolderHost).path)).toEqual(["architecture.openarch"]);
   });
@@ -144,9 +145,6 @@ describe("opening a folder from the start page", () => {
     expect(loadWorkspace(root.files()["architecture/architecture.openarch"]!).doc).toMatchObject({ name: "My Repo", export: { docs: "." } });
     expect(root.files()["architecture/README.md"]).toContain("# My Repo");
     expect(root.files()["README.md"]).toBe("# Mine");
-    // The skill and AGENTS.md are at the repository's top, where agents look for them.
-    expect(root.files()["AGENTS.md"]).toContain("in `architecture/architecture.openarch`. Readable docs generated from it are beside it: the pages in `architecture/elements/`");
-    expect(Object.keys(skillInFolder()).every((path) => path in root.files())).toBe(true);
     expect(opened.map((h) => (h as FolderHost).path)).toEqual(["architecture/architecture.openarch"]);
   });
 
@@ -203,53 +201,11 @@ describe("opening a folder from the start page", () => {
     await click(button(host, "Create architecture.openarch"));
     await until(host, "Created architecture.openarch in repo, but couldn't write its docs beside it: Not allowed. Open it from Folders once that's fixed.");
     expect(opened).toEqual([]);
-    expect(Object.keys(root.files()).sort()).toEqual(["architecture.openarch", "AGENTS.md", ...Object.keys(skillInFolder())].sort());
+    expect(Object.keys(root.files())).toEqual(["architecture.openarch"]);
     expect(folders.records.map((r) => r.path)).toEqual(["architecture.openarch"]);
     // By its name, with where it is.
     expect(host.querySelector(".library-open")?.textContent).toBe("Repo");
     expect(host.textContent).toContain("repo/architecture.openarch · opened");
-  });
-
-  it("says so when the new workspace's agent skill can't be written", async () => {
-    picker();
-    const root = new FakeFolder("repo");
-    root.refuse.add(".claude");
-    picked = root;
-    const { host, opened } = page();
-    await until(host, "Folders");
-    await click(button(host, "Open folder…"));
-    await until(host, "No workspace in repo");
-    await click(button(host, "Create architecture.openarch"));
-    await until(host, "Created architecture.openarch in repo, but couldn't add the agent skill: Not allowed. Open it from Folders once that's fixed.");
-    expect(opened).toEqual([]);
-  });
-
-  it("says both, when neither the new workspace's docs nor its agent skill can be written", async () => {
-    picker();
-    const root = new FakeFolder("repo");
-    root.refuse.add("README.md");
-    root.refuse.add(".claude");
-    picked = root;
-    const { host } = page();
-    await until(host, "Folders");
-    await click(button(host, "Open folder…"));
-    await until(host, "No workspace in repo");
-    await click(button(host, "Create architecture.openarch"));
-    await until(host, "Created architecture.openarch in repo, but couldn't write its docs beside it: Not allowed. It also couldn't add the agent skill: Not allowed. Open it from Folders once that's fixed.");
-  });
-
-  it("says so when the new workspace's section in AGENTS.md can't be written", async () => {
-    picker();
-    const root = new FakeFolder("repo");
-    root.refuse.add("AGENTS.md");
-    picked = root;
-    const { host, opened } = page();
-    await until(host, "Folders");
-    await click(button(host, "Open folder…"));
-    await until(host, "No workspace in repo");
-    await click(button(host, "Create architecture.openarch"));
-    await until(host, "Created architecture.openarch in repo, but couldn't add its section to AGENTS.md: Not allowed. Open it from Folders once that's fixed.");
-    expect(opened).toEqual([]);
   });
 
   it("lists the folders opened, reopens one with the browser's permission, and forgets one", async () => {

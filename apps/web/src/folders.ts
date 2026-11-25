@@ -2,17 +2,14 @@
  * Workspaces in a folder on this computer, such as a Git repository, opened from the web app in
  * Chrome or Edge with the File System Access API. The .openarch file stays in the folder and every
  * edit is saved to it, and the docs folder it names is rewritten, as the desktop app and the CLI
- * do. The first save after the folder is opened also brings the agent skill in it up to date, as
- * `open-arch init` installs it, writing only the files that changed, and puts the open-arch
- * section in its AGENTS.md, which a later save writes again when what it names changes. So the
- * changes are there to commit. The folders opened are remembered in IndexedDB: the browser can
+ * do. So the changes are there to commit. Nothing else in the folder is written: not the agent
+ * skill or AGENTS.md, which `open-arch init` adds for agents with the CLI. The folders opened are remembered in IndexedDB: the browser can
  * keep a folder's handle, and asks again before the page may change it.
  */
-import { agentsSection, agentsSectionWorkspace, applyOperations, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, generatedFrom, lineEnding, LineBreakInPath, loadWorkspace, parseDocument, serializeDocument, withAgentsSection, type ExportedFile, type Workspace } from "@open-arch/core";
+import { applyOperations, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, generatedFrom, loadWorkspace, parseDocument, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
-import { SKILL_TARGETS, skillFiles } from "./skill.js";
 import type { WorkspaceHost } from "./hosts.js";
 import { committed, done } from "./library.js";
 
@@ -197,26 +194,6 @@ export async function writeDocs(
 }
 
 /**
- * Writes the agent skill's files into the folder, only those that differ. Anything else in it,
- * such as a file someone put there, is left alone. Resolves to the paths it wrote.
- */
-export async function writeSkill(dir: FolderHandle): Promise<string[]> {
-  const written: string[] = [];
-  for (const { path, content } of skillFiles) {
-    let existing: string | null = null;
-    try {
-      existing = await readText(await fileAt(dir, path));
-    } catch (error) {
-      if (!isMissing(error)) throw error;
-    }
-    if (existing === content) continue;
-    await writeText(await fileAt(dir, path, true), content);
-    written.push(path);
-  }
-  return written;
-}
-
-/**
  * Where a new workspace goes in a folder with none, and its docs folder, as `open-arch init` puts
  * them: architecture.openarch at the folder's top if it has the folder to itself (isFreeFolder), or
  * else in a folder of its own, architecture/. Its docs go beside it when it has its folder to
@@ -259,50 +236,14 @@ async function isFileIn(root: FolderHandle, path: string): Promise<boolean> {
 }
 
 /**
- * Puts the section for the workspace at `path`, with its docs in `docs`, in AGENTS.md at the top of the folder, or makes
- * AGENTS.md with it. The rest of the file is kept as it is. A section that names another workspace
- * still in the folder is left as it is: it's for one model, the one it was first written for, so
- * opening each of several workspaces doesn't rewrite it to name each in turn. One that names a
- * file no longer there, say after `git mv`, is written for this workspace.
- */
-export async function writeAgentsSection(root: FolderHandle, path: string, docs: string | undefined): Promise<void> {
-  let text = "";
-  try {
-    // From its bytes: the browser's text() drops a byte-order mark, and writing that back would
-    // change the rest of the file. Bytes that aren't UTF-8 would be changed too, so it refuses those.
-    const bytes = await (await (await fileAt(root, "AGENTS.md")).getFile()).arrayBuffer();
-    try {
-      text = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(bytes);
-    } catch {
-      throw new Error("AGENTS.md isn't UTF-8 text, so it was left alone.");
-    }
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-  }
-  const named = agentsSectionWorkspace(text);
-  // Compared as folders, so ./a.openarch or arch\a.openarch, written by hand, is this workspace too.
-  if (named !== null && segments(named)?.join("/") !== path && (await isFileIn(root, named))) return;
-  // With the file's own line ending, so the file keeps it, and names in it are written as they are.
-  const next = withAgentsSection(text, agentsSection(path, docs, lineEnding(text)));
-  if (next !== text) await writeText(await fileAt(root, "AGENTS.md", true), next);
-}
-
-/** What exporting a workspace to a folder did beside writing the file. */
-export interface FolderExport extends SaveSummary {
-  /** The workspace AGENTS.md's section names, when it's another one in the folder, so it was left as it is. */
-  agentsNamesOther?: string;
-}
-
-/**
  * Exports a copy of a workspace to a folder the user chose, such as a Git repository, as the
  * workspace it becomes there: the .openarch file at the folder's top, saved as a folder's first
- * save (FolderHost), so its docs, the skill and the AGENTS.md section are written as later saves
- * there keep them. So it can be opened from the start page and worked on there. A workspace that
+ * save (FolderHost), so its docs are written as later saves there keep them. So it can be opened from the start page and worked on there. A workspace that
  * names no docs folder has its copy keep them beside the file (`.`). One whose docs folder a save
  * there couldn't write, outside the folder or absolute, isn't exported; nor is one whose name the
  * folder has already.
  */
-export async function exportToFolder(root: FolderHandle, ws: Workspace, fileName: string): Promise<FolderExport> {
+export async function exportToFolder(root: FolderHandle, ws: Workspace, fileName: string): Promise<SaveSummary> {
   let taken = true;
   try {
     await root.getFileHandle(fileName);
@@ -317,18 +258,7 @@ export async function exportToFolder(root: FolderHandle, ws: Workspace, fileName
     throw new Error(`${fileName} keeps its docs in ${named}/, outside the folder it would be exported to, so nothing was exported. Choose a docs folder inside it in the workspace's details, or none.`);
   }
   const doc = named === undefined ? applyOperations(ws.doc, [{ op: "update-workspace", docs: "." }]).doc : ws.doc;
-  const result: FolderExport = await new FolderHost("export", root, fileName).create(serializeDocument(doc));
-  // Said only when that's why the section was left as it is: it was written, and the workspace it
-  // names is still in the folder. Any other reason is in agentsError.
-  if (!result.agentsError) {
-    try {
-      const other = agentsSectionWorkspace(await readText(await fileAt(root, "AGENTS.md")));
-      if (other !== null && segments(other)?.join("/") !== fileName && (await isFileIn(root, other))) result.agentsNamesOther = other;
-    } catch {
-      // No AGENTS.md to say anything about.
-    }
-  }
-  return result;
+  return new FolderHost("export", root, fileName).create(serializeDocument(doc));
 }
 
 // --- The workspace host --------------------------------------------------------------
@@ -340,7 +270,6 @@ const POLL_MS = 1500;
 export class FolderHost implements WorkspaceHost {
   readonly storage = "file";
   readonly syncsDocs = true;
-  readonly syncsSkill = true;
   readonly name: string;
   /** The file's text as the designer last read or wrote it. Saving over anything else would lose a change made outside. */
   private known: string | null = null;
@@ -348,10 +277,6 @@ export class FolderHost implements WorkspaceHost {
   private loading: Promise<string> | null = null;
   /** The watcher's `onChange`, to reload the file when a save finds it changed. */
   private reload: (() => void) | null = null;
-  /** Whether a save brought the agent skill up to date since the folder was opened. Until one does, each save tries. */
-  private skillKept = false;
-  /** The section this host last wrote to AGENTS.md, or null before it has. */
-  private agentsKept: string | null = null;
   /** The workspace's name as this host last gave it to `names`, or null before it has. */
   private listedAs: string | null = null;
 
@@ -432,11 +357,8 @@ export class FolderHost implements WorkspaceHost {
   }
 
   /**
-   * Saves the file, then rewrites its docs folder and, on the first save since the folder was
-   * opened, brings the agent skill up to date in it, as `open-arch init` installs it, so agents
-   * working in the folder know how to read and change the model. It also puts the open-arch
-   * section in the folder's AGENTS.md, when what the section names changes. The file is saved by
-   * then, so the docs, the skill or AGENTS.md failing is reported, not thrown.
+   * Saves the file, then rewrites its docs folder. The file is saved by then, so the docs failing
+   * is reported, not thrown.
    */
   async save(text: string): Promise<SaveSummary> {
     const ws = loadWorkspace(text);
@@ -478,30 +400,7 @@ export class FolderHost implements WorkspaceHost {
     await writable.close();
     this.known = saved;
     this.listAs(ws.doc.name);
-    const result: SaveSummary = { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
-    // The section in AGENTS.md names the file and its docs, so it's written again whenever that changes.
-    const docsPath = docsParts && docs ? docsParts.join("/") : undefined;
-    try {
-      const section = agentsSection(this.path, docsPath);
-      if (section !== this.agentsKept) {
-        await writeAgentsSection(this.root, this.path, docsPath);
-        this.agentsKept = section;
-      }
-    } catch (error) {
-      result.agentsError = problemText(error);
-      // Say how to put it right, too.
-      if (error instanceof LineBreakInPath) result.agentsError += error.of === "docs" ? " Choose another docs folder in the workspace's details." : " Rename the file, or the folder in its path with the break, then open the folder again.";
-    }
-    // Once each time the folder is opened, not on every save: saves come as the user types.
-    if (!this.skillKept) {
-      try {
-        for (const target of SKILL_TARGETS) await writeSkill(await folderAt(this.root, target.split("/"), true));
-        this.skillKept = true;
-      } catch (error) {
-        result.skillError = problemText(error);
-      }
-    }
-    return result;
+    return { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
   }
 
   /** Rewrites the docs folder. A docs folder that can't be written is reported, with what was changed before it stopped. */

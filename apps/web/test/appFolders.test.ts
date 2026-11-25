@@ -124,8 +124,8 @@ describe("the designer with a workspace in a folder", () => {
     await click(host.querySelector(".ws-name")!);
     // Its details name the file as the top bar does.
     expect(host.querySelector(".properties .props-header code")?.textContent).toBe("repo/a.openarch");
-    expect(host.querySelector(".properties")?.textContent).toContain("The first save after opening the workspace also brings the open-arch agent skill up to date in .agents/skills/open-arch/ and .claude/skills/open-arch/ at the top of the project");
-    expect(host.querySelector(".properties")?.textContent).toContain("Saves also keep the open-arch section in the project's AGENTS.md");
+    // A folder's saves don't write the agent skill or AGENTS.md, so its details don't say they do.
+    expect(host.querySelector(".properties")?.textContent).not.toContain("agent skill");
 
     // The docs folder can't be made, so a save writes the file but not the docs.
     root.refuse.add("docs");

@@ -1,14 +1,5 @@
 /** A folder on disk, in memory, for tests of workspaces in a folder (folders.ts). */
 import type { FileHandle, FolderHandle } from "../src/folders.js";
-import { agentsSection, withAgentsSection } from "@open-arch/core";
-import { SKILL_TARGETS, skillFiles } from "../src/skill.js";
-
-/** AGENTS.md as a save in a folder makes it, for a workspace at `path` with its docs in `docs`. */
-export const agentsInFolder = (path: string, docs?: string): Record<string, string> => ({ "AGENTS.md": withAgentsSection("", agentsSection(path, docs)) });
-
-/** The agent skill's files, by path, as a save in a folder writes them. */
-export const skillInFolder = (): Record<string, string> =>
-  Object.fromEntries(SKILL_TARGETS.flatMap((target) => skillFiles.map((f) => [`${target}/${f.path}`, f.content])));
 
 const notFound = () => Object.assign(new Error("A requested file or directory could not be found."), { name: "NotFoundError" });
 

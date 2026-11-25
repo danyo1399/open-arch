@@ -8,7 +8,7 @@ import { SKILL_TARGETS, skillFiles } from "../src/skill.js";
 
 const skillDir = fileURLToPath(new URL("../../../packages/skill/open-arch/", import.meta.url));
 
-describe("the agent skill the web app puts beside a workspace", () => {
+describe("the agent skill the designer has, for Ask AI and the desktop app's saves", () => {
   it("is the skill open-arch init installs, in the same places", () => {
     expect(SKILL_TARGETS).toEqual(INIT_TARGETS);
     // Every file init copies, not only the pages.
@@ -20,7 +20,7 @@ describe("the agent skill the web app puts beside a workspace", () => {
     expect(skillFiles.map((f) => f.path)).toContain("SKILL.md");
   });
 
-  it("tells agents without the CLI, as beside a workspace made here, to say what to change in the designer, not to install the CLI", () => {
+  it("tells agents without the CLI to say what to change in the designer, not to install the CLI", () => {
     const skill = skillFiles.find((f) => f.path === "SKILL.md")!.content;
     expect(skill).toContain("## Without the `open-arch` command");
     expect(skill).toContain("If it doesn't, the model was made in the open-arch designer, and there's no command to change it with here: don't look for one, and don't try to install one.");

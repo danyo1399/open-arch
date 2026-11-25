@@ -1,8 +1,8 @@
 /**
  * The open-arch agent skill, which teaches AI agents to read and change a workspace with the
- * open-arch CLI, or, where it isn't installed, as usually beside a workspace made here, to read it
- * and say what to change in the designer. The web app puts it beside a workspace, as `open-arch
- * init` installs it: in an exported zip, and in a folder opened from the start page.
+ * open-arch CLI. Ask AI tells its model how to change a workspace from it (ai/guide.ts). The
+ * desktop app's saves put it beside a workspace, as `open-arch init` installs it; the web app's
+ * zips and folders don't, as the CLI usually isn't there.
  */
 
 /** Where agents look for project skills, as `open-arch init` installs them (SKILL_TARGETS there). Claude Code reads `.claude/skills`; most others read `.agents/skills`. */

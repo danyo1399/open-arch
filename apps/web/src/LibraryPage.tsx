@@ -79,10 +79,9 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
     attempt(async () => {
       const doc = emptyDocument(nameFromFileName(root.name) || "Architecture");
       doc.export = { docs: docsFolder };
-      const { docs, skillError, agentsError } = await new FolderHost("new", root, path).create(serializeDocument(doc));
+      const { docs } = await new FolderHost("new", root, path).create(serializeDocument(doc));
       // Opened, the designer would hide what went wrong, so it's said here, and the list has it to open.
-      const problems = [docs?.error && `couldn't write its docs ${docsFolder === "." ? "beside it" : `in ${docs.dir}/`}: ${docs.error}`, skillError && `couldn't add the agent skill: ${skillError}`, agentsError && `couldn't add its section to AGENTS.md: ${agentsError}`].filter(Boolean);
-      const problem = problems.length ? problems.join(" It also ") : null;
+      const problem = docs?.error ? `couldn't write its docs ${docsFolder === "." ? "beside it" : `in ${docs.dir}/`}: ${docs.error}` : null;
       if (problem) {
         await folders.add(root, path, doc.name);
         setOpened(await folders.list());
@@ -161,7 +160,7 @@ export function LibraryPage({ library, folders = defaultFolders, onOpen }: { lib
             </ul>
           )}
           <p className="muted small">
-            Open a folder on this computer, such as a Git repository, to edit the .openarch file in it. Changes save to the file as you work, and the docs folder it names is kept up to date, ready to commit. The first save also adds the agent skill that lets AI agents change the model, and a section in AGENTS.md telling them to use it.
+            Open a folder on this computer, such as a Git repository, to edit the .openarch file in it. Changes save to the file as you work, and the docs folder it names is kept up to date, ready to commit.
           </p>
         </section>
       )}
