@@ -2,10 +2,9 @@
 import "fake-indexeddb/auto";
 import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allowed, exportToFolder, findWorkspaces, writeSkill, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
+import { allowed, exportToFolder, findWorkspaces, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
 import { exampleHost, MemoryHost, savesDocs, savesSkill } from "../src/hosts.js";
-import { skillFiles } from "../src/skill.js";
-import { agentsInFolder, FakeFile, FakeFolder, skillInFolder } from "./fakeFolder.js";
+import { FakeFile, FakeFolder } from "./fakeFolder.js";
 
 const workspace = (name: string, docs?: string) => {
   const doc = emptyDocument(name);
@@ -89,7 +88,7 @@ describe("a workspace in a folder", () => {
   it("saves only the file when the workspace names no docs folder", async () => {
     const root = new FakeFolder("repo");
     expect(await new FolderHost("1", root, "a.openarch").save(workspace("A"))).toEqual({ docs: null });
-    expect(root.files()).toEqual({ "a.openarch": workspace("A"), ...skillInFolder(), ...agentsInFolder("a.openarch") });
+    expect(root.files()).toEqual({ "a.openarch": workspace("A") });
   });
 
   it("refuses to save over a change made outside since it was loaded, and saves once it's reloaded", async () => {
@@ -189,269 +188,30 @@ describe("a workspace in a folder", () => {
   });
 });
 
-describe("keeping the agent skill", () => {
-  it("writes the skill's files, only those that differ, and leaves anything else alone", async () => {
-    const dir = new FakeFolder("open-arch");
-    const skill = Object.fromEntries(skillFiles.map((f) => [f.path, f.content]));
-    expect((await writeSkill(dir)).sort()).toEqual(Object.keys(skill).sort());
-    expect(dir.files()).toEqual(skill);
-    // Up to date, it writes nothing.
-    const before = (dir.entries.get("SKILL.md") as FakeFile).lastModified;
-    expect(await writeSkill(dir)).toEqual([]);
-    expect((dir.entries.get("SKILL.md") as FakeFile).lastModified).toBe(before);
-    // A changed page is put back. Someone's own file is left as it is.
-    dir.put("SKILL.md", "edited");
-    dir.put("notes/mine.md", "Mine.");
-    expect(await writeSkill(dir)).toEqual(["SKILL.md"]);
-    expect(dir.files()).toEqual({ ...skill, "notes/mine.md": "Mine." });
+describe("leaving agent files alone", () => {
+  it("writes no agent skill or AGENTS.md, and leaves ones already there as they are", async () => {
+    // They tell agents to use the CLI, which usually isn't installed beside a workspace made here.
+    const root = new FakeFolder("repo");
+    root.put("a.openarch", workspace("A"));
+    expect(await new FolderHost("1", root, "a.openarch").save(workspace("B"))).toEqual({ docs: null });
+    expect(root.files()).toEqual({ "a.openarch": workspace("B") });
+    // One open-arch init put there is the project's own.
+    root.put("AGENTS.md", "# Rules\n");
+    root.put(".agents/skills/open-arch/SKILL.md", "Mine.");
+    await new FolderHost("1", root, "a.openarch").save(workspace("C"));
+    expect(root.files()).toEqual({ "a.openarch": workspace("C"), "AGENTS.md": "# Rules\n", ".agents/skills/open-arch/SKILL.md": "Mine." });
   });
 
-  it("says the skill or the docs weren't written even when what failed has no message", async () => {
+  it("says the docs weren't written even when what failed has no message", async () => {
     const root = new FakeFolder("repo");
     root.put("a.openarch", workspace("A"));
     const make = root.getDirectoryHandle.bind(root);
     root.getDirectoryHandle = async (name, options) => {
-      if (name === ".agents") throw new Error("");
-      if (name === "docs") throw "The folder is locked.";
+      if (name === "docs") throw new Error("");
       return make(name, options);
     };
     const saved = await new FolderHost("1", root, "a.openarch").save(workspace("B", "docs"));
-    expect(saved.skillError).toBe("Something went wrong, and no reason was given.");
-    expect(saved.docs?.error).toBe("The folder is locked.");
-  });
-
-  it("is brought up to date in the folder opened by the first save after opening it, not every save", async () => {
-    const root = new FakeFolder("repo");
-    root.put("arch/a.openarch", workspace("A"));
-    root.put(".claude/settings.json", "{}");
-    const host = new FolderHost("1", root, "arch/a.openarch");
-    expect(await host.save(workspace("B"))).toEqual({ docs: null });
-    expect(root.files()).toEqual({ "arch/a.openarch": workspace("B"), ".claude/settings.json": "{}", ...skillInFolder(), ...agentsInFolder("arch/a.openarch") });
-    // Saves after that leave it alone.
-    (root.entries.get(".agents") as FakeFolder).entries.delete("skills");
-    expect(await host.save(workspace("C"))).toEqual({ docs: null });
-    expect(Object.keys(root.files()).some((p) => p.startsWith(".agents/"))).toBe(false);
-    // Opened again, the first save puts it back.
-    await new FolderHost("1", root, "arch/a.openarch").save(workspace("D"));
-    expect(root.files()).toEqual({ "arch/a.openarch": workspace("D"), ".claude/settings.json": "{}", ...skillInFolder(), ...agentsInFolder("arch/a.openarch") });
-  });
-
-  it("says when the skill can't be written, and tries again on each save until it is", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    root.refuse.add(".agents");
-    const host = new FolderHost("1", root, "a.openarch");
-    expect(await host.save(workspace("B"))).toEqual({ docs: null, skillError: "Not allowed." });
-    expect(root.files()["a.openarch"]).toBe(workspace("B"));
-    expect(await host.save(workspace("C"))).toEqual({ docs: null, skillError: "Not allowed." });
-    root.refuse.delete(".agents");
-    expect(await host.save(workspace("D"))).toEqual({ docs: null });
-    expect(root.files()).toEqual({ "a.openarch": workspace("D"), ...skillInFolder(), ...agentsInFolder("a.openarch") });
-  });
-});
-
-describe("keeping the AGENTS.md section", () => {
-  it("names the file and its docs from the top of the folder opened, and keeps the rest of AGENTS.md", async () => {
-    const root = new FakeFolder("repo");
-    root.put("arch/a.openarch", workspace("A", "docs"));
-    root.put("AGENTS.md", "# Rules\n\nUse tabs.\n");
-    const host = new FolderHost("1", root, "arch/a.openarch");
-    expect(await host.save(workspace("B", "docs"))).toMatchObject({ docs: { dir: "docs" } });
-    const agents = root.files()["AGENTS.md"]!;
-    expect(agents.startsWith("# Rules\n\nUse tabs.\n\n<!-- open-arch:start -->")).toBe(true);
-    expect(agents).toContain("in `arch/a.openarch`. Readable docs generated from it are in `arch/docs/`.");
-  });
-
-  it("is written again when the docs folder changes, and left alone when nothing it says has", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A", "docs"));
-    const host = new FolderHost("1", root, "a.openarch");
-    await host.save(workspace("B", "docs"));
-    const file = root.entries.get("AGENTS.md") as FakeFile;
-    const written = file.lastModified;
-    await host.save(workspace("C", "docs"));
-    expect(file.lastModified).toBe(written);
-    await host.save(workspace("D", "manual"));
-    expect(file.text).toContain("Readable docs generated from it are in `manual/`.");
-    await host.save(workspace("E"));
-    expect(file.text).not.toContain("Readable docs");
-  });
-
-  it("leaves an AGENTS.md alone that has one of the section's markers without the other, and says why", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    const broken = "# Rules\n<!-- open-arch:start -->\nMy own notes.\n";
-    root.put("AGENTS.md", broken);
-    const host = new FolderHost("1", root, "a.openarch");
-    for (const name of ["B", "C"]) {
-      expect((await host.save(workspace(name))).agentsError).toBe(
-        "AGENTS.md has <!-- open-arch:start --> without <!-- open-arch:end --> after it, so it was left alone. Keep one open-arch section, with both its markers, or take them out.",
-      );
-      expect(root.files()["AGENTS.md"]).toBe(broken);
-    }
-  });
-
-  it("leaves a section that names another workspace in the folder as it is", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    root.put("b.openarch", workspace("B"));
-    await new FolderHost("1", root, "a.openarch").save(workspace("A2"));
-    const first = root.files()["AGENTS.md"];
-    expect(first).toContain("in `a.openarch`");
-    // Opening the other one doesn't rewrite it to name that one.
-    expect(await new FolderHost("2", root, "b.openarch").save(workspace("B2", "docs"))).toMatchObject({ docs: { dir: "docs" } });
-    expect(root.files()["AGENTS.md"]).toBe(first);
-  });
-
-  it("puts right a section naming a workspace that moved while another was open the next time the folder is opened", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    root.put("b.openarch", workspace("B"));
-    await new FolderHost("1", root, "a.openarch").save(workspace("A2"));
-    const other = new FolderHost("2", root, "b.openarch");
-    await other.save(workspace("B2"));
-    root.entries.delete("a.openarch");
-    // Saves don't read AGENTS.md again while what the section would name is the same.
-    await other.save(workspace("B3"));
-    expect(root.files()["AGENTS.md"]).toContain("in `a.openarch`");
-    await new FolderHost("2", root, "b.openarch").save(workspace("B4"));
-    expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("b.openarch")["AGENTS.md"]);
-  });
-
-  it("writes the section for this workspace when one written by hand names it another way", async () => {
-    for (const named of ["./arch/a.openarch", "arch\\a.openarch", "arch/./a.openarch"]) {
-      const root = new FakeFolder("repo");
-      root.put("arch/a.openarch", workspace("A", "docs"));
-      root.put("AGENTS.md", agentsInFolder(named)["AGENTS.md"]!);
-      await new FolderHost("1", root, "arch/a.openarch").save(workspace("B", "docs"));
-      expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("arch/a.openarch", "arch/docs")["AGENTS.md"]);
-    }
-  });
-
-  it("writes the section for this workspace when the one it names is no longer in the folder", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    await new FolderHost("1", root, "a.openarch").save(workspace("A2"));
-    // Moved, as git mv a.openarch architecture.openarch would.
-    const moved = root.files()["a.openarch"]!;
-    root.entries.delete("a.openarch");
-    root.put("architecture.openarch", moved);
-    await new FolderHost("2", root, "architecture.openarch").save(workspace("A3"));
-    expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("architecture.openarch")["AGENTS.md"]);
-  });
-
-  it("keeps a byte-order mark at the start of AGENTS.md, and leaves a file that isn't UTF-8 alone", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    root.put("AGENTS.md", "\uFEFF# Rules\n");
-    await new FolderHost("1", root, "a.openarch").save(workspace("B"));
-    expect(root.files()["AGENTS.md"]).toBe(`\uFEFF# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
-
-    const latin1 = new FakeFolder("repo");
-    latin1.put("a.openarch", workspace("A"));
-    latin1.put("AGENTS.md", "");
-    const file = latin1.entries.get("AGENTS.md") as FakeFile;
-    file.bytes = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]); // "café" in Latin-1
-    expect((await new FolderHost("1", latin1, "a.openarch").save(workspace("B"))).agentsError).toBe("AGENTS.md isn't UTF-8 text, so it was left alone.");
-    expect(file.bytes).toEqual(new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]));
-  });
-
-  it("writes the section for this workspace when the one it names is a folder, or can't be in the folder", async () => {
-    for (const named of ["sub", "../outside.openarch", "/abs.openarch"]) {
-      const root = new FakeFolder("repo");
-      root.put("a.openarch", workspace("A"));
-      root.put("sub/x.openarch", workspace("X"));
-      root.put("AGENTS.md", agentsInFolder(named)["AGENTS.md"]!);
-      await new FolderHost("1", root, "a.openarch").save(workspace("B"));
-      expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("a.openarch")["AGENTS.md"]);
-    }
-  });
-
-  it("names a workspace whose name has a backtick, and knows it's still there", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a`b.openarch", workspace("A"));
-    root.put("c.openarch", workspace("C"));
-    await new FolderHost("1", root, "a`b.openarch").save(workspace("A2"));
-    const first = root.files()["AGENTS.md"];
-    expect(first).toContain("in `` a`b.openarch ``.");
-    await new FolderHost("2", root, "c.openarch").save(workspace("C2"));
-    expect(root.files()["AGENTS.md"]).toBe(first);
-  });
-
-  it("puts back a section taken out while the folder is open the next time it's opened, not on every save", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    await new FolderHost("1", root, "a.openarch").save(workspace("B"));
-    const host = new FolderHost("1", root, "a.openarch");
-    await host.save(workspace("C"));
-    root.put("AGENTS.md", "# Rules\n");
-    await host.save(workspace("D"));
-    expect(root.files()["AGENTS.md"]).toBe("# Rules\n");
-    await new FolderHost("1", root, "a.openarch").save(workspace("E"));
-    expect(root.files()["AGENTS.md"]).toBe(`# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
-  });
-
-  it("says when it can't be read, and tries again on each save until it can", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    root.put("AGENTS.md", "# Rules\n");
-    const file = root.entries.get("AGENTS.md") as FakeFile;
-    file.unreadable = true;
-    const host = new FolderHost("1", root, "a.openarch");
-    expect(await host.save(workspace("B"))).toEqual({ docs: null, agentsError: "Not allowed." });
-    file.unreadable = false;
-    expect(await host.save(workspace("C"))).toEqual({ docs: null });
-    expect(file.text).toBe(`# Rules\n\n${agentsInFolder("a.openarch")["AGENTS.md"]}`);
-  });
-
-  it("writes the section with AGENTS.md's own Windows line endings", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    root.put("AGENTS.md", "# Rules\r\n\r\nUse tabs.\r\n");
-    await new FolderHost("1", root, "a.openarch").save(workspace("B"));
-    const agents = root.files()["AGENTS.md"]!;
-    expect(agents).toContain("\r\n<!-- open-arch:start -->\r\n## Architecture\r\n");
-    expect(agents.replace(/\r\n/g, "")).not.toContain("\n");
-  });
-
-  it("names docs at the top of the folder as ./", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A", "."));
-    expect(await new FolderHost("1", root, "a.openarch").save(workspace("B", "."))).toMatchObject({ docs: { written: 1 } });
-    expect(root.files()["AGENTS.md"]).toContain("Readable docs generated from it are beside it, at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the folder has its own.");
-    expect(Object.keys(root.files())).toContain("README.md");
-  });
-
-  it("says it can't name a workspace whose path has a line break in it", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a\nb.openarch", workspace("A"));
-    expect((await new FolderHost("1", root, "a\nb.openarch").save(workspace("B"))).agentsError).toBe(
-      'AGENTS.md\'s open-arch section can\'t name "a\\nb.openarch": the workspace\'s path has a line break in it. Rename the file, or the folder in its path with the break, then open the folder again.',
-    );
-    // A break in a folder's name on the path.
-    root.put("ar\nch/x.openarch", workspace("X"));
-    expect((await new FolderHost("3", root, "ar\nch/x.openarch").save(workspace("X2"))).agentsError).toBe(
-      'AGENTS.md\'s open-arch section can\'t name "ar\\nch/x.openarch": the workspace\'s path has a line break in it. Rename the file, or the folder in its path with the break, then open the folder again.',
-    );
-    expect(root.files()["AGENTS.md"]).toBeUndefined();
-    // Or of its docs folder, with a Unicode line separator.
-    root.put("c.openarch", workspace("C"));
-    expect((await new FolderHost("2", root, "c.openarch").save(workspace("C2", "do\u2028cs"))).agentsError).toBe(
-      'AGENTS.md\'s open-arch section can\'t name "do\\u2028cs": the docs folder\'s path has a line break in it. Choose another docs folder in the workspace\'s details.',
-    );
-    expect(root.files()["AGENTS.md"]).toBeUndefined();
-  });
-
-  it("says when it can't be written, and tries again on each save until it is", async () => {
-    const root = new FakeFolder("repo");
-    root.put("a.openarch", workspace("A"));
-    root.refuse.add("AGENTS.md");
-    const host = new FolderHost("1", root, "a.openarch");
-    expect(await host.save(workspace("B"))).toEqual({ docs: null, agentsError: "Not allowed." });
-    expect(root.files()["a.openarch"]).toBe(workspace("B"));
-    root.refuse.delete("AGENTS.md");
-    expect(await host.save(workspace("C"))).toEqual({ docs: null });
-    expect(root.files()["AGENTS.md"]).toBe(agentsInFolder("a.openarch")["AGENTS.md"]);
+    expect(saved.docs?.error).toBe("Something went wrong, and no reason was given.");
   });
 });
 
@@ -872,10 +632,8 @@ describe("saving docs", () => {
     expect(savesDocs(host, "file")).toBe(true);
     expect(savesDocs(host, "memory")).toBe(false);
     expect(savesDocs(new MemoryHost("a.openarch", ""), "memory")).toBe(false);
-    // The agent skill, by the same rule.
-    expect(savesSkill(host, "file")).toBe(true);
-    expect(savesSkill(host, "memory")).toBe(false);
-    expect(savesSkill(new MemoryHost("a.openarch", ""), "memory")).toBe(false);
+    // It doesn't keep the agent skill.
+    expect(savesSkill(host, "file")).toBe(false);
   });
 });
 
@@ -963,7 +721,7 @@ describe("the names the folders opened are listed by", () => {
 });
 
 describe("exporting a workspace to a folder", () => {
-  it("makes it a workspace there: the file at the top, its docs, the skill and AGENTS.md, as a folder's first save does", async () => {
+  it("makes it a workspace there: the file at the top and its docs, as a folder's first save does, and nothing for agents", async () => {
     const root = new FakeFolder("repo");
     root.put("AGENTS.md", "# Rules\n");
     root.put("notes.md", "Mine.");
@@ -972,15 +730,13 @@ describe("exporting a workspace to a folder", () => {
     const docs = ws.doc.export!.docs!;
     const result = await exportToFolder(root, ws, "shop.openarch");
     expect(result).toMatchObject({ docs: { dir: docs, deleted: 0, skipped: [] } });
-    expect(result.skillError).toBeUndefined();
-    expect(result.agentsError).toBeUndefined();
-    expect(result.agentsNamesOther).toBeUndefined();
     const files = root.files();
     expect(files["shop.openarch"]).toBe(text);
     expect(files[`${docs}/README.md`]).toContain("from shop.openarch.");
     expect(files["notes.md"]).toBe("Mine.");
-    for (const [path, content] of Object.entries(skillInFolder())) expect(files[path]).toBe(content);
-    expect(files["AGENTS.md"]).toBe(`# Rules\n\n${agentsInFolder("shop.openarch", docs)["AGENTS.md"]}`);
+    // No agent skill, and AGENTS.md is left as it was.
+    expect(Object.keys(files).some((path) => path.startsWith(".agents/") || path.startsWith(".claude/"))).toBe(false);
+    expect(files["AGENTS.md"]).toBe("# Rules\n");
     // Opened there, a save keeps those docs, with nothing to refuse.
     const host = new FolderHost("1", root, "shop.openarch");
     await host.load();
@@ -992,7 +748,6 @@ describe("exporting a workspace to a folder", () => {
     await exportToFolder(root, loadWorkspace(workspace("A")), "a.openarch");
     expect(loadWorkspace(root.files()["a.openarch"]!).doc.export).toEqual({ docs: "." });
     expect(root.files()["README.md"]).toContain("from a.openarch.");
-    expect(root.files()["AGENTS.md"]).toContain("Readable docs generated from it are beside it, at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the folder has its own.");
     const host = new FolderHost("1", root, "a.openarch");
     await host.load();
     await host.save(workspace("A2", "."));
@@ -1026,40 +781,21 @@ describe("exporting a workspace to a folder", () => {
     await expect(exportToFolder(other, loadWorkspace(workspace("Mine")), "a.openarch")).rejects.toThrow("repo has a file or folder named a.openarch already");
   });
 
-  it("leaves another workspace's pages beside it alone, and says when AGENTS.md names that one", async () => {
+  it("leaves another workspace's pages beside it alone", async () => {
     const root = new FakeFolder("repo");
     root.put("b.openarch", workspace("B", "."));
     await new FolderHost("b", root, "b.openarch").save(workspace("B", "."));
     const readme = root.files()["README.md"];
     const result = await exportToFolder(root, loadWorkspace(workspace("A", ".")), "a.openarch");
     expect(result.docs).toMatchObject({ skipped: ["README.md"] });
-    expect(result.agentsNamesOther).toBe("b.openarch");
     expect(root.files()["README.md"]).toBe(readme);
-  });
-
-  it("doesn't say AGENTS.md names another workspace when that isn't why it was left", async () => {
-    const root = new FakeFolder("repo");
-    // The section names a workspace that's gone, and AGENTS.md can't be written.
-    root.put("AGENTS.md", agentsInFolder("old.openarch")["AGENTS.md"]!);
-    (root.entries.get("AGENTS.md") as FakeFile).bytes = new Uint8Array([0xff, ...new TextEncoder().encode(agentsInFolder("old.openarch")["AGENTS.md"]!)]);
-    const result = await exportToFolder(root, loadWorkspace(workspace("A")), "a.openarch");
-    expect(result.agentsError).toBe("AGENTS.md isn't UTF-8 text, so it was left alone.");
-    expect(result.agentsNamesOther).toBeUndefined();
-    // Nor when the workspace it names isn't in the folder, and the section is written for this one.
-    const gone = new FakeFolder("repo");
-    gone.put("AGENTS.md", agentsInFolder("old.openarch")["AGENTS.md"]!);
-    const written = await exportToFolder(gone, loadWorkspace(workspace("A")), "a.openarch");
-    expect(written.agentsNamesOther).toBeUndefined();
-    expect(gone.files()["AGENTS.md"]).toContain("in `a.openarch`");
   });
 
   it("says what went wrong beside writing the file", async () => {
     const root = new FakeFolder("repo");
-    root.refuse.add(".claude");
-    root.put("AGENTS.md", "# Rules\n<!-- open-arch:start -->\n");
-    const result = await exportToFolder(root, loadWorkspace(workspace("A")), "a.openarch");
-    expect(result.skillError).toBe("Not allowed.");
-    expect(result.agentsError).toContain("so it was left alone");
+    root.refuse.add("docs");
+    const result = await exportToFolder(root, loadWorkspace(workspace("A", "docs")), "a.openarch");
+    expect(result.docs?.error).toBe("Not allowed.");
     expect(root.files()["a.openarch"]).toBeDefined();
   });
 });

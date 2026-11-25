@@ -29,7 +29,7 @@ One UI, two ways to run it.
 | | Web app | Desktop app |
 |---|---|---|
 | Where workspaces live | In the browser's storage (IndexedDB), as many as you like, saved as you work. **Import file…** and **Export file…** copy .openarch files in and out; nothing stays linked to a file. In Chrome and Edge, **Open folder…** edits a .openarch file in a folder on this computer instead, saved as you work | In a .openarch file, saved as you work |
-| Docs | **Export zip** downloads the .openarch file, its docs, the agent skill and an AGENTS.md as a .zip, and in Chrome and Edge **Export to folder…** writes them into a folder. In a folder, every save rewrites the docs folder the workspace names, the first save after opening it brings the agent skill up to date, and AGENTS.md's open-arch section is kept up to date | Every save rewrites the docs folder the workspace names. As in a folder in the web app, the first save after opening the file brings the agent skill up to date, and AGENTS.md's open-arch section is kept up to date, at the top of the Git repository the file is in. Outside a repository, or in your home folder, it writes neither |
+| Docs | **Export zip** downloads the .openarch file and its docs as a .zip, and in Chrome and Edge **Export to folder…** writes them into a folder. In a folder, every save rewrites the docs folder the workspace names. Neither writes the agent skill or an AGENTS.md | Every save rewrites the docs folder the workspace names. The first save after opening the file also brings the agent skill up to date, and AGENTS.md's open-arch section is kept up to date, at the top of the Git repository the file is in. Outside a repository, or in your home folder, it writes neither |
 | Notices outside edits | Edits to the same workspace in another tab, and deleting it there: it stays open, and **Save** keeps it again. In a folder, it checks the file every few seconds, so an agent's, an editor's or Git's changes show up | Watches the file, so an agent's or editor's changes show up |
 | Try without a file | The bundled examples (the tour and the shop); **Save** keeps a copy in the browser | The bundled examples |
 | Share a link | **Share** makes a link that opens a copy; clicking it opens the workspace | The same, and links open in the web designer; **Open link…** opens one |
@@ -38,26 +38,20 @@ One UI, two ways to run it.
 
 The workspaces kept in the web app's browser storage are only in that browser, on that device, and clearing the site's data deletes them, so export a copy of anything you want to keep. A workspace opened from a folder stays in its file, in the folder: see [Working in a folder](#working-in-a-folder). The URL names the open workspace, so reloading the page reopens it. Import and export go through a `FileProvider` ([`apps/web/src/providers.ts`](apps/web/src/providers.ts)): files on this device are the only one so far, and cloud storage such as Dropbox or iCloud Drive can be added as another.
 
-**Export zip**, in the top bar, downloads the open workspace as a .zip with one folder in it. It's there for every workspace that isn't saved to a file: one kept in the browser, an example, a shared link, or one whose folder's file was deleted or moved. The folder holds:
+**Export zip**, in the top bar, downloads the open workspace as a .zip with one folder in it. It's there for every workspace that isn't saved to a file: one kept in the browser, an example, a shared link, or one whose folder's file was deleted or moved. The folder holds the .openarch file and its docs.
 
-- the .openarch file
-- its docs
-- the agent skill, in `.agents/skills/open-arch/` and `.claude/skills/open-arch/`
-- an `AGENTS.md` with the section `open-arch init` adds. It tells agents where the model and its docs are, and never to edit them by hand. Where the `open-arch` CLI is installed, they change the model only with it. Where it isn't, as is usual for a workspace made in the web app, they read the docs and say what to change in the designer, rather than look for the CLI.
-
-Put what's in the folder at the top of the repository, where agents look for these. If the repository has an `AGENTS.md` already, copy the section between `<!-- open-arch:start -->` and `<!-- open-arch:end -->` into it. Don't replace the file. If it has an open-arch section already, put this one in its place: a file with two is left alone.
+The web app doesn't write the agent skill or an `AGENTS.md`, in a zip or in a folder. They tell agents to change the model with the `open-arch` CLI, which usually isn't installed beside a workspace made in the web app, so agents would go looking for it. Agents can read the generated docs as they are. To give a project's agents the skill and the section, run `open-arch init` for its file where the CLI is installed, or open the file in the desktop app.
 
 Where the zip puts things:
 
 - For a workspace from a folder, the zip's folder is named after that folder. The file is at its place in it, and the docs are where a save put them.
 - Otherwise the zip's folder is named after the file, which is at its top. The docs are in the docs folder the workspace names.
 - When the workspace names no docs folder, or one the zip has no place for, the docs go beside the file, with no folder of their own.
-- When the path of the file or of its docs folder has a line break in it, the zip has no `AGENTS.md`. That includes Unicode's line and paragraph separators.
 
 **Export to folder…**, in the top bar, in Chrome and Edge, copies any workspace, one opened from a folder too, into a folder you choose, such as a Git repository. The copy becomes a workspace there, as if you'd made it with **Open folder…**: the workspace you exported stays where it is.
 
 - The .openarch file goes at the folder's top. If the folder has something of that name already, nothing is exported.
-- It's saved there as a folder's first save is: its docs, the agent skill and the open-arch section in `AGENTS.md` are written as later saves there keep them. The rest of `AGENTS.md` is kept, and pages generated from another workspace beside it are left alone.
+- It's saved there as a folder's first save is: its docs are written as later saves there keep them, and pages generated from another workspace beside it are left alone.
 - A workspace that names no docs folder has its copy keep them beside the file (`.`). One whose docs folder would be outside the folder you chose isn't exported: choose a docs folder inside it, or none, in the workspace's details first.
 - The folder is then listed under Folders on the start page, to open and keep working on it there. The message says what was written, and anything left alone.
 
@@ -65,28 +59,13 @@ The web build is plain static files (`apps/web/dist`) with relative paths, so it
 
 ### Working in a folder
 
-In Chrome and Edge, the web app can work on a .openarch file in a folder on your computer, such as a Git repository, as the desktop app does. **Open folder…**, on the start page, asks for the folder, and the browser asks whether the page may change the files in it. The designer looks for .openarch files in the folder and two levels of folders below it, as the CLI does, skipping hidden folders and `node_modules`. One opens straight away; with several, you pick one; with none, it offers to create a workspace where `open-arch init` would: `architecture.openarch` with its docs beside it, in the folder if it's empty, or else in a folder of its own, `architecture/`, with the agent skill and `AGENTS.md` at the folder's top.
+In Chrome and Edge, the web app can work on a .openarch file in a folder on your computer, such as a Git repository, as the desktop app does. **Open folder…**, on the start page, asks for the folder, and the browser asks whether the page may change the files in it. The designer looks for .openarch files in the folder and two levels of folders below it, as the CLI does, skipping hidden folders and `node_modules`. One opens straight away; with several, you pick one; with none, it offers to create a workspace where `open-arch init` would: `architecture.openarch` with its docs beside it, in the folder if it's empty, or else in a folder of its own, `architecture/`.
 
 Every change is saved to the file, and the docs folder the workspace names is rewritten. So they're there to commit and push with Git. As with the CLI, only pages open-arch generated from this file, or from one no longer beside it (say before a rename), are overwritten or removed, and stale ones are only looked for at the docs folder's top and in its `views/` and `elements/`. So two workspaces whose files are in the same folder can keep their docs there too, beside their files. Workspaces in different folders need docs folders of their own. The docs folder has to be inside the folder you opened: open the folder that holds both.
 
 The designer checks the .openarch file every few seconds while its tab is showing, so a `git pull`, an editor or an agent's change shows up. If the file changed outside since the designer read it, an edit isn't saved over it: the file reloads, and you make the edit again. The browser can't lock the file, though. A change that lands in the moment between that check and the save is still overwritten. If the file is deleted or moved, it stays open, but only in that tab.
 
-Saves also set the folder up for AI agents, as `open-arch init` does:
-
-- **The agent skill.** The first save after you open the folder brings the skill up to date in `.agents/skills/open-arch/` and `.claude/skills/open-arch/`. Agents then know how to read and change the model with the `open-arch` CLI. It writes only the skill's own files, and leaves anything else in those folders alone.
-- **The section in `AGENTS.md`.** It's at the top of the folder, and names the file and its docs. The first save after you open the folder puts it in, or makes `AGENTS.md` with it. A later save writes it again only when what it names changes, such as the docs folder. The rest of `AGENTS.md` is left as it is.
-- **When it can't.** A save that can't write the skill or the section says so, and each save after tries again until one does.
-
-Saves don't read `AGENTS.md` otherwise. So a section taken out, or one naming a workspace that has since moved, is put right the next time you open the folder. The section is for one model. If it names another workspace still in the folder when a save writes it, it's left as it is. `open-arch init`, run for a file, always writes it for that file.
-
-The designer leaves `AGENTS.md` alone, and says why, when:
-
-- it has one of the section's markers without the other, or the two out of order
-- it has more than one section
-- its bytes aren't UTF-8 text
-- the path of the workspace or of its docs folder has a line break in it, including Unicode's line and paragraph separators. Rename the file, or the folder in its path with the break, or choose another docs folder in the workspace's details.
-
-A marker quoted in a sentence, not on a line of its own, is just text. The check for changes made outside is for the .openarch file only, and `AGENTS.md` can't be locked either. An edit to it that lands in the moment a save writes it is overwritten.
+Saves write only the file and its docs. An agent skill or `AGENTS.md` already in the folder, say from `open-arch init`, is left as it is.
 
 The start page lists the folders you opened, to open again, each by its workspace's name, with the folder's name and the file's path in it, such as `docs/architecture.openarch`. The designer names the open file the same way: in its top bar, where it's cut short with …, or left out, when the window has little room for it, in the workspace's details, and on a narrow window in the top bar's menu. A browser doesn't tell a page where on your computer a folder is, so that's as much of the path as it can show: open the folder above, such as the repository, to see more of it. A folder you opened before the list kept names goes by its folder's name until you open it again. **Forget** takes one off the list; the folder stays as it is. The browser may ask again for permission when you reopen one. Firefox and Safari can't change files in a folder, so they don't offer it.
 

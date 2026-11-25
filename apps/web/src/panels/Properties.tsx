@@ -134,7 +134,7 @@ interface PropertiesProps {
   isNew: boolean | number;
   /** Saving keeps a docs folder up to date: on desktop, and for a workspace in a folder. */
   syncsDocs: boolean;
-  /** Saving also keeps the agent skill and AGENTS.md section up to date beside the workspace: on desktop, and for a workspace in a folder. */
+  /** Saving also keeps the agent skill and AGENTS.md section up to date beside the workspace: on desktop. */
   syncsSkill: boolean;
   docs: DocsSummary | null;
   /** The workspace's file, for display: for one in a folder, with the folder and the path in it. */
@@ -2483,7 +2483,7 @@ function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }
       )}
       {syncsSkill && (
         <p className="muted small">
-          The first save after opening the workspace also brings the open-arch agent skill up to date in {SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} at the top of the project: the folder you opened, or, on desktop, the Git repository the file is in. On desktop, outside a repository, or in your home folder, nothing is written. AI agents working there then know how to read and change the model. If that save can't write it, each save after tries again. Anything else in those folders is left alone. Saves also keep the open-arch section in the project's AGENTS.md, which tells agents where the model and its docs are, and leave the rest of that file alone.
+          The first save after opening the workspace also brings the open-arch agent skill up to date in {SKILL_TARGETS.map((t) => `${t}/`).join(" and ")} at the top of the Git repository the file is in. Outside a repository, or in your home folder, nothing is written. AI agents working there then know how to read and change the model. If that save can't write it, each save after tries again. Anything else in those folders is left alone. Saves also keep the open-arch section in the project's AGENTS.md, which tells agents where the model and its docs are, and leave the rest of that file alone.
         </p>
       )}
       <dl className="facts">

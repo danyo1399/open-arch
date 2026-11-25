@@ -3,7 +3,7 @@
  * talks to a WorkspaceHost, so the same UI runs in the browser (workspaces kept
  * in IndexedDB, and the examples in memory) and in Electron (Node's fs).
  */
-import { agentsSection, exportDocs, FILE_EXTENSION, LineBreakInPath, type Workspace } from "@open-arch/core";
+import { exportDocs, FILE_EXTENSION, type Workspace } from "@open-arch/core";
 import { strToU8, zipSync } from "fflate";
 import exampleText from "../../../examples/shop/shop.openarch?raw";
 import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw";
@@ -11,7 +11,6 @@ import type { DesktopBridge, SaveSummary } from "./bridge.js";
 import { importProblem, type WorkspaceLibrary } from "./library.js";
 import type { LinkParts, ShareClient } from "./share.js";
 import { isAbsolutePath, segments } from "./paths.js";
-import { SKILL_TARGETS, skillFiles } from "./skill.js";
 
 export interface WorkspaceHost {
   /** File name, shown in the title bar. */
@@ -25,7 +24,7 @@ export interface WorkspaceHost {
   load(): Promise<string>;
   /** Save the file's new text. May report the docs folder it refreshed, the agent skill, and the section in AGENTS.md. */
   save(text: string): Promise<SaveSummary | void>;
-  /** Saving also keeps the agent skill and the AGENTS.md section up to date beside the workspace: on desktop, and for a workspace in a folder (folders.ts). */
+  /** Saving also keeps the agent skill and the AGENTS.md section up to date beside the workspace: on desktop. */
   syncsSkill?: boolean;
   /** For a workspace just made, what the save that made it did: anything that went wrong is said when it opens. */
   made?: SaveSummary;
@@ -134,9 +133,9 @@ export interface FilePlace {
 }
 
 /**
- * The workspace as a zip, with everything in one folder: the .openarch file (`text`), its
- * generated markdown docs, and, at the top, the agent skill and an AGENTS.md with the section
- * `open-arch init` adds, as init installs them.
+ * The workspace as a zip, with everything in one folder: the .openarch file (`text`) and its
+ * generated markdown docs. Not the agent skill or AGENTS.md, which tell agents to use the CLI:
+ * `open-arch init` adds those where it's installed.
  *
  * For a workspace from a folder (`place`), the zip's folder is that folder: the file is at its path
  * there, and the docs are where a save in the folder writes them. Otherwise the zip's folder is named
@@ -166,14 +165,6 @@ export function workspaceZip(ws: Workspace, fileName: string, text: string, plac
   const docs = docsParts ? prefix(docsParts) : prefix(fileDir);
   const entries: Record<string, Uint8Array> = { [`${root}/${prefix(fileDir)}${fileName}`]: strToU8(text) };
   for (const f of exportDocs(ws, fileName)) entries[`${root}/${docs}${f.path}`] = strToU8(f.content);
-  for (const target of SKILL_TARGETS) for (const f of skillFiles) entries[`${root}/${target}/${f.path}`] = strToU8(f.content);
-  // The section open-arch init adds to AGENTS.md, naming the file and the docs where they are in the
-  // zip. A path with a line break in it can't be named there, so then the zip has no AGENTS.md.
-  try {
-    entries[`${root}/AGENTS.md`] = strToU8(agentsSection(`${prefix(fileDir)}${fileName}`, docs.replace(/\/$/, "")));
-  } catch (error) {
-    if (!(error instanceof LineBreakInPath)) throw error;
-  }
   return zipSync(entries);
 }
 

@@ -3,7 +3,6 @@ import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import type { DesktopBridge } from "../src/bridge.js";
 import { DesktopHost, exampleHost, tourHost, workspaceZip } from "../src/hosts.js";
-import { SKILL_TARGETS, skillFiles } from "../src/skill.js";
 import { FolderHost } from "../src/folders.js";
 import { FakeFolder } from "./fakeFolder.js";
 import { deletePlan, relationshipRef, uniqueId } from "../src/model.js";
@@ -32,7 +31,7 @@ describe("hosts", () => {
     expect(await host.load()).toBe("changed");
   });
 
-  it("zips the workspace file, its docs where it names them, and the agent skill, in one folder", async () => {
+  it("zips the workspace file and its docs where it names them, in one folder, with nothing for agents", async () => {
     const text = await exampleHost().load();
     const ws = loadWorkspace(text);
     const docs = ws.doc.export!.docs!;
@@ -40,32 +39,14 @@ describe("hosts", () => {
     expect(strFromU8(files["shop/shop.openarch"]!)).toBe(text);
     expect(Object.keys(files)).toContain(`shop/${docs}/README.md`);
     expect(strFromU8(files[`shop/${docs}/views/shop-containers.md`]!)).toContain("```mermaid");
-    for (const target of SKILL_TARGETS) {
-      expect(strFromU8(files[`shop/${target}/SKILL.md`]!)).toBe(skillFiles.find((f) => f.path === "SKILL.md")!.content);
-      expect(Object.keys(files)).toContain(`shop/${target}/references/commands.md`);
-    }
     expect(Object.keys(files).every((path) => path.startsWith("shop/"))).toBe(true);
-    // AGENTS.md, with the section open-arch init adds, naming the file and its docs in the zip.
-    const agents = strFromU8(files["shop/AGENTS.md"]!);
-    expect(agents.startsWith("<!-- open-arch:start -->")).toBe(true);
-    expect(agents).toContain(`in \`shop.openarch\`. Readable docs generated from it are in \`${docs}/\`.`);
+    // No agent skill or AGENTS.md: they tell agents to use the CLI, which usually isn't installed beside a workspace made here.
+    expect(Object.keys(files).some((path) => path.includes("/.agents/") || path.includes("/.claude/") || path.endsWith("AGENTS.md"))).toBe(false);
   });
 
-  it("leaves AGENTS.md out of the zip when the file's name has a line break in it", () => {
-    const text = JSON.stringify({ openarch: 21, name: "A", elements: {}, views: {} });
-    const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a\nb.openarch", text)));
-    expect(files).toContain("a\nb/a\nb.openarch");
-    expect(files.some((path) => path.endsWith("AGENTS.md"))).toBe(false);
-    // Or its docs folder's.
-    const docsText = JSON.stringify({ openarch: 21, name: "A", export: { docs: "do\u2029cs" }, elements: {}, views: {} });
-    expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(docsText), "a.openarch", docsText))).some((path) => path.endsWith("AGENTS.md"))).toBe(false);
-  });
-
-  it("says docs in the file's own folder are in ./, in the zip's AGENTS.md", () => {
+  it("zips the docs beside the file when they're in the file's own folder", () => {
     const text = JSON.stringify({ openarch: 21, name: "A", export: { docs: "." }, elements: {}, views: {} });
-    const files = unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text));
-    expect(Object.keys(files)).toContain("a/README.md");
-    expect(strFromU8(files["a/AGENTS.md"]!)).toContain("Readable docs generated from it are beside it, at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the folder has its own.");
+    expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)))).toContain("a/README.md");
   });
 
   it("zips the docs beside the file, with no folder of their own, when the workspace names no docs folder, or one outside its folder", () => {
@@ -98,17 +79,7 @@ describe("hosts", () => {
       const zipped = unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text, { folder: "repo", path: "arch/a.openarch" }));
       const files = Object.keys(zipped);
       expect(files).toContain(`${where}README.md`);
-      // Docs beside the file are named page by page, as their folder can hold other things.
-      const section =
-        where === "repo/arch/"
-          ? "beside it: the pages in `arch/elements/` and `arch/views/`, and `arch/README.md` unless the folder has its own."
-          : where === "repo/"
-            ? "at the top of the project: the pages in `elements/` and `views/`, and `README.md` unless the folder has its own."
-            : `in \`${where.slice("repo/".length)}\`.`;
-      expect(strFromU8(zipped["repo/AGENTS.md"]!)).toContain(`in \`arch/a.openarch\`. Readable docs generated from it are ${section}`);
       expect(files).toContain("repo/arch/a.openarch");
-      expect(files).toContain("repo/AGENTS.md");
-      for (const target of SKILL_TARGETS) expect(files).toContain(`repo/${target}/SKILL.md`);
     }
   });
 
