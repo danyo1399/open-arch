@@ -1,8 +1,9 @@
-import { kindLabel, type ArchElement, type Sticky, type ViewEdge } from "@open-arch/core";
+import { kindLabel, type ArchElement, type RelationshipSource, type Sticky } from "@open-arch/core";
 import { Handle, Position, useConnection, useReactFlow, ViewportPortal, type Node, type NodeProps } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, type PointerEvent } from "react";
 import { stickyName } from "../model.js";
 import type { Point } from "./autoLayout.js";
+import type { Selection } from "./Canvas.js";
 import { DRAG_DISTANCE } from "./RoutedEdge.js";
 
 export type ElementNodeData = { element: ArchElement; problems: number };
@@ -34,17 +35,22 @@ export type StickyFlowNode = Node<StickyNodeData, "sticky">;
 
 /**
  * Opens the notes of an element, of a sticky note on the open view, or of the relationships an
- * arrow on it draws, in the notes editor. With more than one of an arrow's relationships having
- * notes, it shows the arrow's details instead, where each has its own. The designer gives it to
- * the diagrams; without it, boxes, notes and arrows don't offer their notes.
+ * arrow or a sequence's step on it draws, in the notes editor. With more than one of those
+ * relationships having notes, it selects `whole`, the arrow or step, and shows its details
+ * instead, where each has its own. The designer gives it to the diagrams; without it, boxes,
+ * notes, arrows and steps don't offer their notes.
  */
-export const NotesOpener = createContext<{ element(id: string): void; sticky(id: string): void; arrow(edge: ViewEdge): void } | null>(null);
+export const NotesOpener = createContext<{
+  element(id: string): void;
+  sticky(id: string): void;
+  relationships(sources: RelationshipSource[], whole: Selection): void;
+} | null>(null);
 
 /**
- * The chip on the corner of a box, sticky note or arrow's label that has notes: it shows they're
- * there, and a click opens them in the notes editor. Pictures of the diagram leave it out (see
- * image.ts). It doesn't select the box, note or arrow, drag it, start an arrow from it, or edit a
- * note's text.
+ * The chip on the corner of a box, sticky note, arrow's label or step's label that has notes: it
+ * shows they're there, and a click opens them in the notes editor. Pictures of the diagram leave
+ * it out (see image.ts). It doesn't select the box, note, arrow or step, drag it, start an arrow
+ * from it, or edit a note's text.
  */
 export function NotesButton({ name, onOpen }: { name: string; onOpen(): void }) {
   return (

@@ -39,6 +39,7 @@ import {
   type Shape,
   type Relationship,
   type RelationshipKind,
+  type RelationshipSource,
   type State,
   type Step,
   type Sticky,
@@ -218,19 +219,24 @@ export function notesOp(owner: NotesOwner, text: string): Operation {
   return { op: "update-relationship", from: owner.from, to: owner.to, index: owner.index, notes };
 }
 
-/**
- * The notes on the relationships an arrow draws, for the chip on the arrow: the relationships
- * with notes, and what the chip calls them. With one, that's its name in the notes editor; with
- * several, the arrow's two ends. Null when none of them has notes.
- */
-export function arrowNotes(
-  ws: Workspace,
-  edge: Pick<ViewEdge, "from" | "to" | "bidirectional" | "sources">,
-): { owners: Extract<NotesOwner, { kind: "relationship" }>[]; name: string } | null {
-  const owners = edge.sources.flatMap(({ element, index }) => {
+/** Those of these relationships that have notes, as the notes editor names them. */
+export function notedRelationships(ws: Workspace, sources: RelationshipSource[]): Extract<NotesOwner, { kind: "relationship" }>[] {
+  return sources.flatMap(({ element, index }) => {
     const source = ws.elements.get(element);
     return source?.uses[index]?.notes ? [{ kind: "relationship" as const, ...relationshipRef(source, index) }] : [];
   });
+}
+
+/**
+ * The notes on the relationships an arrow, or a sequence view's step, draws, for the chip on it:
+ * the relationships with notes, and what the chip calls them. With one, that's its name in the
+ * notes editor; with several, the arrow's two ends. Null when none of them has notes.
+ */
+export function arrowNotes(
+  ws: Workspace,
+  edge: Pick<ViewEdge, "from" | "to" | "sources"> & { bidirectional?: boolean },
+): { owners: Extract<NotesOwner, { kind: "relationship" }>[]; name: string } | null {
+  const owners = notedRelationships(ws, edge.sources);
   if (owners.length === 0) return null;
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   return { owners, name: owners.length === 1 ? notesName(ws, owners[0]!) : `${name(edge.from)} ${edge.bidirectional ? "↔" : "→"} ${name(edge.to)}` };

@@ -4,15 +4,15 @@
  * + Add step. Nothing is placed by hand, so nothing here saves positions.
  */
 import { isInside, kindLabel, stepRelationships, type ComputedView, type Operation, type Step, type Workspace } from "@open-arch/core";
-import { useContext, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
-import { byName } from "../model.js";
+import { Fragment, useContext, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { arrowNotes, byName } from "../model.js";
 import { ContextMenu, MenuButton, menuPoint, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import type { Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { dropNumber, lifelineAt, SEQ, sequenceLayout, stepChoices, stepEnds, stepTargets, type StepChoice } from "./sequenceLayout.js";
-import { ElementNotes, NotesOpener, StickyNotes } from "./nodes.js";
+import { ElementNotes, NotesButton, NotesOpener, StickyNotes } from "./nodes.js";
 
 interface SequenceProps {
   ws: Workspace;
@@ -244,17 +244,26 @@ export function SequenceDiagram({ ws, computed: cv, selection, onSelect, edit, m
             const left = Math.min(x1, x2);
             const width = Math.max(Math.abs(x2 - x1), SEQ.column - 20);
             const text = `${s.label ?? "(no description)"}${s.labelTechnology ? ` [${s.labelTechnology}]` : ""}`;
+            const top = layout.y.get(s.number)! - 24;
+            const noted = notes && arrowNotes(ws, s);
             return (
-              <button
-                key={s.number}
-                className={s.number === selectedStep ? "step-label selected" : "step-label"}
-                style={{ left: left + Math.abs(x2 - x1) / 2 - width / 2, width, top: layout.y.get(s.number)! - 24 }}
-                title={`${s.number}. ${text}${s.sources.length ? "" : "\nThe model has no relationship for this step."}`}
-                onClick={() => onSelect({ kind: "step", number: s.number })}
-                onContextMenu={(e) => openMenu(e, { kind: "step", number: s.number })}
-              >
-                <span className="step-number">{s.number}</span> {text}
-              </button>
+              <Fragment key={s.number}>
+                <button
+                  className={s.number === selectedStep ? "step-label selected" : "step-label"}
+                  style={{ left: left + Math.abs(x2 - x1) / 2 - width / 2, width, top }}
+                  title={`${s.number}. ${text}${s.sources.length ? "" : "\nThe model has no relationship for this step."}`}
+                  onClick={() => onSelect({ kind: "step", number: s.number })}
+                  onContextMenu={(e) => openMenu(e, { kind: "step", number: s.number })}
+                >
+                  <span className="step-number">{s.number}</span> {text}
+                </button>
+                {/* The label is a button, which can't hold another, so its chip is beside it, on its top right corner. */}
+                {noted && (
+                  <div className="step-notes" style={{ left: left + Math.abs(x2 - x1) / 2 + width / 2, top }}>
+                    <NotesButton name={noted.name} onOpen={() => notes.relationships(s.sources, { kind: "step", number: s.number })} />
+                  </div>
+                )}
+              </Fragment>
             );
           })}
 

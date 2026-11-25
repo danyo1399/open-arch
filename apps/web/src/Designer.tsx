@@ -12,7 +12,7 @@ import {
   type RelationshipKind,
   type StickyTargetData,
   type ViewDef,
-  type ViewEdge,
+  type RelationshipSource,
   type ViewLevel,
   type Workspace,
 } from "@open-arch/core";
@@ -38,8 +38,6 @@ import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
 import {
   arrowDeleteOps,
-  arrowNotes,
-  arrowRelation,
   arrowRemovals,
   blockText,
   buildOps,
@@ -54,6 +52,7 @@ import {
   LEVEL_NAMES,
   newStickyId,
   newViewOf,
+  notedRelationships,
   notesName,
   notesOf,
   notesOp,
@@ -466,12 +465,12 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         ? {
             element: (id: string) => openNotes({ kind: "element", id }),
             sticky: (id: string) => openNotes({ kind: "sticky", view: viewId, id }),
-            // An arrow with notes on more than one of its relationships shows its details, which list each one's.
-            arrow: (edge: ViewEdge) => {
-              const noted = ws && arrowNotes(ws, edge);
-              if (noted?.owners.length === 1) return openNotes(noted.owners[0]!);
-              if (!noted) return;
-              select({ kind: "arrow", from: edge.from, to: edge.to, ...arrowRelation(edge) });
+            // An arrow or step with notes on more than one of its relationships shows its details, which list each one's.
+            relationships: (sources: RelationshipSource[], whole: Selection) => {
+              const owners = ws ? notedRelationships(ws, sources) : [];
+              if (owners.length === 1) return openNotes(owners[0]!);
+              if (owners.length === 0) return;
+              select(whole);
               openDetails();
             },
           }

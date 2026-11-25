@@ -893,7 +893,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
             onEndDrop: (end, at) => dropEnd(e, end, at),
             moving: movingArrow === id ? movingEnd : undefined,
             dropTarget: linkArrow === id,
-            notes: noted ? { name: noted.name, open: () => notes.arrow(e) } : undefined,
+            notes: noted ? { name: noted.name, open: () => notes.relationships(e.sources, { kind: "arrow", from: e.from, to: e.to, ...arrowRelation(e) }) } : undefined,
           },
         };
       }) ?? [],

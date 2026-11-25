@@ -702,4 +702,38 @@ describe("the chip on an arrow with notes", () => {
     expect(d.title()).toBe("Notes on Web → API");
     expect((await d.formatted()).textContent).toBe("Over a queue.");
   });
+
+  it("is on a sequence's steps, and with several relationships with notes, shows the step's details, which open each", async () => {
+    const model = structuredClone(doc);
+    model.views.calls = { title: "Web calls API", level: "sequence", steps: [{ from: "web", to: "api" }] };
+    const d = await designer(serializeDocument(model));
+    // A sequence has no React Flow nodes to wait for.
+    await click([...d.host.querySelectorAll<HTMLButtonElement>(".sidebar .row-main")].find((b) => b.textContent?.includes("Web calls API"))!);
+    await d.settle();
+    const stepChips = () => [...d.host.querySelectorAll<HTMLButtonElement>(".step-notes .notes-button")];
+
+    // The call goes along both of Web's relationships to the API, and only the second has notes.
+    const [chip, ...more] = stepChips();
+    expect(more).toEqual([]);
+    expect(chip!.getAttribute("aria-label")).toBe("Notes on Web → API");
+    await click(chip!);
+    await d.settle();
+    expect(d.title()).toBe("Notes on Web → API");
+    expect((await d.formatted()).textContent).toBe("Over a queue.");
+    expect(d.host.querySelector(".step-label.selected")).toBeNull();
+    await click(button(d.editor()!, "Cancel"));
+
+    d.file.change([{ op: "update-relationship", from: "web", to: "api", index: 0, notes: "Over HTTPS." }]);
+    await d.settle();
+    await click(stepChips()[0]!);
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.host.querySelector(".step-label.selected")!.textContent).toContain("1");
+    const links = [...d.panel().querySelectorAll<HTMLButtonElement>("button")].filter((b) => b.textContent === "Notes");
+    expect(links).toHaveLength(2);
+    await click(links[0]!);
+    await d.settle();
+    expect(d.title()).toBe("Notes on Web → API");
+    expect((await d.formatted()).textContent).toBe("Over HTTPS.");
+  });
 });

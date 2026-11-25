@@ -382,7 +382,7 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
           markerEnd: head,
           // React Flow turns a start marker round, so it points back at the box it starts from.
           ...(a.bidirectional && { markerStart: head }),
-          data: { arrow: a, points, label: labelAt.get(a.id), onSelect: () => selectArrow(a), notes: noted && edge ? { name: noted.name, open: () => notes.arrow(edge) } : undefined },
+          data: { arrow: a, points, label: labelAt.get(a.id), onSelect: () => selectArrow(a), notes: noted && edge ? { name: noted.name, open: () => notes.relationships(edge.sources, { kind: "arrow", from: edge.from, to: edge.to }) } : undefined },
         },
       ];
     });

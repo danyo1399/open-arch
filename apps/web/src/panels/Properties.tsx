@@ -580,7 +580,7 @@ function StickyProperties({ ws, view, computed, sticky, edit, onSelect, onEditNo
   );
 }
 
-function StepProperties({ ws, view, computed, step, edit, onSelect }: PropertiesProps & { view: ViewDef; step: Step }) {
+function StepProperties({ ws, view, computed, step, edit, onSelect, onEditNotes }: PropertiesProps & { view: ViewDef; step: Step }) {
   const computedStep = computed?.steps.find((s) => s.number === step.number);
   const set = (fields: Omit<Extract<Operation, { op: "update-step" }>, "op" | "view" | "step">) => void edit([{ op: "update-step", view: view.id, step: step.number, ...fields }]);
   const elements = [...ws.elements.values()].sort(byName);
@@ -631,14 +631,24 @@ function StepProperties({ ws, view, computed, step, edit, onSelect }: Properties
       {computedStep && computedStep.sources.length > 0 ? (
         <ul className="plain">
           {computedStep.sources.map(({ element, index }) => {
-            const rel = ws.elements.get(element)?.uses[index];
-            if (!rel) return null;
+            const source = ws.elements.get(element);
+            const rel = source?.uses[index];
+            if (!source || !rel) return null;
             return (
               <li key={`${element}-${index}`}>
                 <button className="link" onClick={() => onSelect({ kind: "element", id: element })}>
                   {name(element)}
                 </button>{" "}
                 {rel.bidirectional ? "↔" : "→"} {name(rel.to)} <span className="muted small">{rel.description ?? ""}</span>
+                {/* Its notes are edited on the arrows that draw it; here they can be opened, as from the step's chip. */}
+                {rel.notes && (
+                  <>
+                    {" "}
+                    <button className="link small" onClick={() => onEditNotes({ kind: "relationship", ...relationshipRef(source, index) }, rel.notes ?? "")}>
+                      Notes
+                    </button>
+                  </>
+                )}
               </li>
             );
           })}

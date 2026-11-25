@@ -1424,6 +1424,13 @@ button.heading {
   background: var(--accent);
   color: var(--accent-text);
 }
+/* The corner of a step's label with notes on its relationships, for their chip (see .notes-button). */
+.step-notes {
+  position: absolute;
+  z-index: 2;
+  width: 0;
+  height: 0;
+}
 .sequence-notes {
   position: absolute;
   display: flex;
