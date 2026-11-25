@@ -253,11 +253,11 @@ export function repositoryRoot(dir: string): string | undefined {
 }
 
 /**
- * Writes the skill's files from `source` into `dest`, with the CLI's `version` filled in on its
- * pages, as `open-arch init` installs them. Only files that differ are written, and anything else
+ * Writes the skill's files from `source` into `dest`, as `open-arch init` installs them. Only
+ * files that differ are written, and anything else
  * in `dest` is left alone. Resolves to the paths it wrote, relative to `dest`.
  */
-export function keepSkill(source: string, dest: string, version: string): string[] {
+export function keepSkill(source: string, dest: string): string[] {
   const written: string[] = [];
   const copy = (from: string, to: string, prefix: string) => {
     for (const name of readdirSync(from)) {
@@ -266,8 +266,7 @@ export function keepSkill(source: string, dest: string, version: string): string
         copy(path, join(to, name), `${prefix}${name}/`);
         continue;
       }
-      const text = readFileSync(path, "utf8");
-      const content = name.endsWith(".md") ? text.replaceAll("{{version}}", version) : text;
+      const content = readFileSync(path, "utf8");
       const target = join(to, name);
       if (existsSync(target) && readFileSync(target, "utf8") === content) continue;
       mkdirSync(to, { recursive: true });
@@ -286,7 +285,7 @@ export function keepSkill(source: string, dest: string, version: string): string
  * is left as it is. Throws, leaving the file alone, when it can't be read, isn't UTF-8 text, or
  * its section can't be told apart from the rest. Resolves to whether it wrote the file.
  */
-export function keepAgentsSection(root: string, file: string, docs: string | undefined, version: string): boolean {
+export function keepAgentsSection(root: string, file: string, docs: string | undefined): boolean {
   const agentsMd = join(root, "AGENTS.md");
   let text = "";
   if (existsSync(agentsMd)) {
@@ -312,7 +311,7 @@ export function keepAgentsSection(root: string, file: string, docs: string | und
     const inside = other !== ".." && !other.startsWith("../");
     if (inside && other !== workspace && existsSync(join(root, other)) && statSync(join(root, other)).isFile()) return false;
   }
-  const next = withAgentsSection(text, agentsSection(workspace, docs === undefined ? undefined : project(docs), version, lineEnding(text)));
+  const next = withAgentsSection(text, agentsSection(workspace, docs === undefined ? undefined : project(docs), lineEnding(text)));
   if (next === text) return false;
   writeFileSync(agentsMd, next);
   return true;

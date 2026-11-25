@@ -11,7 +11,7 @@ import type { DesktopBridge, SaveSummary } from "./bridge.js";
 import { importProblem, type WorkspaceLibrary } from "./library.js";
 import type { LinkParts, ShareClient } from "./share.js";
 import { isAbsolutePath, segments } from "./paths.js";
-import { CLI_VERSION, SKILL_TARGETS, skillFiles } from "./skill.js";
+import { SKILL_TARGETS, skillFiles } from "./skill.js";
 
 export interface WorkspaceHost {
   /** File name, shown in the title bar. */
@@ -170,7 +170,7 @@ export function workspaceZip(ws: Workspace, fileName: string, text: string, plac
   // The section open-arch init adds to AGENTS.md, naming the file and the docs where they are in the
   // zip. A path with a line break in it can't be named there, so then the zip has no AGENTS.md.
   try {
-    entries[`${root}/AGENTS.md`] = strToU8(agentsSection(`${prefix(fileDir)}${fileName}`, docs.replace(/\/$/, ""), CLI_VERSION));
+    entries[`${root}/AGENTS.md`] = strToU8(agentsSection(`${prefix(fileDir)}${fileName}`, docs.replace(/\/$/, "")));
   } catch (error) {
     if (!(error instanceof LineBreakInPath)) throw error;
   }

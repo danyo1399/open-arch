@@ -1,7 +1,9 @@
 /**
  * The section `open-arch init` adds to a project's AGENTS.md, telling AI agents the architecture is
- * an open-arch model and to change it only with the CLI. The CLI writes it, and so does the web app,
- * in an exported zip and in a folder opened from its start page.
+ * an open-arch model and never to edit it by hand: to change it only with the CLI where it's
+ * installed, and otherwise to say what to change in the designer. The CLI writes it, and so do the
+ * desktop app and the web app, in an exported zip and in a folder opened from its start page, where
+ * the CLI usually isn't installed.
  */
 
 import { GENERATED_MARKER } from "./export.js";
@@ -11,11 +13,11 @@ const SECTION_END = "<!-- open-arch:end -->";
 
 /**
  * The section, for a workspace at `workspace` and docs in `docs`, both relative to the project's
- * top. `version` is the CLI's, for agents without it installed. Its lines end in `eol`, the file's
+ * top. Its lines end in `eol`, the file's
  * own line ending (lineEnding). A path with a line break in it can't be named in the section, which
  * is read a line at a time, so it throws.
  */
-export function agentsSection(workspace: string, docs: string | undefined, version: string, eol = "\n"): string {
+export function agentsSection(workspace: string, docs: string | undefined, eol = "\n"): string {
   // Every character that ends a line where markers are looked for: \r, \n, and Unicode's line and paragraph separators.
   const breaks = /[\r\n\u2028\u2029]/;
   if (breaks.test(workspace)) throw new LineBreakInPath(workspace, "workspace");
@@ -35,6 +37,7 @@ export function agentsSection(workspace: string, docs: string | undefined, versi
         ? ` Readable docs generated from it are ${place}: the pages in ${page("elements/")} and ${page("views/")}, and ${page("README.md")} unless the folder has its own.`
         : ` Readable docs generated from it are in ${code(`${docs}/`)}.`;
   const leave = docs === undefined ? code(workspace) : byPage ? `${code(workspace)} or a page generated from it (one that starts with \`${GENERATED_MARKER}\`)` : `${code(workspace)} or ${code(`${docs}/`)}`;
+  const read = docs === undefined ? code(workspace) : `the docs, or ${code(workspace)}`;
   return [
     SECTION_START,
     "## Architecture",
@@ -42,7 +45,9 @@ export function agentsSection(workspace: string, docs: string | undefined, versi
     `This project's architecture is an open-arch model (C4: people, systems, containers, components and views) in ${code(workspace)}.${where}`,
     "",
     "- Load the `open-arch` skill before reading or changing the architecture. If your tool doesn't support skills, read `.agents/skills/open-arch/SKILL.md`.",
-    `- Never edit ${leave} by hand. Read with \`open-arch show\`, and change the model only with \`open-arch\` commands; each one is checked before it's saved. If \`open-arch\` isn't installed, use \`npx -y open-arch@${version}\` instead.`,
+    `- Never edit ${leave} by hand.`,
+    "- If the `open-arch` command runs here (try `open-arch --version`), read with `open-arch show`, and change the model only with `open-arch` commands; each one is checked before it's saved.",
+    `- If it doesn't, the model is made in the open-arch designer, and there's no command to change it with here: don't look for one, and don't try to install one. Read ${read}, and when asked to change the architecture, say what to change in the designer.`,
     SECTION_END,
     "",
   ].join(eol);

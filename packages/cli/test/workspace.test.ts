@@ -79,63 +79,63 @@ describe("the agent skill and AGENTS.md beside a workspace", () => {
     expect(repositoryRoot(loose)).toBeUndefined();
   });
 
-  it("writes the skill's files with the version filled in, only those that differ, and leaves anything else alone", () => {
+  it("writes the skill's files, only those that differ, and leaves anything else alone", () => {
     const source = project();
     mkdirSync(join(source, "references"));
-    writeFileSync(join(source, "SKILL.md"), "Run open-arch@{{version}}.\n");
+    writeFileSync(join(source, "SKILL.md"), "Run open-arch.\n");
     writeFileSync(join(source, "references", "format.md"), "Format.\n");
     const dest = join(project(), ".claude", "skills", "open-arch");
-    expect(keepSkill(source, dest, "1.2.3").sort()).toEqual(["SKILL.md", "references/format.md"]);
-    expect(readFileSync(join(dest, "SKILL.md"), "utf8")).toBe("Run open-arch@1.2.3.\n");
-    expect(keepSkill(source, dest, "1.2.3")).toEqual([]);
+    expect(keepSkill(source, dest).sort()).toEqual(["SKILL.md", "references/format.md"]);
+    expect(readFileSync(join(dest, "SKILL.md"), "utf8")).toBe("Run open-arch.\n");
+    expect(keepSkill(source, dest)).toEqual([]);
     writeFileSync(join(dest, "SKILL.md"), "edited");
     writeFileSync(join(dest, "mine.md"), "Mine.");
-    expect(keepSkill(source, dest, "1.2.3")).toEqual(["SKILL.md"]);
+    expect(keepSkill(source, dest)).toEqual(["SKILL.md"]);
     expect(readFileSync(join(dest, "mine.md"), "utf8")).toBe("Mine.");
   });
 
   it("puts the section in AGENTS.md, keeping the rest, its line endings and its byte-order mark", () => {
     const root = project();
     writeFileSync(join(root, "AGENTS.md"), "﻿# Rules\r\n");
-    expect(keepAgentsSection(root, join(root, "arch", "a.openarch"), join(root, "arch", "docs"), "1")).toBe(true);
+    expect(keepAgentsSection(root, join(root, "arch", "a.openarch"), join(root, "arch", "docs"))).toBe(true);
     const text = readFileSync(join(root, "AGENTS.md"), "utf8");
     expect(text.startsWith("﻿# Rules\r\n\r\n<!-- open-arch:start -->\r\n")).toBe(true);
     expect(text).toContain("in `arch/a.openarch`. Readable docs generated from it are in `arch/docs/`.");
     expect(text.replace(/\r\n/g, "")).not.toContain("\n");
     // Again, nothing to write.
-    expect(keepAgentsSection(root, join(root, "arch", "a.openarch"), join(root, "arch", "docs"), "1")).toBe(false);
+    expect(keepAgentsSection(root, join(root, "arch", "a.openarch"), join(root, "arch", "docs"))).toBe(false);
     // Without an AGENTS.md, it makes one.
     const empty = project();
-    expect(keepAgentsSection(empty, join(empty, "a.openarch"), undefined, "1")).toBe(true);
+    expect(keepAgentsSection(empty, join(empty, "a.openarch"), undefined)).toBe(true);
     expect(readFileSync(join(empty, "AGENTS.md"), "utf8")).toContain("in `a.openarch`.");
   });
 
   it("leaves a section naming another workspace still there, but not one naming this one another way", () => {
     const root = project();
     writeFileSync(join(root, "a.openarch"), "{}");
-    keepAgentsSection(root, join(root, "a.openarch"), undefined, "1");
+    keepAgentsSection(root, join(root, "a.openarch"), undefined);
     const first = readFileSync(join(root, "AGENTS.md"), "utf8");
-    expect(keepAgentsSection(root, join(root, "b.openarch"), undefined, "1")).toBe(false);
+    expect(keepAgentsSection(root, join(root, "b.openarch"), undefined)).toBe(false);
     expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe(first);
     // Named as ./a.openarch by hand: it's this workspace, and its docs folder is put in.
     writeFileSync(join(root, "AGENTS.md"), first.replace("`a.openarch`", "`./a.openarch`"));
-    expect(keepAgentsSection(root, join(root, "a.openarch"), join(root, "docs"), "1")).toBe(true);
+    expect(keepAgentsSection(root, join(root, "a.openarch"), join(root, "docs"))).toBe(true);
     expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toContain("in `a.openarch`. Readable docs generated from it are in `docs/`.");
     // One that's gone, or outside the project, isn't another's.
     rmSync(join(root, "a.openarch"));
-    expect(keepAgentsSection(root, join(root, "b.openarch"), undefined, "1")).toBe(true);
+    expect(keepAgentsSection(root, join(root, "b.openarch"), undefined)).toBe(true);
     writeFileSync(join(root, "AGENTS.md"), readFileSync(join(root, "AGENTS.md"), "utf8").replace("`b.openarch`", "`../x.openarch`"));
-    expect(keepAgentsSection(root, join(root, "b.openarch"), undefined, "1")).toBe(true);
+    expect(keepAgentsSection(root, join(root, "b.openarch"), undefined)).toBe(true);
   });
 
   it("leaves an AGENTS.md alone that isn't UTF-8 text, or whose section can't be told apart, and says why", () => {
     const root = project();
     const latin1 = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
     writeFileSync(join(root, "AGENTS.md"), latin1);
-    expect(() => keepAgentsSection(root, join(root, "a.openarch"), undefined, "1")).toThrow("AGENTS.md isn't UTF-8 text, so it was left alone.");
+    expect(() => keepAgentsSection(root, join(root, "a.openarch"), undefined)).toThrow("AGENTS.md isn't UTF-8 text, so it was left alone.");
     expect(readFileSync(join(root, "AGENTS.md"))).toEqual(latin1);
     writeFileSync(join(root, "AGENTS.md"), "# Rules\n<!-- open-arch:start -->\nMine.\n");
-    expect(() => keepAgentsSection(root, join(root, "a.openarch"), undefined, "1")).toThrow("without <!-- open-arch:end --> after it");
+    expect(() => keepAgentsSection(root, join(root, "a.openarch"), undefined)).toThrow("without <!-- open-arch:end --> after it");
     expect(existsSync(join(root, "AGENTS.md"))).toBe(true);
   });
 });
@@ -161,7 +161,7 @@ describe("two workspaces whose docs share a folder", () => {
   it("leave each other's pages alone: only pages generated from the file being saved are written over or deleted", () => {
     const dir = mkdtempSync(join(tmpdir(), "open-arch-test-"));
     temps.push(dir);
-    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in the designer or with the open-arch CLI, and this page is rewritten. -->\n\n${body}\n`;
+    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in open-arch, and this page is rewritten. -->\n\n${body}\n`;
     // b.openarch is beside a.openarch, and their docs share the folder.
     writeFileSync(join(dir, "a.openarch"), "{}");
     writeFileSync(join(dir, "b.openarch"), "{}");
@@ -180,7 +180,7 @@ describe("two workspaces whose docs share a folder", () => {
   it("takes over pages generated from a file that isn't there any more, as after a rename", () => {
     const dir = mkdtempSync(join(tmpdir(), "open-arch-test-"));
     temps.push(dir);
-    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in the designer or with the open-arch CLI, and this page is rewritten. -->\n\n${body}\n`;
+    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in open-arch, and this page is rewritten. -->\n\n${body}\n`;
     // The pages came from old.openarch, which was renamed to new.openarch.
     writeFileSync(join(dir, "new.openarch"), "{}");
     writeDocs(dir, [{ path: "README.md", content: from("old.openarch", "Old") }, { path: "views/gone.md", content: from("old.openarch", "Gone") }], { workspaceDir: dir });

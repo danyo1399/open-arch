@@ -9,7 +9,11 @@ The architecture is one C4 model stored in a `.openarch` file (JSON). Diagrams (
 
 **Never edit the `.openarch` file or the generated docs by hand.** Change the model only with `open-arch` commands. Each command is checked before anything is saved; if it would break the model, nothing changes and you get an error saying why, often with a suggested fix. Saving also refreshes the docs folder.
 
-Run commands from anywhere in the project; the CLI finds the `.openarch` file (or pass `--file <path>`). If `open-arch` isn't installed, run `npx -y open-arch@{{version}}` in its place.
+Run commands from anywhere in the project; the CLI finds the `.openarch` file (or pass `--file <path>`).
+
+## Without the `open-arch` command
+
+First check that `open-arch --version` runs. If it doesn't, the model was made in the open-arch designer, and there's no command to change it with here: don't look for one, and don't try to install one. Read the generated docs instead: the docs folder's `README.md` lists every view, and its `views/` and `elements/` pages describe each diagram and element, with their relationships. The `.openarch` file has the rest, and `references/format.md` says what's in it. Never edit either by hand. When asked to change the architecture, say what to change in the designer: which element, relationship or view, and what to set on it. Saving it there rewrites the docs.
 
 ## Workflow
 

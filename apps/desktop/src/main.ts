@@ -70,9 +70,9 @@ function allowed(path: string): string {
   return abs;
 }
 
-/** The skill the app bundles, as the CLI has it, and the CLI's version, to fill in. */
-function bundledSkill(): { source: string; version: string } {
-  return { source: join(cliDir, "bin", "open-arch"), version: (JSON.parse(readFileSync(join(cliDir, "package.json"), "utf8")) as { version: string }).version };
+/** The folder of the skill the app bundles, as the CLI has it. */
+function bundledSkill(): string {
+  return join(cliDir, "bin", "open-arch");
 }
 
 const agentSetup = new AgentSetup(bundledSkill);

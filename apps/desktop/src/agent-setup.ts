@@ -30,9 +30,9 @@ export class AgentSetup {
   /** The docs folder each file's AGENTS.md section was last written with since it was opened. */
   private readonly agentsKept = new Map<string, string>();
 
-  /** `skill` gives the bundled skill's folder and the CLI's version; `home` is the user's home folder. */
+  /** `skill` gives the bundled skill's folder; `home` is the user's home folder. */
   constructor(
-    private readonly skill: () => { source: string; version: string },
+    private readonly skill: () => string,
     private readonly home = homedir(),
   ) {}
 
@@ -59,8 +59,8 @@ export class AgentSetup {
     const result: AgentSetupResult = {};
     if (!this.skillKept.has(file)) {
       try {
-        const { source, version } = this.skill();
-        for (const target of SKILL_TARGETS) keepSkill(source, join(root, ...target.split("/")), version);
+        const source = this.skill();
+        for (const target of SKILL_TARGETS) keepSkill(source, join(root, ...target.split("/")));
         this.skillKept.add(file);
       } catch (error) {
         result.skillError = problemText(error);
@@ -69,7 +69,7 @@ export class AgentSetup {
     const key = docs ?? "";
     if (this.agentsKept.get(file) !== key) {
       try {
-        keepAgentsSection(root, file, docs, this.skill().version);
+        keepAgentsSection(root, file, docs);
         this.agentsKept.set(file, key);
       } catch (error) {
         result.agentsError = problemText(error);

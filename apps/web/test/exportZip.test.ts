@@ -72,6 +72,9 @@ describe("Export to folder", () => {
     expect(host.textContent).toContain("Exported shop.openarch to repo, as a workspace there, with its docs, the agent skill and AGENTS.md. Open it from Folders on the start page to keep working on it there.");
     expect(loadWorkspace(root.files()["shop.openarch"]!).doc.name).toBe("Shop 2");
     expect(Object.keys(root.files())).toContain("AGENTS.md");
+    // The CLI usually isn't installed beside a workspace made here, so agents aren't sent to look for it.
+    expect(root.files()["AGENTS.md"]).toContain("If it doesn't, the model is made in the open-arch designer, and there's no command to change it with here: don't look for one, and don't try to install one.");
+    expect(root.files()["AGENTS.md"]).not.toContain("npx");
     expect(host.querySelector(".storage")?.textContent).not.toBe("Not saved");
     // Listed by the workspace's name.
     expect((await folderList.list()).some((record) => record.root.name === "repo" && record.path === "shop.openarch" && record.name === "Shop 2")).toBe(true);

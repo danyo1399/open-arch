@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { VERSION } from "../src/io.js";
 import { run } from "../src/main.js";
 
 const EXAMPLE = fileURLToPath(new URL("../../../examples/shop", import.meta.url));
@@ -1146,8 +1145,9 @@ describe("init", () => {
     for (const target of [".agents/skills/open-arch", ".claude/skills/open-arch"]) {
       const skill = read(project, `${target}/SKILL.md`);
       expect(skill).toContain("name: open-arch");
-      expect(skill).toContain(`npx -y open-arch@${VERSION}`);
-      expect(skill).not.toContain("{{version}}");
+      // Agents without the CLI aren't sent to install it: it isn't published.
+      expect(skill).toContain("If it doesn't, the model was made in the open-arch designer");
+      expect(skill).not.toContain("npx");
     }
     const agents = read(project, "AGENTS.md");
     expect(agents.startsWith("# Project rules\n\nUse tabs.\n\n<!-- open-arch:start -->")).toBe(true);
