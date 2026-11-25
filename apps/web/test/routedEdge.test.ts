@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ViewEdge } from "@open-arch/core";
-import { estimateLabel, forgetLabelSizes, LABEL_WIDTHS, labelLines, labelSizes, MEASURED_LIMIT, measureLabelSizes, NO_DESCRIPTION, pathThrough } from "../src/canvas/RoutedEdge.js";
+import { estimateLabel, forgetLabelSizes, halfway, LABEL_WIDTHS, labelLines, labelSizes, MEASURED_LIMIT, measureLabelSizes, NO_DESCRIPTION, pathThrough } from "../src/canvas/RoutedEdge.js";
 
 describe("pathThrough", () => {
   it("hops over the top of an arrow it crosses, whichever way it runs", () => {
@@ -20,6 +20,18 @@ describe("pathThrough", () => {
       { x: 290, y: 100 },
     ]);
     expect(path.match(/ A /g)).toHaveLength(1);
+  });
+});
+
+describe("halfway", () => {
+  it("is the point halfway along a route, by its length", () => {
+    expect(halfway([{ x: 0, y: 0 }, { x: 100, y: 0 }])).toEqual({ x: 50, y: 0 });
+    // 100 across, then 300 down: halfway is 100 down the second run.
+    expect(halfway([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 300 }])).toEqual({ x: 100, y: 100 });
+  });
+
+  it("is the route's one point when it has no length", () => {
+    expect(halfway([{ x: 5, y: 7 }, { x: 5, y: 7 }])).toEqual({ x: 5, y: 7 });
   });
 });
 

@@ -600,3 +600,106 @@ describe("the chip on a box or sticky note with notes", () => {
     expect((await d.formatted()).textContent).toBe("Just the one.");
   });
 });
+
+describe("the chip on an arrow with notes", () => {
+  /** The chip on an arrow's label, or on the middle of an arrow with no label. */
+  const chips = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>(".arrow-label .notes-button, .arrow-notes .notes-button")];
+  /** Opens a view from the Views list, once its boxes are drawn. */
+  const open = async (d: Awaited<ReturnType<typeof designer>>, title: string) => {
+    await click([...d.host.querySelectorAll<HTMLButtonElement>(".sidebar .row-main")].find((b) => b.textContent?.startsWith(title))!);
+    for (let tries = 0; !d.host.querySelector(".react-flow__node") && tries < 50; tries++) await d.settle();
+    await d.settle();
+  };
+
+  it("is on the label of an arrow whose relationship has notes, and opens them without selecting the arrow", async () => {
+    const d = await designer();
+    // The arrow from Web to API draws both of Web's relationships to it; only the second has notes.
+    const [chip, ...more] = chips(d.host);
+    expect(more).toEqual([]);
+    expect(chip!.closest(".arrow-label")).not.toBeNull();
+    expect(chip!.getAttribute("aria-label")).toBe("Notes on Web → API");
+    await click(chip!);
+    await d.settle();
+    expect(d.title()).toBe("Notes on Web → API");
+    expect((await d.formatted()).textContent).toBe("Over a queue.");
+    expect(d.host.querySelector(".arrow-label.selected")).toBeNull();
+
+    (await d.markdown()).value = "Over a queue, in order.";
+    await click(button(d.editor()!, "Done"));
+    await d.settle();
+    expect(d.file.doc.elements.web!.uses).toEqual([
+      { to: "api", description: "Calls" },
+      { to: "api", description: "Sends events to", notes: "Over a queue, in order." },
+    ]);
+
+    // Its notes taken off elsewhere, the arrow loses its chip.
+    d.file.change([{ op: "update-relationship", from: "web", to: "api", index: 1, notes: null }]);
+    await d.settle();
+    expect(chips(d.host)).toEqual([]);
+  });
+
+  it("shows the arrow's details when more than one of its relationships has notes", async () => {
+    const d = await designer();
+    d.file.change([{ op: "update-relationship", from: "web", to: "api", index: 0, notes: "Over HTTPS." }]);
+    await d.settle();
+    const [chip, ...more] = chips(d.host);
+    expect(more).toEqual([]);
+    expect(chip!.getAttribute("aria-label")).toBe("Notes on Web → API");
+    await click(chip!);
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(d.host.querySelector(".arrow-label.selected")).not.toBeNull();
+    expect([...d.panel().querySelectorAll<HTMLTextAreaElement>('textarea[aria-label="Notes"]')].map((t) => t.value)).toEqual(["Over HTTPS.", "Over a queue."]);
+  });
+
+  it("opens nothing when the relationships have moved before the edits made first have landed", async () => {
+    const model = structuredClone(doc);
+    model.elements.web!.uses = [
+      { to: "api", description: "Sends events to", notes: "Over a queue." },
+      { to: "api", description: "Calls" },
+    ];
+    const d = await designer(serializeDocument(model));
+    // Once the first is deleted, the one without notes is in its place: the editor doesn't open on it.
+    await act(async () => {
+      d.file.change([{ op: "remove-relationship", from: "web", to: "api", index: 0 }]);
+      chips(d.host)[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await d.settle();
+    expect(d.editor()).toBeNull();
+    expect(chips(d.host)).toEqual([]);
+  });
+
+  it("is on the middle of an arrow with no label, and on a deployment view's arrows", async () => {
+    const model = structuredClone(doc);
+    model.elements.bank = { kind: "system", name: "Bank" };
+    model.elements.api!.uses = [{ to: "bank", notes: "Pays by card." }];
+    model.views = {
+      ...model.views,
+      landscape: { title: "Landscape", level: "landscape" },
+      production: { title: "Production", level: "deployment", nodes: { server: { name: "Server", runs: ["api", "web"] } } },
+    };
+    const d = await designer(serializeDocument(model));
+
+    // On the landscape, the API's relationship to the bank is drawn as the shop's, with no label.
+    await open(d, "Landscape");
+    const [implied, ...more] = chips(d.host);
+    expect(more).toEqual([]);
+    expect(implied!.closest(".arrow-notes")).not.toBeNull();
+    expect(implied!.getAttribute("aria-label")).toBe("Notes on API → Bank");
+    await click(implied!);
+    await d.settle();
+    expect(d.title()).toBe("Notes on API → Bank");
+    expect((await d.formatted()).textContent).toBe("Pays by card.");
+    await click(button(d.editor()!, "Cancel"));
+
+    // Between the copies of Web and API running on the server.
+    await open(d, "Production");
+    const [copies, ...others] = chips(d.host);
+    expect(others).toEqual([]);
+    expect(copies!.getAttribute("aria-label")).toBe("Notes on Web → API");
+    await click(copies!);
+    await d.settle();
+    expect(d.title()).toBe("Notes on Web → API");
+    expect((await d.formatted()).textContent).toBe("Over a queue.");
+  });
+});

@@ -1709,9 +1709,9 @@ button.heading {
   padding: 0 5px;
 }
 
-/* The chip on the corner of a box or sticky note with notes, which opens them. It sits over the
-   corner, like a problem's badge, so it never covers the text; with a badge there too, it's to
-   its left. Bigger on a touch screen. */
+/* The chip on the corner of a box, sticky note or arrow's label with notes, which opens them.
+   It sits over the corner, like a problem's badge, so it never covers the text; with a badge
+   there too, it's to its left. Bigger on a touch screen. */
 .notes-button {
   position: absolute;
   top: -9px;
@@ -1736,6 +1736,20 @@ button.heading {
 .c4-badge ~ .notes-button {
   right: 16px;
 }
+/* An arrow's is on its label's corner, or on an arrow with no label, a point with no size on
+   the middle of its line, with the chip centred on it (see ArrowNotes). */
+.arrow-notes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: all;
+}
+.arrow-notes .notes-button {
+  top: -11px;
+  right: -11px;
+}
 /* A frame's is a corner with no size, drawn over the diagram (see FrameNotes). */
 .frame-notes {
   position: absolute;
@@ -1754,6 +1768,10 @@ button.heading {
   }
   .c4-badge ~ .notes-button {
     right: 14px;
+  }
+  .arrow-notes .notes-button {
+    top: -15px;
+    right: -15px;
   }
 }
 

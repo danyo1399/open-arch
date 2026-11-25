@@ -6,6 +6,7 @@ import type { RelationshipKind, ViewEdge } from "@open-arch/core";
 import { BaseEdge, EdgeLabelRenderer, useReactFlow, ViewportPortal, type Edge, type EdgeProps } from "@xyflow/react";
 import { useEffect, useRef, type PointerEvent } from "react";
 import type { Point } from "./autoLayout.js";
+import { NotesButton } from "./nodes.js";
 
 /** An arrow's start, at the box it's from, or its end, at the box it points to. */
 export type ArrowEnd = "from" | "to";
@@ -27,6 +28,8 @@ export type ArrowData = {
   moving?: ArrowEnd;
   /** A note's dot is over the arrow, and letting go would put the note on it. */
   dropTarget?: boolean;
+  /** Its relationships have notes, and the diagram can open them: what the chip calls them, and what pressing it does. */
+  notes?: { name: string; open(): void };
 };
 export type ArrowEdge = Edge<ArrowData, "arrow">;
 
@@ -46,6 +49,18 @@ const distance = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
 function toward(from: Point, to: Point, by: number): Point {
   const d = distance(from, to) || 1;
   return { x: from.x + ((to.x - from.x) * by) / d, y: from.y + ((to.y - from.y) * by) / d };
+}
+
+/** The point halfway along a route, by its length. */
+export function halfway(points: readonly Readonly<Point>[]): Point {
+  const total = points.slice(1).reduce((sum, p, k) => sum + distance(points[k]!, p), 0);
+  let left = total / 2;
+  for (let k = 1; k < points.length; k++) {
+    const run = distance(points[k - 1]!, points[k]!);
+    if (run >= left) return toward(points[k - 1]!, points[k]!, left);
+    left -= run;
+  }
+  return { ...points[0]! };
 }
 
 /**
@@ -326,7 +341,7 @@ const markerId = (arrow: string, end: "start" | "end") => `uml-${arrow.replace(/
 
 export function RoutedEdge({ id, markerStart, markerEnd, data, selected }: EdgeProps<ArrowEdge>) {
   if (!data || data.points.length < 2) return null;
-  const { edge, points, label, moving, dropTarget } = data;
+  const { edge, points, label, moving, dropTarget, notes } = data;
   // An association has React Flow's arrowheads; the other kinds draw their own.
   const uml = edge.kind === "association" ? undefined : UML_ARROWS[edge.kind];
   const ends = uml && { start: uml.start && markerId(id, "start"), end: uml.end && markerId(id, "end") };
@@ -363,10 +378,26 @@ export function RoutedEdge({ id, markerStart, markerEnd, data, selected }: EdgeP
                 {text}
               </div>
             ))}
+            {notes && <NotesButton name={notes.name} onOpen={notes.open} />}
           </div>
         </EdgeLabelRenderer>
       )}
+      {notes && !label && !moving && <ArrowNotes at={halfway(points)} notes={notes} />}
     </>
+  );
+}
+
+/**
+ * The notes chip of an arrow with no label, such as an implied one with no description: on the
+ * middle of its line. An arrow with a label has it on the label's corner, as a box does.
+ */
+export function ArrowNotes({ at, notes }: { at: Point; notes: { name: string; open(): void } }) {
+  return (
+    <EdgeLabelRenderer>
+      <div className="arrow-notes" style={{ transform: `translate(${at.x}px, ${at.y}px)` }}>
+        <NotesButton name={notes.name} onOpen={notes.open} />
+      </div>
+    </EdgeLabelRenderer>
   );
 }
 

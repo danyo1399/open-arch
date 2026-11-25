@@ -2,6 +2,7 @@ import { applyOperations, buildWorkspace, computeView, modelTree, type ComputedV
 import { describe, expect, it } from "vitest";
 import {
   arrowDeleteOps,
+  arrowNotes,
   arrowRelationships,
   arrowRemovals,
   byName,
@@ -409,6 +410,41 @@ describe("arrowRelationships", () => {
   it("lists nothing for an arrow the view doesn't draw, or a view that can't be drawn", () => {
     expect(rels("mail", "customer")).toEqual([]);
     expect(rels("customer", "shop", null)).toEqual([]);
+  });
+});
+
+describe("arrowNotes", () => {
+  const shop = buildWorkspace({
+    openarch: 21,
+    name: "Shop",
+    elements: {
+      customer: { kind: "person", name: "Customer", uses: [{ to: "shop", notes: "Mostly on phones." }, { to: "web", notes: "Signs in first." }, { to: "shop" }] },
+      shop: { kind: "system", name: "Shop" },
+      web: { kind: "container", name: "Web app", parent: "shop", uses: [{ to: "mail", notes: "Sends receipts." }, { to: "mail" }] },
+      mail: { kind: "system", name: "Mail", uses: [{ to: "customer" }] },
+    },
+    views: { landscape: { title: "Landscape", level: "landscape" } },
+  });
+  const computed = computeView(shop, shop.views.get("landscape")!);
+  const arrow = (from: string, to: string) => computed.edges.find((e) => e.from === from && e.to === to)!;
+
+  it("names the one relationship with notes as the notes editor does, even when the arrow stands for more", () => {
+    // The web app's two relationships to Mail are drawn as the shop's, and only one has notes.
+    expect(arrowNotes(shop, arrow("shop", "mail"))).toEqual({ owners: [{ kind: "relationship", from: "web", to: "mail", index: 0 }], name: "Web app → Mail" });
+  });
+
+  it("names the arrow's two ends when several of its relationships have notes", () => {
+    expect(arrowNotes(shop, arrow("customer", "shop"))).toEqual({
+      owners: [
+        { kind: "relationship", from: "customer", to: "shop", index: 0 },
+        { kind: "relationship", from: "customer", to: "web", index: 0 },
+      ],
+      name: "Customer → Shop",
+    });
+  });
+
+  it("is null when none of an arrow's relationships has notes", () => {
+    expect(arrowNotes(shop, arrow("mail", "customer"))).toBeNull();
   });
 });
 

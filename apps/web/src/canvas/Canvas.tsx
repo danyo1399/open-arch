@@ -41,6 +41,7 @@ import {
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
 import {
+  arrowNotes,
   arrowRelation,
   isArrow,
   newStickyId,
@@ -867,10 +868,12 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
   };
 
   const linkArrow = linkDrop?.arrow;
+  const notes = useContext(NotesOpener);
   const edges = useMemo<ArrowEdge[]>(
     () =>
       cv?.edges.map((e) => {
         const id = arrowId(e);
+        const noted = notes && arrowNotes(ws, e);
         return {
           id,
           type: "arrow",
@@ -890,10 +893,11 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
             onEndDrop: (end, at) => dropEnd(e, end, at),
             moving: movingArrow === id ? movingEnd : undefined,
             dropTarget: linkArrow === id,
+            notes: noted ? { name: noted.name, open: () => notes.arrow(e) } : undefined,
           },
         };
       }) ?? [],
-    [cv, nodeIdOf, routes, labels, crossed, selection, onSelect, dropEnd, movingArrow, movingEnd, linkArrow],
+    [cv, nodeIdOf, routes, labels, crossed, selection, onSelect, dropEnd, movingArrow, movingEnd, linkArrow, notes, ws],
   );
 
   /** Fit the diagram to the canvas, below the toolbar. */
@@ -1087,7 +1091,6 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
     { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
   ];
 
-  const notes = useContext(NotesOpener);
   /**
    * The right-click menus of a sticky note, which the click selects, and of the diagram, after a
    * click on the background: what the toolbar does, with what's added put where the click was. A

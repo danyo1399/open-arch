@@ -42,7 +42,7 @@ import {
 } from "@xyflow/react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { connectionChoices, connectionEndChoices, nodeChoices, stopRunning, uniqueNodeId, type DeploymentChoice } from "../model.js";
+import { arrowNotes, connectionChoices, connectionEndChoices, nodeChoices, stopRunning, uniqueNodeId, type DeploymentChoice } from "../model.js";
 import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { freeSpotAmong, NODE_W, placeStickies, STICKY, TOUCH_STICKY, type Point } from "./autoLayout.js";
@@ -50,8 +50,8 @@ import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
 import { holdsAnything, layOutDeployment, placeDeploymentLabels, type DeploymentLayout } from "./deploymentLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
-import { ElementNotes, NotesOpener, StickyNode, type StickyFlowNode } from "./nodes.js";
-import { labelLines, measureLabelSizes, pathThrough } from "./RoutedEdge.js";
+import { ElementNotes, NotesButton, NotesOpener, StickyNode, type StickyFlowNode } from "./nodes.js";
+import { ArrowNotes, halfway, labelLines, measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 
 /** A node that holds something, drawn as a frame round it. `depth` is how many nodes it's inside. */
@@ -65,7 +65,14 @@ type BoxData = { node: DeploymentNode; element?: ComputedView["nodes"][number]; 
 type BoxFlowNode = Node<BoxData, "deploymentBox">;
 type FlowNode = FrameFlowNode | FrameLabelFlowNode | BoxFlowNode | StickyFlowNode;
 
-type ArrowData = { arrow: DeploymentArrow; points: Point[]; label?: Point; onSelect(): void };
+type ArrowData = {
+  arrow: DeploymentArrow;
+  points: Point[];
+  label?: Point;
+  onSelect(): void;
+  /** Its relationships have notes, and the diagram can open them: what the chip calls them, and what pressing it does. */
+  notes?: { name: string; open(): void };
+};
 type DeploymentEdge = Edge<ArrowData, "deploymentArrow">;
 
 const stickyNodeId = (id: string) => `sticky:${id}`;
@@ -170,9 +177,11 @@ function Arrow({ id, data, markerStart, markerEnd, selected }: EdgeProps<Deploym
                 {line.text}
               </div>
             ))}
+            {data.notes && <NotesButton name={data.notes.name} onOpen={data.notes.open} />}
           </div>
         </EdgeLabelRenderer>
       )}
+      {data.notes && !(lines.length > 0 && data.label) && <ArrowNotes at={halfway(data.points)} notes={data.notes} />}
     </>
   );
 }
@@ -353,12 +362,16 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
 
   const labelAt = useMemo(() => (drawnLayout ? placeDeploymentLabels(d, drawnLayout, labels) : new Map<string, Point>()), [d, drawnLayout, labels]);
 
+  const notes = useContext(NotesOpener);
   const edges = useMemo<DeploymentEdge[]>(() => {
     if (!drawnLayout) return [];
     const head = { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" };
     return d.arrows.flatMap((a): DeploymentEdge[] => {
       const points = drawnLayout.arrows.get(a.id);
       if (!points) return [];
+      // A connection is the view's own, and has no notes; an arrow between two copies draws relationships, which can.
+      const edge = a.edge;
+      const noted = notes && edge && arrowNotes(ws, edge);
       return [
         {
           id: a.id,
@@ -369,11 +382,11 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
           markerEnd: head,
           // React Flow turns a start marker round, so it points back at the box it starts from.
           ...(a.bidirectional && { markerStart: head }),
-          data: { arrow: a, points, label: labelAt.get(a.id), onSelect: () => selectArrow(a) },
+          data: { arrow: a, points, label: labelAt.get(a.id), onSelect: () => selectArrow(a), notes: noted && edge ? { name: noted.name, open: () => notes.arrow(edge) } : undefined },
         },
       ];
     });
-  }, [drawnLayout, d, selection, selectArrow, labelAt]);
+  }, [drawnLayout, d, selection, selectArrow, labelAt, notes, ws]);
 
   const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith });
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(snapChanges(changes), nds)), [snapChanges]);
@@ -444,7 +457,6 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
     { label: "Sticky note", divider: true, onSelect: () => addSticky(at) },
   ];
 
-  const notes = useContext(NotesOpener);
   const edits: MenuEdits = { edit, select };
   /** An item that makes one of the edits a node or connection offers (see nodeChoices), then selects what `then` says. */
   const choose = (choice: DeploymentChoice, then?: Selection): MenuAction => ({ label: choice.label, onSelect: () => void edit([choice.op]).then((ok) => ok && then && select(then)) });

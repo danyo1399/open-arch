@@ -46,6 +46,7 @@ import {
   type Transition,
   type ViewData,
   type ViewDef,
+  type ViewEdge,
   type ViewLevel,
   type Widget,
   type Workspace,
@@ -215,6 +216,24 @@ export function notesOp(owner: NotesOwner, text: string): Operation {
   if (owner.kind === "element") return { op: "update-element", id: owner.id, notes };
   if (owner.kind === "sticky") return { op: "update-sticky", view: owner.view, id: owner.id, notes };
   return { op: "update-relationship", from: owner.from, to: owner.to, index: owner.index, notes };
+}
+
+/**
+ * The notes on the relationships an arrow draws, for the chip on the arrow: the relationships
+ * with notes, and what the chip calls them. With one, that's its name in the notes editor; with
+ * several, the arrow's two ends. Null when none of them has notes.
+ */
+export function arrowNotes(
+  ws: Workspace,
+  edge: Pick<ViewEdge, "from" | "to" | "bidirectional" | "sources">,
+): { owners: Extract<NotesOwner, { kind: "relationship" }>[]; name: string } | null {
+  const owners = edge.sources.flatMap(({ element, index }) => {
+    const source = ws.elements.get(element);
+    return source?.uses[index]?.notes ? [{ kind: "relationship" as const, ...relationshipRef(source, index) }] : [];
+  });
+  if (owners.length === 0) return null;
+  const name = (id: string) => ws.elements.get(id)?.name ?? id;
+  return { owners, name: owners.length === 1 ? notesName(ws, owners[0]!) : `${name(edge.from)} ${edge.bidirectional ? "↔" : "→"} ${name(edge.to)}` };
 }
 
 /** A sticky note's text, as the notes editor names it: its first line, in quotes, cut short when it's long. */

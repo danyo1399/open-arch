@@ -1,4 +1,4 @@
-import { kindLabel, type ArchElement, type Sticky } from "@open-arch/core";
+import { kindLabel, type ArchElement, type Sticky, type ViewEdge } from "@open-arch/core";
 import { Handle, Position, useConnection, useReactFlow, ViewportPortal, type Node, type NodeProps } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, type PointerEvent } from "react";
 import { stickyName } from "../model.js";
@@ -33,15 +33,18 @@ export type StickyNodeData = {
 export type StickyFlowNode = Node<StickyNodeData, "sticky">;
 
 /**
- * Opens the notes of an element, or of a sticky note on the open view, in the notes editor. The
- * designer gives it to the diagrams; without it, boxes and notes don't offer their notes.
+ * Opens the notes of an element, of a sticky note on the open view, or of the relationships an
+ * arrow on it draws, in the notes editor. With more than one of an arrow's relationships having
+ * notes, it shows the arrow's details instead, where each has its own. The designer gives it to
+ * the diagrams; without it, boxes, notes and arrows don't offer their notes.
  */
-export const NotesOpener = createContext<{ element(id: string): void; sticky(id: string): void } | null>(null);
+export const NotesOpener = createContext<{ element(id: string): void; sticky(id: string): void; arrow(edge: ViewEdge): void } | null>(null);
 
 /**
- * The chip on the corner of a box or sticky note that has notes: it shows they're there, and a
- * click opens them in the notes editor. Pictures of the diagram leave it out (see image.ts). It
- * doesn't select the box or note, drag it, start an arrow from it, or edit a note's text.
+ * The chip on the corner of a box, sticky note or arrow's label that has notes: it shows they're
+ * there, and a click opens them in the notes editor. Pictures of the diagram leave it out (see
+ * image.ts). It doesn't select the box, note or arrow, drag it, start an arrow from it, or edit a
+ * note's text.
  */
 export function NotesButton({ name, onOpen }: { name: string; onOpen(): void }) {
   return (

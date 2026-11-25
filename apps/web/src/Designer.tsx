@@ -12,6 +12,7 @@ import {
   type RelationshipKind,
   type StickyTargetData,
   type ViewDef,
+  type ViewEdge,
   type ViewLevel,
   type Workspace,
 } from "@open-arch/core";
@@ -37,6 +38,8 @@ import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
 import {
   arrowDeleteOps,
+  arrowNotes,
+  arrowRelation,
   arrowRemovals,
   blockText,
   buildOps,
@@ -418,21 +421,25 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
 
   const afterEdits = state.afterEdits;
   /**
-   * Opens notes from the diagram's chip on a box or on a sticky note of the open view. They're
-   * read once the edits made before have landed, such as the notes typed in the details panel,
-   * saved as the chip was pressed. If what they're on is gone by then, the editor doesn't open.
+   * Opens notes from the diagram's chip on a box, an arrow or a sticky note of the open view.
+   * They're read once the edits made before have landed, such as the notes typed in the details
+   * panel, saved as the chip was pressed. If what they're on is gone by then, the editor doesn't
+   * open. Nor does it for a relationship when its element's relationships to the same target
+   * have moved by then, as another may be in its place (see notesOwnerAsIs).
    */
   const openNotes = useCallback(
     (owner: NotesOwner) => {
       const opened = ++notesOpened.current;
+      const place = ws ? relationshipsPlace(ws, owner) : undefined;
       void afterEdits((now) => {
-        const at = renamedNotesOwner(owner, current);
+        const renamed = renamedNotesOwner(owner, current);
+        const at = now && place !== undefined ? notesOwnerAsIs(now, renamed, place) : renamed;
         const text = now ? notesOf(now, at) : undefined;
         if (!now || text === undefined) return;
         setDialog((d) => d ?? { kind: "notes", owner: at, name: notesName(now, at), text, opened, ready: true });
       });
     },
-    [afterEdits, current],
+    [afterEdits, current, ws],
   );
   /**
    * For a diagram's right-click menu, which opens once the edits made before the click have
@@ -454,8 +461,22 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   /** The changes a diagram's menu follows that this render reflects, for an open menu to follow. */
   const shownMenuRenames = useMemo(() => menuRenames.current.slice(0, menuRenamesSeen), [menuRenamesSeen]);
   const notesOpener = useMemo(
-    () => (viewId ? { element: (id: string) => openNotes({ kind: "element", id }), sticky: (id: string) => openNotes({ kind: "sticky", view: viewId, id }) } : null),
-    [openNotes, viewId],
+    () =>
+      viewId
+        ? {
+            element: (id: string) => openNotes({ kind: "element", id }),
+            sticky: (id: string) => openNotes({ kind: "sticky", view: viewId, id }),
+            // An arrow with notes on more than one of its relationships shows its details, which list each one's.
+            arrow: (edge: ViewEdge) => {
+              const noted = ws && arrowNotes(ws, edge);
+              if (noted?.owners.length === 1) return openNotes(noted.owners[0]!);
+              if (!noted) return;
+              select({ kind: "arrow", from: edge.from, to: edge.to, ...arrowRelation(edge) });
+              openDetails();
+            },
+          }
+        : null,
+    [openNotes, viewId, ws, select, openDetails],
   );
 
   /** A new note on a box, the frame or an arrow, or on a flowchart a block, beside it on the diagram, with its text being typed there. */
