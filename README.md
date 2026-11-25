@@ -17,7 +17,7 @@ See [`examples/shop`](examples/shop): [`shop.openarch`](examples/shop/shop.opena
 |---|---|
 | [`packages/core`](packages/core) (`@open-arch/core`) | Parses, checks, edits (through validated operations) and exports workspaces. No dependencies and no Node.js APIs, so the designer runs it in the browser. |
 | [`packages/cli`](packages/cli) (`open-arch`) | The `open-arch` command: `show`, `check`, `export`, an edit command for every operation, `apply` for JSON batches, `init` and `fmt`. |
-| [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`: agents read with `show` and change the model only with commands. |
+| [`packages/skill`](packages/skill) (`@open-arch/skill`) | Agent skill that `open-arch init` installs into `.agents/skills/` and `.claude/skills/`: agents read with `show` and change the model only with commands. Without the CLI, they read the docs and say what to change in the designer. |
 | [`apps/web`](apps/web) | The designer as a static web app (React, React Flow, ELK). |
 | [`apps/desktop`](apps/desktop) | The same designer in Electron, for Windows, macOS and Linux. |
 | [`apps/server`](apps/server) (`@open-arch/server`) | The share server, which keeps workspaces shared as links. They're encrypted before they're uploaded, so it can't read them. In Go: one executable for Linux or macOS, or a container. |
@@ -43,7 +43,7 @@ The workspaces kept in the web app's browser storage are only in that browser, o
 - the .openarch file
 - its docs
 - the agent skill, in `.agents/skills/open-arch/` and `.claude/skills/open-arch/`
-- an `AGENTS.md` with the section `open-arch init` adds. It tells agents where the model and its docs are, and to change the model only with the `open-arch` CLI.
+- an `AGENTS.md` with the section `open-arch init` adds. It tells agents where the model and its docs are, and never to edit them by hand. Where the `open-arch` CLI is installed, they change the model only with it. Where it isn't, as is usual for a workspace made in the web app, they read the docs and say what to change in the designer, rather than look for the CLI.
 
 Put what's in the folder at the top of the repository, where agents look for these. If the repository has an `AGENTS.md` already, copy the section between `<!-- open-arch:start -->` and `<!-- open-arch:end -->` into it. Don't replace the file. If it has an open-arch section already, put this one in its place: a file with two is left alone.
 

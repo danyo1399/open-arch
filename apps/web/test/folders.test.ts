@@ -494,7 +494,7 @@ describe("keeping the docs folder", () => {
   });
 
   it("leaves another workspace's pages alone when their docs share a folder", async () => {
-    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in the designer or with the open-arch CLI, and this page is rewritten. -->\n${body}`;
+    const from = (source: string, body: string) => `${GENERATED_MARKER} from ${source}. Don't edit: change the model in open-arch, and this page is rewritten. -->\n${body}`;
     const docs = new FakeFolder("repo");
     docs.put("README.md", from("b.openarch", "B"));
     docs.put("views/b.md", from("b.openarch", "B view"));

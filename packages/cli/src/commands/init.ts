@@ -1,8 +1,8 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { agentsSection, buildWorkspace, emptyDocument, FILE_EXTENSION, lineEnding, LineBreakInPath, nameFromFileName, withAgentsSection } from "@open-arch/core";
 import { skillDir } from "@open-arch/skill";
-import { CliError, VERSION, type Io } from "../io.js";
+import { CliError, type Io } from "../io.js";
 import { displayPath, isFreeFolder, newDocsFolder, readWorkspaceFile, SKILL_TARGETS, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { describeDocs } from "./export.js";
 
@@ -67,7 +67,7 @@ export function init(io: Io, opts: InitOptions): number {
           throw new Error("AGENTS.md isn't UTF-8 text, so it was left alone.");
         }
       }
-      text = withAgentsSection(before, agentsSection(workspace, docsPath, VERSION, lineEnding(before)));
+      text = withAgentsSection(before, agentsSection(workspace, docsPath, lineEnding(before)));
     } catch (error) {
       const inPlace = opts.noSkills ? "The workspace and its docs are" : "The workspace, its docs and the skill are";
       // A path with a line break is fixed by renaming it, not by changing AGENTS.md.
@@ -111,16 +111,8 @@ function projectRoot(cwd: string, dir: string): string {
   return rel.startsWith("..") || isAbsolute(rel) ? dir : resolve(cwd);
 }
 
-/** Copy the skill, filling in the CLI version so agents run a matching `npx` command. */
+/** Copy the skill, in place of any copy there. */
 function installSkill(dest: string): void {
   rmSync(dest, { recursive: true, force: true });
   cpSync(skillDir, dest, { recursive: true });
-  const fill = (dir: string) => {
-    for (const name of readdirSync(dir)) {
-      const p = join(dir, name);
-      if (statSync(p).isDirectory()) fill(p);
-      else if (name.endsWith(".md")) writeFileSync(p, readFileSync(p, "utf8").replaceAll("{{version}}", VERSION));
-    }
-  };
-  fill(dest);
 }

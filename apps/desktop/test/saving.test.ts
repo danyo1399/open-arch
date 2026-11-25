@@ -21,8 +21,8 @@ function repository() {
   const root = temp();
   mkdirSync(join(root, ".git"));
   const source = temp();
-  writeFileSync(join(source, "SKILL.md"), "Run open-arch@{{version}}.\n");
-  const saver = new Saver(new AgentSetup(() => ({ source, version: "1.2.3" }), temp()));
+  writeFileSync(join(source, "SKILL.md"), "Run open-arch.\n");
+  const saver = new Saver(new AgentSetup(() => source, temp()));
   const doc = emptyDocument("Shop");
   doc.export = { docs: "shop-docs" };
   return { root, saver, doc, skillFile: join(root, ".claude", "skills", "open-arch", "SKILL.md") };
@@ -40,7 +40,7 @@ describe("making a workspace in the desktop app", () => {
     const made = saver.make(file, doc, open);
     expect(open).toHaveBeenCalledWith(file);
     expect(made).toEqual({ path: file, name: "shop.openarch", saved: { docs: { dir: "shop-docs", written: 1, deleted: 0, skipped: [] } } });
-    expect(readFileSync(skillFile, "utf8")).toBe("Run open-arch@1.2.3.\n");
+    expect(readFileSync(skillFile, "utf8")).toBe("Run open-arch.\n");
     expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toContain("in `shop.openarch`. Readable docs generated from it are in `shop-docs/`.");
     // The designer's first save after that doesn't write the skill again.
     rmSync(skillFile);

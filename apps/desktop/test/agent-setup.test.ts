@@ -23,9 +23,9 @@ function project(options: { inRepo?: boolean; home?: string } = {}) {
   const file = join(root, "arch", "a.openarch");
   writeFileSync(file, "{}");
   const source = temp();
-  writeFileSync(join(source, "SKILL.md"), "Run open-arch@{{version}}.\n");
-  const skill = { source, version: "1.2.3" };
-  const setup = new AgentSetup(() => skill, options.home ?? temp());
+  writeFileSync(join(source, "SKILL.md"), "Run open-arch.\n");
+  const skill = { source };
+  const setup = new AgentSetup(() => skill.source, options.home ?? temp());
   const skillFile = join(root, ".claude", "skills", "open-arch", "SKILL.md");
   const agents = () => readFileSync(join(root, "AGENTS.md"), "utf8");
   return { root, file, skill, setup, skillFile, agents };
@@ -44,7 +44,7 @@ describe("setting up a repository for AI agents from the desktop app's saves", (
   it("brings the skill up to date on the first save after the file is opened, and again once it's opened again", () => {
     const { root, file, setup, skillFile } = project();
     expect(setup.keep(file, undefined)).toEqual({});
-    expect(readFileSync(skillFile, "utf8")).toBe("Run open-arch@1.2.3.\n");
+    expect(readFileSync(skillFile, "utf8")).toBe("Run open-arch.\n");
     expect(existsSync(join(root, ".agents", "skills", "open-arch", "SKILL.md"))).toBe(true);
     // Later saves leave it alone.
     rmSync(skillFile);
@@ -102,7 +102,7 @@ describe("setting up a repository for AI agents from the desktop app's saves", (
     mkdirSync(join(home, ".git"));
     const inHome = join(home, "a.openarch");
     writeFileSync(inHome, "{}");
-    const setup = new AgentSetup(() => ({ source: temp(), version: "1" }), home);
+    const setup = new AgentSetup(() => temp(), home);
     expect(setup.keep(inHome, undefined)).toEqual({});
     expect(existsSync(join(home, ".claude"))).toBe(false);
     expect(existsSync(join(home, "AGENTS.md"))).toBe(false);

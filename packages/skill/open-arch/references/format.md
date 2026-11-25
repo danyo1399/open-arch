@@ -1,6 +1,6 @@
 # The open-arch workspace (format version 21)
 
-A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`); this page explains what it contains so you can read it.
+A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`), or, without them, in the open-arch designer; this page explains what it contains so you can read it.
 
 ```json
 {

@@ -12,7 +12,7 @@ import { agentsSection, agentsSectionWorkspace, applyOperations, DOCS_PAGE_FOLDE
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
-import { CLI_VERSION, SKILL_TARGETS, skillFiles } from "./skill.js";
+import { SKILL_TARGETS, skillFiles } from "./skill.js";
 import type { WorkspaceHost } from "./hosts.js";
 import { committed, done } from "./library.js";
 
@@ -283,7 +283,7 @@ export async function writeAgentsSection(root: FolderHandle, path: string, docs:
   // Compared as folders, so ./a.openarch or arch\a.openarch, written by hand, is this workspace too.
   if (named !== null && segments(named)?.join("/") !== path && (await isFileIn(root, named))) return;
   // With the file's own line ending, so the file keeps it, and names in it are written as they are.
-  const next = withAgentsSection(text, agentsSection(path, docs, CLI_VERSION, lineEnding(text)));
+  const next = withAgentsSection(text, agentsSection(path, docs, lineEnding(text)));
   if (next !== text) await writeText(await fileAt(root, "AGENTS.md", true), next);
 }
 
@@ -482,7 +482,7 @@ export class FolderHost implements WorkspaceHost {
     // The section in AGENTS.md names the file and its docs, so it's written again whenever that changes.
     const docsPath = docsParts && docs ? docsParts.join("/") : undefined;
     try {
-      const section = agentsSection(this.path, docsPath, CLI_VERSION);
+      const section = agentsSection(this.path, docsPath);
       if (section !== this.agentsKept) {
         await writeAgentsSection(this.root, this.path, docsPath);
         this.agentsKept = section;
