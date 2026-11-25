@@ -429,6 +429,27 @@ describe("routeLinks", () => {
     expect(routes.get("customer-app->api")!.at(-1)!.y, "customer-app's enters api's top").toBe(480);
   });
 
+  it("swaps the sides two crossing arrows meet a box by, where then neither crosses", () => {
+    // Routed one at a time, team's arrow takes backstage's left side, as postgres is in the way of its
+    // top, and consumers' goes along to backstage's top across it, whichever goes first. Swapped,
+    // consumers' goes into backstage's left side and team's round postgres into its top.
+    const box = (x: number, y: number): Box => ({ x, y, w: 214, h: 96 });
+    const boxes = new Map([
+      ["team", box(22, 42)],
+      ["consumers", box(22, 177)],
+      ["agents", box(22, 321)],
+      ["backstage", box(666, 262)],
+      ["postgres", box(666, 16)],
+      ["auth", box(1000, 130)],
+      ["search", box(1000, 262)],
+    ]);
+    const links = [link("team", "backstage"), link("consumers", "backstage"), link("agents", "backstage"), link("backstage", "postgres"), link("backstage", "auth"), link("backstage", "search")];
+    const routes = check(boxes, links, [{ x: 628, y: -20, w: 700, h: 520 }]);
+    expect(crossingCount([...routes.values()])).toBe(0);
+    expect(routes.get("consumers->backstage")!.at(-1)!.x, "consumers' enters backstage's left side").toBe(666);
+    expect(routes.get("team->backstage")!.at(-1)!.y, "team's enters backstage's top").toBe(262);
+  });
+
   it("goes around a note in the way", () => {
     const boxes = new Map([
       ["a", at(0, 0)],

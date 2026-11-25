@@ -12,7 +12,8 @@
  * straight are routed first, then the rest, each shortest first, then all
  * routed again so the early ones can make way for the rest.
  * Two arrows that still cross are routed again, each first in turn, as either
- * might have taken the way the other needed.
+ * might have taken the way the other needed, and where they share a box, each
+ * first by the side the other met it by, so the two can swap sides.
  *
  * Crossings are costed by the arms routes have at each point of the grid: a
  * route going straight through a point has two arms there along its axis, and
@@ -107,8 +108,9 @@ const UNDER_NOTE = 10;
 const JOG = 12;
 /**
  * How many pairs of arrows that cross are routed again, each first in turn, in one
- * layout (see routeAround). Each pair costs four searches, which add up on a busy
- * diagram with many crossings, where trying them all rarely helps.
+ * layout (see routeAround). Each pair costs four searches, and four more for each box
+ * the two share, which add up on a busy diagram with many crossings, where trying
+ * them all rarely helps.
  */
 const UNTANGLES = 8;
 
@@ -956,7 +958,7 @@ function couldBeStraight(a: Rect, b: Rect, lines: { xs: number[]; ys: number[] }
 /**
  * Routes for the links that have one, around the boxes and the `notes` in the way: those
  * that could be straight first, then the rest, each shortest first, then any two that
- * cross again, each first in turn.
+ * cross again, each first in turn, and each by the side the other met a box they share by.
  */
 function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], frames: Rect[], tips: ReadonlySet<string> = new Set()): Routing {
   // Arrows attach to a box only at its own anchors, and at lines across where it
@@ -1002,9 +1004,11 @@ function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], fra
   const straight = new Set(links.filter((l) => couldBeStraight(rects.get(l.from)!, rects.get(l.to)!, across.get(l.id)!, rects.values())));
   const order = [...links.filter((l) => straight.has(l)), ...links.filter((l) => !straight.has(l))];
 
-  /** The cheapest route for `link`, given the routes on the grid now. */
-  const routeLink = (link: Link): Route | undefined => {
-    const [from, to, leaves, goals] = [rects.get(link.from)!, rects.get(link.to)!, starts.get(link.id)!, ports.get(link.to)!];
+  /** The cheapest route for `link`, given the routes on the grid now, leaving and entering only by the sides `by` names, if it names them. */
+  const routeLink = (link: Link, by: { from?: Side; to?: Side } = {}): Route | undefined => {
+    const [from, to] = [rects.get(link.from)!, rects.get(link.to)!];
+    const leaves = starts.get(link.id)!.filter((p) => !by.from || p.edge === by.from);
+    const goals = ports.get(link.to)!.filter((p) => !by.to || p.edge === by.to);
     const [lines, under] = [across.get(link.id)!, notesOn.get(link.id)!];
     // With no way round the notes in its way, a link goes under as little of them as it can rather
     // than have no route at all: straight across a narrow gap, or else paying for each pixel under one.
@@ -1036,8 +1040,26 @@ function routeAround(rects: Map<string, Rect>, notes: Rect[], links: Link[], fra
       grid.place(a.id, routeA);
       best.cost += grid.costOf(routeB.cells, routeB.ports);
       grid.remove(a.id);
-      for (const [first, second] of [[b, a], [a, b]] as const) {
-        const one = routeLink(first);
+      // Routed one at a time, neither may make way for the other where the two share a box: each takes
+      // the side it likes best, and the other crosses it. So each is also routed first by the side the
+      // other had there, as swapping the sides they meet the box by often untangles them.
+      const orders: [Link, Link, { from?: Side; to?: Side }][] = [
+        [b, a, {}],
+        [a, b, {}],
+      ];
+      for (const [first, second, mine, theirs] of [
+        [a, b, routeA, routeB],
+        [b, a, routeB, routeA],
+      ] as const) {
+        for (const [k, end] of (["from", "to"] as const).entries()) {
+          for (const [m, other] of (["from", "to"] as const).entries()) {
+            const side = theirs.ports[m]!.edge;
+            if (first[end] === second[other] && mine.ports[k]!.edge !== side) orders.push([first, second, { [end]: side }]);
+          }
+        }
+      }
+      for (const [first, second, by] of orders) {
+        const one = routeLink(first, by);
         if (!one) continue;
         grid.place(first.id, one);
         const two = routeLink(second);
