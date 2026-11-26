@@ -2,7 +2,7 @@ import { buildWorkspace, checkWorkspace, loadWorkspace } from "@open-arch/core";
 import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import type { DesktopBridge } from "../src/bridge.js";
-import { DesktopHost, exampleHost, tourHost, workspaceZip } from "../src/hosts.js";
+import { DesktopHost, exampleHost, tourHost, viewDocsPath, workspaceZip } from "../src/hosts.js";
 import { FolderHost } from "../src/folders.js";
 import { FakeFolder } from "./fakeFolder.js";
 import { deletePlan, relationshipRef, uniqueId } from "../src/model.js";
@@ -97,6 +97,44 @@ describe("hosts", () => {
     // Up and into another folder isn't inside the file's folder: the zip has no place for it.
     const other = JSON.stringify({ openarch: 21, name: "A", export: { docs: "../arch/docs" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(other), "a.openarch", other)))).toContain("a/README.md");
+  });
+});
+
+describe("the path to a view's page in the docs", () => {
+  const context = { title: "Context", level: "context", scope: "shop" };
+  const shop = (docs?: string) =>
+    JSON.stringify({ openarch: 21, name: "Shop", ...(docs === undefined ? {} : { export: { docs } }), elements: { shop: { kind: "system", name: "Shop" } }, views: { context } });
+
+  it("is where a save in a folder writes the page, as the path in the folder", async () => {
+    for (const [path, docs, page] of [
+      ["a.openarch", "docs", "docs/views/context.md"],
+      ["a.openarch", ".", "views/context.md"],
+      ["arch/a.openarch", ".", "arch/views/context.md"],
+      ["arch/a.openarch", "../docs/arch", "docs/arch/views/context.md"],
+    ] as const) {
+      const root = new FakeFolder("repo");
+      root.put(path, shop(docs));
+      await new FolderHost("1", root, path).save(shop(docs));
+      expect(viewDocsPath(path, docs, "context", true)).toBe(page);
+      expect(Object.keys(root.files())).toContain(page);
+    }
+  });
+
+  it("is none when saves write no page: with no docs folder, a full path, or one outside the folder", () => {
+    expect(viewDocsPath("a.openarch", undefined, "context", true)).toBeNull();
+    expect(viewDocsPath("a.openarch", "", "context", true)).toBeNull();
+    expect(viewDocsPath("a.openarch", "/docs", "context", true)).toBeNull();
+    expect(viewDocsPath("a.openarch", "C:docs", "context", false)).toBeNull();
+    expect(viewDocsPath("arch/a.openarch", "../../docs", "context", true)).toBeNull();
+  });
+
+  it("is a full path in the desktop app, with the file's own separators", () => {
+    expect(viewDocsPath("/repo/a.openarch", "docs", "context", false)).toBe("/repo/docs/views/context.md");
+    expect(viewDocsPath("/repo/arch/a.openarch", "../docs/./arch", "context", false)).toBe("/repo/docs/arch/views/context.md");
+    expect(viewDocsPath("/a.openarch", "../docs", "context", false)).toBe("/docs/views/context.md");
+    expect(viewDocsPath("C:\\repo\\a.openarch", "docs/arch", "context", false)).toBe("C:\\repo\\docs\\arch\\views\\context.md");
+    expect(viewDocsPath("C:\\a.openarch", "..", "context", false)).toBe("C:\\views\\context.md");
+    expect(viewDocsPath("\\\\server\\share\\a.openarch", "../docs", "context", false)).toBe("\\\\server\\share\\docs\\views\\context.md");
   });
 });
 

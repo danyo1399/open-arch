@@ -167,6 +167,8 @@ handle("load", (_event, path: string) => readFileSync(allowed(path), "utf8"));
 
 handle("save", (_event, path: string, text: string) => saver.save(allowed(path), parseOrThrow(text)));
 
+handle("writeDocs", (_event, path: string, text: string) => saver.docs(allowed(path), parseOrThrow(text)));
+
 ipcMain.on("watch", (event, path: string) => {
   const sender: WebContents = event.sender;
   stopWatching(sender.id);

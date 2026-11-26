@@ -33,7 +33,7 @@ import { NotesOpener } from "./canvas/nodes.js";
 import { EntityDiagram } from "./canvas/EntityDiagram.js";
 import type { SnapControl } from "./canvas/snap.js";
 import { canOpenFolders, exportToFolder, FolderHost, folderList, pickFolder } from "./folders.js";
-import { BrowserHost, canCopyImages, copyImage, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, workspaceZip, type WorkspaceHost } from "./hosts.js";
+import { BrowserHost, canCopyImages, copyImage, copyText, desktopBridge, DesktopHost, download, savesDocs, savesSkill, viewDocsPath, workspaceZip, type WorkspaceHost } from "./hosts.js";
 import { browserLibrary } from "./library.js";
 import { useMediaQuery } from "./mediaQuery.js";
 import {
@@ -750,9 +750,29 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     });
   // The open diagram taken elsewhere: as Mermaid to paste, as a markdown file of its own, or as a picture to paste or save.
   const canCopy = canCopyImages();
-  const exportItems = (cv: ComputedView): MenuItem[] => [
+  // Where saves write the view's page in the docs, to paste into a chat with an agent: in a folder, the path in it; in the desktop app, the full path.
+  const pagePath = (cv: ComputedView) =>
+    syncsDocs && (host instanceof FolderHost || host instanceof DesktopHost)
+      ? viewDocsPath(host.path, ws.doc.export?.docs, cv.view.id, host instanceof FolderHost)
+      : null;
+  // The clipboard is asked for straight away, while the click still counts. Then the docs are
+  // brought up to date, so the page is there, as it is now, by the time it's pasted: the docs
+  // were last written by a save, and the file may have changed outside since, or never been saved here.
+  const copyPath = (cv: ComputedView, path: string) =>
+    attempt(async () => {
+      await copyText(path);
+      const copied = `Copied the path to the page for “${cv.view.title}” in the docs, ${path}`;
+      const docs = await state.writeDocs().catch((e: unknown) => ({ error: problemText(e), skipped: [] as string[] }));
+      if (docs?.error) return state.notify({ kind: "error", text: `${copied}, but the docs couldn't be brought up to date, so it may be missing or out of date: ${docs.error}` });
+      if (docs?.skipped.includes(`views/${cv.view.id}.md`)) return state.notify({ kind: "error", text: `${copied}, but open-arch didn't write the file there, so it was left alone and isn't the view's page.` });
+      const where = host instanceof FolderHost ? ` It starts in ${host.root.name}, so start the agent there.` : "";
+      state.notify({ kind: "info", text: `${copied}. Paste it into a chat to have an agent, such as Claude, read it.${where}` });
+    });
+  const exportItems = (cv: ComputedView, path = pagePath(cv)): MenuItem[] => [
+    ...(path ? [{ label: "Copy path", onSelect: () => copyPath(cv, path) }] : []),
     {
       label: "Copy as Mermaid",
+      divider: !!path,
       onSelect: () =>
         attempt(async () => {
           await copyText(renderMermaid(cv));

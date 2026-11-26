@@ -365,12 +365,7 @@ export class FolderHost implements WorkspaceHost {
     if (!ws.valid) throw new Error(`Refusing to save: the workspace has structural errors (${ws.diagnostics.map((d) => d.message).join(" ")})`);
     // Worked out before anything is written, so a docs folder it can't reach saves nothing.
     const docs = ws.doc.export?.docs;
-    let docsParts: string[] | null = null;
-    if (docs) {
-      if (isAbsolutePath(docs)) throw new Error(`The docs folder must be relative to the ${FILE_EXTENSION} file, not ${JSON.stringify(docs)}.`);
-      docsParts = segments(`${this.path.split("/").slice(0, -1).join("/")}/${docs}`);
-      if (docsParts === null) throw new Error(`The docs folder ${docs}/ is outside the folder you opened, ${this.root.name}, so nothing was saved. Open the folder that holds it, or choose a docs folder inside ${this.root.name}.`);
-    }
+    const docsParts = this.docsIn(docs, "saved");
     // A change made outside since the designer read the file, by Git, an editor or an agent, is
     // kept: this save is refused, and the file reloads. The new text is written to the browser's
     // copy of the file first, and only swapped in after the check, which keeps the time an outside
@@ -401,6 +396,27 @@ export class FolderHost implements WorkspaceHost {
     this.known = saved;
     this.listAs(ws.doc.name);
     return { docs: docsParts && docs ? await this.saveDocs(ws, docs, docsParts) : null };
+  }
+
+  /**
+   * Rewrites the docs folder from `text`, as a save does, without writing the file: so a view's
+   * page is there, and up to date, for an agent to read. Null when the workspace names no docs folder.
+   */
+  async writeDocs(text: string): Promise<DocsSummary | null> {
+    const ws = loadWorkspace(text);
+    if (!ws.valid) throw new Error(`Refusing to write the docs: the workspace has structural errors (${ws.diagnostics.map((d) => d.message).join(" ")})`);
+    const docs = ws.doc.export?.docs;
+    const parts = this.docsIn(docs, "written");
+    return parts && docs ? this.saveDocs(ws, docs, parts) : null;
+  }
+
+  /** The docs folder's place in the folder opened, or null for none. For one it can't reach, it throws, saying nothing was `undone`. */
+  private docsIn(docs: string | undefined, undone: string): string[] | null {
+    if (!docs) return null;
+    if (isAbsolutePath(docs)) throw new Error(`The docs folder must be relative to the ${FILE_EXTENSION} file, not ${JSON.stringify(docs)}.`);
+    const parts = segments(`${this.path.split("/").slice(0, -1).join("/")}/${docs}`);
+    if (parts === null) throw new Error(`The docs folder ${docs}/ is outside the folder you opened, ${this.root.name}, so nothing was ${undone}. Open the folder that holds it, or choose a docs folder inside ${this.root.name}.`);
+    return parts;
   }
 
   /** Rewrites the docs folder. A docs folder that can't be written is reported, with what was changed before it stopped. */

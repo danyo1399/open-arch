@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { basename, dirname, relative } from "node:path";
-import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, type OpenArchDocument, type Workspace } from "@open-arch/core";
+import { emptyDocument, FILE_EXTENSION, loadWorkspace, nameFromFileName, serializeDocument, type OpenArchDocument, type Workspace } from "@open-arch/core";
 import { docsFolder, newDocsFolder, syncDocs, writeWorkspaceFile } from "open-arch/workspace";
 import type { DocsSummary, OpenedFile, SaveSummary } from "../../web/src/bridge.js";
 import type { AgentSetup } from "./agent-setup.js";
@@ -21,6 +21,12 @@ export function newDocument(file: string): OpenArchDocument {
   return doc;
 }
 
+/** Rewrites the docs folder the workspace names, and says what it did, for the UI. */
+function refreshDocs(file: string, ws: Workspace): DocsSummary | null {
+  const docs = syncDocs(file, ws);
+  return docs ? { dir: relative(dirname(file), docs.dir) || ".", written: docs.written.length, deleted: docs.deleted.length, skipped: docs.skipped } : null;
+}
+
 export class Saver {
   constructor(private readonly setup: AgentSetup) {}
 
@@ -28,8 +34,15 @@ export class Saver {
   write(file: string, doc: OpenArchDocument): { ws: Workspace; docs: DocsSummary | null } {
     writeWorkspaceFile(file, doc);
     const ws = loadWorkspace(readFileSync(file, "utf8"));
-    const docs = syncDocs(file, ws);
-    return { ws, docs: docs ? { dir: relative(dirname(file), docs.dir) || ".", written: docs.written.length, deleted: docs.deleted.length, skipped: docs.skipped } : null };
+    return { ws, docs: refreshDocs(file, ws) };
+  }
+
+  /**
+   * Refresh the docs folder from a document, as a save does, without writing the file: so a
+   * view's page is there, and up to date, for an agent to read. Null when it names no docs folder.
+   */
+  docs(file: string, doc: OpenArchDocument): DocsSummary | null {
+    return refreshDocs(file, loadWorkspace(serializeDocument(doc)));
   }
 
   /**
