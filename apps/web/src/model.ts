@@ -271,14 +271,20 @@ export function buildOps(ws: Workspace, container: string, library: string, buil
   return [{ op: "update-element", id: c.id, libraries: built ? [...c.libraries, library] : c.libraries.filter((l) => l !== library) }];
 }
 
-/** What deleting an element would remove, for the confirmation dialog: `builtWith` are the containers built with a library being deleted. */
-export function deletePlan(ws: Workspace, id: string): { inside: ArchElement[]; views: ViewDef[]; affected: ArchElement[]; builtWith: ArchElement[] } {
-  const gone = new Set([id, ...[...ws.elements.keys()].filter((e) => isInside(ws, e, id))]);
+/**
+ * What deleting an element, or several, would remove, for the confirmation dialog: `inside` is
+ * what's inside them that isn't one of them, and `builtWith` are the containers built with a
+ * library being deleted.
+ */
+export function deletePlan(ws: Workspace, ids: string | readonly string[]): { inside: ArchElement[]; views: ViewDef[]; affected: ArchElement[]; builtWith: ArchElement[] } {
+  const picked = new Set(typeof ids === "string" ? [ids] : ids);
+  const gone = new Set([...picked, ...[...ws.elements.keys()].filter((e) => [...picked].some((id) => isInside(ws, e, id)))]);
+  const libraries = [...picked].filter((id) => ws.elements.get(id)?.kind === "library");
   return {
-    inside: [...gone].filter((e) => e !== id).map((e) => ws.elements.get(e)!),
+    inside: [...gone].filter((e) => !picked.has(e)).map((e) => ws.elements.get(e)!),
     views: [...ws.views.values()].filter((v) => v.scope !== undefined && gone.has(v.scope)),
     affected: [...ws.elements.values()].filter((e) => !gone.has(e.id) && e.uses.some((r) => gone.has(r.to))),
-    builtWith: ws.elements.get(id)?.kind === "library" ? builtInto(ws, id).filter((c) => !gone.has(c.id)) : [],
+    builtWith: [...new Map(libraries.flatMap((l) => builtInto(ws, l)).filter((c) => !gone.has(c.id)).map((c) => [c.id, c])).values()],
   };
 }
 

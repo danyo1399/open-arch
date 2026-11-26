@@ -67,8 +67,14 @@ export function stickyItems(edits: MenuEdits, view: string, sticky: Sticky, { ed
 
 /**
  * The menu of a diagram's background: what its toolbar does. `add` is what + Add adds, put where
- * the click was. `autoLayout` lays the diagram out again, where there's something to lay out.
+ * the click was. `paste`, on a view of boxes, pastes what was copied there. `autoLayout` lays the
+ * diagram out again, where there's something to lay out.
  */
-export function diagramItems(add: MenuItem[], autoLayout: (() => void) | undefined, exportItems: MenuItem[]): MenuItem[] {
-  return [{ label: "Add", items: add }, ...(autoLayout ? [{ label: "Auto layout", onSelect: autoLayout }] : []), ...(exportItems.length > 0 ? [{ label: "Export", items: exportItems }] : [])];
+export function diagramItems(add: MenuItem[], autoLayout: (() => void) | undefined, exportItems: MenuItem[], paste?: () => void): MenuItem[] {
+  return [
+    { label: "Add", items: add },
+    ...(paste ? [{ label: "Paste", onSelect: paste }] : []),
+    ...(autoLayout ? [{ label: "Auto layout", onSelect: autoLayout }] : []),
+    ...(exportItems.length > 0 ? [{ label: "Export", items: exportItems }] : []),
+  ];
 }

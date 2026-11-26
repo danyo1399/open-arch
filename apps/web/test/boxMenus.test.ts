@@ -88,7 +88,7 @@ describe("the right-click menu of a view of boxes' background", () => {
     await click(d.node("web")!);
     await d.rightClick(d.pane(), { x: 2000, y: 1500 });
     expect(d.details()).toBe("View");
-    expect(d.labels()).toEqual(["Add", "Auto layout", "Export"]);
+    expect(d.labels()).toEqual(["Add", "Paste", "Auto layout", "Export"]);
     await d.pick("Add");
     expect(d.labels()).toEqual(["Container in Shop", "Shared library", "Person", "Software system", "Sticky note"]);
     await key(document.activeElement!, "Escape");
@@ -117,14 +117,14 @@ describe("the right-click menu of a view of boxes' background", () => {
 
     const empty = await open({ ...doc, views: { landscape: { title: "Landscape", level: "landscape", exclude: ["customer", "shop"] } } }, "landscape");
     await empty.rightClick(empty.pane());
-    expect(empty.labels()).toEqual(["Add", "Export"]);
+    expect(empty.labels()).toEqual(["Add", "Paste", "Export"]);
   });
 
   it("leaves a box and the frame with the menus they had", async () => {
     const d = await designer();
     await d.rightClick(d.node("web")!);
     expect(d.details()).toBe("Container");
-    expect(d.labels()).toEqual(["Find usages", "Hide from this view", "Add sticky note", "New view", "Delete from model…"]);
+    expect(d.labels()).toEqual(["Find usages", "Hide from this view", "Add sticky note", "New view", "Copy", "Delete from model…"]);
     await key(document.activeElement!, "Escape");
     // The frame is the system's, and takes no clicks: a right-click on it is on the background, and opens the system's menu.
     await d.rightClick(d.pane(), { x: 250, y: 400 });

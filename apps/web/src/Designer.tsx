@@ -19,7 +19,8 @@ import {
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { askContext } from "./ai/context.js";
-import { Canvas, canAutoLayout, type AutoLayout, type Selection } from "./canvas/Canvas.js";
+import { Canvas, canAutoLayout, type AutoLayout, type CanvasClipboard, type Selection } from "./canvas/Canvas.js";
+import { deleteOps } from "./copyPaste.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
@@ -89,7 +90,8 @@ import { PUBLIC_DESIGNER, shareClient } from "./share.js";
 import { RELOADED, saveProblem, useWorkspace, type Edit } from "./state.js";
 
 type Dialog =
-  | { kind: "delete"; id: string }
+  /** Elements to delete from the model, and the sticky notes selected with them, which go too. */
+  | { kind: "delete"; ids: string[]; stickies: string[] }
   | { kind: "deleteView"; id: string }
   | { kind: "newView" }
   | { kind: "share" }
@@ -103,7 +105,7 @@ type Dialog =
   | null;
 
 /** What a right-click menu is for, and where it opened on the screen. */
-type Menu = ({ kind: "element"; id: string } | { kind: "arrow"; from: string; to: string; relation?: RelationshipKind }) & { x: number; y: number };
+type Menu = ({ kind: "element"; id: string } | { kind: "arrow"; from: string; to: string; relation?: RelationshipKind } | { kind: "several"; elements: string[]; stickies: string[] }) & { x: number; y: number };
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -204,6 +206,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const mainRef = useRef<HTMLElement>(null);
   /** The open diagram's Auto layout, which the More menu has on a narrow screen. */
   const autoLayout = useRef<AutoLayout | null>(null);
+  /** The open diagram's Copy, on a view of boxes, for the menus and the details. */
+  const clipboard = useRef<CanvasClipboard | null>(null);
   /** How many of them this render's IDs reflect. */
   const [renamesSeen, setRenamesSeen] = useState(0);
   /** Every change to the workspace that a diagram's right-click menu follows (see diagramMenu.ts), in order, and how many of them this render reflects. */
@@ -243,7 +247,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     setSelection((s) => renamedSelection(s, to));
     setViewId((v) => v && to(v));
     setUsagesOf((u) => u && to(u));
-    setDialog((d) => (d?.kind === "notes" ? { ...d, owner: renamedNotesOwner(d.owner, to) } : d && "id" in d && to(d.id) !== d.id ? { ...d, id: to(d.id) } : d));
+    setDialog((d) =>
+      d?.kind === "notes" ? { ...d, owner: renamedNotesOwner(d.owner, to) } : d?.kind === "delete" ? { ...d, ids: d.ids.map(to) } : d && "id" in d && to(d.id) !== d.id ? { ...d, id: to(d.id) } : d,
+    );
     setMenu((m) => m && renamedSelection(m, to));
     attempt(() => viewSettings.followRenames(applied));
   });
@@ -408,6 +414,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
 
   // Right-clicking an element or an arrow selects it too, so it's clear which one the menu is for.
   const openElementMenu = (id: string, at: { x: number; y: number }) => {
+    // A box selected with others has the menu for them all.
+    if (selection?.kind === "several" && selection.elements.includes(id)) return setMenu({ kind: "several", elements: selection.elements.map(current), stickies: selection.stickies, ...at });
     if (selection?.kind !== "element" || selection.id !== id) select({ kind: "element", id });
     setMenu({ kind: "element", id: current(id), ...at });
   };
@@ -530,6 +538,19 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
 
   const showInView = (id: string) => view && void edit([{ op: "show-in-view", view: view.id, id }]);
   const hideFromView = (id: string) => view && void edit([{ op: "hide-in-view", view: view.id, id }]).then(() => select(null));
+  /** Hides boxes selected together from the view, as one step for Undo. Notes selected with them stay. */
+  const hideAll = (ids: string[]) => view && void edit(ids.map((id): Operation => ({ op: "hide-in-view", view: view.id, id: current(id) }))).then(() => select(null));
+
+  /** Whether the open diagram can copy this selection: boxes and notes on a view of boxes. */
+  const copyable = (what: Selection) => !!clipboard.current?.canCopy(what);
+  /** Copies what's selected, for the menus and the details, and says what it copied. Ctrl+C does it without a word. */
+  const copySelected = () =>
+    attempt(async () => {
+      const copied = await clipboard.current?.copy();
+      if (!copied) return;
+      const what = shapesLabel(copied.elements.filter((e) => e.picked).length, copied.stickies.length);
+      state.notify({ kind: "info", text: `Copied ${what}. Paste on this view or another with ${isMac ? "⌘V" : "Ctrl+V"}, or Paste in the diagram's right-click menu.` });
+    });
 
   /** A usage can be in another view: open that one, then select it there. */
   const goToUsage = (target: string | null, next: Selection) => {
@@ -542,7 +563,10 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   }, [ws, usagesOf]);
 
   const removeSelection = useCallback(() => {
-    if (selection?.kind === "element") setDialog({ kind: "delete", id: current(selection.id) });
+    if (selection?.kind === "element") setDialog({ kind: "delete", ids: [current(selection.id)], stickies: [] });
+    // Boxes selected together are deleted from the model together, with the notes selected with them, once it's confirmed.
+    if (selection?.kind === "several" && selection.elements.length > 0) setDialog({ kind: "delete", ids: selection.elements.map(current), stickies: selection.stickies });
+    if (selection?.kind === "several" && selection.elements.length === 0 && view) void edit(deleteOps(ws!, view.id, [], selection.stickies)).then(() => select(null));
     // A note is only text on one view, and Undo brings it back, so it goes without asking.
     if (selection?.kind === "sticky" && view) void edit([{ op: "remove-sticky", view: view.id, id: selection.id }]).then(() => select(null));
     // A step is one line of a sequence, and Undo brings it back, so it goes without asking too.
@@ -791,7 +815,17 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
       ...(action === "hide" ? [{ label: "Hide from this view", onSelect: () => hideFromView(id) }] : []),
       ...(on ? [{ label: "Add sticky note", onSelect: () => addStickyOn(on) }] : []),
       ...(element ? [{ label: "New view", items: viewLevelsOf(element).map((level) => ({ label: LEVEL_NAMES[level], onSelect: () => newViewFor(id, level) })) }] : []),
-      { label: "Delete from model…", danger: true, onSelect: () => setDialog({ kind: "delete", id: current(id) }) },
+      ...(copyable({ kind: "element", id }) ? [{ label: "Copy", onSelect: copySelected }] : []),
+      { label: "Delete from model…", danger: true, onSelect: () => setDialog({ kind: "delete", ids: [current(id)], stickies: [] }) },
+    ];
+  };
+  // What can be done with several boxes and notes selected together: right-click any of their boxes.
+  const severalMenu = (elements: string[], stickies: string[]): MenuItem[] => {
+    const hideable = elements.length > 0 && elements.every((id) => viewAction(ws, view, computed, id) === "hide");
+    return [
+      { label: "Copy", onSelect: copySelected },
+      ...(hideable ? [{ label: "Hide from this view", onSelect: () => hideAll(elements) }] : []),
+      { label: "Delete from model…", danger: true, divider: true, onSelect: () => setDialog({ kind: "delete", ids: elements.map(current), stickies }) },
     ];
   };
   // What the details panel can do with an arrow. One that stands for several relationships
@@ -1091,6 +1125,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
                 editSticky={isNew && selection?.kind === "sticky" ? selection.id : null}
                 snap={snap}
                 autoLayoutHandle={autoLayout}
+                clipboardHandle={clipboard}
               />
             </ReactFlowProvider>
           ) : (
@@ -1120,7 +1155,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         edit={edit}
         onSelect={select}
         onHide={hideFromView}
-        onDelete={(id) => setDialog({ kind: "delete", id: current(id) })}
+        onDelete={(id) => setDialog({ kind: "delete", ids: [current(id)], stickies: [] })}
+        onDeleteSelected={removeSelection}
+        onCopy={copyable(selection) ? copySelected : undefined}
         onFindUsages={findUsages}
         onAddSticky={addStickyOn}
         onNewView={newViewFor}
@@ -1184,20 +1221,28 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         </div>
       )}
 
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.kind === "element" ? elementMenu(menu.id) : arrowMenu(menu.from, menu.to, menu.relation)} onClose={closeMenu} />}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menu.kind === "element" ? elementMenu(menu.id) : menu.kind === "several" ? severalMenu(menu.elements, menu.stickies) : arrowMenu(menu.from, menu.to, menu.relation)}
+          onClose={closeMenu}
+        />
+      )}
       {dialog?.kind === "delete" && (
         <DeleteElementDialog
           ws={ws}
-          id={dialog.id}
-          inView={viewAction(ws, view, computed, dialog.id) === "hide"}
+          ids={dialog.ids}
+          stickies={dialog.stickies.filter((id) => view?.stickies.some((s) => s.id === id)).length}
+          inView={dialog.ids.every((id) => viewAction(ws, view, computed, id) === "hide")}
           onClose={() => setDialog(null)}
           onHide={() => {
             setDialog(null);
-            hideFromView(dialog.id);
+            hideAll(dialog.ids);
           }}
           onDelete={() => {
             setDialog(null);
-            void edit([{ op: "remove-element", id: dialog.id }]).then(() => select(null));
+            void edit((now) => deleteOps(now, view?.id ?? null, dialog.ids.map(current), dialog.stickies)).then(() => select(null));
           }}
         />
       )}

@@ -102,6 +102,15 @@ export async function copyText(text: string): Promise<void> {
 }
 
 /**
+ * The text on the clipboard. The browser may ask the person first, and refuse if they say no.
+ * Pressing Ctrl+V (⌘V on a Mac) pastes without asking.
+ */
+export async function pasteText(): Promise<string> {
+  if (!navigator.clipboard?.readText) throw new Error("This browser doesn't let the page read the clipboard.");
+  return navigator.clipboard.readText();
+}
+
+/**
  * Whether this browser can put a picture on the clipboard. Only a secure page (HTTPS or
  * localhost) can, in a browser that knows ClipboardItem.
  */

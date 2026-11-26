@@ -39,6 +39,8 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
+import { copiedMiddle, copiedText, copyOf, copySource, pasteOps, readCopied, type Copied } from "../copyPaste.js";
+import { copyText, pasteText } from "../hosts.js";
 import { useMediaQuery } from "../mediaQuery.js";
 import {
   arrowNotes,
@@ -174,6 +176,26 @@ interface CanvasProps {
   snap: SnapControl;
   /** Given the diagram's Auto layout, for the top bar's More menu on a narrow screen. */
   autoLayoutHandle?: RefObject<AutoLayout | null>;
+  /** Given the diagram's Copy, for the designer's menus and details. */
+  clipboardHandle?: RefObject<CanvasClipboard | null>;
+}
+
+/** Copy on a view of boxes, for the designer's menus and details: Ctrl+C (⌘C on a Mac) and Paste are the canvas's own. */
+export interface CanvasClipboard {
+  /** Whether what's selected can be copied: boxes, sticky notes, or both. */
+  canCopy(selection: Selection): boolean;
+  /** Puts what's selected on the clipboard. Resolves to what it copied, or null when there was nothing to. */
+  copy(): Promise<Copied | null>;
+}
+
+/** How far below and to the right of what was copied each paste on the same view goes: two steps of the grid. */
+const PASTE_STEP = GRID * 2;
+
+/** Whether a copy or paste is for text: in a box to type in, a dialog, or text selected on the page. */
+function forText(event: Event, copying: boolean): boolean {
+  if (event.target instanceof Element && event.target.closest("input, textarea, select, dialog, [contenteditable]")) return true;
+  const selected = document.getSelection();
+  return copying && !!selected && !selected.isCollapsed && selected.toString() !== "";
 }
 
 /** Something + Add can add to a view: an element of this kind, with the parent it gets. */
@@ -599,7 +621,7 @@ export function inNodeOrder(elements: ArchElement[], nodeIdOf: ReadonlyMap<strin
   return [...elements].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (node(a) < node(b) ? -1 : node(a) > node(b) ? 1 : 0));
 }
 
-export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky, snap, autoLayoutHandle }: CanvasProps) {
+export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus, onElementMenu, onArrowMenu, onError, renames, exportItems, editSticky, snap, autoLayoutHandle, clipboardHandle }: CanvasProps) {
   const rf = useReactFlow<FlowNode, ArrowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const scopeErrors = useMemo(() => scopeProblems(ws, view), [ws, view]);
@@ -1085,6 +1107,89 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
     });
   };
 
+  /** What Copy copies from the selection now, with every box and note where it's shown, or null when nothing is selected that it can copy. */
+  const copied = (now: Selection = selection): Copied | null => {
+    const notes = Object.fromEntries(nodesRef.current.flatMap((n) => (n.type === "sticky" ? [[n.data.sticky.id, [Math.round(n.position.x), Math.round(n.position.y)] as [number, number]]] : [])));
+    return copyOf(ws, view, copySource(now), { boxes: currentLayout(), notes });
+  };
+
+  /** How many times what's on the clipboard has been pasted on this view with Ctrl+V, by the clipboard's text. */
+  const pastes = useRef(new Map<string, number>());
+
+  /**
+   * Pastes what was copied, centred on a point on the diagram, and selects it. Without one, on the
+   * view it was copied from, it goes a step below and to the right of what was copied, and a step
+   * further each time, so it doesn't hide it; on another view, in the middle of the canvas.
+   */
+  const paste = (what: Copied, at?: Point) => {
+    const middle = !at && what.view === view.id ? copiedMiddle(what, { width: NODE_W, height: NODE_H }) : null;
+    let center = addPoint(at);
+    if (middle) {
+      const text = copiedText(what);
+      const times = (pastes.current.get(text) ?? 0) + 1;
+      pastes.current.set(text, times);
+      center = { x: middle.x + PASTE_STEP * times, y: middle.y + PASTE_STEP * times };
+    }
+    const layout = currentLayout();
+    let made = { elements: [] as string[], stickies: [] as string[] };
+    void edit((now) => {
+      const pasted = pasteOps(now, view.id, what, layout, center, { width: NODE_W, height: NODE_H });
+      made = pasted;
+      return pasted.ops;
+    }).then((ok) => ok && onSelect(selectShapes(made)));
+  };
+
+  /** The background menu's Paste: it asks the browser for the clipboard, which may ask the person first. */
+  const pasteFromMenu = (at: Point) =>
+    void pasteText().then(
+      (text) => {
+        const what = readCopied(text);
+        if (what) paste(what, at);
+        else onError("There's nothing to paste here. Select boxes or sticky notes and copy them first.");
+      },
+      (e: unknown) => onError(`Couldn't read the clipboard: ${e instanceof Error ? e.message : String(e)} Press ${isMac ? "⌘V" : "Ctrl+V"} to paste instead.`),
+    );
+
+  // Ctrl+C and Ctrl+V (⌘ on a Mac), unless they're for text. The latest render's copy and paste do the work.
+  const clipboard = useRef({ copied, paste });
+  clipboard.current = { copied, paste };
+  useEffect(() => {
+    const onCopy = (e: ClipboardEvent) => {
+      if (forText(e, true) || !e.clipboardData) return;
+      const what = clipboard.current.copied();
+      if (!what) return;
+      e.preventDefault();
+      e.clipboardData.setData("text/plain", copiedText(what));
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      if (forText(e, false)) return;
+      const what = readCopied(e.clipboardData?.getData("text/plain") ?? "");
+      if (!what) return;
+      e.preventDefault();
+      clipboard.current.paste(what);
+    };
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("paste", onPaste);
+    return () => {
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("paste", onPaste);
+    };
+  }, []);
+  useEffect(() => {
+    if (!clipboardHandle) return;
+    clipboardHandle.current = {
+      canCopy: (now) => clipboard.current.copied(now) !== null,
+      copy: async () => {
+        const what = clipboard.current.copied();
+        if (what) await copyText(copiedText(what));
+        return what;
+      },
+    };
+    return () => {
+      clipboardHandle.current = null;
+    };
+  }, [clipboardHandle]);
+
   /** What can be added to this view, by + Add and the diagram's right-click menu, centred on a point on the diagram or else in the middle. */
   const addItems = (at?: Point): MenuAction[] => [
     ...addableKinds(ws, view).map((k) => ({ label: k.label, onSelect: () => add(k.kind, k.parent, at, k.builtInto) })),
@@ -1104,7 +1209,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
     host: menus,
     toDiagram: (point) => rf.screenToFlowPosition(point),
     items: (on, at) => {
-      if (on.kind === "diagram") return diagramItems(addItems(at), ids.length > 0 ? autoLayout.run : undefined, exportItems);
+      if (on.kind === "diagram") return diagramItems(addItems(at), ids.length > 0 ? autoLayout.run : undefined, exportItems, () => pasteFromMenu(at));
       const sticky = on.kind === "sticky" && view.stickies.find((s) => s.id === on.id);
       if (!sticky) return [];
       // A note that was moved goes back beside what it's on, when that's drawn, or else beside the diagram.

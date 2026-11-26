@@ -146,6 +146,10 @@ interface PropertiesProps {
   onHide(id: string): void;
   onDelete(id: string): void;
   onFindUsages(id: string): void;
+  /** Deletes what's selected, as the Delete key does: several boxes from the model, once it's confirmed, with the notes selected with them. */
+  onDeleteSelected?(): void;
+  /** Copies what's selected, where the open diagram can: boxes and notes on a view of boxes. */
+  onCopy?(): void;
   /** Makes a view of this level of the element, such as a component view of a container, and opens it. */
   onNewView(id: string, level: ViewLevel): void;
   /** Adds a library built into this container, and opens its details. Resolves once it has, or couldn't. */
@@ -216,7 +220,7 @@ export function Properties(props: PropertiesProps) {
   );
 }
 
-function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onFindUsages, onNewView, onNewLibrary, onBuild, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
+function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect, onHide, onDelete, onCopy, onFindUsages, onNewView, onNewLibrary, onBuild, onAddSticky, onEditNotes }: PropertiesProps & { element: ArchElement }) {
   const d = describeElement(ws, element.id)!;
   const set = (fields: Record<string, unknown>) => void edit([{ op: "update-element", id: element.id, ...fields }]);
   // An ID made from the name ("checkout-api") keeps following it, so the two don't drift apart.
@@ -377,6 +381,7 @@ function ElementProperties({ ws, view, element, computed, isNew, edit, onSelect,
         <MenuButton items={viewLevelsOf(element).map((level) => ({ label: LEVEL_NAMES[level], onSelect: () => onNewView(element.id, level) }))} title={`Make a view of ${element.name}, and open it`}>
           New view
         </MenuButton>
+        {onCopy && <button onClick={onCopy}>Copy</button>}
         <button className="danger" onClick={() => onDelete(element.id)}>
           Delete from model…
         </button>
@@ -2161,13 +2166,13 @@ function BoardProperties({ view, shapes, arrows, stickies, edit, onSelect }: Pro
   );
 }
 
-function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
+function SeveralProperties({ elements, stickies, onSelect, onCopy, onDeleteSelected }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
   return (
     <>
       <header className="props-header">
         <span className="badge">{shapesLabel(elements.length, stickies.length)}</span>
       </header>
-      <p className="muted small">Drag any of them to move them all together. Ctrl-click (⌘-click on a Mac) or Shift-click a box or note to add it or take it out.</p>
+      <p className="muted small">Drag any of them to move them all together. Ctrl-click (⌘-click on a Mac) or Shift-click a box or note to add it or take it out. Ctrl+C (⌘C) copies them, to paste on any view of boxes with Ctrl+V (⌘V).</p>
       {elements.length > 0 && (
         <>
           <h3>Boxes</h3>
@@ -2199,6 +2204,14 @@ function SeveralProperties({ elements, stickies, onSelect }: PropertiesProps & {
           </ul>
         </>
       )}
+      <div className="actions">
+        {onCopy && <button onClick={onCopy}>Copy</button>}
+        {onDeleteSelected && (
+          <button className="danger" onClick={onDeleteSelected}>
+            {elements.length > 0 ? "Delete from model…" : "Delete notes"}
+          </button>
+        )}
+      </div>
     </>
   );
 }

@@ -349,31 +349,56 @@ export function NotesEditor({ name, text, saved, ready = true, onSave, onClose }
   );
 }
 
-export function DeleteElementDialog({ ws, id, inView, onHide, onDelete, onClose }: { ws: Workspace; id: string; inView: boolean; onHide(): void; onDelete(): void; onClose(): void }) {
-  const element = ws.elements.get(id);
-  if (!element) return null;
-  const plan = deletePlan(ws, id);
+/**
+ * Asks before deleting elements from the model: one, or several selected together, with the
+ * sticky notes selected with them, which go too. `inView` offers to only hide the boxes from the
+ * open view instead, which leaves the notes as they are.
+ */
+export function DeleteElementDialog({
+  ws,
+  ids,
+  stickies = 0,
+  inView,
+  onHide,
+  onDelete,
+  onClose,
+}: {
+  ws: Workspace;
+  ids: readonly string[];
+  stickies?: number;
+  inView: boolean;
+  onHide(): void;
+  onDelete(): void;
+  onClose(): void;
+}) {
+  const elements = ids.flatMap((id) => ws.elements.get(id) ?? []);
+  if (elements.length === 0) return null;
+  const one = elements.length === 1;
+  const plan = deletePlan(ws, ids);
   const inside = plan.inside;
+  const names = elements.map((e) => e.name);
+  const list = names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   return (
     <Modal
-      title={`Delete ${element.name}?`}
+      title={one ? `Delete ${elements[0]!.name}?` : `Delete ${elements.length} elements?`}
       onClose={onClose}
       actions={
         <>
           <button onClick={onClose}>Cancel</button>
-          {inView && <button onClick={onHide}>Only hide it from this view</button>}
+          {inView && <button onClick={onHide}>{one ? "Only hide it from this view" : "Only hide them from this view"}</button>}
           <button className="danger primary" onClick={onDelete}>
             Delete from model
           </button>
         </>
       }
     >
-      <p>Deleting removes it from every view and deletes its file.</p>
+      <p>{one ? "Deleting removes it from every view and deletes its file." : `Deleting removes ${list} from every view and deletes their files.`}</p>
       <ul>
-        {inside.length > 0 && <li>Also deletes what's inside it: {inside.map((e) => e.name).join(", ")}.</li>}
+        {inside.length > 0 && <li>Also deletes what's inside {one ? "it" : "them"}: {inside.map((e) => e.name).join(", ")}.</li>}
         {plan.views.length > 0 && <li>Also deletes these views: {plan.views.map((v) => v.title).join(", ")}.</li>}
-        {plan.affected.length > 0 && <li>Removes relationships to it from: {plan.affected.map((e) => e.name).join(", ")}.</li>}
-        {plan.builtWith.length > 0 && <li>Takes it out of the containers built with it: {plan.builtWith.map((e) => e.name).join(", ")}.</li>}
+        {plan.affected.length > 0 && <li>Removes relationships to {one ? "it" : "them"} from: {plan.affected.map((e) => e.name).join(", ")}.</li>}
+        {plan.builtWith.length > 0 && <li>Takes {one ? "it" : "the libraries"} out of the containers built with {one ? "it" : "them"}: {plan.builtWith.map((e) => e.name).join(", ")}.</li>}
+        {stickies > 0 && <li>Also deletes the {stickies === 1 ? "sticky note" : `${stickies} sticky notes`} selected with {one ? "it" : "them"}.</li>}
       </ul>
     </Modal>
   );
