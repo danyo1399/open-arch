@@ -1,6 +1,7 @@
 import {
   computeView,
   diagnosticTarget,
+  loadWorkspace,
   OpError,
   renderMermaid,
   scopeProblems,
@@ -751,9 +752,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   // The open diagram taken elsewhere: as Mermaid to paste, as a markdown file of its own, or as a picture to paste or save.
   const canCopy = canCopyImages();
   // Where saves write the view's page in the docs, to paste into a chat with an agent: in a folder, the path in it; in the desktop app, the full path.
-  const pagePath = (cv: ComputedView) =>
+  const pagePath = (cv: ComputedView, doc = ws.doc) =>
     syncsDocs && (host instanceof FolderHost || host instanceof DesktopHost)
-      ? viewDocsPath(host.path, ws.doc.export?.docs, cv.view.id, host instanceof FolderHost)
+      ? viewDocsPath(host.path, doc.export?.docs, cv.view.id, host instanceof FolderHost)
       : null;
   // The clipboard is asked for straight away, while the click still counts. Then the docs are
   // brought up to date, so the page is there, as it is now, by the time it's pasted: the docs
@@ -762,9 +763,19 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     attempt(async () => {
       await copyText(path);
       const copied = `Copied the path to the page for “${cv.view.title}” in the docs, ${path}`;
-      const docs = await state.writeDocs().catch((e: unknown) => ({ error: problemText(e), skipped: [] as string[] }));
-      if (docs?.error) return state.notify({ kind: "error", text: `${copied}, but the docs couldn't be brought up to date, so it may be missing or out of date: ${docs.error}` });
-      if (docs?.skipped.includes(`views/${cv.view.id}.md`)) return state.notify({ kind: "error", text: `${copied}, but open-arch didn't write the file there, so it was left alone and isn't the view's page.` });
+      const fail = (why: string) => state.notify({ kind: "error", text: `${copied}, but ${why}` });
+      let written: Awaited<ReturnType<typeof state.writeDocs>>;
+      try {
+        written = await state.writeDocs();
+      } catch (e) {
+        return fail(`the docs couldn't be brought up to date, so it may be missing or out of date: ${problemText(e)}`);
+      }
+      const { docs, text } = written;
+      if (docs?.error) return fail(`the docs couldn't be brought up to date, so it may be missing or out of date: ${docs.error}`);
+      // An edit or a reload that landed first may have moved the docs folder, or the view.
+      const now = loadWorkspace(text).doc;
+      if (!now.views[cv.view.id] || pagePath(cv, now) !== path) return fail("the workspace changed meanwhile, so that isn't where its page is now. Copy the path again.");
+      if (docs?.skipped.includes(`views/${cv.view.id}.md`)) return fail("open-arch didn't write the file there, so it was left alone and isn't the view's page.");
       const where = host instanceof FolderHost ? ` It starts in ${host.root.name}, so start the agent there.` : "";
       state.notify({ kind: "info", text: `${copied}. Paste it into a chat to have an agent, such as Claude, read it.${where}` });
     });
