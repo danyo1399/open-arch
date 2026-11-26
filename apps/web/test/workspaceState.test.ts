@@ -57,7 +57,7 @@ describe("bringing the docs up to date without saving", () => {
     Object.assign(host, { writeDocs: async (from: string) => (written.push(from), docs) });
     const state = await workspaceFor(host);
     let saved: Promise<unknown> = Promise.resolve();
-    let refreshed: Promise<DocsSummary | null> = Promise.resolve(null);
+    let refreshed: Promise<{ docs: DocsSummary | null; text: string }> = Promise.resolve({ docs: null, text: "" });
     await act(async () => {
       saved = state().edit([{ op: "update-workspace", name: "B" }]);
       refreshed = state().writeDocs();
@@ -66,7 +66,7 @@ describe("bringing the docs up to date without saving", () => {
     expect(written).toEqual([]);
     await act(async () => finish());
     await act(async () => void (await saved));
-    expect(await refreshed).toEqual(docs);
+    expect(await refreshed).toEqual({ docs, text: host.file });
     expect(written).toEqual([host.file]);
     expect(written[0]).toContain('"name": "B"');
     expect(state().docs).toEqual(docs);

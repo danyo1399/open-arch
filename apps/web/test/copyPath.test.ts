@@ -71,6 +71,29 @@ describe("Copy path", () => {
     expect(host.textContent).not.toContain("start the agent there");
   });
 
+  it("says to copy it again when a change that landed first moved the page", async () => {
+    // The file as the designer opened it, then as an agent changed it: its docs in another folder.
+    let file = shop(".");
+    let reload = () => {};
+    let loaded = () => {};
+    const bridge = {
+      load: () => new Promise<string>((resolve) => (file === shop(".") ? resolve(file) : (loaded = () => resolve(file)))),
+      save: async () => ({ docs: null }),
+      writeDocs: async () => ({ dir: "docs", written: 1, deleted: 0, skipped: [] }),
+      watch: (_path: string, onChange: () => void) => ((reload = onChange), () => {}),
+    } as unknown as DesktopBridge;
+    const written = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const { host, item } = await exportMenu(new DesktopHost(bridge, "/work/shop.openarch", "shop.openarch"));
+    // The change is still being read when Copy path is clicked, so the docs are written after it.
+    file = shop("docs");
+    await act(async () => reload());
+    await click(item("Copy path"));
+    await act(async () => loaded());
+    await until(() => !!host.textContent?.includes("Copied the path"));
+    expect(written).toHaveBeenCalledWith("/work/views/context.md");
+    expect(host.textContent).toContain("/work/views/context.md, but the workspace changed meanwhile, so that isn't where its page is now. Copy the path again.");
+  });
+
   it("says so when the docs couldn't be brought up to date, as the page may be missing or old", async () => {
     const root = new FakeFolder("repo");
     root.put("shop.openarch", shop("docs"));
