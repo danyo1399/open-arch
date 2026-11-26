@@ -248,37 +248,44 @@ export function measureLabelSizes(edges: ViewEdge[]): LabelSize[][] {
   return each.map((at) => (at.length ? sizesAt((_, k) => measured.get(at[k]!.key)!) : []));
 }
 
+/** What the grips at a line's ends call the line and what it goes to, for their tooltips: "arrow" and "box" on most views. */
+export interface GripNames {
+  line: string;
+  box: string;
+}
+
 /**
  * A grip on each end of a selected arrow, to drag that end to another box. The grips are over the
  * boxes, so the half of each on its box can be grabbed too. A grip keeps the pointer while it's
- * dragged, and reports where it is; the canvas draws the arrow being moved, and moves it.
+ * dragged, and reports where it is; the diagram draws the arrow being moved, and moves it. Any
+ * diagram's lines can have them: a flowchart's flows, a state view's transitions, and an entity
+ * view's links, as well as arrows between boxes.
  */
-function EndGrips({ data }: { data: ArrowData }) {
+export function EndGrips({ points, moving, onEndDrag, onEndDrop, names = { line: "arrow", box: "box" } }: Pick<ArrowData, "points" | "moving" | "onEndDrag" | "onEndDrop"> & { names?: GripNames }) {
   const rf = useReactFlow();
   const drag = useRef<{ end: ArrowEnd; pointer: number; x: number; y: number; moving: boolean } | null>(null);
-  const latest = useRef(data);
-  latest.current = data;
+  const latest = useRef(onEndDrop);
+  latest.current = onEndDrop;
   // Grips taken away mid-drag, as when the arrow leaves the view, hear no more of the pointer.
   useEffect(
     () => () => {
       const d = drag.current;
-      if (d?.moving) latest.current.onEndDrop(d.end, null);
+      if (d?.moving) latest.current(d.end, null);
     },
     [],
   );
-  const { points } = data;
   const at = (e: PointerEvent) => rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
   const stop = (dropped: Point | null) => {
     const d = drag.current;
     drag.current = null;
-    if (d?.moving) data.onEndDrop(d.end, dropped);
+    if (d?.moving) onEndDrop(d.end, dropped);
   };
   const grip = (end: ArrowEnd, p: Readonly<Point>) => (
     <div
       key={end}
-      className={`arrow-grip nodrag nopan${data.moving === end ? " moving" : ""}`}
+      className={`arrow-grip nodrag nopan${moving === end ? " moving" : ""}`}
       style={{ transform: `translate(${p.x}px, ${p.y}px)` }}
-      title={end === "from" ? "Drag to another box to start the arrow there" : "Drag to another box to point the arrow there"}
+      title={`Drag to another ${names.box} to ${end === "from" ? "start" : "point"} the ${names.line} there`}
       onPointerDown={(e) => {
         if (e.button !== 0 || drag.current) return;
         e.stopPropagation();
@@ -290,7 +297,7 @@ function EndGrips({ data }: { data: ArrowData }) {
         if (!d || d.pointer !== e.pointerId) return;
         if (!d.moving && Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_DISTANCE) return;
         d.moving = true;
-        data.onEndDrag(end, at(e));
+        onEndDrag(end, at(e));
       }}
       onPointerUp={(e) => drag.current?.pointer === e.pointerId && stop(at(e))}
       onPointerCancel={(e) => drag.current?.pointer === e.pointerId && stop(null)}
@@ -303,6 +310,29 @@ function EndGrips({ data }: { data: ArrowData }) {
     <ViewportPortal>
       {grip("from", points[0]!)}
       {grip("to", points[points.length - 1]!)}
+    </ViewportPortal>
+  );
+}
+
+/** The line a moving end draws: straight from the arrow's other end, `route`'s, to where the moving end is. None for a route with no line. */
+export function movingLine(route: readonly Readonly<Point>[] | undefined, end: ArrowEnd, at: Point): { from: Point; to: Point } | null {
+  if (!route || route.length < 2) return null;
+  return { from: end === "from" ? at : route[0]!, to: end === "to" ? at : route[route.length - 1]! };
+}
+
+/** An arrow whose start or end is being dragged, drawn straight to the pointer, with a dot at a moving start. */
+export function MovingArrow({ line, end, zIndex }: { line: { from: Point; to: Point }; end: ArrowEnd; zIndex: number }) {
+  return (
+    <ViewportPortal>
+      <svg className="arrow-moving" style={{ zIndex }} aria-hidden="true">
+        <defs>
+          <marker id="arrow-moving-head" viewBox="-10 -10 20 20" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+            <polyline points="-5,-4 0,0 -5,4 -5,-4" />
+          </marker>
+        </defs>
+        <path d={`M ${line.from.x} ${line.from.y} L ${line.to.x} ${line.to.y}`} markerEnd="url(#arrow-moving-head)" />
+        {end === "from" && <circle cx={line.from.x} cy={line.from.y} r={5} />}
+      </svg>
     </ViewportPortal>
   );
 }
@@ -364,7 +394,7 @@ export function RoutedEdge({ id, markerStart, markerEnd, data, selected }: EdgeP
           interactionWidth={INTERACTION_WIDTH}
         />
       )}
-      {selected && <EndGrips data={data} />}
+      {selected && <EndGrips points={points} moving={moving} onEndDrag={data.onEndDrag} onEndDrop={data.onEndDrop} />}
       {label && !moving && (
         <EdgeLabelRenderer>
           <div

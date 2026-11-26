@@ -3,8 +3,8 @@
  * the top and a row for each attribute below, with its keys and type, and the links between them
  * as lines with a crow's foot at each end, saying how many of the entity at that end there can
  * be. A link from an entity to itself is a loop above it. Drag an entity to move it, or from the
- * dot under one to another to add a link. The element whose data it is, if the view says, is the
- * frame.
+ * dot under one to another to add a link. Select a link and drag the dot at either end to another
+ * entity to move it. The element whose data it is, if the view says, is the frame.
  */
 import { ATTRIBUTE_KEY_LABELS, ATTRIBUTE_KEYS, CARDINALITIES, CARDINALITY_LABELS, kindLabel, type Attribute, type AttributeKey, type Cardinality, type ComputedView, type Entity, type EntityLink, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
@@ -34,13 +34,13 @@ import { newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
+import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { CROW_FOOT, crowFoot, ENTITY, entityHeight, entityWidth, keyColumns } from "./entityLayout.js";
 import { diagramItems, moveItems, noSuchArrow, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { FrameNode, FrameNotes, NotesOpener, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
-import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
-import { layoutArrows, type Box } from "./routing.js";
+import { EndGrips, measureLabelSizes, MovingArrow, movingLine, pathThrough, type ArrowData, type ArrowEnd } from "./RoutedEdge.js";
+import { boxUnder, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import { loopsRise, selfLoop } from "./stateLayout.js";
 
@@ -51,13 +51,14 @@ type FlowNode = EntityFlowNode | StickyFlowNode | FrameFlowNode;
 
 type LinkEdgeData = {
   link: EntityLink;
-  /** The route, between two entities; or for a link from an entity to itself, the loop above it. */
+  /** The route, between two entities; or for a link from an entity to itself, where its loop starts and ends. */
   points: readonly Readonly<Point>[];
+  /** The loop above its entity, for a link from an entity to itself. */
   loop?: string;
   /** Where the label's centre goes, and how wide it can be. */
   label?: Point & { maxWidth?: number };
   onSelect(): void;
-};
+} & Pick<ArrowData, "onEndDrag" | "onEndDrop" | "moving">;
 type LinkEdge = Edge<LinkEdgeData, "link">;
 
 const FRAME_ID = "__frame";
@@ -152,20 +153,29 @@ function CrowFootMarker({ id, cardinality, selected }: { id: string; cardinality
   );
 }
 
-/** A link, along its route or round its loop, with a crow's foot at each end and its text. */
+/**
+ * A link, along its route or round its loop, with a crow's foot at each end and its text.
+ * Selected, it has a grip at each end, to drag that end to another entity; while one is dragged,
+ * the diagram draws the link instead.
+ */
 function LinkArrow({ id, data, selected }: EdgeProps<LinkEdge>) {
-  if (!data || (!data.loop && data.points.length < 2)) return null;
+  if (!data || data.points.length < 2) return null;
   const [from, to] = data.link.cardinality;
   const ends = { start: markerId(id, "start"), end: markerId(id, "end") };
   const text = data.link.text;
   return (
     <>
-      <defs>
-        <CrowFootMarker id={ends.start} cardinality={from} selected={!!selected} />
-        <CrowFootMarker id={ends.end} cardinality={to} selected={!!selected} />
-      </defs>
-      <BaseEdge id={id} path={data.loop ?? pathThrough(data.points)} markerStart={`url(#${ends.start})`} markerEnd={`url(#${ends.end})`} className={`arrow entity-link${selected ? " selected" : ""}`} interactionWidth={18} />
-      {text && data.label && (
+      {!data.moving && (
+        <>
+          <defs>
+            <CrowFootMarker id={ends.start} cardinality={from} selected={!!selected} />
+            <CrowFootMarker id={ends.end} cardinality={to} selected={!!selected} />
+          </defs>
+          <BaseEdge id={id} path={data.loop ?? pathThrough(data.points)} markerStart={`url(#${ends.start})`} markerEnd={`url(#${ends.end})`} className={`arrow entity-link${selected ? " selected" : ""}`} interactionWidth={18} />
+        </>
+      )}
+      {selected && <EndGrips points={data.points} moving={data.moving} onEndDrag={data.onEndDrag} onEndDrop={data.onEndDrop} names={{ line: "link", box: "entity" }} />}
+      {text && data.label && !data.moving && (
         <EdgeLabelRenderer>
           <div
             className={`arrow-label nodrag nopan${selected ? " selected" : ""}`}
@@ -255,6 +265,19 @@ export function connectOps(view: ViewDef, drawn: DrawnItem[], from: string, to: 
  */
 export function canLink(view: Pick<ViewDef, "links">, from: string, to: string, text?: string, but?: EntityLink): boolean {
   return noSuchArrow(view.links, from, to, text, but);
+}
+
+/**
+ * The edit that moves a link's start or end, `end`, to another entity, with the entities where
+ * they are, as its cardinality, text and number stay. None when it's at that entity already, or
+ * the view has the link it would make. Let go on the entity at its other end, it becomes a link
+ * from that entity to itself.
+ */
+export function reconnectLinkOps(view: ViewDef, drawn: DrawnItem[], link: EntityLink, end: ArrowEnd, entity: string): Operation[] | null {
+  const from = end === "from" ? entity : link.from;
+  const to = end === "to" ? entity : link.to;
+  if (entity === link[end] || !view.entities.some((e) => e.id === entity) || !canLink(view, from, to, link.text, link)) return null;
+  return [...pinOps(view, drawn), { op: "update-link", view: view.id, link: link.number, [end]: entity }];
 }
 
 /** What's on the diagram, as moveOps and connectOps take it. */
@@ -430,6 +453,28 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, menus, 
 
   const select = useCallback((s: Selection) => onSelect(s), [onSelect]);
 
+  /** A selected link's start or end being dragged to another entity: the link's number, which end, and where it is on the diagram. */
+  const [moving, setMoving] = useState<{ number: number; end: ArrowEnd; at: Point } | null>(null);
+  const movingLink = moving?.number;
+  const movingEnd = moving?.end;
+  /** The edit that letting a link's end go at this point makes, and the entity it goes to, if it can go there (see reconnectLinkOps). Not one under a note, which hides it. */
+  const endDropAt = (link: EntityLink, end: ArrowEnd, at: Point) => {
+    const notes = nodesRef.current.flatMap((n) => (n.type === "sticky" ? [noteRect(n, stickySize)] : []));
+    const entity = boxUnder(at, boxes, notes);
+    const ops = entity && reconnectLinkOps(view, items(nodesRef.current), link, end, entity);
+    return ops ? { entity: entity!, ops } : undefined;
+  };
+  const movingLinkOf = moving ? view.links[moving.number - 1] : undefined;
+  /** The entity the end being dragged would go to, outlined while it's over it. */
+  const endDrop = moving && movingLinkOf ? endDropAt(movingLinkOf, moving.end, moving.at)?.entity : undefined;
+  /** Moves the end of a link let go on another entity there, as one step for Undo: set each time it's drawn. */
+  const dropEnd = useRef<(link: EntityLink, end: ArrowEnd, at: Point | null) => void>(() => {});
+  dropEnd.current = (link, end, at) => {
+    setMoving(null);
+    const drop = at && endDropAt(link, end, at);
+    if (drop) void edit(drop.ops);
+  };
+
   const edges = useMemo<LinkEdge[]>(() => {
     const loops = new Map<string, number>();
     return drawnLinks.flatMap((l): LinkEdge[] => {
@@ -437,18 +482,29 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, menus, 
       if (!box || !boxes.has(l.to)) return [];
       const id = linkId(l);
       const common = { id, type: "link" as const, source: l.from, target: l.to, selected: selection?.kind === "link" && selection.number === l.number };
-      const onSelectLink = () => select({ kind: "link", number: l.number });
+      const handlers = {
+        onSelect: () => select({ kind: "link", number: l.number }),
+        onEndDrag: (end: ArrowEnd, at: Point) => setMoving({ number: l.number, end, at }),
+        onEndDrop: (end: ArrowEnd, at: Point | null) => dropEnd.current(l, end, at),
+        moving: movingLink === l.number ? movingEnd : undefined,
+      };
       if (l.from === l.to) {
         const k = loops.get(l.from) ?? 0;
         loops.set(l.from, k + 1);
         const loop = selfLoop(box, k);
-        return [{ ...common, data: { link: l, points: [], loop: loop.path, label: loop.label, onSelect: onSelectLink } }];
+        return [{ ...common, data: { link: l, points: [loop.start, loop.end], loop: loop.path, label: loop.label, ...handlers } }];
       }
-      return [{ ...common, data: { link: l, points: routes.get(id) ?? [], label: labels.get(id), onSelect: onSelectLink } }];
+      return [{ ...common, data: { link: l, points: routes.get(id) ?? [], label: labels.get(id), ...handlers } }];
     });
-  }, [drawnLinks, boxes, routes, labels, selection, select]);
+  }, [drawnLinks, boxes, routes, labels, selection, select, movingLink, movingEnd]);
+  /** The link whose end is being dragged, drawn straight from its other end to where the moving end is. */
+  const movingLinkLine = moving && movingLine(edges.find((e) => e.data?.link.number === moving.number)?.data?.points, moving.end, moving.at);
 
-  const drawn = useMemo(() => (frame ? [frame, ...nodes] : nodes), [frame, nodes]);
+  // The entity a link's end would go to is outlined while the end is over it.
+  const drawn = useMemo(() => {
+    const shown = endDrop ? nodes.map((n) => (n.id === endDrop ? { ...n, className: "drop-target" } : n)) : nodes;
+    return frame ? [frame, ...shown] : shown;
+  }, [frame, nodes, endDrop]);
 
   /** Positions for the entities placed automatically, so they stay put as others move or links are added. */
   const fixPlaced = useCallback((): Operation[] => pinOps(view, items(nodesRef.current)), [view]);
@@ -703,6 +759,7 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, menus, 
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
         <FrameNotes frame={frame} />
         <SnapGuides guides={guides} />
+        {movingLinkLine && moving && <MovingArrow line={movingLinkLine} end={moving.end} zIndex={DRAWING_Z} />}
         <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
           <SnapButtons snap={snap} />
         </Controls>

@@ -1541,3 +1541,14 @@ export function crossings(routes: ReadonlyMap<string, readonly Readonly<Point>[]
   }
   return out;
 }
+
+/**
+ * The box at this point on the diagram, by its ID: the last of `boxes`, which is drawn on top,
+ * where boxes overlap. None under a note, which hides the boxes under it. On a flowchart, state
+ * or entity view, it's the block, state or entity a note's dot or a line's end is let go on.
+ */
+export function boxUnder(at: Point, boxes: ReadonlyMap<string, Box>, notes: readonly Box[]): string | undefined {
+  const within = (r: Box) => at.x >= r.x && at.x <= r.x + r.w && at.y >= r.y && at.y <= r.y + r.h;
+  if (notes.some(within)) return undefined;
+  return [...boxes].findLast(([, box]) => within(box))?.[0];
+}

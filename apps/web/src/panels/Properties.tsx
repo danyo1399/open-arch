@@ -904,6 +904,7 @@ function FlowProperties({ view, flow, edit, onSelect }: PropertiesProps & { view
       </header>
       {end("from", "From")}
       {end("to", "To")}
+      <p className="muted small">Or drag the dot at either end of the flow, on the diagram, to another block.</p>
       <Field
         label="Text"
         value={flow.text ?? ""}
@@ -1128,6 +1129,7 @@ function LinkProperties({ view, link, edit, onSelect }: PropertiesProps & { view
       {howMany(0, `How many ${fromName}`, `For each ${toName}. Drawn at the ${fromName} end.`)}
       {end("to", "To")}
       {howMany(1, `How many ${toName}`, `For each ${fromName}. Drawn at the ${toName} end.`)}
+      <p className="muted small">To move an end, drag the dot there, on the diagram, to another entity.</p>
       <Field label="Text" value={link.text ?? ""} autoFocus={!link.text} placeholder="What it says, e.g. places" onCommit={(text) => set({ text: text || null })} />
       <div className="actions">
         <button disabled={link.number === 1} onClick={() => move(link.number - 1)}>
@@ -1170,6 +1172,7 @@ function TransitionProperties({ view, transition, edit, onSelect }: PropertiesPr
       </header>
       {end("from", "From")}
       {end("to", "To")}
+      <p className="muted small">Or drag the dot at either end of the transition, on the diagram, to another state.</p>
       <Field label="Event" value={transition.event ?? ""} autoFocus={!transition.event} placeholder="What makes it happen, e.g. Payment taken" onCommit={(event) => set({ event: event || null })} />
       <Field label="Guard" value={transition.guard ?? ""} placeholder="What has to be true, e.g. paid in full" onCommit={(guard) => set({ guard: guard || null })} />
       <Field label="Action" value={transition.action ?? ""} placeholder="What's done as it happens, e.g. Send a receipt" onCommit={(action) => set({ action: action || null })} />

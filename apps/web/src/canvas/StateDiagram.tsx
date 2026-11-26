@@ -2,9 +2,10 @@
  * A state view's diagram: its states as rounded boxes, the transitions between them as arrows
  * labelled `event [guard] / action`, a dot pointing into the state it starts in, and a bullseye
  * out of each state it can end in. Drag a state to move it, or from the dot under one to another
- * to add a transition. The element the states are of, if the view says, is the frame.
+ * to add a transition. Select a transition and drag the dot at either end to another state to
+ * move it. The element the states are of, if the view says, is the frame.
  */
-import { kindLabel, transitionLabel, type ComputedView, type Operation, type State, type Sticky, type Transition, type ViewEdge, type Workspace } from "@open-arch/core";
+import { kindLabel, transitionLabel, type ComputedView, type Operation, type State, type Sticky, type Transition, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
   Background,
   BackgroundVariant,
@@ -33,12 +34,12 @@ import { uniqueStateId } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { AutoLayoutButton, fitBelowToolbar, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
+import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { FrameNode, FrameNotes, NotesOpener, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
-import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
-import { layoutArrows, type Box } from "./routing.js";
+import { EndGrips, measureLabelSizes, MovingArrow, movingLine, pathThrough, type ArrowData, type ArrowEnd } from "./RoutedEdge.js";
+import { boxUnder, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import { loopsRise, selfLoop, STATE_W, stateHeight } from "./stateLayout.js";
 
@@ -48,13 +49,14 @@ type FlowNode = StateFlowNode | StickyFlowNode | FrameFlowNode;
 
 type TransitionEdgeData = {
   transition: Transition;
-  /** The route, between two states; or for a transition back to its own state, the loop beside it. */
+  /** The route, between two states; or for a transition back to its own state, where its loop starts and ends. */
   points: readonly Readonly<Point>[];
+  /** The loop beside its state, for a transition back to it. */
   loop?: string;
   /** Where the label's centre goes, and how wide it can be. */
   label?: Point & { maxWidth?: number };
   onSelect(): void;
-};
+} & Pick<ArrowData, "onEndDrag" | "onEndDrop" | "moving">;
 type TransitionEdge = Edge<TransitionEdgeData, "transition">;
 
 const FRAME_ID = "__frame";
@@ -98,15 +100,20 @@ function StateNode({ id, data, selected }: NodeProps<StateFlowNode>) {
   );
 }
 
-/** A transition, along its route or round its loop, with its label. */
+/**
+ * A transition, along its route or round its loop, with its label. Selected, it has a grip at each
+ * end, to drag that end to another state; while one is dragged, the diagram draws the transition
+ * instead.
+ */
 function TransitionArrow({ id, data, markerEnd, selected }: EdgeProps<TransitionEdge>) {
-  if (!data || (!data.loop && data.points.length < 2)) return null;
+  if (!data || data.points.length < 2) return null;
   const text = transitionLabel(data.transition);
   const path = data.loop ?? pathThrough(data.points);
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} className={`arrow${selected ? " selected" : ""}`} interactionWidth={18} />
-      {text && data.label && (
+      {!data.moving && <BaseEdge id={id} path={path} markerEnd={markerEnd} className={`arrow${selected ? " selected" : ""}`} interactionWidth={18} />}
+      {selected && <EndGrips points={data.points} moving={data.moving} onEndDrag={data.onEndDrag} onEndDrop={data.onEndDrop} names={{ line: "transition", box: "state" }} />}
+      {text && data.label && !data.moving && (
         <EdgeLabelRenderer>
           <div
             className={`arrow-label nodrag nopan${selected ? " selected" : ""}`}
@@ -156,6 +163,16 @@ export function autoLayoutStateOps(ws: Workspace, viewId: string, positions: Rec
     }),
     ...stickiesBackOps(view),
   ];
+}
+
+/**
+ * The edit that moves a transition's start or end, `end`, to another state, as its event, guard,
+ * action and number stay. None when it's at that state already. Let go on the state at its other
+ * end, it becomes a transition back to that state.
+ */
+export function reconnectTransitionOps(view: Pick<ViewDef, "id" | "states">, transition: Transition, end: ArrowEnd, state: string): Operation[] | null {
+  if (state === transition[end] || !view.states.some((s) => s.id === state)) return null;
+  return [{ op: "update-transition", view: view.id, transition: transition.number, [end]: state }];
 }
 
 /** "note", or "note-2", "note-3", ... whichever the view doesn't have yet. */
@@ -313,6 +330,23 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
 
   const select = useCallback((s: Selection) => onSelect(s), [onSelect]);
 
+  /** A selected transition's start or end being dragged to another state: the transition's number, which end, and where it is on the diagram. */
+  const [moving, setMoving] = useState<{ number: number; end: ArrowEnd; at: Point } | null>(null);
+  const movingTransition = moving?.number;
+  const movingEnd = moving?.end;
+  /** The state a transition's end let go at this point goes to, if it can go there (see reconnectTransitionOps). Not one under a note, which hides it. */
+  const endDropAt = (transition: Transition, end: ArrowEnd, at: Point) => {
+    const notes = nodesRef.current.flatMap((n) => (n.type === "sticky" ? [noteRect(n, stickySize)] : []));
+    const state = boxUnder(at, boxes, notes);
+    const ops = state && reconnectTransitionOps(view, transition, end, state);
+    return ops ? { state: state!, ops } : undefined;
+  };
+  const movingTransitionOf = moving ? view.transitions[moving.number - 1] : undefined;
+  /** The state the end being dragged would go to, outlined while it's over it. */
+  const endDrop = moving && movingTransitionOf ? endDropAt(movingTransitionOf, moving.end, moving.at)?.state : undefined;
+  /** Moves the end of a transition let go on another state there, as one step for Undo, with the states where they are: set each time it's drawn. */
+  const dropEnd = useRef<(transition: Transition, end: ArrowEnd, at: Point | null) => void>(() => {});
+
   const edges = useMemo<TransitionEdge[]>(() => {
     const loops = new Map<string, number>();
     return view.transitions.flatMap((t): TransitionEdge[] => {
@@ -327,17 +361,29 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
         selected: selection?.kind === "transition" && selection.number === t.number,
         markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
       };
+      const handlers = {
+        onSelect: () => select({ kind: "transition", number: t.number }),
+        onEndDrag: (end: ArrowEnd, at: Point) => setMoving({ number: t.number, end, at }),
+        onEndDrop: (end: ArrowEnd, at: Point | null) => dropEnd.current(t, end, at),
+        moving: movingTransition === t.number ? movingEnd : undefined,
+      };
       if (t.from === t.to) {
         const k = loops.get(t.from) ?? 0;
         loops.set(t.from, k + 1);
         const loop = selfLoop(box, k);
-        return [{ ...common, data: { transition: t, points: [], loop: loop.path, label: loop.label, onSelect: () => select({ kind: "transition", number: t.number }) } }];
+        return [{ ...common, data: { transition: t, points: [loop.start, loop.end], loop: loop.path, label: loop.label, ...handlers } }];
       }
-      return [{ ...common, data: { transition: t, points: routes.get(id) ?? [], label: labels.get(id), onSelect: () => select({ kind: "transition", number: t.number }) } }];
+      return [{ ...common, data: { transition: t, points: routes.get(id) ?? [], label: labels.get(id), ...handlers } }];
     });
-  }, [view, boxes, routes, labels, selection, select]);
+  }, [view, boxes, routes, labels, selection, select, movingTransition, movingEnd]);
+  /** The transition whose end is being dragged, drawn straight from its other end to where the moving end is. */
+  const movingTransitionLine = moving && movingLine(edges.find((e) => e.data?.transition.number === moving.number)?.data?.points, moving.end, moving.at);
 
-  const drawn = useMemo(() => (frame ? [frame, ...nodes] : nodes), [frame, nodes]);
+  // The state a transition's end would go to is outlined while the end is over it.
+  const drawn = useMemo(() => {
+    const shown = endDrop ? nodes.map((n) => (n.id === endDrop ? { ...n, className: "drop-target" } : n)) : nodes;
+    return frame ? [frame, ...shown] : shown;
+  }, [frame, nodes, endDrop]);
 
   /** Positions for the states placed automatically, so they stay put as others move or transitions are added. */
   const fixPlaced = useCallback((): Operation[] => {
@@ -370,6 +416,12 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
     },
     [edit, view.id, fixPlaced, dropped],
   );
+
+  dropEnd.current = (transition, end, at) => {
+    setMoving(null);
+    const drop = at && endDropAt(transition, end, at);
+    if (drop) void edit([...fixPlaced(), ...drop.ops]);
+  };
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -557,6 +609,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
         <FrameNotes frame={frame} />
         <SnapGuides guides={guides} />
+        {movingTransitionLine && moving && <MovingArrow line={movingTransitionLine} end={moving.end} zIndex={DRAWING_Z} />}
         <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
           <SnapButtons snap={snap} />
         </Controls>

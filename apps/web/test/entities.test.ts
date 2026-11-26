@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, CARDINALITIES, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { applyOperations, buildWorkspace, CARDINALITIES, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { canAutoLayout, type Selection } from "../src/canvas/Canvas.js";
-import { addAttributeOps, addEntityOps, autoLayoutEntityOps, clickedOn, connectOps, EntityDiagram, entityLayout, moveOps, pinOps, type DrawnItem } from "../src/canvas/EntityDiagram.js";
+import { addAttributeOps, addEntityOps, autoLayoutEntityOps, clickedOn, connectOps, EntityDiagram, entityLayout, moveOps, pinOps, reconnectLinkOps, type DrawnItem } from "../src/canvas/EntityDiagram.js";
 import { CROW_FOOT, crowFoot, ENTITY_W, entityHeight, entityWidth, keyColumns } from "../src/canvas/entityLayout.js";
 import { followRenames, LEVEL_NAMES, shownInProperties, viewAction, viewLevelsOf } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
@@ -258,6 +258,28 @@ describe("dragging on an entity view", () => {
     });
     expect(connectOps(view, drawn, "order", "order")).toBeNull();
     expect(connectOps(view, drawn, "order", "note")).toBeNull();
+  });
+
+  it("moves a link's start or end to the entity it's let go on, keeping its cardinality, text and number, with the placed entities kept where they are", () => {
+    const refers = view.links[1]!;
+    expect(reconnectLinkOps(view, drawn, refers, "to", "order")).toEqual([
+      { op: "update-entity", view: "data", id: "customer", at: [10, 21] },
+      { op: "update-entity", view: "data", id: "product", at: [5, 300] },
+      { op: "update-link", view: "data", link: 2, to: "order" },
+    ]);
+    const after = buildWorkspace(applyOperations(doc, reconnectLinkOps(view, drawn, refers, "to", "order")!).doc).views.get("data")!;
+    expect(after.links[1]).toMatchObject({ number: 2, from: "customer", to: "order", cardinality: ["zero-or-one", "zero-or-more"], text: "refers" });
+    // Let go on the entity at its other end, it's a link from that entity to itself.
+    expect(reconnectLinkOps(view, [], view.links[0]!, "to", "customer")).toEqual([{ op: "update-link", view: "data", link: 1, to: "customer" }]);
+  });
+
+  it("doesn't move a link's end to the entity it's at, to what isn't an entity, or to make a link the view has", () => {
+    const places = view.links[0]!;
+    expect(reconnectLinkOps(view, drawn, places, "to", "order")).toBeNull();
+    expect(reconnectLinkOps(view, drawn, places, "to", "note")).toBeNull();
+    // Customer refers customer already.
+    const also = { ...places, text: "refers" };
+    expect(reconnectLinkOps({ ...view, links: [also, view.links[1]!] }, drawn, also, "to", "customer")).toBeNull();
   });
 });
 

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, computeView, type OpenArchDocument, type Operation, type Sticky } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, type OpenArchDocument, type Operation, type Sticky } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -7,7 +7,8 @@ import { act, createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
 import { BLOCK_KINDS, type ViewDef } from "@open-arch/core";
-import { addBlockOps, besideBlocks, blockUnder, connectOps, FlowchartDiagram, flowchartLayout, laneHead, moveOps, newBlockPlace, noteOnBlockOps, pinOps, tipsOf, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
+import { addBlockOps, besideBlocks, connectOps, FlowchartDiagram, flowchartLayout, laneHead, moveOps, newBlockPlace, noteOnBlockOps, pinOps, reconnectFlowOps, tipsOf, type DrawnItem } from "../src/canvas/FlowchartDiagram.js";
+import { boxUnder } from "../src/canvas/routing.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, onOutline, outlineToward, placeInLanes, routeToOutlines, savedAt, SLANT } from "../src/canvas/flowchartLayout.js";
 import { followRenames, followsName, LEVEL_NAMES, shownInProperties, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
@@ -240,6 +241,29 @@ describe("dragging on a flowchart", () => {
     expect(connectOps(view, drawn, "done", "done")).toBeNull();
     expect(connectOps(view, drawn, "done", "note")).toBeNull();
   });
+
+  it("moves a flow's start or end to the block it's let go on, keeping its text and number, with the placed blocks kept where they are", () => {
+    const yes = view.flows[1]!;
+    expect(reconnectFlowOps(view, drawn, yes, "to", "done")).toEqual([
+      { op: "update-block", view: "returns", id: "asked", at: [10, 21] },
+      { op: "update-block", view: "returns", id: "refund", at: [5, 300] },
+      { op: "update-flow", view: "returns", flow: 2, to: "done" },
+    ]);
+    expect(reconnectFlowOps(view, [], yes, "from", "asked")).toEqual([{ op: "update-flow", view: "returns", flow: 2, from: "asked" }]);
+    const after = buildWorkspace(applyOperations(doc, reconnectFlowOps(view, drawn, yes, "to", "done")!).doc).views.get("returns")!;
+    expect(after.flows[1]).toMatchObject({ number: 2, from: "in-time", to: "done", text: "Yes" });
+  });
+
+  it("doesn't move a flow's end to the block it's at, to the block at its other end, to what isn't a block, or to make a flow the view has", () => {
+    const yes = view.flows[1]!;
+    expect(reconnectFlowOps(view, drawn, yes, "to", "refund")).toBeNull();
+    expect(reconnectFlowOps(view, drawn, yes, "to", "in-time")).toBeNull();
+    expect(reconnectFlowOps(view, drawn, yes, "to", "note")).toBeNull();
+    // Asked to done is a new flow, but asked to in-time, with no text, is the first one already.
+    expect(reconnectFlowOps(view, drawn, view.flows[3]!, "from", "asked")).not.toBeNull();
+    const plain = { ...view.flows[3]!, from: "refund", to: "in-time" };
+    expect(reconnectFlowOps({ ...view, flows: [...view.flows.slice(0, 3), plain] }, drawn, plain, "from", "asked")).toBeNull();
+  });
 });
 
 describe("a sticky note on a flowchart's block", () => {
@@ -258,11 +282,11 @@ describe("a sticky note on a flowchart's block", () => {
       ["under", { x: 0, y: 0, w: 180, h: 52 }],
       ["over", { x: 100, y: 20, w: 180, h: 52 }],
     ]);
-    expect(blockUnder({ x: 50, y: 10 }, boxes, [])).toBe("under");
-    expect(blockUnder({ x: 150, y: 30 }, boxes, [])).toBe("over");
-    expect(blockUnder({ x: 280, y: 72 }, boxes, [])).toBe("over");
-    expect(blockUnder({ x: 400, y: 30 }, boxes, [])).toBeUndefined();
-    expect(blockUnder({ x: 150, y: 30 }, boxes, [{ x: 140, y: 0, w: 150, h: 100 }])).toBeUndefined();
+    expect(boxUnder({ x: 50, y: 10 }, boxes, [])).toBe("under");
+    expect(boxUnder({ x: 150, y: 30 }, boxes, [])).toBe("over");
+    expect(boxUnder({ x: 280, y: 72 }, boxes, [])).toBe("over");
+    expect(boxUnder({ x: 400, y: 30 }, boxes, [])).toBeUndefined();
+    expect(boxUnder({ x: 150, y: 30 }, boxes, [{ x: 140, y: 0, w: 150, h: 100 }])).toBeUndefined();
   });
 
   it("stays where it's drawn when it's put on a block, and isn't put on the block it's on", () => {

@@ -34,7 +34,6 @@ import {
   ReactFlow,
   applyNodeChanges,
   useReactFlow,
-  ViewportPortal,
   type Connection,
   type FitViewOptions,
   type NodeChange,
@@ -64,7 +63,7 @@ import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeSt
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, stickyItems } from "./menuItems.js";
 import { classHeight, FrameNotes, nodeTypes, NotesOpener, StickyLines, StickyLinking, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
-import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
+import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, MovingArrow, movingLine, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import { besideArrow, besideBox, besideFrame, distanceToRoute, midpoint, stickyLine, type LineEnd, type Rect } from "./stickyLines.js";
@@ -950,11 +949,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
   const dropOn = moving ? dropBox(moving.edge, moving.at)?.id : linkDrop?.node;
   const drawnNodes = useMemo(() => (dropOn ? nodes.map((n) => (n.id === dropOn ? { ...n, className: "drop-target" } : n)) : nodes), [nodes, dropOn]);
   /** The arrow whose end is moving, drawn straight from its other end to where the moving end is. */
-  const movingRoute = moving ? routes.get(arrowId(moving.edge)) : undefined;
-  const movingLine =
-    moving && movingRoute && movingRoute.length >= 2
-      ? { from: moving.end === "from" ? moving.at : movingRoute[0]!, to: moving.end === "to" ? moving.at : movingRoute[movingRoute.length - 1]! }
-      : null;
+  const movingArrowLine = moving && movingLine(routes.get(arrowId(moving.edge)), moving.end, moving.at);
   /** The line from a note whose dot is being dragged to where the dot is: none while the dot is over the note. */
   const linkingNode = linking ? nodes.find((n): n is StickyFlowNode => n.id === stickyNodeId(linking.sticky)) : undefined;
   const linkLine = linking && linkingNode ? stickyLine(noteRect(linkingNode, stickySize), { point: linking.at }) : null;
@@ -1301,19 +1296,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
         <FrameNotes frame={nodes.find((n): n is FrameFlowNode => n.type === "frame")} />
         <SnapGuides guides={guides} />
         <StickyLines lines={stickyLines} />
-        {movingLine && (
-          <ViewportPortal>
-            <svg className="arrow-moving" style={{ zIndex: DRAWING_Z }} aria-hidden="true">
-              <defs>
-                <marker id="arrow-moving-head" viewBox="-10 -10 20 20" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
-                  <polyline points="-5,-4 0,0 -5,4 -5,-4" />
-                </marker>
-              </defs>
-              <path d={`M ${movingLine.from.x} ${movingLine.from.y} L ${movingLine.to.x} ${movingLine.to.y}`} markerEnd="url(#arrow-moving-head)" />
-              {moving?.end === "from" && <circle cx={movingLine.from.x} cy={movingLine.from.y} r={5} />}
-            </svg>
-          </ViewportPortal>
-        )}
+        {movingArrowLine && moving && <MovingArrow line={movingArrowLine} end={moving.end} zIndex={DRAWING_Z} />}
         {linking && <StickyLinking at={linking.at} line={linkLine} zIndex={DRAWING_Z} />}
         {/* The fit button fits the view with its own options, then calls onFitView. React Flow fits
             once, with the last options it was asked for, so these are the ones it uses. */}

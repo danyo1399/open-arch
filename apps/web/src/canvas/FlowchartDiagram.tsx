@@ -5,7 +5,7 @@
  * another to add a flow. The element whose process it is, if the view says, is the frame. A
  * right-click on a block, a flow, a lane, a sticky note or the background opens a menu of what
  * can be done there. A sticky note can be on a block, with a line to it: drag from the dot under
- * a note to a block.
+ * a note to a block. Select a flow and drag the dot at either end to another block to move it.
  */
 import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, STICKY_COLORS, type ArchElement, type Block, type BlockKind, type ComputedView, type Flow, type Lane, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
@@ -41,8 +41,8 @@ import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, outline
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, noSuchArrow, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { FrameNode, FrameNotes, NotesOpener, StickyLines, StickyLinking, StickyNode, type FrameFlowNode, type StickyFlowNode, type StickyLine } from "./nodes.js";
-import { measureLabelSizes, pathThrough } from "./RoutedEdge.js";
-import { layoutArrows, type Box } from "./routing.js";
+import { EndGrips, measureLabelSizes, MovingArrow, movingLine, pathThrough, type ArrowData, type ArrowEnd } from "./RoutedEdge.js";
+import { boxUnder, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import { stickyLine } from "./stickyLines.js";
 
@@ -60,7 +60,7 @@ type FlowEdgeData = {
   /** Where the label's centre goes, and how wide it can be. */
   label?: Point & { maxWidth?: number };
   onSelect(): void;
-};
+} & Pick<ArrowData, "onEndDrag" | "onEndDrop" | "moving">;
 type FlowEdge = Edge<FlowEdgeData, "flow">;
 
 const FRAME_ID = "__frame";
@@ -215,14 +215,15 @@ function BlockNode({ id, data, selected }: NodeProps<BlockFlowNode>) {
   );
 }
 
-/** A flow, along its route, with its text. */
+/** A flow, along its route, with its text. Selected, it has a grip at each end, to drag that end to another block; while one is dragged, the diagram draws the flow instead. */
 function FlowArrow({ id, data, markerEnd, selected }: EdgeProps<FlowEdge>) {
   if (!data || data.points.length < 2) return null;
   const text = data.flow.text;
   return (
     <>
-      <BaseEdge id={id} path={pathThrough(data.points)} markerEnd={markerEnd} className={`arrow${selected ? " selected" : ""}`} interactionWidth={18} />
-      {text && data.label && (
+      {!data.moving && <BaseEdge id={id} path={pathThrough(data.points)} markerEnd={markerEnd} className={`arrow${selected ? " selected" : ""}`} interactionWidth={18} />}
+      {selected && <EndGrips points={data.points} moving={data.moving} onEndDrag={data.onEndDrag} onEndDrop={data.onEndDrop} names={{ line: "flow", box: "block" }} />}
+      {text && data.label && !data.moving && (
         <EdgeLabelRenderer>
           <div
             className={`arrow-label nodrag nopan${selected ? " selected" : ""}`}
@@ -323,6 +324,18 @@ export function connectOps(view: ComputedView["view"], drawn: DrawnItem[], from:
 }
 
 /**
+ * The edit that moves a flow's start or end, `end`, to another block, with the blocks where they
+ * are, as the flow's text and number stay. None when it's at that block already, or the view
+ * can't have the flow it would make: one from a block to itself, or one it has already.
+ */
+export function reconnectFlowOps(view: ComputedView["view"], drawn: DrawnItem[], flow: Flow, end: ArrowEnd, block: string, columns?: LaneColumn[]): Operation[] | null {
+  const from = end === "from" ? block : flow.from;
+  const to = end === "to" ? block : flow.to;
+  if (block === flow[end] || !view.blocks.some((b) => b.id === block) || !canFlow(view, from, to, flow.text, flow)) return null;
+  return [...pinOps(view, drawn, new Set(), columns), { op: "update-flow", view: view.id, flow: flow.number, [end]: block }];
+}
+
+/**
  * How far right of its block a note on it goes, before it's moved. placeStickies takes every block
  * to be NODE_W wide, so this is far enough for a note beside the narrowest, a start or an end, to
  * count as clear of it.
@@ -339,16 +352,6 @@ export function besideBlocks(view: Pick<ViewDef, "blocks" | "stickies">, positio
     if (at) out[sticky.id] = { x: at.x + blockWidth(block.kind) + BESIDE, y: at.y };
   }
   return out;
-}
-
-/**
- * The block at this point on the diagram, by its ID: the last of `boxes`, which is drawn on top,
- * where blocks overlap. None under a note, which hides the blocks under it.
- */
-export function blockUnder(at: Point, boxes: ReadonlyMap<string, Box>, notes: readonly Box[]): string | undefined {
-  const within = (r: Box) => at.x >= r.x && at.x <= r.x + r.w && at.y >= r.y && at.y <= r.y + r.h;
-  if (notes.some(within)) return undefined;
-  return [...boxes].findLast(([, box]) => within(box))?.[0];
 }
 
 /**
@@ -603,7 +606,7 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
 
   /** The block a note's dot let go at this point on the diagram puts the note on. */
   const linkDropAt = (at: Point) =>
-    blockUnder(
+    boxUnder(
       at,
       boxes,
       nodesRef.current.flatMap((n) => (n.type === "sticky" ? [noteRect(n, stickySize)] : [])),
@@ -625,6 +628,27 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
     const ops = noteOnBlockOps(view, sticky, block, node.position);
     if (!ops.length) return onSelect({ kind: "sticky", id });
     void edit(ops).then((ok) => ok && onSelect({ kind: "sticky", id }));
+  };
+
+  /** A selected flow's start or end being dragged to another block: the flow's number, which end, and where it is on the diagram. */
+  const [moving, setMoving] = useState<{ number: number; end: ArrowEnd; at: Point } | null>(null);
+  const movingFlow = moving?.number;
+  const movingEnd = moving?.end;
+  /** The edit that letting a flow's end go at this point makes, and the block it goes to, if it can go there (see reconnectFlowOps). */
+  const endDropAt = (flow: Flow, end: ArrowEnd, at: Point) => {
+    const block = linkDropAt(at);
+    const ops = block && reconnectFlowOps(view, items(view, nodesRef.current), flow, end, block, columns);
+    return ops ? { block: block!, ops } : undefined;
+  };
+  const movingFlowOf = moving ? view.flows[moving.number - 1] : undefined;
+  /** The block the end being dragged would go to, outlined while it's over it. */
+  const endDrop = moving && movingFlowOf ? endDropAt(movingFlowOf, moving.end, moving.at)?.block : undefined;
+  /** Moves the end of a flow let go on another block there, as one step for Undo: set below, once the blocks are drawn. */
+  const dropEnd = useRef<(flow: Flow, end: ArrowEnd, at: Point | null) => void>(() => {});
+  dropEnd.current = (flow, end, at) => {
+    setMoving(null);
+    const drop = at && endDropAt(flow, end, at);
+    if (drop) void edit(drop.ops);
   };
 
   /** The lanes' sizes as React Flow last measured them, by node ID: see the frame's. */
@@ -704,16 +728,27 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
           target: f.to,
           selected: selection?.kind === "flow" && selection.number === f.number,
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "var(--edge)" },
-          data: { flow: f, points: route ? routeToOutlines(route, drawnBlocks.get(f.from)!, drawnBlocks.get(f.to)!) : [], label: labels.get(id), onSelect: () => select({ kind: "flow", number: f.number }) },
+          data: {
+            flow: f,
+            points: route ? routeToOutlines(route, drawnBlocks.get(f.from)!, drawnBlocks.get(f.to)!) : [],
+            label: labels.get(id),
+            onSelect: () => select({ kind: "flow", number: f.number }),
+            onEndDrag: (end, at) => setMoving({ number: f.number, end, at }),
+            onEndDrop: (end, at) => dropEnd.current(f, end, at),
+            moving: movingFlow === f.number ? movingEnd : undefined,
+          },
         };
       }),
-    [between, routes, labels, drawnBlocks, selection, select],
+    [between, routes, labels, drawnBlocks, selection, select, movingFlow, movingEnd],
   );
+  /** The flow whose end is being dragged, drawn straight from its other end to where the moving end is. */
+  const movingFlowLine = moving && movingLine(edges.find((e) => e.data?.flow.number === moving.number)?.data?.points, moving.end, moving.at);
 
-  // The block a note's dot would put the note on is outlined while the dot is over it.
+  // The block a note's dot would put the note on, or a flow's end would go to, is outlined while it's over it.
+  const dropOn = endDrop ?? linkDrop;
   const drawn = useMemo(
-    () => [...(frame ? [frame] : []), ...laneNodes, ...(linkDrop ? nodes.map((n) => (n.id === linkDrop ? { ...n, className: "drop-target" } : n)) : nodes)],
-    [frame, laneNodes, nodes, linkDrop],
+    () => [...(frame ? [frame] : []), ...laneNodes, ...(dropOn ? nodes.map((n) => (n.id === dropOn ? { ...n, className: "drop-target" } : n)) : nodes)],
+    [frame, laneNodes, nodes, dropOn],
   );
 
   /** Positions for the blocks placed automatically, so they stay put as others move or flows are added. */
@@ -998,6 +1033,7 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
         <FrameNotes frame={frame} />
         <SnapGuides guides={guides} />
         <StickyLines lines={stickyLines} />
+        {movingFlowLine && moving && <MovingArrow line={movingFlowLine} end={moving.end} zIndex={DRAWING_Z} />}
         {linking && <StickyLinking at={linking.at} line={linkLine} zIndex={DRAWING_Z} />}
         <Controls showInteractive={false} onFitView={() => fitDiagram({ padding: 0.1 })}>
           <SnapButtons snap={snap} />

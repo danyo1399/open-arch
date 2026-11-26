@@ -2890,8 +2890,8 @@ button.heading {
 .sticky-lines line.selected {
   stroke: var(--accent);
 }
-/* The box a moving end would go to, or the box, frame or arrow, or on a flowchart the block, a note's dot would put the note on. */
-.react-flow__node.drop-target :is(.c4, .flow-block) {
+/* The box, block, state or entity a moving end would go to, or the box, frame or arrow, or on a flowchart the block, a note's dot would put the note on. */
+.react-flow__node.drop-target :is(.c4, .flow-block, .state-box, .entity-box) {
   outline-color: var(--accent);
   outline-style: dashed;
 }

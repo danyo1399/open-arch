@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
+import { applyOperations, buildWorkspace, computeView, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
+import { reconnectTransitionOps } from "../src/canvas/StateDiagram.js";
 import { loopsRise, selfLoop, stateHeight } from "../src/canvas/stateLayout.js";
 import { followRenames, shownInProperties, uniqueStateId, viewAction } from "../src/model.js";
 import { NewViewDialog } from "../src/panels/dialogs.js";
@@ -86,11 +87,28 @@ describe("a state view in the designer", () => {
     const box = { x: 0, y: 100, w: 180, h: 46 };
     const [first, second] = [selfLoop(box, 0), selfLoop(box, 1)];
     expect(first.path.startsWith("M 116 100 C")).toBe(true);
+    expect(first.start).toEqual({ x: 116, y: 100 });
     expect(first.end).toEqual({ x: 162, y: 100 });
     expect(second.label.y).toBeLessThan(first.label.y);
     expect(100 - loopsRise(1)).toBeLessThan(first.label.y - 10);
     expect(loopsRise(0)).toBe(0);
     expect(stateHeight({ description: "A description that wraps onto a second line." })).toBeGreaterThan(stateHeight({}));
+  });
+});
+
+describe("dragging a transition's end on a state view", () => {
+  it("moves its start or end to the state it's let go on, keeping its event and number", () => {
+    const taken = view.transitions[0]!;
+    expect(reconnectTransitionOps(view, taken, "from", "paid")).toEqual([{ op: "update-transition", view: "order-states", transition: 1, from: "paid" }]);
+    const after = buildWorkspace(applyOperations(doc, reconnectTransitionOps(view, taken, "from", "paid")!).doc).views.get("order-states")!;
+    expect(after.transitions[0]).toMatchObject({ number: 1, from: "paid", to: "paid", event: "Payment taken" });
+    // A loop's end goes to another state, too.
+    expect(reconnectTransitionOps(view, view.transitions[1]!, "to", "placed")).toEqual([{ op: "update-transition", view: "order-states", transition: 2, to: "placed" }]);
+  });
+
+  it("doesn't move it to the state it's at, or to what isn't a state", () => {
+    expect(reconnectTransitionOps(view, view.transitions[0]!, "to", "paid")).toBeNull();
+    expect(reconnectTransitionOps(view, view.transitions[0]!, "to", "note")).toBeNull();
   });
 });
 

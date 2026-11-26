@@ -143,7 +143,7 @@ A library is code built into several containers, such as a logging library. Add 
 
 ### State views
 
-A state view shows the states something can be in, and how it moves between them: an order that's placed, paid, shipped and delivered, say. Make one with **+ New view** and the **State** level, and pick what the states are of, such as a class, or nothing in particular. **+ Add** adds a state; drag from the dot under a state to another to add a transition. Select a state to rename it, describe it, or mark it as where the view starts (drawn with a dot pointing into it) or where it can end (an arrow out to a bullseye), and to add a transition back to itself. Select a transition to give it an event, a guard and an action, labelled as UML writes them: `event [guard] / action`. States and transitions belong to the view, not the model.
+A state view shows the states something can be in, and how it moves between them: an order that's placed, paid, shipped and delivered, say. Make one with **+ New view** and the **State** level, and pick what the states are of, such as a class, or nothing in particular. **+ Add** adds a state; drag from the dot under a state to another to add a transition. To move a transition, select it and drag the dot at either end to another state, or to the state at its other end for a transition back to itself. Select a state to rename it, describe it, or mark it as where the view starts (drawn with a dot pointing into it) or where it can end (an arrow out to a bullseye), and to add a transition back to itself. Select a transition to give it an event, a guard and an action, labelled as UML writes them: `event [guard] / action`. States and transitions belong to the view, not the model.
 
 Right-click a state or a transition for its menu (see [Right-click menus](#right-click-menus)). A state's menu adds a transition from it, to another state or back to itself, says whether it starts there or can end there, lays it out again or deletes it. A transition's menu moves either end to another state, moves the transition up or down the list of transitions, or deletes it.
 
@@ -215,7 +215,7 @@ A flowchart shows the steps of a process: where it starts and ends, what's done,
 | Document | A page with a wavy bottom edge | A document or report that's made or read |
 | Database | A cylinder | Data that's kept |
 
-With a block selected, the new one goes under it, with a flow from it, so you can add the steps one after another. After an end, it has no flow from it, as the process stops there. Drag from the dot under a block to another to add a flow. Select a flow to give it text: on the ways out of a decision, the answer each is for, like Yes or No. Arrows meet a decision only at the four tips of its diamond.
+With a block selected, the new one goes under it, with a flow from it, so you can add the steps one after another. After an end, it has no flow from it, as the process stops there. Drag from the dot under a block to another to add a flow. To move a flow, select it and drag the dot at either end to another block: it keeps its text. Select a flow to give it text: on the ways out of a decision, the answer each is for, like Yes or No. Arrows meet a decision only at the four tips of its diamond.
 
 The blocks are laid out automatically, from the first one down. Drag one to move it: then they all stay where they are, and **Lay out again**, in a block's details, lets the designer place that one again. **Auto layout**, in the toolbar, places them all again. Select a block to change its text, its kind or its description, to add a flow from it, or to add a [sticky note](#sticky-notes) on it; or a flow to change its ends, its text or its number. Deleting a block deletes the flows to and from it. The problems list warns about a flowchart without a start, a decision with fewer than two ways out, a way out of a decision that doesn't say which answer it's for, a flow out of an end or into a start, and one from a block back to itself, which isn't drawn. Blocks and flows belong to the view, not the model.
 
@@ -231,7 +231,7 @@ An entity view is an entity-relationship diagram (ERD): the data something keeps
 
 Each entity is drawn as a table: its name and description at the top, and a row for each attribute, with its keys (PK for the primary key, FK for a foreign key, UK for unique), its name and its type. **+ Add** adds an entity, selected so you can type its name. With an entity or one of its attributes selected, **+ Add** adds an attribute to it, after the one selected; or type a name under **Add an attribute** in the entity's details and press Enter, then the next. Click an attribute's row to change its name, type, keys and description, or to move it up or down.
 
-Drag from the dot under an entity to another to add a link between them. A link says how many of each end there can be, drawn in crow's foot notation at that end:
+Drag from the dot under an entity to another to add a link between them. To move a link, select it and drag the dot at either end to another entity, or to the entity at its other end for a link to itself. It keeps how many of each end there can be, and its text. A link says how many of each end there can be, drawn in crow's foot notation at that end:
 
 | How many | Drawn as |
 |---|---|
