@@ -90,6 +90,7 @@ import {
   connectionEndChoices,
   connectionEnds,
   findArrow,
+  flowchartDeleteOps,
   followsName,
   HEADS_TEXT,
   idFromName,
@@ -180,6 +181,12 @@ export function shapesLabel(boxes: number, notes: number): string {
   return parts.filter(Boolean).join(" and ");
 }
 
+/** "3 blocks", "2 sticky notes", or "2 blocks and 1 sticky note". */
+export function blocksLabel(blocks: number, notes: number): string {
+  const parts = [blocks > 0 && `${blocks} ${blocks === 1 ? "block" : "blocks"}`, notes > 0 && `${notes} sticky ${notes === 1 ? "note" : "notes"}`];
+  return parts.filter(Boolean).join(" and ");
+}
+
 /** `what` it follows: its name, or for a flowchart's block, its text. */
 function idHint(follows: boolean, what = "name"): string {
   const change = what === "name" ? "rename" : `change the ${what}`;
@@ -196,6 +203,7 @@ export function Properties(props: PropertiesProps) {
   else if (shown.kind === "state") body = <StateProperties {...props} view={shown.view} state={shown.state} />;
   else if (shown.kind === "transition") body = <TransitionProperties {...props} view={shown.view} transition={shown.transition} />;
   else if (shown.kind === "block") body = <BlockProperties {...props} view={shown.view} block={shown.block} />;
+  else if (shown.kind === "blocks") body = <BlocksProperties {...props} view={shown.view} blocks={shown.blocks} stickies={shown.stickies} />;
   else if (shown.kind === "flow") body = <FlowProperties {...props} view={shown.view} flow={shown.flow} />;
   else if (shown.kind === "entity") body = <EntityProperties {...props} view={shown.view} entity={shown.entity} />;
   else if (shown.kind === "attribute") body = <AttributeProperties {...props} view={shown.view} entity={shown.entity} attribute={shown.attribute} />;
@@ -2125,6 +2133,51 @@ function BoardProperties({ view, shapes, arrows, stickies, edit, onSelect }: Pro
   );
 }
 
+function BlocksProperties({ view, blocks, stickies, edit, onSelect }: PropertiesProps & { view: ViewDef; blocks: Block[]; stickies: Sticky[] }) {
+  const selection: Selection = { kind: "blocks", blocks: blocks.map((b) => b.id), stickies: stickies.map((s) => s.id) };
+  return (
+    <>
+      <header className="props-header">
+        <span className="badge">{blocksLabel(blocks.length, stickies.length)}</span>
+      </header>
+      <p className="muted small">Drag any of them to move them all together. Ctrl-click (⌘-click on a Mac) or Shift-click a block or note to add it or take it out.</p>
+      {blocks.length > 0 && (
+        <>
+          <h3>Blocks</h3>
+          <ul className="plain">
+            {blocks.map((b) => (
+              <li key={b.id}>
+                <button className="link one-line" onClick={() => onSelect({ kind: "block", id: b.id })}>
+                  {blockText(b)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {stickies.length > 0 && (
+        <>
+          <h3>Sticky notes</h3>
+          <ul className="plain">
+            {stickies.map((s) => (
+              <li key={s.id}>
+                <button className="link one-line" onClick={() => onSelect({ kind: "sticky", id: s.id })} title={s.text}>
+                  {s.text.trim().split("\n")[0]}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="actions">
+        <button className="danger" onClick={() => void edit(flowchartDeleteOps(view, selection)).then((ok) => ok && onSelect(null))}>
+          Delete them
+        </button>
+      </div>
+    </>
+  );
+}
+
 function SeveralProperties({ elements, stickies, onSelect, onCopy, onDeleteSelected }: PropertiesProps & { elements: ArchElement[]; stickies: Sticky[] }) {
   return (
     <>
@@ -2241,7 +2294,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.flows.length}</dd>
           </dl>
           <p className="muted small">
-            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it. + Add adds a lane too, a column for the blocks of one actor, team or system: drag a block into a lane to put it there. Right-click a block, a flow, a lane, a sticky note or the background for a menu of what you can do there.
+            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it. Drag across the background to select several blocks and notes, and drag any of them to move them all. + Add adds a lane too, a column for the blocks of one actor, team or system: drag a block into a lane to put it there. Right-click a block, a flow, a lane, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : view.level === "whiteboard" ? (

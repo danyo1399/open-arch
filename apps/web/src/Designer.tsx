@@ -51,6 +51,8 @@ import {
   whiteboardDeleteOps,
   whiteboardSelectionLeft,
   findArrow,
+  flowchartDeleteOps,
+  flowchartSelectionLeft,
   followRenames,
   LEVEL_NAMES,
   newStickyId,
@@ -80,7 +82,7 @@ import { BrowserAskAI } from "./panels/BrowserAskAI.js";
 import { ContextMenu, MenuButton, type MenuItem } from "./panels/ContextMenu.js";
 import { ConfirmDialog, DeleteElementDialog, HistoryDialog, NewViewDialog, NotesEditor } from "./panels/dialogs.js";
 import { ShareDialog } from "./panels/ShareDialog.js";
-import { Properties, shapesLabel } from "./panels/Properties.js";
+import { blocksLabel, Properties, shapesLabel } from "./panels/Properties.js";
 import { problemText } from "./problems.js";
 import { MARKDOWN_FILE, PDF_FILE, PNG_FILE, providers, saveFile, SVG_FILE, type FileProvider, type FileType } from "./providers.js";
 import { diagramImage, nextPaint, type ImageFormat } from "./image.js";
@@ -131,6 +133,7 @@ export function detailsName(ws: Workspace, view: ViewDef | null, computed: Compu
   if (shown.kind === "state") return shown.state.name;
   if (shown.kind === "transition") return `Transition ${shown.transition.number}`;
   if (shown.kind === "block") return blockText(shown.block);
+  if (shown.kind === "blocks") return blocksLabel(shown.blocks.length, shown.stickies.length);
   if (shown.kind === "flow") return `Flow ${shown.flow.number}`;
   if (shown.kind === "entity") return shown.entity.name;
   if (shown.kind === "attribute") return shown.attribute.name;
@@ -323,8 +326,8 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     if (selection?.kind === "instance" && ws && !ws.views.get(viewId ?? "")?.nodes.some((n) => n.id === selection.node && n.runs.includes(selection.element))) setSelection(null);
     if (ws && eventSelectionGone(ws.views.get(viewId ?? ""), selection)) setSelection(null);
     if (ws && wireframeSelectionGone(ws.views.get(viewId ?? ""), selection)) setSelection(null);
-    // Shapes, arrows and notes that leave a whiteboard leave the selection.
-    const left = ws ? whiteboardSelectionLeft(ws.views.get(viewId ?? ""), selection) : selection;
+    // Shapes, arrows and notes that leave a whiteboard leave the selection, and so do blocks and notes that leave a flowchart.
+    const left = ws ? flowchartSelectionLeft(ws.views.get(viewId ?? ""), whiteboardSelectionLeft(ws.views.get(viewId ?? ""), selection)) : selection;
     if (left !== selection) setSelection(left);
   }, [ws, selection, viewId]);
 
@@ -600,8 +603,9 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     }
     // A lane, a card and an arrow between two cards are only this view's too. A lane's cards stay, in no lane.
     if (view) {
-      // So are a screen, with what's on it, and a widget, with what's inside it, and a whiteboard's shapes, with their arrows, and its arrows and notes.
-      const ops = [...eventDeleteOps(view, selection), ...wireframeDeleteOps(view, selection), ...whiteboardDeleteOps(view, selection)];
+      // So are a screen, with what's on it, and a widget, with what's inside it, a whiteboard's shapes, with their arrows, and its arrows and notes,
+      // and a flowchart's blocks and notes selected together.
+      const ops = [...eventDeleteOps(view, selection), ...wireframeDeleteOps(view, selection), ...whiteboardDeleteOps(view, selection), ...flowchartDeleteOps(view, selection)];
       if (ops.length) void edit(ops).then(() => select(null));
     }
     if (selection?.kind === "arrow" && ws) {

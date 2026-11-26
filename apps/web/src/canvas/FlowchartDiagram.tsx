@@ -2,10 +2,12 @@
  * A flowchart view's diagram: its blocks, each in its kind's shape (a pill where the process
  * starts and ends, a box for a step, a diamond for a decision, and so on), and the flows between
  * them as arrows, each with its text. Drag a block to move it, or from the dot under one to
- * another to add a flow. The element whose process it is, if the view says, is the frame. A
- * right-click on a block, a flow, a lane, a sticky note or the background opens a menu of what
- * can be done there. A sticky note can be on a block, with a line to it: drag from the dot under
- * a note to a block. Select a flow and drag the dot at either end to another block to move it.
+ * another to add a flow. Drag across the background to select the blocks and notes inside, or
+ * Ctrl-click (⌘-click on a Mac) or Shift-click them, and drag any of them to move them all. The
+ * element whose process it is, if the view says, is the frame. A right-click on a block, a flow,
+ * a lane, a sticky note or the background opens a menu of what can be done there. A sticky note
+ * can be on a block, with a line to it: drag from the dot under a note to a block. Select a flow
+ * and drag the dot at either end to another block to move it.
  */
 import { BLOCK_KIND_LABELS, BLOCK_KINDS, kindLabel, STICKY_COLORS, type ArchElement, type Block, type BlockKind, type ComputedView, type Flow, type Lane, type Operation, type Sticky, type ViewDef, type ViewEdge, type Workspace } from "@open-arch/core";
 import {
@@ -30,13 +32,13 @@ import {
   type NodeChange,
   type NodeProps,
 } from "@xyflow/react";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import { useMediaQuery } from "../mediaQuery.js";
-import { blockText, idFromName, NEW_LANE_NAME, newStickyId, uniqueAmong } from "../model.js";
+import { blockText, flowchartItemsOf, idFromName, NEW_LANE_NAME, newStickyId, selectFlowchart, toggleFlowchartItem, uniqueAmong, type FlowchartItems } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
 import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
+import { addsToSelection, AutoLayoutButton, DRAWING_Z, fitBelowToolbar, MULTI_KEYS, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, outlineToward, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, noSuchArrow, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
@@ -355,6 +357,30 @@ export function besideBlocks(view: Pick<ViewDef, "blocks" | "stickies">, positio
 }
 
 /**
+ * The lane's column at this point on the diagram, if any. A column takes no pointer events but on
+ * its name, so a drag that starts in one draws a selection box, as on the background around it.
+ * A click or a right-click in one lands on the background, and this tells them apart.
+ */
+export function laneAt<L extends { position: Point; data: { column: LaneColumn; height: number } }>(lanes: readonly L[], at: Point): L | undefined {
+  return lanes.find(({ position: { x, y }, data }) => at.x >= x && at.x <= x + data.column.w && at.y >= y && at.y <= y + data.height);
+}
+
+/** What a click on a block or a note selects on its own, and where it goes in a selection of several. */
+function pickedBy(node: FlowNode): { which: keyof FlowchartItems; id: string; selection: Selection } | undefined {
+  if (node.type === "block") return { which: "blocks", id: node.id, selection: { kind: "block", id: node.id } };
+  if (node.type === "sticky") return { which: "stickies", id: node.data.sticky.id, selection: { kind: "sticky", id: node.data.sticky.id } };
+  return undefined;
+}
+
+/** The blocks and notes of these nodes, as a selection box picks them. */
+export function boxedItems(nodes: readonly FlowNode[]): FlowchartItems {
+  return {
+    blocks: nodes.flatMap((n) => (n.type === "block" ? [n.id] : [])),
+    stickies: nodes.flatMap((n) => (n.type === "sticky" ? [n.data.sticky.id] : [])),
+  };
+}
+
+/**
  * The edit that puts a note on the block its dot was let go on, or none when it's on that block
  * already. The note stays where it's drawn, `drawnAt`, rather than going beside the block, as one
  * the designer placed would.
@@ -462,6 +488,8 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
   /** The flows that are drawn: between two blocks of the view, and not from one to itself. */
   const between = useMemo(() => view.flows.filter((f) => f.from !== f.to && ids.includes(f.from) && ids.includes(f.to)), [view, ids]);
   const missing = ids.some((id) => !saved[id]);
+  /** The blocks and notes selected. */
+  const picked = useMemo(() => flowchartItemsOf(selection), [selection]);
   const [auto, setAuto] = useState<{ key: string; positions: Record<string, Point> } | null>(null);
 
   /** The blocks for ELK to lay out, each as tall as it's drawn, in `drawn` by its ID, once it has been. */
@@ -550,7 +578,7 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
           type: "block",
           position: positions[block.id]!,
           data: { block },
-          selected: selection?.kind === "block" && selection.id === block.id,
+          selected: picked.blocks.includes(block.id),
           measured: previous.find((p) => p.id === block.id)?.measured,
         }),
       ),
@@ -568,14 +596,14 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
             onLinkDrop: (at) => dropLink.current(sticky.id, at),
             linkTo: "a block",
           },
-          selected: selection?.kind === "sticky" && selection.id === sticky.id,
+          selected: picked.stickies.includes(sticky.id),
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,
           zIndex: STICKY_Z,
         }),
       ),
     ]);
-  }, [positions, columns, view, selection, editing, finishEditing, stickySize]);
+  }, [positions, columns, view, picked, editing, finishEditing, stickySize]);
 
   /** Each block as drawn now, measured once it has been, with its kind. */
   const drawnBlocks = useMemo(() => {
@@ -670,6 +698,8 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
       connectable: false,
       selectable: false,
       zIndex: -1,
+      // Only its name takes clicks (see laneAt).
+      style: { pointerEvents: "none" },
     }));
   }, [columns, head, boxes, selection, ws]);
 
@@ -756,9 +786,14 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
 
   const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
 
+  /** What the selection box being drawn has picked so far, by node ID. */
+  const boxed = useRef<Set<string> | null>(null);
+
   const onNodesChange = useCallback(
     (made: NodeChange<FlowNode>[]) => {
       const changes = snapChanges(made);
+      const picking = boxed.current;
+      if (picking) for (const c of changes) if (c.type === "select") picking[c.selected ? "add" : "delete"](c.id);
       for (const c of changes) {
         if (c.type !== "dimensions" || !c.dimensions) continue;
         if (c.id === FRAME_ID) frameMeasured.current = c.dimensions;
@@ -985,9 +1020,24 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
     },
   });
 
+  /** What a click selects in the background at this point on the screen: the lane there, or nothing, as in the column for blocks in no lane. */
+  const laneSelectionAt = (point: Point): Selection => {
+    const lane = laneAt(laneNodes, rf.screenToFlowPosition(point))?.data.column.lane;
+    return lane ? { kind: "lane", id: lane.id } : null;
+  };
+
+  /**
+   * A click on the background selects the lane there, or nothing. This isn't React Flow's
+   * onPaneClick, which a tap on a touch screen never reaches while a drag selects (see Canvas).
+   */
+  const clickPane = (event: ReactMouseEvent) => {
+    if (!(event.target instanceof Element) || !event.target.classList.contains("react-flow__pane")) return;
+    select(laneSelectionAt({ x: event.clientX, y: event.clientY }));
+  };
+
   const scope = cv.boundary;
   return (
-    <div className="canvas" ref={wrapper}>
+    <div className="canvas" ref={wrapper} onClick={clickPane}>
       <ReactFlow<FlowNode, FlowEdge>
         nodes={drawn}
         edges={edges}
@@ -997,17 +1047,23 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         isValidConnection={(c) => c.source !== c.target && ids.includes(c.source) && ids.includes(c.target)}
-        onNodeClick={(_, node) => {
-          if (node.type === "block") select({ kind: "block", id: node.id });
-          else if (node.type === "sticky") select({ kind: "sticky", id: node.data.sticky.id });
+        // A click on a block or note selects it, or with Ctrl (⌘ on a Mac) or Shift held, adds it
+        // to the selection or takes it out. A click on a lane's name selects the lane.
+        onNodeClick={(event, node) => {
+          const clicked = pickedBy(node);
+          if (clicked) select(addsToSelection(event) ? toggleFlowchartItem(selection, clicked.which, clicked.id) : clicked.selection);
           else if (node.type === "lane") select(node.data.column.lane ? { kind: "lane", id: node.data.column.lane.id } : null);
         }}
-        onNodeDragStart={(_, node) => {
-          if (node.type === "block") select({ kind: "block", id: node.id });
-          else if (node.type === "sticky") select({ kind: "sticky", id: node.data.sticky.id });
+        // Dragging swallows the click, so select what's dragged when the drag starts: the block or
+        // note, or all those selected with it, which move together. Selecting the ones selected
+        // already would redraw them for nothing, mid-drag.
+        onNodeDragStart={(_, node, dragged) => {
+          if (!pickedBy(node)) return;
+          const items = boxedItems(dragged);
+          const same = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
+          if (!same(items.blocks, picked.blocks) || !same(items.stickies, picked.stickies)) select(selectFlowchart(items));
         }}
         onEdgeClick={(_, edge) => edge.data && select({ kind: "flow", number: edge.data.flow.number })}
-        onPaneClick={() => select(null)}
         onNodeContextMenu={(event, node) => {
           if (node.type === "block") menu.open(event, { kind: "block", id: node.id });
           else if (node.type === "sticky") menu.open(event, { kind: "sticky", id: node.data.sticky.id });
@@ -1016,14 +1072,29 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
         }}
         // A flow's text is drawn apart from its line, but a right-click on it comes here too.
         onEdgeContextMenu={(event, edge) => edge.data && menu.open(event, { kind: "flow", number: edge.data.flow.number })}
-        // The frame takes no clicks, so a right-click on it is one on the background.
-        onPaneContextMenu={(event) => menu.open(event, null)}
+        // The frame and the lanes take no clicks but on a lane's name, so a right-click on them is
+        // one on the background: in a lane, it's the lane's menu.
+        onPaneContextMenu={(event) => menu.open(event, laneSelectionAt({ x: event.clientX, y: event.clientY }))}
         nodeClickDistance={4}
         paneClickDistance={4}
         connectionMode={ConnectionMode.Loose}
+        // With a mouse, dragging the background draws a box, and selects the blocks and notes
+        // inside it, as on a view of boxes. So the scroll wheel pans, as do Space and drag and
+        // the middle button, and Ctrl (⌘ on a Mac) with the wheel, or a pinch, zooms. A drag on a
+        // touch screen still pans.
+        selectionOnDrag
+        panOnDrag={[1]}
+        onSelectionStart={() => {
+          boxed.current = new Set();
+        }}
+        onSelectionEnd={() => {
+          const ids = boxed.current;
+          boxed.current = null;
+          if (ids) select(selectFlowchart(boxedItems(nodesRef.current.filter((n) => ids.has(n.id)))));
+        }}
         deleteKeyCode={null}
         selectionKeyCode={null}
-        multiSelectionKeyCode={null}
+        multiSelectionKeyCode={MULTI_KEYS}
         panOnScroll
         minZoom={0.1}
         colorMode="system"

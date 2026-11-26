@@ -66,6 +66,8 @@ export function selectedThings(ws: Workspace, view: ViewDef | null, computed: Co
     }
     case "block":
       return [`the block ${code(selection.id)}`];
+    case "blocks":
+      return [...selection.blocks.map((id) => `the block ${code(id)}`), ...selection.stickies.map((id) => `the sticky note ${code(id)}`)];
     case "flow":
       return [`flow ${selection.number}`];
     case "entity":

@@ -43,6 +43,7 @@ describe("what Ask AI is told of where the person is", () => {
     expect(said({ kind: "boardArrow", id: "a1" })).toEqual(["the arrow `a1`"]);
     expect(said({ kind: "board", shapes: ["s1", "s2"], arrows: ["a1"], stickies: ["n1"] })).toEqual(["the shape `s1`", "the shape `s2`", "the arrow `a1`", "the sticky note `n1`"]);
     expect(said({ kind: "block", id: "start" })).toEqual(["the block `start`"]);
+    expect(said({ kind: "blocks", blocks: ["start", "pay"], stickies: ["n1"] })).toEqual(["the block `start`", "the block `pay`", "the sticky note `n1`"]);
     expect(said({ kind: "flow", number: 4 })).toEqual(["flow 4"]);
     expect(said({ kind: "entity", id: "order" })).toEqual(["the entity `order`"]);
     // An attribute's name is free text, so it's named by its number. One that isn't there any more isn't numbered.

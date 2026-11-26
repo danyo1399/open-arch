@@ -2407,19 +2407,18 @@ button.heading {
 }
 /* A flowchart's lane: a column behind its blocks, with its name at the top, wrapped onto as many
    lines as it needs. Lanes share the line between them. The column for blocks in no lane is
-   dashed. (See LaneNode and laneHead in FlowchartDiagram.) */
+   dashed. Only the name takes the pointer, so a drag below it draws a selection box, and a
+   click there finds the lane (see laneAt in FlowchartDiagram). See LaneNode and laneHead too. */
 .flow-lane {
   border: 1.5px solid var(--frame);
   margin-left: -0.75px;
   background: color-mix(in srgb, var(--frame) 4%, transparent);
   outline: 3px solid transparent;
   outline-offset: -3px;
-  cursor: pointer;
 }
 .flow-lane.loose {
   border-style: dashed;
   background: none;
-  cursor: default;
 }
 .flow-lane.selected {
   outline-color: var(--accent);
@@ -2437,6 +2436,8 @@ button.heading {
   text-align: center;
   color: var(--text);
   overflow-wrap: anywhere;
+  pointer-events: auto;
+  cursor: pointer;
 }
 /* A lane for an element says what kind it is under its name, as a box does. */
 .flow-lane-kind {
@@ -2450,6 +2451,7 @@ button.heading {
   background: none;
   font-weight: 400;
   color: var(--muted);
+  cursor: default;
 }
 .badge-block {
   background: var(--class);

@@ -602,6 +602,57 @@ export function whiteboardSelectionLeft(view: ViewDef | undefined, selection: Se
   return same ? selection : selectBoard(left);
 }
 
+/** What's on a flowchart that's selected together: its blocks and its sticky notes. */
+export interface FlowchartItems {
+  blocks: string[];
+  stickies: string[];
+}
+
+/** The selection of these blocks and notes: one of them on its own, as a click selects it, two or more together, or nothing. */
+export function selectFlowchart({ blocks, stickies }: FlowchartItems): Selection {
+  if (blocks.length + stickies.length > 1) return { kind: "blocks", blocks, stickies };
+  if (blocks.length === 1) return { kind: "block", id: blocks[0]! };
+  if (stickies.length === 1) return { kind: "sticky", id: stickies[0]! };
+  return null;
+}
+
+/** What's on a flowchart in a selection: the block or note selected, or those selected together. */
+export function flowchartItemsOf(selection: Selection): FlowchartItems {
+  if (selection?.kind === "blocks") return selection;
+  return { blocks: selection?.kind === "block" ? [selection.id] : [], stickies: selection?.kind === "sticky" ? [selection.id] : [] };
+}
+
+/** The selection with a block or note added, or taken out when it's in already, as a Ctrl-click does. */
+export function toggleFlowchartItem(selection: Selection, which: keyof FlowchartItems, id: string): Selection {
+  const now = flowchartItemsOf(selection);
+  const list = now[which].includes(id) ? now[which].filter((x) => x !== id) : [...now[which], id];
+  return selectFlowchart({ ...now, [which]: list });
+}
+
+/**
+ * The edit that deletes the blocks and notes of a flowchart selected together: the blocks with
+ * their flows, and the notes. A note on a block deleted that isn't selected stays, on nothing.
+ * None for any other selection, as the designer deletes a block or a note on its own.
+ */
+export function flowchartDeleteOps(view: ViewDef, selection: Selection): Operation[] {
+  if (view.level !== "flowchart" || selection?.kind !== "blocks") return [];
+  return [
+    ...selection.blocks.filter((id) => view.blocks.some((b) => b.id === id)).map((id): Operation => ({ op: "remove-block", view: view.id, id })),
+    ...selection.stickies.filter((id) => view.stickies.some((s) => s.id === id)).map((id): Operation => ({ op: "remove-sticky", view: view.id, id })),
+  ];
+}
+
+/**
+ * Blocks and notes selected together on a flowchart, with what's no longer on the view left out,
+ * as after an Undo or a change to the file: the same selection when it's all still there.
+ */
+export function flowchartSelectionLeft(view: ViewDef | undefined, selection: Selection): Selection {
+  if (selection?.kind !== "blocks") return selection;
+  const blocks = selection.blocks.filter((id) => view?.blocks.some((b) => b.id === id));
+  const stickies = selection.stickies.filter((id) => view?.stickies.some((s) => s.id === id));
+  return blocks.length === selection.blocks.length && stickies.length === selection.stickies.length ? selection : selectFlowchart({ blocks, stickies });
+}
+
 /** What + Add calls a flowchart's new lane, until it's named, or picks an element whose name it takes. */
 export const NEW_LANE_NAME = "New lane";
 
@@ -922,6 +973,7 @@ export type Shown =
   | { kind: "boardArrow"; view: ViewDef; arrow: Arrow }
   | { kind: "board"; view: ViewDef; shapes: Shape[]; arrows: Arrow[]; stickies: Sticky[] }
   | { kind: "block"; view: ViewDef; block: Block }
+  | { kind: "blocks"; view: ViewDef; blocks: Block[]; stickies: Sticky[] }
   | { kind: "flow"; view: ViewDef; flow: Flow }
   | { kind: "entity"; view: ViewDef; entity: Entity }
   | { kind: "attribute"; view: ViewDef; entity: Entity; attribute: Attribute }
@@ -946,6 +998,13 @@ export function shownInProperties(ws: Workspace, view: ViewDef | null, selection
     const arrows = view.arrows.filter((a) => left.arrows.includes(a.id));
     const stickies = view.stickies.filter((s) => left.stickies.includes(s.id));
     return { kind: "board", view, shapes, arrows, stickies };
+  }
+  if (selection?.kind === "blocks" && view) {
+    const left = flowchartSelectionLeft(view, selection);
+    if (left?.kind !== "blocks") return shownInProperties(ws, view, left);
+    const blocks = view.blocks.filter((b) => left.blocks.includes(b.id));
+    const stickies = view.stickies.filter((s) => left.stickies.includes(s.id));
+    return { kind: "blocks", view, blocks, stickies };
   }
   const shape = selection?.kind === "shape" ? view?.shapes.find((s) => s.id === selection.id) : undefined;
   if (view && shape) return { kind: "shape", view, shape };

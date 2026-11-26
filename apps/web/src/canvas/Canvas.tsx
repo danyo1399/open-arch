@@ -94,9 +94,10 @@ export type Selection =
   | { kind: "shape"; id: string }
   | { kind: "boardArrow"; id: string }
   | { kind: "board"; shapes: string[]; arrows: string[]; stickies: string[] }
-  /** A flowchart view's block, and its flow, by its number: 1 is the first. */
+  /** A flowchart view's block, its flow, by its number: 1 is the first, and two or more of its blocks and sticky notes, which move together. */
   | { kind: "block"; id: string }
   | { kind: "flow"; number: number }
+  | { kind: "blocks"; blocks: string[]; stickies: string[] }
   /** An entity view's entity, an attribute of one, by its entity and its name, and a link, by its number: 1 is the first. */
   | { kind: "entity"; id: string }
   | { kind: "attribute"; entity: string; name: string }
@@ -146,8 +147,8 @@ const TOUCH = "(any-pointer: coarse)";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 /** Held while clicking a box or note, these add it to the selection or take it out: Ctrl (⌘ on a Mac), or Shift. */
-const MULTI_KEYS = isMac ? ["Meta", "Shift"] : ["Control", "Shift"];
-const addsToSelection = (e: MouseEvent) => e.shiftKey || (isMac ? e.metaKey : e.ctrlKey);
+export const MULTI_KEYS = isMac ? ["Meta", "Shift"] : ["Control", "Shift"];
+export const addsToSelection = (e: MouseEvent) => e.shiftKey || (isMac ? e.metaKey : e.ctrlKey);
 /** Boxes and notes snap as they're dragged, and line up with each other. The frame grows round the boxes inside it, so it's neither. */
 const snapsHere = (n: FlowNode) => n.type !== "frame";
 
