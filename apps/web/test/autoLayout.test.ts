@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { elkLayout, gridLayout, layOut, loadOnce, NODE_H, NODE_W, placeMissing, placeStickies, ROW_GAP, rowGap, STICKY, stickyHeight, TOUCH_STICKY } from "../src/canvas/autoLayout.js";
+import { elkLayout, gridLayout, layOut, loadOnce, NODE_H, NODE_W, placeMissing, placeStickies, ROW_GAP, rowGap, STICKY, stickyBox, stickyHeight, TOUCH_STICKY } from "../src/canvas/autoLayout.js";
 
 describe("layOut", () => {
   const nodes = [
@@ -184,9 +184,36 @@ describe("placeStickies", () => {
     expect(at.second).toEqual({ x: 700 + TOUCH_STICKY.width + 80, y: 40 + stickyHeight(text, TOUCH_STICKY) + 24 });
   });
 
+  it("leaves room for a note's size, and stacks the next one under it", () => {
+    const at = placeStickies(
+      [
+        { id: "placed", text: "Here", at: [700, 0], size: [400, 100] },
+        { id: "first", text: "One line", size: [300, 200] },
+        { id: "second", text: "One line" },
+      ],
+      [{ x: 0, y: 40 }],
+    );
+    expect(at.first).toEqual({ x: 700 + 400 + 80, y: 40 });
+    expect(at.second).toEqual({ x: 700 + 400 + 80, y: 40 + 200 + 24 });
+  });
+
   it("puts notes at the origin of an empty view", () => {
     expect(placeStickies([{ id: "a", text: "Hi" }], [])).toEqual({ a: { x: 0, y: 0 } });
     expect(placeStickies([{ id: "a", text: "Hi" }], [{ x: 10, y: 10 }]).a).toEqual({ x: 10 + NODE_W + 80, y: 10 });
+  });
+});
+
+describe("stickyBox", () => {
+  it("is the usual width, and as tall as the text, for a note without a size", () => {
+    expect(stickyBox({ text: "Hi" })).toEqual({ width: STICKY.width, height: stickyHeight("Hi") });
+    expect(stickyBox({ text: "Hi" }, TOUCH_STICKY)).toEqual({ width: TOUCH_STICKY.width, height: stickyHeight("Hi", TOUCH_STICKY) });
+  });
+
+  it("is a note's size, and taller when its text needs more, as a narrower note wraps it sooner", () => {
+    expect(stickyBox({ text: "Hi", size: [300, 150] })).toEqual({ width: 300, height: 150 });
+    const text = "x".repeat(60);
+    expect(stickyBox({ text, size: [200, 20] }).height).toBe(stickyHeight(text));
+    expect(stickyBox({ text, size: [100, 20] }).height).toBeGreaterThan(stickyHeight(text));
   });
 });
 

@@ -150,7 +150,7 @@ describe("putting sticky notes on things", () => {
     expect(doc.views["shop-containers"]!.stickies!.a).toEqual({ text: "A", on: { from: "customer", to: "web-app" } });
     doc = apply(doc, { op: "update-sticky", view: "shop-containers", id: "a", on: null });
     expect(doc.views["shop-containers"]!.stickies!.a).toEqual({ text: "A" });
-    expect(fails(doc, { op: "update-sticky", view: "shop-containers", id: "a" })).toBe("Say what to change: text, on, color, at or notes.");
+    expect(fails(doc, { op: "update-sticky", view: "shop-containers", id: "a" })).toBe("Say what to change: text, on, color, at, size or notes.");
   });
 
   it("refuses what isn't there, and views that don't draw boxes", () => {
@@ -313,5 +313,65 @@ describe("a sticky note's notes", () => {
     expect(bad({ op: "update-sticky", view: "v", id: "n", notes: null })).toBe("ok");
     expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", notes: null })).toMatch(/^add-sticky: "notes" must be/);
     expect(bad({ op: "update-sticky", view: "v", id: "n", notes: 5 })).toMatch(/^update-sticky: "notes" must be/);
+  });
+});
+
+describe("a sticky note's size", () => {
+  it("is read and written in the file's canonical form, after where it is", () => {
+    const doc = noted();
+    doc.views["shop-containers"]!.stickies!.cache!.size = [260, 120];
+    const text = serializeDocument(doc);
+    expect(text).toContain('"cache": { "text": "Cached for a minute.", "on": { "element": "db" }, "at": [10, 20], "size": [260, 120] },');
+    const read = parseDocument(text);
+    expect(read.diagnostics).toEqual([]);
+    expect(read.doc.views["shop-containers"]!.stickies).toEqual(doc.views["shop-containers"]!.stickies);
+    expect(buildWorkspace(read.doc).views.get("shop-containers")!.stickies.find((s) => s.id === "cache")!.size).toEqual([260, 120]);
+  });
+
+  it("is reported when it isn't a width and a height above 0, and the note is kept", () => {
+    const doc = shop() as unknown as { views: Record<string, Record<string, unknown>> };
+    doc.views.landscape!.stickies = { a: { text: "A", size: [200] }, b: { text: "B", size: [0, 80] }, c: { text: "C", size: ["wide", 80] } };
+    const read = parseDocument(JSON.stringify(doc));
+    expect(read.diagnostics.map((d) => `${d.rule} ${d.path}`)).toEqual(["field-type views.landscape.stickies.a.size", "field-type views.landscape.stickies.b.size", "field-type views.landscape.stickies.c.size"]);
+    expect(read.doc.views.landscape!.stickies).toEqual({ a: { text: "A" }, b: { text: "B" }, c: { text: "C" } });
+  });
+
+  it("is new in version 22: a version 21 file is read as it is", () => {
+    const parsed = parseDocument(JSON.stringify({ ...noted(), openarch: 21 }));
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.doc).toEqual(noted());
+  });
+
+  it("is given when a note is added, rounded, and changed and taken off when it's updated", () => {
+    let doc = apply(shop(), { op: "add-sticky", view: "landscape", id: "a", text: "A", size: [260.4, 119.6] });
+    expect(doc.views.landscape!.stickies!.a).toEqual({ text: "A", size: [260, 120] });
+    doc = apply(doc, { op: "update-sticky", view: "landscape", id: "a", at: [5, 6], size: [300, 90] });
+    expect(doc.views.landscape!.stickies!.a).toEqual({ text: "A", at: [5, 6], size: [300, 90] });
+    // Putting it back where the designer places it keeps its size.
+    doc = apply(doc, { op: "update-sticky", view: "landscape", id: "a", at: null });
+    expect(doc.views.landscape!.stickies!.a).toEqual({ text: "A", size: [300, 90] });
+    doc = apply(doc, { op: "update-sticky", view: "landscape", id: "a", size: null });
+    expect(doc.views.landscape!.stickies!.a).toEqual({ text: "A" });
+  });
+
+  it("refuses a width or height that isn't above 0", () => {
+    expect(fails(shop(), { op: "add-sticky", view: "landscape", id: "a", text: "A", size: [0, 80] })).toBe("A sticky note's width and height must be more than 0.");
+    const doc = apply(shop(), { op: "add-sticky", view: "landscape", id: "a", text: "A" });
+    expect(fails(doc, { op: "update-sticky", view: "landscape", id: "a", size: [200, -1] })).toBe("A sticky note's width and height must be more than 0.");
+  });
+
+  it("is checked in a batch: a width and a height, or null for the usual size", () => {
+    const bad = (op: unknown) => {
+      try {
+        parseOperations(op);
+        return "ok";
+      } catch (error) {
+        return (error as Error).message;
+      }
+    };
+    expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", size: [200, 80] })).toBe("ok");
+    expect(bad({ op: "update-sticky", view: "v", id: "n", size: null })).toBe("ok");
+    expect(bad({ op: "add-sticky", view: "v", id: "n", text: "x", size: null })).toMatch(/^add-sticky: "size" must be a width and a height/);
+    expect(bad({ op: "update-sticky", view: "v", id: "n", size: [200] })).toMatch(/^update-sticky: "size" must be a width and a height/);
   });
 });

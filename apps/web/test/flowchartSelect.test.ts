@@ -62,7 +62,7 @@ afterAll(() => {
 
 /** A return, each block placed, with a note. */
 const doc: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" } },
   views: {

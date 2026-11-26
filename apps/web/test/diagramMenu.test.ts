@@ -5,7 +5,7 @@ import { followMenu, isSelected, menuOn, menuRenamesIn, menuThere, selectionFor,
 
 /** A flowchart in two lanes, a state view and an entity view, each with a note. */
 const doc: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" } },
   views: {
@@ -67,7 +67,7 @@ const doc: OpenArchDocument = {
  * view, or a node is told what it runs.
  */
 const live: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: {
     buyer: { kind: "person", name: "Buyer", uses: [{ to: "web" }] },
@@ -551,7 +551,7 @@ describe("a menu's target, followed through the edits that land before it opens"
 
 /** An event view in two lanes, and a wireframe view of two screens, one with a row that has a panel in it. */
 const boards: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: {},
   views: {
@@ -917,7 +917,7 @@ describe("what a sequence view's right-click menu is for", () => {
 describe("what a whiteboard's right-click menu is for", () => {
   /** Two shapes joined by an arrow, a third with an arrow to it from a point, and a note. */
   const board: OpenArchDocument = {
-    openarch: 21,
+    openarch: 22,
     name: "Shop",
     elements: {},
     views: {

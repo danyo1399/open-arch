@@ -23,7 +23,7 @@ describe("parseDocument", () => {
   it("reports every shape problem and leaves the bad parts out", () => {
     const result = parseDocument(
       JSON.stringify({
-        openarch: 22,
+        openarch: 23,
         name: "X",
         colour: "red",
         elements: {
@@ -35,7 +35,7 @@ describe("parseDocument", () => {
           v: {
             title: "V",
             level: "landscape",
-            stickies: { fine: { text: "Fine", color: "blue" }, empty: { text: " " }, odd: { text: "Odd", color: "red", at: [1], size: 2 } },
+            stickies: { fine: { text: "Fine", color: "blue" }, empty: { text: " " }, odd: { text: "Odd", color: "red", at: [1], width: 2 } },
             layout: { ok: [1, "2"] },
           },
         },
@@ -53,7 +53,7 @@ describe("parseDocument", () => {
       "field-type elements.ok.uses[1]",
       "kind-invalid elements.what.kind",
       "field-required views.v.stickies.empty.text",
-      "field-unknown views.v.stickies.odd.size",
+      "field-unknown views.v.stickies.odd.width",
       "color-invalid views.v.stickies.odd.color",
       "field-type views.v.stickies.odd.at",
       "field-type views.v.layout.ok",
@@ -63,7 +63,7 @@ describe("parseDocument", () => {
     expect(result.doc.elements.ok!.uses).toEqual([{ to: "x" }]);
     expect(result.diagnostics.find((d) => d.path === "elements.ok.tags")!.fix).toMatch(/"shape": "database"/);
     // Relationships have no shape, so their hint doesn't suggest one.
-    const rel = parseDocument(JSON.stringify({ openarch: 21, name: "X", elements: { a: { kind: "system", name: "A", uses: [{ to: "a", tags: ["sync"] }] } }, views: {} }));
+    const rel = parseDocument(JSON.stringify({ openarch: 22, name: "X", elements: { a: { kind: "system", name: "A", uses: [{ to: "a", tags: ["sync"] }] } }, views: {} }));
     expect(rel.diagnostics.map((d) => [d.path, d.fix])).toEqual([["elements.a.uses[0].tags", 'Give a tag without a value "" as its value.']]);
   });
 
@@ -81,27 +81,27 @@ describe("parseDocument", () => {
       }),
     );
     expect(result.diagnostics).toEqual([]);
-    expect(result.doc.openarch).toBe(21);
+    expect(result.doc.openarch).toBe(22);
     expect(result.doc.elements).toEqual({
       customer: { kind: "person", name: "Customer", tags: { database: "" }, uses: [{ to: "db", description: "Reads", tags: { async: "" } }] },
       shop: { kind: "system", name: "Shop", tags: { core: "yes", owner: "payments" } },
       db: { kind: "container", name: "DB", parent: "shop", shape: "database" },
     });
-    expect(serializeDocument(result.doc)).toContain('"openarch": 21,');
+    expect(serializeDocument(result.doc)).toContain('"openarch": 22,');
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])("reads version %i as it is, and writes it back as version 21", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])("reads version %i as it is, and writes it back as version 22", (version) => {
     const old = { openarch: version, name: "Old", elements: { a: { kind: "system", name: "A", uses: [{ to: "b", description: "Uses" }] }, b: { kind: "system", name: "B" } }, views: {} };
     const result = parseDocument(JSON.stringify(old));
     expect(result.diagnostics).toEqual([]);
-    expect(result.doc).toEqual({ ...old, openarch: 21 });
-    expect(serializeDocument(result.doc)).toContain('"openarch": 21,');
+    expect(result.doc).toEqual({ ...old, openarch: 22 });
+    expect(serializeDocument(result.doc)).toContain('"openarch": 22,');
   });
 
   it("reads notes on views and relationships, and reports ones that aren't text", () => {
     const result = parseDocument(
       JSON.stringify({
-        openarch: 21,
+        openarch: 22,
         name: "X",
         elements: { a: { kind: "system", name: "A", uses: [{ to: "b", notes: "Over **HTTPS**." }, { to: "b", description: "Other", notes: 5 }] }, b: { kind: "system", name: "B" } },
         views: { v: { title: "V", level: "landscape", notes: "## Why\n\nTo show it." }, w: { title: "W", level: "landscape", notes: ["x"] } },

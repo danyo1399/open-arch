@@ -59,10 +59,10 @@ import {
 } from "../model.js";
 import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type LayoutEdge, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, stickyBox, TOUCH_STICKY, type LayoutEdge, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, stickyItems } from "./menuItems.js";
-import { classHeight, FrameNotes, nodeTypes, NotesOpener, StickyLines, StickyLinking, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { classHeight, FrameNotes, nodeTypes, NotesOpener, StickyLines, StickyLinking, stickyNodeSize, stickyResizeOp, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
 import { edgeTypes, INTERACTION_WIDTH, measureLabelSizes, MovingArrow, movingLine, type ArrowEdge, type ArrowEnd } from "./RoutedEdge.js";
 import { crossings, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -436,7 +436,8 @@ export function boxAt(nodes: FlowNode[], at: Point): ElementFlowNode | undefined
 
 /** Where a note is drawn on the diagram: as React Flow measured it, or else as big as it should be, at `size`. */
 export function noteRect(n: StickyFlowNode, size: StickySize): Rect {
-  return { x: n.position.x, y: n.position.y, w: n.measured?.width ?? size.width, h: n.measured?.height ?? stickyHeight(n.data.sticky.text, size) };
+  const box = stickyBox(n.data.sticky, size);
+  return { x: n.position.x, y: n.position.y, w: n.measured?.width ?? box.width, h: n.measured?.height ?? box.height };
 }
 
 /** An arrow as the canvas draws it: its route, and the box its label is drawn in, when it has one. */
@@ -700,6 +701,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
   }, [editSticky]);
 
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
+  /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
+  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
 
   /** A note whose dot is being dragged to a box, the frame or an arrow, to put the note on it: the note, and where the dot is on the diagram. */
   const [linking, setLinking] = useState<{ sticky: string; at: Point } | null>(null);
@@ -732,12 +735,14 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
         (sticky): StickyFlowNode => ({
           id: stickyNodeId(sticky.id),
           type: "sticky",
+          ...stickyNodeSize(sticky),
           position: stickyAt[sticky.id]!,
           data: {
             sticky,
             editing: editing === sticky.id,
             onEdit: () => setEditing(sticky.id),
             onDone: (text) => finishEditing(sticky, text),
+            onResize: (box: Rect) => resizeNote.current(sticky, box),
             ...(linkable && { onLinkDrag: (at: Point) => setLinking({ sticky: sticky.id, at }), onLinkDrop: (at: Point | null) => dropLink.current(sticky.id, at) }),
           },
           selected: picked.stickies.includes(sticky.id),
@@ -1003,7 +1008,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
   /** What the selection box being drawn has picked so far, by node ID. */
   const boxed = useRef<Set<string> | null>(null);
 
-  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
+  const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: STICKY_MIN });
+  // As it's drawn: snapped, as it was when it was let go.
+  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
 
   const onNodesChange = useCallback(
     (made: NodeChange<FlowNode>[]) => {

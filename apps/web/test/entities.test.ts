@@ -15,7 +15,7 @@ import { button, checkbox, choose, click, key, mount, pick, select, type, menusF
 
 /** What the shop's DB keeps: customers and their orders, with a customer referring another. Each entity is placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: {
     shop: { kind: "system", name: "Shop" },

@@ -48,11 +48,12 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueAmong, widgetName } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, NODE_W, placeStickies, STICKY, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { freeSpotAmong, NODE_W, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { fitBelowToolbar, SELECTED_LIFT, STICKY_Z, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
-import { NotesOpener, StickyNode, type StickyFlowNode } from "./nodes.js";
+import { NotesOpener, StickyNode, stickyNodeSize, stickyResizeOp, type StickyFlowNode } from "./nodes.js";
+import type { Rect } from "./stickyLines.js";
 import type { Box } from "./routing.js";
 import { pathThrough } from "./RoutedEdge.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -308,6 +309,8 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, menu
   const rf = useReactFlow<FlowNode, LeadsEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
+  /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
+  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
   const layout = useMemo(() => wireframeLayout(view), [view]);
   const arrows = useMemo(() => screenArrows(view), [view]);
   // Arrows go as the screens and widgets are laid out, not as dragged: one that's dropped moves to its new place, or back.
@@ -373,8 +376,9 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, menu
         out.push({
           id: stickyNodeId(sticky.id),
           type: "sticky",
+          ...stickyNodeSize(sticky),
           position: stickyAt[sticky.id]!,
-          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text) },
+          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text), onResize: (box: Rect) => resizeNote.current(sticky, box) },
           selected: selection?.kind === "sticky" && selection.id === sticky.id,
           measured: measured(stickyNodeId(sticky.id)),
           connectable: false,
@@ -408,7 +412,9 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, menu
     [arrows, layout, routes, selection],
   );
 
-  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith });
+  const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith, minSize: STICKY_MIN });
+  // As it's drawn: snapped, as it was when it was let go.
+  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(snapChanges(changes), nds)), [snapChanges]);
 
   const onNodeDragStop = useCallback(

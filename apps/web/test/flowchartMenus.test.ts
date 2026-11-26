@@ -11,7 +11,7 @@ import { designer as open, put, SlowHost, write, type MenuDesigner } from "./men
 
 /** A return, each block placed, so nothing waits for ELK, with a note beside it. */
 const doc: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" } },
   views: {

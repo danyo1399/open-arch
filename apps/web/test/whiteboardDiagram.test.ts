@@ -11,7 +11,7 @@ import type { Edit } from "../src/state.js";
 import { button, click, key, menusFor, mount } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: {},
   views: {

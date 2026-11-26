@@ -10,7 +10,7 @@ import { MemoryHost } from "../src/hosts.js";
 import { button, click, mount, type } from "./dom.js";
 
 const shop: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: { customer: { kind: "person", name: "Customer", uses: [{ to: "shop", description: "Buys things" }] }, shop: { kind: "system", name: "Shop" } },
   views: { context: { title: "Shop context", level: "context", scope: "shop" } },

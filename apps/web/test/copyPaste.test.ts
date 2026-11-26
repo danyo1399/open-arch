@@ -7,7 +7,7 @@ const BOX = { width: 200, height: 100 };
 
 /** The shop: a web app and an API in it, the API with a component inside, and a logging library the API is built with. */
 const shop: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: {
     customer: { kind: "person", name: "Customer", uses: [{ to: "web", description: "Buys things" }] },
@@ -28,7 +28,7 @@ const shop: OpenArchDocument = {
       stickies: {
         why: { text: "Server-rendered", on: { element: "web" }, at: [-300, 300] },
         call: { text: "Over HTTPS", on: { from: "web", to: "api" }, at: [200, 450] },
-        loose: { text: "Read me", color: "blue", at: [1200, 0] },
+        loose: { text: "Read me", color: "blue", at: [1200, 0], size: [300, 120] },
       },
     },
     "other-containers": { title: "Other containers", level: "container", scope: "other", include: [] },
@@ -67,7 +67,7 @@ describe("copyOf", () => {
     expect(copied.relationships).toEqual([{ from: "web", to: "api", description: "Calls", technology: "HTTPS" }]);
     // In the view's reading order, top to bottom.
     expect(copied.stickies).toEqual([
-      { text: "Read me", color: "blue", at: [1200, 0] },
+      { text: "Read me", color: "blue", at: [1200, 0], size: [300, 120] },
       { text: "Server-rendered", on: { element: "web" }, at: [-300, 300] },
       { text: "Over HTTPS", on: { from: "web", to: "api", kind: "association" }, at: [200, 450] },
     ]);
@@ -101,6 +101,7 @@ describe("readCopied", () => {
       { ...copied, relationships: [{ from: "web", to: "api", description: 2 }] },
       { ...copied, stickies: [{ text: "Hi", on: "web" }] },
       { ...copied, stickies: [{ text: "Hi", on: { from: "web" } }] },
+      { ...copied, stickies: [{ text: "Hi", size: [300] }] },
       { ...copied, view: 3 },
       { ...copied, elements: {} },
     ]) {
@@ -130,10 +131,10 @@ describe("pasteOps", () => {
     expect(v.layout.customer).toEqual([0, 0]);
     expect(pasted.stickies).toEqual(["note", "note-2", "note-3"]);
     const notes = pasted.stickies.map((id) => v.stickies.find((s) => s.id === id)!);
-    expect(notes.map((s) => [s.text, s.on, s.at, s.color])).toEqual([
-      ["Read me", undefined, [2650, 725], "blue"],
-      ["Server-rendered", { element: "web-2" }, [1150, 1025], "yellow"],
-      ["Over HTTPS", { from: "web-2", to: "api-2", kind: "association" }, [1650, 1175], "yellow"],
+    expect(notes.map((s) => [s.text, s.on, s.at, s.color, s.size])).toEqual([
+      ["Read me", undefined, [2650, 725], "blue", [300, 120]],
+      ["Server-rendered", { element: "web-2" }, [1150, 1025], "yellow", undefined],
+      ["Over HTTPS", { from: "web-2", to: "api-2", kind: "association" }, [1650, 1175], "yellow", undefined],
     ]);
   });
 
@@ -152,7 +153,7 @@ describe("pasteOps", () => {
   });
 
   it("keeps the IDs in another workspace that has none of them, and its library when it has one", () => {
-    const empty = buildWorkspace({ openarch: 21, name: "New", elements: { shop: { kind: "system", name: "Shop" } }, views: { containers: { title: "Containers", level: "container", scope: "shop" } } });
+    const empty = buildWorkspace({ openarch: 22, name: "New", elements: { shop: { kind: "system", name: "Shop" } }, views: { containers: { title: "Containers", level: "container", scope: "shop" } } });
     const pasted = pasteOps(empty, "containers", copied, {}, { x: 0, y: 0 }, BOX);
     const now = after(empty, pasted.ops);
     expect(pasted.elements).toEqual(["web", "api"]);
@@ -167,7 +168,7 @@ describe("pasteOps", () => {
   });
 
   it("says why a container can't be pasted where there's no system for it", () => {
-    const empty = buildWorkspace({ openarch: 21, name: "New", elements: {}, views: { landscape: { title: "Landscape", level: "landscape" } } });
+    const empty = buildWorkspace({ openarch: 22, name: "New", elements: {}, views: { landscape: { title: "Landscape", level: "landscape" } } });
     expect(() => pasteOps(empty, "landscape", copied, {}, { x: 0, y: 0 }, BOX)).toThrow(`There's no system here for the container "Web" to go in. Paste it on a view of one.`);
   });
 

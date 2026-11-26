@@ -316,7 +316,8 @@ An empty value removes a field.
   "add-sticky": writer(
     `Usage: open-arch add-sticky <view> <id> --text <text>
                             [--element <id> | --from <id> --to <id> [--kind <kind>] | --block <id>]
-                            [--color <yellow|pink|blue|green>] [--at <x,y>] [--notes <markdown>]
+                            [--color <yellow|pink|blue|green>] [--at <x,y>] [--size <width,height>]
+                            [--notes <markdown>]
 
 Adds a sticky note to a view: text for people reading the diagram, such as what to notice or
 why it's drawn this way. It isn't part of the model. The id must be unique within the view.
@@ -329,22 +330,26 @@ On a flowchart view, a note can be on a block, with a line to it.
   --block <id>           The block it's on, on a flowchart view
   --at <x,y>             Top-left corner (default: the designer puts it beside what it's on,
                          or else beside the diagram)
+  --size <width,height>  How big it is (default: the usual width, and as tall as its text).
+                         A note with more text than fits grows taller to show it all
   --notes <markdown>     More than the note should say: the designer opens them from the note,
                          and the docs show them after its text (or --notes-file <path>, - for stdin)
 `,
-    { text: s, element: s, from: s, to: s, kind: s, block: s, color: s, at: s, notes: s, "notes-file": s },
+    { text: s, element: s, from: s, to: s, kind: s, block: s, color: s, at: s, size: s, notes: s, "notes-file": s },
   ),
   "update-sticky": writer(
     `Usage: open-arch update-sticky <view> <id> [--text <text>]
                                [--element <id> | --from <id> --to <id> [--kind <kind>] | --block <id> | --detach]
-                               [--color <yellow|pink|blue|green>] [--at <x,y>] [--notes <markdown>]
+                               [--color <yellow|pink|blue|green>] [--at <x,y>] [--size <width,height>]
+                               [--notes <markdown>]
 
 --element, or --from and --to, put the note on an element or a relationship, and --block on
 a flowchart view's block (see add-sticky). --detach takes it off.
 --at "" lets the designer place it again.
+--size width,height gives it that size, and --size "" gives it the usual size back.
 --notes takes markdown, or use --notes-file <path> (- for stdin), and --notes "" removes them.
 `,
-    { text: s, element: s, from: s, to: s, kind: s, block: s, detach: b, color: s, at: s, notes: s, "notes-file": s },
+    { text: s, element: s, from: s, to: s, kind: s, block: s, detach: b, color: s, at: s, size: s, notes: s, "notes-file": s },
   ),
   "remove-sticky": writer(`Usage: open-arch remove-sticky <view> <id>\n`, {}),
   "add-step": writer(

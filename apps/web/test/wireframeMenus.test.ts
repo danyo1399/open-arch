@@ -10,7 +10,7 @@ import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
 /** Three screens: a phone's cart, with a row of two, a payment screen with a panel, and an empty one. A note beside them. */
 const doc: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: {},
   views: {

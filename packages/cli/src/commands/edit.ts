@@ -150,6 +150,15 @@ function point(v: Values[string]): [number, number] | null | undefined {
   return parts as [number, number];
 }
 
+/** A sticky note's `--size 260,120`: its width and height. An empty value is null, for the usual size. */
+function size(v: Values[string]): [number, number] | null | undefined {
+  if (typeof v !== "string") return undefined;
+  if (v.trim() === "") return null;
+  const parts = v.split(",").map((n) => Number(n.trim()));
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) throw new CliError(`--size needs width,height, e.g. --size 260,120, not "${v}".`, 2);
+  return parts as [number, number];
+}
+
 /** A shape's `--at 0,0`, or with its width and height, `--at 0,0,160,80`. */
 function box(v: Values[string]): Position | undefined {
   if (typeof v !== "string") return undefined;
@@ -339,11 +348,11 @@ export const BUILDERS: Record<string, Builder> = {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
     const body = text(v.text);
     if (body === undefined) throw new CliError(`Pass --text.\n\n${usage}`, 2);
-    return [{ op: "add-sticky", view: view!, id: id!, text: body, on: stickyOn(v) ?? undefined, color: text(v.color) as never, at: point(v.at) ?? undefined, notes: notes(io, v) ?? undefined }];
+    return [{ op: "add-sticky", view: view!, id: id!, text: body, on: stickyOn(v) ?? undefined, color: text(v.color) as never, at: point(v.at) ?? undefined, size: size(v.size) ?? undefined, notes: notes(io, v) ?? undefined }];
   },
   "update-sticky": (io, v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);
-    return [{ op: "update-sticky", view: view!, id: id!, text: text(v.text), on: stickyOn(v), color: text(v.color) as never, at: point(v.at), notes: notes(io, v) }];
+    return [{ op: "update-sticky", view: view!, id: id!, text: text(v.text), on: stickyOn(v), color: text(v.color) as never, at: point(v.at), size: size(v.size), notes: notes(io, v) }];
   },
   "remove-sticky": (_io, _v, p, usage) => {
     const [view, id] = need(p, ["<view>", "<id>"], usage);

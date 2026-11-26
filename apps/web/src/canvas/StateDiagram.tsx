@@ -33,11 +33,12 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueStateId } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
-import { FrameNode, FrameNotes, NotesOpener, StickyNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import { FrameNode, FrameNotes, NotesOpener, StickyNode, stickyNodeSize, stickyResizeOp, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
+import type { Rect } from "./stickyLines.js";
 import { EndGrips, measureLabelSizes, MovingArrow, movingLine, pathThrough, type ArrowData, type ArrowEnd } from "./RoutedEdge.js";
 import { boxUnder, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
@@ -225,6 +226,8 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
   const ready = !missing || auto?.key === graphKey;
   const positions = useMemo(() => (ready ? placeMissing(ids, saved, auto?.key === graphKey ? auto.positions : {}) : null), [ready, ids, saved, auto, graphKey]);
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
+  /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
+  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
 
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const nodesRef = useRef(nodes);
@@ -258,8 +261,9 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
         (sticky): StickyFlowNode => ({
           id: stickyNodeId(sticky.id),
           type: "sticky",
+          ...stickyNodeSize(sticky),
           position: stickyAt[sticky.id]!,
-          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text) },
+          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text), onResize: (box: Rect) => resizeNote.current(sticky, box) },
           selected: selection?.kind === "sticky" && selection.id === sticky.id,
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,
@@ -310,7 +314,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
   }, [cv.boundary, boxes, view]);
 
   const { routes, labels } = useMemo(() => {
-    const notes = nodes.filter((n) => n.type === "sticky").map((n) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight((n as StickyFlowNode).data.sticky.text, stickySize) }));
+    const notes = nodes.filter((n) => n.type === "sticky").map((n) => noteRect(n as StickyFlowNode, stickySize));
     // The start dot and the ends are drawn beside their states (see .state-start and .state-end), and arrows go round them.
     const markers = view.states.flatMap((st) => {
       const b = boxes.get(st.id);
@@ -390,7 +394,9 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
     return nodesRef.current.flatMap((n) => (n.type === "state" && !n.data.state.at ? [{ op: "update-state" as const, view: view.id, id: n.id, at: [Math.round(n.position.x), Math.round(n.position.y)] as [number, number] }] : []));
   }, [view.id]);
 
-  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
+  const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: STICKY_MIN });
+  // As it's drawn: snapped, as it was when it was let go.
+  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
 
   const onNodesChange = useCallback(
     (made: NodeChange<FlowNode>[]) => {

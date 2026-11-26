@@ -45,19 +45,19 @@ describe("hosts", () => {
   });
 
   it("zips the docs beside the file when they're in the file's own folder", () => {
-    const text = JSON.stringify({ openarch: 21, name: "A", export: { docs: "." }, elements: {}, views: {} });
+    const text = JSON.stringify({ openarch: 22, name: "A", export: { docs: "." }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)))).toContain("a/README.md");
   });
 
   it("zips the docs beside the file, with no folder of their own, when the workspace names no docs folder, or one outside its folder", () => {
     for (const docs of [undefined, "../docs", "/docs"]) {
-      const text = JSON.stringify({ openarch: 21, name: "A", ...(docs ? { export: { docs } } : {}), elements: {}, views: {} });
+      const text = JSON.stringify({ openarch: 22, name: "A", ...(docs ? { export: { docs } } : {}), elements: {}, views: {} });
       const files = Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)));
       expect(files).toContain("a/README.md");
       expect(files).toContain("a/a.openarch");
       expect(files.some((path) => path.startsWith("a/a-docs/"))).toBe(false);
     }
-    const text = JSON.stringify({ openarch: 21, name: "A", export: { docs: "./docs/arch/" }, elements: {}, views: {} });
+    const text = JSON.stringify({ openarch: 22, name: "A", export: { docs: "./docs/arch/" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(text), "a.openarch", text)))).toContain("a/docs/arch/README.md");
   });
 
@@ -70,7 +70,7 @@ describe("hosts", () => {
       ["..", "repo/"],
     ];
     for (const [docs, where] of cases) {
-      const text = JSON.stringify({ openarch: 21, name: "A", export: { docs }, elements: {}, views: {} });
+      const text = JSON.stringify({ openarch: 22, name: "A", export: { docs }, elements: {}, views: {} });
       // Where a save in the folder writes them, when it can.
       const root = new FakeFolder("repo");
       root.put("arch/a.openarch", text);
@@ -84,7 +84,7 @@ describe("hosts", () => {
   });
 
   it("works out a docs folder from the file's folder, as a save does, so one that goes up and comes back in is kept", async () => {
-    const text = JSON.stringify({ openarch: 21, name: "A", export: { docs: "../a/docs" }, elements: {}, views: {} });
+    const text = JSON.stringify({ openarch: 22, name: "A", export: { docs: "../a/docs" }, elements: {}, views: {} });
     // In a folder, with the file in a/, a save writes these docs to a/docs/.
     const root = new FakeFolder("repo");
     root.put("a/a.openarch", text);
@@ -95,7 +95,7 @@ describe("hosts", () => {
     expect(zipped).toContain("a/docs/README.md");
     expect(zipped).not.toContain("a/README.md");
     // Up and into another folder isn't inside the file's folder: the zip has no place for it.
-    const other = JSON.stringify({ openarch: 21, name: "A", export: { docs: "../arch/docs" }, elements: {}, views: {} });
+    const other = JSON.stringify({ openarch: 22, name: "A", export: { docs: "../arch/docs" }, elements: {}, views: {} });
     expect(Object.keys(unzipSync(workspaceZip(loadWorkspace(other), "a.openarch", other)))).toContain("a/README.md");
   });
 });
@@ -103,7 +103,7 @@ describe("hosts", () => {
 describe("the path to a view's page in the docs", () => {
   const context = { title: "Context", level: "context", scope: "shop" };
   const shop = (docs?: string) =>
-    JSON.stringify({ openarch: 21, name: "Shop", ...(docs === undefined ? {} : { export: { docs } }), elements: { shop: { kind: "system", name: "Shop" } }, views: { context } });
+    JSON.stringify({ openarch: 22, name: "Shop", ...(docs === undefined ? {} : { export: { docs } }), elements: { shop: { kind: "system", name: "Shop" } }, views: { context } });
 
   it("is where a save in a folder writes the page, as the path in the folder", async () => {
     for (const [path, docs, page] of [
@@ -155,7 +155,7 @@ describe("the desktop app's host", () => {
 
 describe("model helpers", () => {
   const ws = buildWorkspace({
-    openarch: 21,
+    openarch: 22,
     name: "T",
     elements: {
       shop: { kind: "system", name: "Shop" },

@@ -1,10 +1,11 @@
-import { kindLabel, type ArchElement, type RelationshipSource, type Sticky } from "@open-arch/core";
-import { Handle, Position, useConnection, useReactFlow, ViewportPortal, type Node, type NodeProps } from "@xyflow/react";
+import { kindLabel, type ArchElement, type Operation, type RelationshipSource, type Sticky } from "@open-arch/core";
+import { Handle, NodeResizer, Position, useConnection, useReactFlow, useStore, ViewportPortal, type Node, type NodeProps } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, type PointerEvent } from "react";
 import { stickyName } from "../model.js";
-import type { Point } from "./autoLayout.js";
+import { STICKY_MIN, type Point } from "./autoLayout.js";
 import type { Selection } from "./Canvas.js";
 import { DRAG_DISTANCE } from "./RoutedEdge.js";
+import type { Rect } from "./stickyLines.js";
 
 export type ElementNodeData = { element: ArchElement; problems: number };
 export type ElementFlowNode = Node<ElementNodeData, "element">;
@@ -30,8 +31,23 @@ export type StickyNodeData = {
   onLinkDrop?(at: Point | null): void;
   /** What the dot can be dragged to, as its tooltip says: "a box, the frame or an arrow", unless this says. */
   linkTo?: string;
+  /** Its new corner and size, once its resizer is let go. Without it, the note has no resizer. */
+  onResize?(box: Rect): void;
 };
 export type StickyFlowNode = Node<StickyNodeData, "sticky">;
+
+/** The edit that gives a note the corner and size it was resized to. */
+export function stickyResizeOp(view: string, sticky: Sticky, box: Rect): Operation {
+  return { op: "update-sticky", view, id: sticky.id, at: [Math.round(box.x), Math.round(box.y)], size: [Math.max(1, Math.round(box.w)), Math.max(1, Math.round(box.h))] };
+}
+
+/**
+ * The node for a note: at its saved size, when it has one. It's that wide, and React Flow
+ * measures how tall it is, as a note with more text than fits grows taller.
+ */
+export function stickyNodeSize(sticky: Sticky): { width?: number } {
+  return sticky.size ? { width: sticky.size[0] } : {};
+}
 
 /**
  * Opens the notes of an element, of a sticky note on the open view, or of the relationships an
@@ -288,8 +304,14 @@ function LinkGrip({ to, onDrag, onDrop }: { to: string; onDrag(at: Point): void;
   );
 }
 
-export function StickyNode({ data, selected }: NodeProps<StickyFlowNode>) {
+export function StickyNode({ id, data, selected }: NodeProps<StickyFlowNode>) {
   const { sticky, editing } = data;
+  // The node's own size, which its resizer sets as it's dragged, snapped. The props' size is what
+  // React Flow measured, which a note that grows to fit its text mustn't be drawn at.
+  const width = useStore((s) => s.nodeLookup.get(id)?.width);
+  const height = useStore((s) => s.nodeLookup.get(id)?.height);
+  // A note with a size is that wide, and at least that tall. While it's resized, it's as big as its resizer says.
+  const sized = width !== undefined || height !== undefined || !!sticky.size ? { width: width ?? sticky.size?.[0], minHeight: height ?? sticky.size?.[1] } : undefined;
   const input = useRef<HTMLTextAreaElement>(null);
   // Escape ends editing, and the text box losing focus as it goes mustn't then save it.
   const finished = useRef(false);
@@ -315,7 +337,21 @@ export function StickyNode({ data, selected }: NodeProps<StickyFlowNode>) {
   };
   return (
     // nopan: double-clicking a note edits it rather than zooming the canvas.
-    <div className={`sticky sticky-${sticky.color}${selected ? " selected" : ""}${editing ? " editing" : ""} nopan`} onDoubleClick={data.onEdit} title={editing ? undefined : "Double-click to edit"}>
+    <div
+      className={`sticky sticky-${sticky.color}${selected ? " selected" : ""}${editing ? " editing" : ""} nopan`}
+      style={sized}
+      onDoubleClick={data.onEdit}
+      title={editing ? undefined : "Double-click to edit"}
+    >
+      {data.onResize && (
+        <NodeResizer
+          isVisible={selected && !editing}
+          color="var(--accent)"
+          minWidth={STICKY_MIN}
+          minHeight={STICKY_MIN}
+          onResizeEnd={(_, r) => data.onResize?.({ x: r.x, y: r.y, w: r.width, h: r.height })}
+        />
+      )}
       {editing ? (
         <textarea
           ref={input}

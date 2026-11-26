@@ -57,7 +57,7 @@ export function buildWorkspace(doc: OpenArchDocument, diagnostics: Diagnostic[] 
       exclude: v.exclude ?? [],
       notes: v.notes || undefined,
       stickies: Object.entries(v.stickies ?? {})
-        .map(([sid, s]) => ({ id: sid, path: `views.${id}.stickies.${sid}`, text: s.text, on: s.on && stickyTarget(s.on), color: s.color ?? "yellow", at: s.at, notes: s.notes || undefined }))
+        .map(([sid, s]) => ({ id: sid, path: `views.${id}.stickies.${sid}`, text: s.text, on: s.on && stickyTarget(s.on), color: s.color ?? "yellow", at: s.at, size: s.size, notes: s.notes || undefined }))
         .sort(readingOrder),
       layout: v.layout ?? {},
       steps: (v.steps ?? []).map((step, i) => ({

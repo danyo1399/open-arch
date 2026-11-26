@@ -1,10 +1,10 @@
-# The open-arch workspace (format version 21)
+# The open-arch workspace (format version 22)
 
 A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) model of people, software systems, containers, components, shared libraries and classes, the relationships between them, and views (diagrams) computed from the model. Change it only with `open-arch` commands (see `commands.md`), or, without them, in the open-arch designer; this page explains what it contains so you can read it.
 
 ```json
 {
-  "openarch": 21,
+  "openarch": 22,
   "name": "Shop",
   "description": "An online shop.",
   "export": { "docs": "docs" },
@@ -55,7 +55,7 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
       "include": ["*"],
       "notes": "Drawn for new starters. Start at the customer.",
       "stickies": {
-        "how-orders-flow": { "text": "Every order goes through the web app.", "color": "blue", "at": [260, 0] },
+        "how-orders-flow": { "text": "Every order goes through the web app.", "color": "blue", "at": [260, 0], "size": [240, 80] },
         "cdn": { "text": "Cached at the edge for an hour.", "on": { "element": "web-app" }, "at": [260, 160] },
         "https": { "text": "The only way in.", "on": { "from": "customer", "to": "web-app" } }
       },
@@ -77,14 +77,14 @@ A workspace is one `.openarch` file: JSON holding a [C4](https://c4model.com) mo
 
 | Field | Meaning |
 |---|---|
-| `openarch` | Format version, always `21` |
+| `openarch` | Format version, always `22` |
 | `name` | Workspace name |
 | `description` | Optional |
 | `export.docs` | Folder, relative to the file, that tools keep filled with generated docs (`.` for the file's own folder) |
 | `elements` | Elements keyed by ID |
 | `views` | Views keyed by ID |
 
-Tools read version 1 to 20 files too, and write them back as version 21. Version 20 is the same, but a flowchart's lane can't be for an element. Version 19 is version 20 without sticky notes on a flowchart's blocks. Version 18 is version 19 without notes on sticky notes. Version 17 is version 18 without entity views. Version 16 is version 17 without lanes on flowchart views. Version 15 is version 16 without flowchart views. Version 14 is version 15, but a whiteboard arrow's end can't stay on a side of its shape. Version 13 is version 14 without whiteboard views. Version 12 is version 13 without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
+Tools read version 1 to 21 files too, and write them back as version 22. Version 21 is the same, but without sizes on sticky notes. Version 20 is version 21, but a flowchart's lane can't be for an element. Version 19 is version 20 without sticky notes on a flowchart's blocks. Version 18 is version 19 without notes on sticky notes. Version 17 is version 18 without entity views. Version 16 is version 17 without lanes on flowchart views. Version 15 is version 16 without flowchart views. Version 14 is version 15, but a whiteboard arrow's end can't stay on a side of its shape. Version 13 is version 14 without whiteboard views. Version 12 is version 13 without wireframe views. Version 11 is version 12 without sticky notes on elements and relationships. Version 10 is version 11 without event views. Version 9 is version 10 without deployment views. Version 8 is version 9 without state views. Version 7 is version 8 without components in libraries. Version 6 is version 7 without libraries. Version 5 is version 6 without classes, class views and kinds of relationship. Version 4 is version 5 without relationships that go both ways. Version 3 is version 4 without sequence views. Version 2 is version 3 without notes on views and relationships. In version 1, a `database` tag becomes `"shape": "database"`, other tags become tags without a value, and `properties` become tags.
 
 IDs are lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and unique across elements and views. Sticky note IDs use the same format and are unique within their view, as are the IDs of a state view's states, a deployment view's nodes, an event view's lanes and its cards, a wireframe view's screens, a whiteboard view's shapes and its arrows, a flowchart view's lanes and its blocks, and an entity view's entities. A wireframe view's widgets have IDs unique among all its widgets, on every screen.
 
@@ -168,7 +168,7 @@ Only associations go both ways. A relationship with a kind needs no description,
 | `include` | IDs to show, or `"*"` for the default selection. With `"*"`, elements added later appear on their own; without it, the view shows only the IDs listed. Not used on sequence, state, deployment, event, wireframe, whiteboard, flowchart and entity views |
 | `exclude` | IDs to hide. Not used on sequence, state, deployment, event, wireframe, whiteboard, flowchart and entity views |
 | `notes` | Longer documentation about the diagram, as markdown: what it's for, or how to read it |
-| `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `on` (what it's on, see below), `color` (`yellow`, the default, `pink`, `blue` or `green`), `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside what it's on, or else beside the diagram) and `notes` (longer documentation, as markdown, for more than the note should say on the diagram; the designer opens them from a chip on the note, and the docs show them after its text) |
+| `stickies` | Sticky notes keyed by ID: `text` (plain text; line breaks are kept), `on` (what it's on, see below), `color` (`yellow`, the default, `pink`, `blue` or `green`), `at` (`[x, y]`, the top-left corner; without it the designer puts the note beside what it's on, or else beside the diagram), `size` (`[width, height]`, each more than 0; a note with more text than fits grows taller to show it all, and without it a note is the usual width and as tall as its text; a sequence view lists its notes at the usual size) and `notes` (longer documentation, as markdown, for more than the note should say on the diagram; the designer opens them from a chip on the note, and the docs show them after its text) |
 | `layout` | Box positions saved by the designer: `[x, y]` keyed by element ID. Not used on sequence, state, deployment, event, wireframe, whiteboard, flowchart and entity views |
 | `steps` | Sequence views only: what happens, in order (see below) |
 | `states` | State views only: the states, keyed by an ID unique within the view (see below) |
@@ -588,7 +588,7 @@ Every page starts with `<!-- Generated by open-arch from <file>`. Tools only eve
 | Rule | Severity | Meaning |
 |---|---|---|
 | `json-invalid` | error | The file isn't valid JSON |
-| `version-unsupported` | error | `openarch` is missing, or not `21` (or `1` to `20`, which are upgraded) |
+| `version-unsupported` | error | `openarch` is missing, or not `22` (or `1` to `21`, which are upgraded) |
 | `field-unknown` | error | A field the format doesn't have (often a typo) |
 | `field-not-allowed` | error | A field this kind of view doesn't take: `include`, `exclude` or `layout` on a sequence, state, deployment, event, wireframe, whiteboard, flowchart or entity view, `scope` on a deployment, event or whiteboard view, `steps` on another view than a sequence, `states`, `initial` or `transitions` on another view than a state view, `nodes` or `connections` on another view than a deployment view, `cards` on another view than an event view, `lanes` on another view than an event or flowchart view, a lane's `element` on an event view, `screens` on another view than a wireframe view, `shapes` or `arrows` on another view than a whiteboard view, `blocks` or `flows` on another view than a flowchart view, `entities` or `links` on another view than an entity view, `widgets` on a widget that isn't a row or a panel, `text`, `size` or `fill` on a pen, `points` on a shape that isn't one, `dashed` on text, or a sticky note's `on` on a sequence, state, deployment, event, wireframe, whiteboard or entity view, with both `element` and `from` or `to`, with `block` on another view than a flowchart, or with `element`, `from`, `to` or `kind` on a flowchart view |
 | `field-type` | error | A field has the wrong type |

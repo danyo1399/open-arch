@@ -74,6 +74,8 @@ export interface CopiedSticky {
   notes?: string;
   on?: StickyTargetData;
   at?: [number, number];
+  /** Its width and height, when it isn't the usual size. */
+  size?: [number, number];
 }
 
 /** What Copy put on the clipboard: elements, parents first, the relationships between them, and notes. */
@@ -159,6 +161,7 @@ export function copyOf(
         notes: s.notes,
         on: keeps(s.on) ? s.on : undefined,
         at: places.notes[s.id] ?? point(s.at),
+        size: s.size,
       }),
     );
   if (elements.length + stickies.length === 0) return null;
@@ -216,7 +219,7 @@ export function readCopied(text: string): Copied | null {
   const relationship = (r: unknown) =>
     isObject(r) && isString(r.from) && isString(r.to) && fieldsAre(r, { kind: isString, bidirectional: (x) => typeof x === "boolean", description: isString, technology: isString, tags: isTags, notes: isString });
   const on = (x: unknown) => isObject(x) && (isString(x.element) || (isString(x.from) && isString(x.to) && optional(x.kind, isString)));
-  const sticky = (n: unknown) => isObject(n) && isString(n.text) && fieldsAre(n, { color: isString, notes: isString, on, at: isPoint });
+  const sticky = (n: unknown) => isObject(n) && isString(n.text) && fieldsAre(n, { color: isString, notes: isString, on, at: isPoint, size: isPoint });
   if (!elements.every(element) || !relationships.every(relationship) || !stickies.every(sticky)) return null;
   return value as unknown as Copied;
 }
@@ -319,7 +322,7 @@ export function pasteOps(ws: Workspace, viewId: string, copied: Copied, layout: 
     const id = uniqueAmong(stickyIds, "note");
     stickyIds.push(id);
     const on = s.on && ("element" in s.on ? { element: to(s.on.element) } : "from" in s.on ? { ...s.on, from: to(s.on.from), to: to(s.on.to) } : undefined);
-    return { op: "add-sticky" as const, view: viewId, id, text: s.text, color: s.color, notes: s.notes, on, at: s.at && shift(s.at) };
+    return { op: "add-sticky" as const, view: viewId, id, text: s.text, color: s.color, notes: s.notes, on, at: s.at && shift(s.at), size: s.size };
   });
 
   return { ops: [...added, ...shown, ...placed, ...stickies], elements: picked, stickies: stickies.map((s) => s.id) };

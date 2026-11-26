@@ -45,12 +45,13 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { arrowNotes, connectionChoices, connectionEndChoices, nodeChoices, stopRunning, uniqueNodeId, type DeploymentChoice } from "../model.js";
 import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, NODE_W, placeStickies, STICKY, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { freeSpotAmong, NODE_W, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
 import { holdsAnything, layOutDeployment, placeDeploymentLabels, type DeploymentLayout } from "./deploymentLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
-import { ElementNotes, NotesButton, NotesOpener, StickyNode, type StickyFlowNode } from "./nodes.js";
+import { ElementNotes, NotesButton, NotesOpener, StickyNode, stickyNodeSize, stickyResizeOp, type StickyFlowNode } from "./nodes.js";
+import type { Rect } from "./stickyLines.js";
 import { ArrowNotes, halfway, labelLines, measureLabelSizes, pathThrough } from "./RoutedEdge.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 
@@ -249,6 +250,8 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
   const rf = useReactFlow<FlowNode, DeploymentEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
+  /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
+  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
 
   // Labels are sized as arrows' labels are, from the same styles, at their widest.
   const labels = useMemo(() => {
@@ -343,8 +346,9 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
         (sticky): StickyFlowNode => ({
           id: stickyNodeId(sticky.id),
           type: "sticky",
+          ...stickyNodeSize(sticky),
           position: stickyAt[sticky.id]!,
-          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text) },
+          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text), onResize: (box: Rect) => resizeNote.current(sticky, box) },
           selected: selection?.kind === "sticky" && selection.id === sticky.id,
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,
@@ -388,7 +392,9 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
     });
   }, [drawnLayout, d, selection, selectArrow, labelAt, notes, ws]);
 
-  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith });
+  const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith, minSize: STICKY_MIN });
+  // As it's drawn: snapped, as it was when it was let go.
+  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(snapChanges(changes), nds)), [snapChanges]);
 
   const onNodeDragStop = useCallback(

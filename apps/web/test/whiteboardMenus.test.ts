@@ -9,7 +9,7 @@ import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
 /** A title, two shapes joined by an arrow, a pen line with an arrow to it from a point, and a note. */
 const doc: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: {},
   views: {

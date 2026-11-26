@@ -258,7 +258,7 @@ describe("bringing the docs up to date without saving", () => {
     expect(await host.writeDocs(workspace("Shop"))).toBeNull();
     await expect(host.writeDocs(workspace("Shop", "../docs"))).rejects.toThrow("The docs folder ../docs/ is outside the folder you opened, repo, so nothing was written.");
     await expect(host.writeDocs(workspace("Shop", "/docs"))).rejects.toThrow("must be relative");
-    await expect(host.writeDocs(JSON.stringify({ openarch: 21, name: "Shop", elements: { a: { kind: "nope" } } }))).rejects.toThrow("Refusing to write the docs");
+    await expect(host.writeDocs(JSON.stringify({ openarch: 22, name: "Shop", elements: { a: { kind: "nope" } } }))).rejects.toThrow("Refusing to write the docs");
     expect(root.files()).toEqual({ "shop.openarch": workspace("Shop") });
   });
 
@@ -820,7 +820,7 @@ describe("exporting a workspace to a folder", () => {
 
   it("takes an empty docs folder, written by hand, as none", async () => {
     const root = new FakeFolder("repo");
-    const ws = loadWorkspace(JSON.stringify({ openarch: 21, name: "A", export: { docs: "" }, elements: {}, views: {} }));
+    const ws = loadWorkspace(JSON.stringify({ openarch: 22, name: "A", export: { docs: "" }, elements: {}, views: {} }));
     expect(ws.doc.export).toEqual({ docs: "" });
     await exportToFolder(root, ws, "a.openarch");
     expect(loadWorkspace(root.files()["a.openarch"]!).doc.export).toEqual({ docs: "." });

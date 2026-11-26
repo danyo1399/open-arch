@@ -206,26 +206,44 @@ export function stickyHeight(text: string, size = STICKY): number {
   return 26 + lines * size.lineHeight;
 }
 
+/** The smallest a sticky note can be resized to, across or down. */
+export const STICKY_MIN = 60;
+/** How much of a note's width its padding takes, either side of its text (see `.sticky` in styles.css). */
+const STICKY_PADDING = 28;
+
+/**
+ * How big a sticky note is before it has been drawn: as wide as its size says, or else the usual
+ * width, and as tall as its size says, or taller when its text, estimated, needs more.
+ */
+export function stickyBox(sticky: { text: string; size?: [number, number] }, size = STICKY): { width: number; height: number } {
+  if (!sticky.size) return { width: size.width, height: stickyHeight(sticky.text, size) };
+  const [width, height] = sticky.size;
+  // A line of a narrower note holds fewer characters, and of a wider one more.
+  const perLine = Math.max(1, Math.floor((size.perLine * (width - STICKY_PADDING)) / (size.width - STICKY_PADDING)));
+  return { width, height: Math.max(height, stickyHeight(sticky.text, { ...size, perLine })) };
+}
+
 /**
  * Positions for every sticky note: saved ones as they are; ones on something, by ID in `beside`,
  * in the free spot nearest that point, clear of the boxes and the notes placed before them; and
  * the rest, in order, in a column to the right of everything else.
  */
 export function placeStickies(
-  stickies: { id: string; text: string; at?: [number, number] }[],
+  stickies: { id: string; text: string; at?: [number, number]; size?: [number, number] }[],
   boxes: Point[],
   size = STICKY,
   beside: Record<string, Point> = {},
 ): Record<string, Point> {
-  const placed = stickies.filter((s) => s.at).map((s) => ({ x: s.at![0], y: s.at![1] }));
+  const placed = stickies.filter((s) => s.at).map((s) => ({ x: s.at![0], y: s.at![1], width: stickyBox(s, size).width }));
   const out: Record<string, Point> = {};
-  const taken = [...boxes, ...placed];
+  const taken: Point[] = [...boxes, ...placed];
   for (const s of stickies) {
     if (s.at || !beside[s.id]) continue;
     out[s.id] = freeSpotAmong(beside[s.id]!, taken);
     taken.push(out[s.id]!);
   }
-  const rights = [...boxes.map((b) => b.x + NODE_W), ...[...placed, ...Object.values(out)].map((p) => p.x + size.width)];
+  const besides = stickies.flatMap((s) => (out[s.id] ? [{ ...out[s.id]!, width: stickyBox(s, size).width }] : []));
+  const rights = [...boxes.map((b) => b.x + NODE_W), ...[...placed, ...besides].map((p) => p.x + p.width)];
   const x = rights.length ? Math.max(...rights) + 80 : 0;
   let y = boxes.length ? Math.min(...boxes.map((b) => b.y)) : 0;
   for (const s of stickies) {
@@ -235,7 +253,7 @@ export function placeStickies(
     }
     if (out[s.id]) continue;
     out[s.id] = { x, y };
-    y += stickyHeight(s.text, size) + STICKY_GAP;
+    y += stickyBox(s, size).height + STICKY_GAP;
   }
   return out;
 }

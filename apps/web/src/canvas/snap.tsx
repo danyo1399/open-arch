@@ -209,11 +209,12 @@ const sameGuides = (a: readonly Guide[], b: readonly Guide[]) =>
  * it moves, so it doesn't know about the snap: `dropped` and `resized` give where they're drawn.
  * `snaps` says whether a node snaps when it's dragged or resized: a drag of any that doesn't, or
  * of one inside another, doesn't snap. `isTarget` says whether a node is something to line up
- * with. `minSize` is the smallest a resized node can be, across or down, as its resizer allows.
+ * with. `minSize` is the smallest a resized node can be, across or down, as its resizer allows:
+ * the same for every node, or each node's own.
  */
 export function useSnap<N extends Node>(
   settings: SnapSettings,
-  { snaps, isTarget, minSize = 1 }: { snaps(node: N): boolean; isTarget(node: N): boolean; minSize?: number },
+  { snaps, isTarget, minSize = 1 }: { snaps(node: N): boolean; isTarget(node: N): boolean; minSize?: number | ((node: N) => number) },
 ) {
   const rf = useReactFlow<N>();
   const [guides, setGuides] = useState<Guide[]>([]);
@@ -300,7 +301,7 @@ export function useSnap<N extends Node>(
       const snap =
         free.current || (!settings.guides && !settings.grid)
           ? { rect: r.raw, guides: [] }
-          : snapResize(r.raw, r.edges, others, { ...settings, reach: SNAP_REACH / rf.getZoom(), min: minSize });
+          : snapResize(r.raw, r.edges, others, { ...settings, reach: SNAP_REACH / rf.getZoom(), min: typeof minSize === "function" ? minSize(node) : minSize });
       r.drawn = snap.rect;
       setGuides((g) => (sameGuides(g, snap.guides) ? g : snap.guides));
       // Where it goes each time, even when the resizer leaves that out, so its far edges stay put as the snap changes.

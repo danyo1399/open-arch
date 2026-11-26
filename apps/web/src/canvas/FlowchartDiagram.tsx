@@ -37,16 +37,16 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { blockText, flowchartItemsOf, idFromName, NEW_LANE_NAME, newStickyId, selectFlowchart, toggleFlowchartItem, uniqueAmong, type FlowchartItems } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, rowGap, STICKY, stickiesBackOps, stickyHeight, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, TOUCH_STICKY, type Point } from "./autoLayout.js";
 import { addsToSelection, AutoLayoutButton, DRAWING_Z, fitBelowToolbar, MULTI_KEYS, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, outlineToward, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, noSuchArrow, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
-import { FrameNode, FrameNotes, NotesOpener, StickyLines, StickyLinking, StickyNode, type FrameFlowNode, type StickyFlowNode, type StickyLine } from "./nodes.js";
+import { FrameNode, FrameNotes, NotesOpener, StickyLines, StickyLinking, StickyNode, stickyNodeSize, stickyResizeOp, type FrameFlowNode, type StickyFlowNode, type StickyLine } from "./nodes.js";
 import { EndGrips, measureLabelSizes, MovingArrow, movingLine, pathThrough, type ArrowData, type ArrowEnd } from "./RoutedEdge.js";
 import { boxUnder, layoutArrows, type Box } from "./routing.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
-import { stickyLine } from "./stickyLines.js";
+import { stickyLine, type Rect } from "./stickyLines.js";
 
 type BlockNodeData = { block: Block };
 type BlockFlowNode = Node<BlockNodeData, "block">;
@@ -537,6 +537,8 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
     [ready, lanesAt, ids, saved, auto, graphKey],
   );
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
+  /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
+  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
 
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const nodesRef = useRef(nodes);
@@ -586,12 +588,14 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
         (sticky): StickyFlowNode => ({
           id: stickyNodeId(sticky.id),
           type: "sticky",
+          ...stickyNodeSize(sticky),
           position: stickyAt[sticky.id]!,
           data: {
             sticky,
             editing: editing === sticky.id,
             onEdit: () => setEditing(sticky.id),
             onDone: (text) => finishEditing(sticky, text),
+            onResize: (box: Rect) => resizeNote.current(sticky, box),
             onLinkDrag: (at) => setLinking({ sticky: sticky.id, at }),
             onLinkDrop: (at) => dropLink.current(sticky.id, at),
             linkTo: "a block",
@@ -733,7 +737,7 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
   }, [cv.boundary, boxes, laneNodes]);
 
   const { routes, labels } = useMemo(() => {
-    const notes = nodes.filter((n) => n.type === "sticky").map((n) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? stickySize.width, h: n.measured?.height ?? stickyHeight((n as StickyFlowNode).data.sticky.text, stickySize) }));
+    const notes = nodes.filter((n) => n.type === "sticky").map((n) => noteRect(n as StickyFlowNode, stickySize));
     // Arrows cross lanes freely, but keep off their sides, as off a frame's.
     const frames = laneNodes.map((n) => ({ x: n.position.x, y: n.position.y, w: n.data.column.w, h: n.data.height }));
     return layoutArrows(
@@ -784,7 +788,9 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
   /** Positions for the blocks placed automatically, so they stay put as others move or flows are added. */
   const fixPlaced = useCallback((): Operation[] => pinOps(view, items(view, nodesRef.current), new Set(), columns), [view, columns]);
 
-  const { snapChanges, dropped, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere });
+  const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: STICKY_MIN });
+  // As it's drawn: snapped, as it was when it was let go.
+  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
 
   /** What the selection box being drawn has picked so far, by node ID. */
   const boxed = useRef<Set<string> | null>(null);

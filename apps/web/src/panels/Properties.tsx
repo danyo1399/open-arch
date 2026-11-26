@@ -588,6 +588,7 @@ function StickyProperties({ ws, view, computed, sticky, edit, onSelect, onEditNo
       <p className="muted small">Sticky notes explain this diagram to the people reading it: what to look at, or why it's drawn this way. They belong to this view and aren't part of the model, so other views don't show them. The docs show them under the diagram, with their notes.</p>
       <div className="actions">
         {sticky.at && view.level !== "sequence" && <button onClick={() => set({ at: null })}>{drawn ? "Move next to what it's on" : "Move beside the diagram"}</button>}
+        {sticky.size && view.level !== "sequence" && <button onClick={() => set({ size: null })}>Usual size</button>}
         <button className="danger" onClick={() => void edit([{ op: "remove-sticky", view: view.id, id: sticky.id }]).then(() => onSelect(null))}>
           Delete note
         </button>

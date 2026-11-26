@@ -12,7 +12,7 @@ import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
  * a step between them can be a call or a reply. A note beside the steps.
  */
 const doc: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: {
     buyer: { kind: "person", name: "Buyer", uses: [{ to: "web" }] },

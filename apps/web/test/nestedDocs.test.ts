@@ -11,7 +11,7 @@ import { FakeFolder } from "./fakeFolder.js";
 
 const shop = (docs: string) =>
   JSON.stringify({
-    openarch: 21,
+    openarch: 22,
     name: "Shop",
     export: { docs },
     elements: { shop: { kind: "system", name: "Shop" } },

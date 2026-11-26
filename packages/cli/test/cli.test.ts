@@ -718,6 +718,20 @@ Links (how many of from, then of to):
     expect(JSON.parse(read(dir)).views.landscape).not.toHaveProperty("stickies");
   });
 
+  it("sizes sticky notes, shows how big they are, and gives them the usual size back", () => {
+    const dir = example();
+    expect(cli(dir, "add-sticky", "landscape", "start-here", "--text", "Start here.", "--size", "260,120").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.landscape.stickies).toEqual({ "start-here": { text: "Start here.", size: [260, 120] } });
+    expect(cli(dir, "show", "landscape").out).toContain("Sticky notes:\n  start-here (yellow, size 260 by 120):\n    Start here.\n");
+    expect(cli(dir, "update-sticky", "landscape", "start-here", "--at", "10,20", "--size", "300, 90").code).toBe(0);
+    expect(cli(dir, "show", "landscape").out).toContain("  start-here (yellow at 10, 20, size 300 by 90):\n");
+    expect(JSON.parse(cli(dir, "show", "landscape", "--json").out).stickies).toEqual([{ id: "start-here", text: "Start here.", color: "yellow", at: [10, 20], size: [300, 90] }]);
+    expect(cli(dir, "update-sticky", "landscape", "start-here", "--size", "300").err).toContain("--size needs width,height");
+    expect(cli(dir, "update-sticky", "landscape", "start-here", "--size", "0,90").err).toContain("A sticky note's width and height must be more than 0.");
+    expect(cli(dir, "update-sticky", "landscape", "start-here", "--size", "").code).toBe(0);
+    expect(JSON.parse(read(dir)).views.landscape.stickies["start-here"]).toEqual({ text: "Start here.", at: [10, 20] });
+  });
+
   it("gives sticky notes notes, shows them, puts them in the docs, and takes them off", () => {
     const dir = example();
     expect(cli(dir, "add-sticky", "landscape", "start-here", "--text", "Start here.", "--notes", "Then **zoom in**.").code).toBe(0);
@@ -930,22 +944,22 @@ Links (how many of from, then of to):
   it("upgrades a version 1 file the next time it's saved", () => {
     const dir = example();
     const v1 = read(dir)
-      .replace('"openarch": 21', '"openarch": 1')
+      .replace('"openarch": 22', '"openarch": 1')
       .replace('"shape": "database"', '"tags": ["database"], "properties": { "owner": "orders" }');
     writeFileSync(join(dir, "shop.openarch"), v1);
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "fmt").code).toBe(0);
-    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 21, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
+    expect(JSON.parse(read(dir))).toMatchObject({ openarch: 22, elements: { "orders-db": { shape: "database", tags: { owner: "orders" } } } });
   });
 
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])("reads a version %i file, and writes it back as version 21", (version) => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])("reads a version %i file, and writes it back as version 22", (version) => {
     const dir = example();
-    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 21', `"openarch": ${version}`));
+    writeFileSync(join(dir, "shop.openarch"), read(dir).replace('"openarch": 22', `"openarch": ${version}`));
     expect(cli(dir, "check").code).toBe(0);
     expect(cli(dir, "fmt", "--check").code).toBe(1);
     expect(cli(dir, "update-workspace", "--name", "Shop 2").code).toBe(0);
-    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 21,\n/);
+    expect(read(dir)).toMatch(/^\{\n {2}"openarch": 22,\n/);
   });
 
   it("refuses to change a file that doesn't parse", () => {
@@ -1032,7 +1046,7 @@ describe("init", () => {
   it("export leaves the docs of another workspace in the same folder alone", () => {
     const project = tempDir();
     for (const [name, title] of [["a.openarch", "A"], ["b.openarch", "B"]]) {
-      writeFileSync(join(project, name), JSON.stringify({ openarch: 21, name: title, export: { docs: "." }, elements: {}, views: {} }));
+      writeFileSync(join(project, name), JSON.stringify({ openarch: 22, name: title, export: { docs: "." }, elements: {}, views: {} }));
     }
     expect(cli(project, "export", "--file", "a.openarch").code).toBe(0);
     const result = cli(project, "export", "--file", "b.openarch");
@@ -1059,7 +1073,7 @@ describe("init", () => {
     const folder = join(project, "docs", "architecture");
     mkdirSync(folder, { recursive: true });
     // As a workspace made at the top of the project, with its docs in docs/architecture, then moved there.
-    writeFileSync(join(folder, "architecture.openarch"), JSON.stringify({ openarch: 21, name: "Shop", export: { docs: "docs/architecture" }, elements: {}, views: {} }));
+    writeFileSync(join(folder, "architecture.openarch"), JSON.stringify({ openarch: 22, name: "Shop", export: { docs: "docs/architecture" }, elements: {}, views: {} }));
     const file = join(folder, "architecture.openarch");
     const nested = "The docs folder, docs/architecture/, is relative to the workspace file, which is in docs/architecture/ already, so the docs would go in docs/architecture/docs/architecture/. They aren't written there.";
 
@@ -1162,7 +1176,7 @@ describe("init", () => {
 
     const older = tempDir();
     mkdirSync(join(older, ".git"));
-    writeFileSync(join(older, "architecture.openarch"), JSON.stringify({ openarch: 21, name: "Old", elements: {}, views: {} }));
+    writeFileSync(join(older, "architecture.openarch"), JSON.stringify({ openarch: 22, name: "Old", elements: {}, views: {} }));
     expect(cli(older, "init").out).toContain("kept architecture.openarch");
     expect(existsSync(join(older, "architecture"))).toBe(false);
   });
@@ -1204,7 +1218,7 @@ describe("init", () => {
     // The desktop app and, in Chrome or Edge, the web app edit the file; other browsers keep a copy.
     expect(created.out).toContain("open the file in the desktop app. In Chrome or Edge, the web app's Open folder… edits it too; other browsers edit a copy: import the file, then export it back.");
     expect(created.out).toContain("created architecture/architecture.openarch");
-    expect(JSON.parse(read(project, "architecture/architecture.openarch"))).toEqual({ openarch: 21, name: "Payments", export: { docs: "." }, elements: {}, views: {} });
+    expect(JSON.parse(read(project, "architecture/architecture.openarch"))).toEqual({ openarch: 22, name: "Payments", export: { docs: "." }, elements: {}, views: {} });
     // At the repository's top, the workspace gets a folder of its own, with its docs beside it, apart from the repository's README.md.
     expect(read(project, "architecture/README.md")).toContain("# Payments");
     expect(read(project, "README.md")).toBe("# My project\n");

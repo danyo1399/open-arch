@@ -147,10 +147,10 @@ export type Operation =
   | { op: "show-in-view"; view: string; id: string }
   | { op: "hide-in-view"; view: string; id: string }
   | { op: "set-layout"; view: string; positions: Record<string, Position | null> }
-  /** `on`: the element or relationship the note is on, on views of boxes. */
-  | { op: "add-sticky"; view: string; id: string; text: string; on?: StickyTargetData; color?: StickyColor; at?: [number, number]; notes?: string }
-  /** `on`: null takes the note off what it's on. */
-  | { op: "update-sticky"; view: string; id: string; text?: string; on?: StickyTargetData | null; color?: StickyColor; at?: [number, number] | null; notes?: string | null }
+  /** `on`: the element or relationship the note is on, on views of boxes. `size`: its width and height, [width, height]. */
+  | { op: "add-sticky"; view: string; id: string; text: string; on?: StickyTargetData; color?: StickyColor; at?: [number, number]; size?: [number, number]; notes?: string }
+  /** `on`: null takes the note off what it's on. `size`: null gives it the usual size back. */
+  | { op: "update-sticky"; view: string; id: string; text?: string; on?: StickyTargetData | null; color?: StickyColor; at?: [number, number] | null; size?: [number, number] | null; notes?: string | null }
   | { op: "remove-sticky"; view: string; id: string }
   | { op: "add-step"; view: string; from: string; to: string; description?: string; technology?: string; reply?: boolean; step?: number }
   | { op: "update-step"; view: string; step: number; from?: string; to?: string; description?: string | null; technology?: string | null; reply?: boolean; newStep?: number }
@@ -372,6 +372,8 @@ type FieldType =
   | "positions"
   | "point"
   | "nullable-point"
+  | "size"
+  | "nullable-size"
   | "target"
   | "nullable-target"
   | "box"
@@ -436,8 +438,8 @@ const SHAPES: Record<OperationName, { required: string[]; fields: Record<string,
   "show-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "hide-in-view": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "set-layout": { required: ["view", "positions"], fields: { view: "string", positions: "positions" } },
-  "add-sticky": { required: ["view", "id", "text"], fields: { view: "string", id: "string", text: "string", on: "target", color: "string", at: "point", notes: "string" } },
-  "update-sticky": { required: ["view", "id"], fields: { view: "string", id: "string", text: "string", on: "nullable-target", color: "string", at: "nullable-point", notes: "nullable-string" } },
+  "add-sticky": { required: ["view", "id", "text"], fields: { view: "string", id: "string", text: "string", on: "target", color: "string", at: "point", size: "size", notes: "string" } },
+  "update-sticky": { required: ["view", "id"], fields: { view: "string", id: "string", text: "string", on: "nullable-target", color: "string", at: "nullable-point", size: "nullable-size", notes: "nullable-string" } },
   "remove-sticky": { required: ["view", "id"], fields: { view: "string", id: "string" } },
   "add-step": {
     required: ["view", "from", "to"],
@@ -667,6 +669,10 @@ function fits(type: FieldType, value: unknown): boolean {
       return isPoint(value);
     case "nullable-point":
       return value === null || isPoint(value);
+    case "size":
+      return isPoint(value);
+    case "nullable-size":
+      return value === null || isPoint(value);
     case "target":
       return isTarget(value);
     case "nullable-target":
@@ -699,6 +705,8 @@ const TYPE_TEXT: Record<FieldType, string> = {
   positions: "an object of [x, y] positions (null removes one)",
   point: "a position, [x, y]",
   "nullable-point": "a position, [x, y], or null to let the designer place it",
+  size: "a width and a height, [width, height]",
+  "nullable-size": "a width and a height, [width, height], or null for the usual size",
   target: 'an element, like { "element": "cache" }, a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association, or on a flowchart view a block, like { "block": "pack-order" }',
   "nullable-target":
     'an element, like { "element": "cache" }, a relationship, like { "from": "web-app", "to": "orders-db" } with "kind" when it isn\'t an association, or on a flowchart view a block, like { "block": "pack-order" }, or null to take the note off it',
@@ -1485,6 +1493,7 @@ function addSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "add-stic
       on,
       color: op.color === "yellow" ? undefined : op.color,
       at: op.at && [Math.round(op.at[0]), Math.round(op.at[1])],
+      size: op.size && stickySize(op.size),
       notes: op.notes?.trim(),
     }),
   };
@@ -1494,8 +1503,8 @@ function addSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "add-stic
 function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "update-sticky" }>): string {
   const view = requireView(doc, op.view);
   const sticky = requireSticky(view, op.view, op.id);
-  if (op.text === undefined && op.on === undefined && op.color === undefined && op.at === undefined && op.notes === undefined) {
-    throw new OpError("Say what to change: text, on, color, at or notes.");
+  if (op.text === undefined && op.on === undefined && op.color === undefined && op.at === undefined && op.size === undefined && op.notes === undefined) {
+    throw new OpError("Say what to change: text, on, color, at, size or notes.");
   }
   if (op.text !== undefined) {
     if (!op.text.trim()) throw new OpError("A sticky note needs some text. Remove it with remove-sticky instead.");
@@ -1510,6 +1519,8 @@ function updateSticky(doc: OpenArchDocument, op: Extract<Operation, { op: "updat
   }
   if (op.at === null) delete sticky.at;
   else if (op.at !== undefined) sticky.at = [Math.round(op.at[0]), Math.round(op.at[1])];
+  if (op.size === null) delete sticky.size;
+  else if (op.size !== undefined) sticky.size = stickySize(op.size);
   if (op.notes === null || (op.notes !== undefined && !op.notes.trim())) delete sticky.notes;
   else if (op.notes !== undefined) sticky.notes = op.notes.trim();
   return `updated sticky note ${op.id} in view ${op.view}`;
@@ -3247,6 +3258,12 @@ function changeTags(tags: Tags | undefined, changes: TagChanges): Tags | undefin
     out.set(name.trim(), value.trim());
   }
   return out.size ? Object.fromEntries(out) : undefined;
+}
+
+/** A sticky note's width and height, rounded: each must be more than 0. */
+function stickySize(size: [number, number]): [number, number] {
+  if (!(size[0] > 0 && size[1] > 0)) throw new OpError("A sticky note's width and height must be more than 0.");
+  return [Math.max(1, Math.round(size[0])), Math.max(1, Math.round(size[1]))];
 }
 
 function checkColor(color: string | undefined): void {

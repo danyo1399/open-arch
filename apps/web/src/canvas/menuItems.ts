@@ -46,9 +46,10 @@ export function noSuchArrow<T extends { from: string; to: string; text?: string 
 /**
  * A sticky note's menu. `editText` edits its text in place, where the diagram can, and
  * `openNotes` opens its notes, where the designer can. A note that was moved can go back where
- * the designer puts it: `back` says where that is, as in "Move beside the diagram". A sequence
- * view lists its notes beside it, so there they have no text to edit in place, and no place to
- * go back to.
+ * the designer puts it: `back` says where that is, as in "Move beside the diagram". Where it
+ * does, a note that was resized can have the usual size back too. A sequence view lists its
+ * notes beside it, at the usual size, so there they have no text to edit in place, no place to
+ * go back to, and no size of their own.
  */
 export function stickyItems(edits: MenuEdits, view: string, sticky: Sticky, { editText, openNotes, back }: { editText?: () => void; openNotes?: () => void; back?: string }): MenuItem[] {
   const set = (fields: Omit<Extract<Operation, { op: "update-sticky" }>, "op" | "view" | "id">) => () => void edits.edit([{ op: "update-sticky", view, id: sticky.id, ...fields }]);
@@ -59,6 +60,7 @@ export function stickyItems(edits: MenuEdits, view: string, sticky: Sticky, { ed
       { label: "Colour", items: STICKY_COLORS.filter((color) => color !== sticky.color).map((color) => ({ label: color[0]!.toUpperCase() + color.slice(1), onSelect: set({ color }) })) },
       ...(openNotes ? [{ label: "Edit notes…", onSelect: openNotes }] : []),
       ...(sticky.at && back ? [{ label: back, onSelect: set({ at: null }) }] : []),
+      ...(sticky.size && back ? [{ label: "Usual size", onSelect: set({ size: null }) }] : []),
     ],
     "Delete note",
     { op: "remove-sticky", view, id: sticky.id },

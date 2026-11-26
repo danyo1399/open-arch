@@ -339,7 +339,7 @@ describe("the open workspace", () => {
 
   it("refuses a change to a file with errors, and says a change couldn't be saved to the caller and on screen", async () => {
     const broken = new TestHost("browser");
-    broken.file = JSON.stringify({ openarch: 21, name: "A", elements: { shop: { kind: "system" } }, views: {} });
+    broken.file = JSON.stringify({ openarch: 22, name: "A", elements: { shop: { kind: "system" } }, views: {} });
     const state = await workspaceFor(broken);
     const done = await act(() => state().change([{ op: "update-workspace", name: "B" }]));
     expect(done).toEqual({ ok: false, error: "This file has errors that stop it being changed safely. Fix it by hand (the Problems list says where), or restore it from version control." });

@@ -247,7 +247,7 @@ export type Tags = Record<string, string>;
 /** Element, view and sticky note IDs: lowercase kebab-case, like "checkout-api". */
 export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export const FORMAT_VERSION = 21;
+export const FORMAT_VERSION = 22;
 export const FILE_EXTENSION = ".openarch";
 
 // --- The .openarch file, as stored -------------------------------------------
@@ -610,6 +610,11 @@ export interface StickyData {
   color?: StickyColor;
   /** Top-left corner. Without it, the designer puts the note beside what it's on, or else beside the diagram. */
   at?: [number, number];
+  /**
+   * Its width and height, [width, height], each above 0. A note with more text than fits grows
+   * taller to show it all. Without it, a note is the usual width, and as tall as its text.
+   */
+  size?: [number, number];
   /** Longer documentation, as markdown, for more than the note's text should say. */
   notes?: string;
 }
@@ -919,6 +924,7 @@ export interface Sticky {
   on?: StickyTarget;
   color: StickyColor;
   at?: [number, number];
+  size?: [number, number];
   notes?: string;
 }
 

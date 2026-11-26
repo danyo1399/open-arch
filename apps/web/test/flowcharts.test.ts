@@ -19,7 +19,7 @@ import { button, choose, click, menusFor, mount, pick, select } from "./dom.js";
 
 /** A return, each block placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
-  openarch: 21,
+  openarch: 22,
   name: "Shop",
   elements: { shop: { kind: "system", name: "Shop" }, customer: { kind: "person", name: "Customer" } },
   views: {

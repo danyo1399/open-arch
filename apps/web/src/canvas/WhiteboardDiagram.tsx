@@ -57,11 +57,11 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { boardItemsOf, HEADS_TEXT, newStickyId, selectBoard, uniqueAmong, whiteboardDeleteOps } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, placeStickies, STICKY, TOUCH_STICKY } from "./autoLayout.js";
+import { freeSpotAmong, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY } from "./autoLayout.js";
 import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
-import { NotesOpener, StickyNode, type StickyFlowNode } from "./nodes.js";
+import { NotesOpener, StickyNode, stickyNodeSize, stickyResizeOp, type StickyFlowNode } from "./nodes.js";
 import { GRID, SnapButtons, SnapGuides, useSnap, type SnapControl } from "./snap.js";
 import {
   arrowEnds,
@@ -360,6 +360,8 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
   const rf = useReactFlow<FlowNode, ArrowFlowEdge>();
   const wrapper = useRef<HTMLDivElement>(null);
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
+  /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
+  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
   const [tool, setTool] = useState<Tool>("select");
   const [drawing, setDrawing] = useState<Drawing | null>(null);
   /** Text being typed where there's no shape yet: it becomes one when it's saved. */
@@ -432,7 +434,9 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
     },
     [edit, view.id],
   );
-  const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: MIN_SIZE });
+  const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: (n) => (n.type === "sticky" ? STICKY_MIN : MIN_SIZE) });
+  // As it's drawn: snapped, as it was when it was let go.
+  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
   const resize = useCallback(
     (shape: Shape, box: Rect) => {
       // As it's drawn: snapped, as it was when it was let go.
@@ -473,8 +477,9 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
         (sticky): StickyFlowNode => ({
           id: stickyNodeId(sticky.id),
           type: "sticky",
+          ...stickyNodeSize(sticky),
           position: stickyAt[sticky.id]!,
-          data: { sticky, editing: editing?.kind === "sticky" && editing.id === sticky.id, onEdit: () => setEditing({ kind: "sticky", id: sticky.id }), onDone: (text) => finishSticky(sticky, text) },
+          data: { sticky, editing: editing?.kind === "sticky" && editing.id === sticky.id, onEdit: () => setEditing({ kind: "sticky", id: sticky.id }), onDone: (text) => finishSticky(sticky, text), onResize: (box: Rect) => resizeNote.current(sticky, box) },
           selected: items.stickies.includes(sticky.id),
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,

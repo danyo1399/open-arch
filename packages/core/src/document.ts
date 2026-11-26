@@ -186,7 +186,7 @@ const ENTITY_KEYS = ["id", "name", "description", "attributes", "at"];
 const ATTRIBUTE_FIELDS = ["name", "type", "keys", "description"];
 const LINK_KEYS = ["from", "to", "cardinality", "text"];
 const STEP_KEYS = ["from", "to", "description", "technology", "reply"];
-const STICKY_KEYS = ["text", "on", "color", "at", "notes"];
+const STICKY_KEYS = ["text", "on", "color", "at", "size", "notes"];
 const STICKY_ON_KEYS = ["element", "from", "to", "kind"];
 const STICKY_ON_BLOCK_KEYS = ["block"];
 
@@ -315,6 +315,8 @@ function upgrade(raw: Record<string, unknown>, report: Report): Record<string, u
   if (out.openarch === 19) out = { ...out, openarch: 20 };
   // Version 21 let a flowchart's lane be for an element, so a version 20 file means the same in it.
   if (out.openarch === 20) out = { ...out, openarch: 21 };
+  // Version 22 gave sticky notes a size, so a version 21 file means the same in it.
+  if (out.openarch === 21) out = { ...out, openarch: 22 };
   return out;
 }
 
@@ -1252,6 +1254,10 @@ function readSticky(id: string, value: unknown, path: string, report: Report, ow
     if (Array.isArray(value.at) && value.at.length === 2 && value.at.every((n) => typeof n === "number" && Number.isFinite(n))) sticky.at = value.at as [number, number];
     else report(`${path}.at`, "field-type", "Must be a position, [x, y].");
   }
+  if (value.size !== undefined) {
+    if (Array.isArray(value.size) && value.size.length === 2 && value.size.every((n) => typeof n === "number" && Number.isFinite(n) && n > 0)) sticky.size = value.size as [number, number];
+    else report(`${path}.size`, "field-type", "Must be a width and a height, [width, height], each more than 0.");
+  }
   const notes = str(value.notes, `${path}.notes`, report);
   if (notes !== undefined) sticky.notes = notes;
   return sticky;
@@ -1558,7 +1564,7 @@ function viewText(v: ViewData, indent: string): string {
     const keys = Object.keys(v.stickies).sort();
     const on = (t: StickyTargetData) =>
       "element" in t ? { element: t.element } : "block" in t ? { block: t.block } : { from: t.from, to: t.to, kind: t.kind && t.kind !== "association" ? t.kind : undefined };
-    const sticky = (s: StickyData) => inline({ text: s.text, on: s.on && on(s.on), color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)), notes: s.notes || undefined });
+    const sticky = (s: StickyData) => inline({ text: s.text, on: s.on && on(s.on), color: s.color && s.color !== "yellow" ? s.color : undefined, at: s.at?.map((n) => Math.round(n)), size: s.size?.map((n) => Math.max(1, Math.round(n))), notes: s.notes || undefined });
     entries.push(["stickies", block(keys.map((k) => [k, sticky(v.stickies![k]!)]), `${indent}  `)]);
   }
   if (boxes && present(v.layout, (l) => Object.keys(l).length > 0)) {

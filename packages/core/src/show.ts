@@ -174,7 +174,7 @@ function sequenceJson(cv: ComputedView) {
       labelTechnology: s.labelTechnology,
       relationships: s.sources,
     })),
-    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, size: s.size, notes: s.notes })),
   };
 }
 
@@ -225,7 +225,7 @@ function statesJson(cv: ComputedView) {
     initial: view.initial,
     states: view.states.map((s) => ({ id: s.id, name: s.name, description: s.description, final: s.final || undefined, at: s.at })),
     transitions: view.transitions.map((t) => ({ transition: t.number, from: t.from, to: t.to, event: t.event, guard: t.guard, action: t.action })),
-    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, size: s.size, notes: s.notes })),
   };
 }
 
@@ -280,7 +280,7 @@ function deploymentJson(cv: ComputedView) {
       connection: a.connection?.number,
       relationships: a.edge?.sources,
     })),
-    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, size: s.size, notes: s.notes })),
   };
 }
 
@@ -333,7 +333,7 @@ function eventsJson(cv: ComputedView) {
     notes: view.notes,
     lanes: view.lanes.map((l) => ({ id: l.id, position: l.number, name: l.name, description: l.description })),
     cards: view.cards.map((c) => ({ id: c.id, position: c.number, kind: c.kind, name: c.name, description: c.description, lane: c.lane, from: c.from })),
-    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, size: s.size, notes: s.notes })),
   };
 }
 
@@ -384,7 +384,7 @@ function wireframeJson(cv: ComputedView) {
     scope: view.scope,
     notes: view.notes,
     screens: view.screens.map((s) => ({ id: s.id, position: s.number, name: s.name, description: s.description, device: s.device, widgets: s.widgets.map(widget) })),
-    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, size: s.size, notes: s.notes })),
   };
 }
 
@@ -441,7 +441,7 @@ function whiteboardJson(cv: ComputedView) {
       dashed: s.dashed || undefined,
     })),
     arrows: view.arrows.map((a) => ({ id: a.id, from: a.from, to: a.to, text: a.text, heads: a.heads, color: a.color, dashed: a.dashed || undefined })),
-    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, notes: s.notes })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, size: s.size, notes: s.notes })),
   };
 }
 
@@ -540,7 +540,7 @@ function entityJson(cv: ComputedView) {
       attributes: e.attributes.map((a) => ({ name: a.name, position: a.number, type: a.type, keys: a.keys, description: a.description })),
     })),
     links: view.links.map((l) => ({ link: l.number, from: l.from, to: l.to, cardinality: l.cardinality, text: l.text })),
-    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at })),
+    stickies: view.stickies.map((s) => ({ id: s.id, text: s.text, color: s.color, at: s.at, size: s.size })),
   };
 }
 
@@ -565,7 +565,7 @@ function entityText(ws: Workspace, cv: ComputedView): string {
     "Links (how many of from, then of to):",
     ...(view.links.length ? table(view.links.map((l) => [`  ${l.number}.`, `${l.from} -> ${l.to}`, `${l.cardinality[0]} to ${l.cardinality[1]}`, l.text ? quoted(l.text) : ""])) : ["  (none)"]),
     ...(view.stickies.length
-      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
+      ? ["", "Sticky notes:", ...view.stickies.flatMap((s) => [`  ${s.id} (${stickyPlace(s)}):`, ...s.text.split("\n").map((l) => `    ${l}`.trimEnd())])]
       : []),
   ];
   return lines.join("\n") + "\n";
@@ -634,6 +634,7 @@ function stickiesOn(ws: Workspace, cv: ComputedView) {
     drawn: s.on && !!stickyAnchor(ws, cv, s.on),
     color: s.color,
     at: s.at,
+    size: s.size,
     notes: s.notes,
   }));
 }
@@ -650,11 +651,16 @@ function stickyLines(stickies: Sticky[], on: (s: Sticky) => string = () => ""): 
     "",
     "Sticky notes:",
     ...stickies.flatMap((s) => [
-      `  ${s.id} (${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""})${on(s)}:`,
+      `  ${s.id} (${stickyPlace(s)})${on(s)}:`,
       ...indented(s.text, "    "),
       ...(s.notes ? ["    Notes:", ...indented(s.notes, "      ")] : []),
     ]),
   ];
+}
+
+/** A note's color, then where it is and how big, when it has those: "yellow at 40, 20, size 260 by 120". */
+function stickyPlace(s: Sticky): string {
+  return `${s.color}${s.at ? ` at ${s.at.join(", ")}` : ""}${s.size ? `, size ${s.size.join(" by ")}` : ""}`;
 }
 
 /** Multi-line text, each line indented. */
