@@ -361,7 +361,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
   const wrapper = useRef<HTMLDivElement>(null);
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
   /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
-  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
+  const resizeNote = useRef<(sticky: Sticky, box: Rect, moved: boolean) => void>(() => {});
   const [tool, setTool] = useState<Tool>("select");
   const [drawing, setDrawing] = useState<Drawing | null>(null);
   /** Text being typed where there's no shape yet: it becomes one when it's saved. */
@@ -436,7 +436,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
   );
   const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: (n) => (n.type === "sticky" ? STICKY_MIN : MIN_SIZE) });
   // As it's drawn: snapped, as it was when it was let go.
-  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
+  resizeNote.current = (sticky, box, moved) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box), moved)]);
   const resize = useCallback(
     (shape: Shape, box: Rect) => {
       // As it's drawn: snapped, as it was when it was let go.
@@ -479,7 +479,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
           type: "sticky",
           ...stickyNodeSize(sticky),
           position: stickyAt[sticky.id]!,
-          data: { sticky, editing: editing?.kind === "sticky" && editing.id === sticky.id, onEdit: () => setEditing({ kind: "sticky", id: sticky.id }), onDone: (text) => finishSticky(sticky, text), onResize: (box: Rect) => resizeNote.current(sticky, box) },
+          data: { sticky, editing: editing?.kind === "sticky" && editing.id === sticky.id, onEdit: () => setEditing({ kind: "sticky", id: sticky.id }), onDone: (text) => finishSticky(sticky, text), onResize: (box: Rect, moved: boolean) => resizeNote.current(sticky, box, moved) },
           selected: items.stickies.includes(sticky.id),
           measured: previous.find((p) => p.id === stickyNodeId(sticky.id))?.measured,
           connectable: false,

@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { buildWorkspace, computeView, serializeDocument, type OpenArchDocument, type Operation } from "@open-arch/core";
 import { ReactFlowProvider } from "@xyflow/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, createElement } from "react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Selection } from "../src/canvas/Canvas.js";
@@ -108,14 +110,14 @@ const doc: OpenArchDocument = {
       level: "container",
       scope: "shop",
       layout: { web: [0, 0], api: [0, 300] },
-      stickies: { look: { text: "Look here", at: [600, 0] }, big: { text: "Big", at: [600, 300], size: [320, 140] } },
+      stickies: { look: { text: "Look here", at: [600, 0] }, big: { text: "Big", at: [600, 300], size: [320, 140] }, beside: { text: "Beside", on: { element: "api" } } },
     },
   },
 };
 
-/** The whole designer, open on the container view, and the file it saves to. */
-async function designer() {
-  const file = new MemoryHost("shop.openarch", serializeDocument(doc));
+/** The whole designer, open on the first view, and the file it saves to. */
+async function designer(model = doc) {
+  const file = new MemoryHost("shop.openarch", serializeDocument(model));
   const host = mount(createElement(Designer, { host: file, onClose() {}, onHostChange() {} }));
   await settle();
   const saved = async () => {
@@ -151,6 +153,20 @@ describe("resizing a sticky note in the designer", () => {
     await resize(host, "sticky:big", "top left", -40, -20);
     expect(at(host, "sticky:big")).toEqual([560, 280]);
     expect((await saved()).views.containers!.stickies!.big).toEqual({ text: "Big", at: [560, 280], size: [240, 120] });
+  });
+
+  it("leaves a note the designer placed beside what it's on when its right or bottom edge is dragged, and saves where one dragged by its corner goes", async () => {
+    const { host, saved } = await designer();
+    const before = at(host, "sticky:beside");
+    await click(host.querySelector('.react-flow__node[data-id="sticky:beside"]')!);
+    await resize(host, "sticky:beside", "bottom right", 60, 40);
+    const note = (await saved()).views.containers!.stickies!.beside!;
+    expect(note).not.toHaveProperty("at");
+    expect(note.on).toEqual({ element: "api" });
+    expect(note.size).toBeDefined();
+
+    await resize(host, "sticky:beside", "top left", -40, -20);
+    expect((await saved()).views.containers!.stickies!.beside!.at).toEqual([before[0]! - 40, before[1]! - 20]);
   });
 
   it("gives a resized note the usual size back from its details and its menu", async () => {
@@ -223,5 +239,26 @@ describe("resizing a sticky note on a whiteboard", () => {
     // Its resizer stops at 60 across, and Tick's left edge, at 56, is within reach.
     await resize(host, "sticky:idea", "bottom right", -150, 0);
     expect(edits).toEqual([[{ op: "update-sticky", view: "ideas", id: "idea", at: [0, 0], size: [60, 100] }]]);
+  });
+});
+
+describe("resizing a sticky note on the other kinds of view", () => {
+  // The shop example has a view of each kind. Each gets a note, placed well away from the rest.
+  const shop = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../examples/shop/shop.openarch"), "utf8")) as OpenArchDocument;
+  const kinds = { "order-states": "state", production: "deployment", "order-events": "event", "checkout-screens": "wireframe", "checking-out": "flowchart", "orders-data": "entity" };
+
+  it.each(Object.entries(kinds))("resizes one on the %s view, a %s view, and saves its size", async (id) => {
+    const model = structuredClone(shop);
+    model.views = { [id]: { ...model.views[id]!, stickies: { tip: { text: "Tip", at: [3000, 0] } } } };
+    const { host, saved } = await designer(model);
+    // Nothing to line up with, so it's as big as it's dragged.
+    await click(host.querySelector('[aria-label="Line up with other boxes"]')!);
+    await click(host.querySelector('.react-flow__node[data-id="sticky:tip"]')!);
+    await resize(host, "sticky:tip", "bottom right", 60, 40);
+    // These views are scaled down to fit, so the pointer's move on the screen comes back to within a pixel of the screen.
+    const [w, h] = drawn(host, "tip").map((v) => Math.round(parseFloat(v!))) as [number, number];
+    const near = 1 / zoomOf(host) + 1;
+    expect([Math.abs(w - 260) <= near, Math.abs(h - 140) <= near]).toEqual([true, true]);
+    expect((await saved()).views[id]!.stickies!.tip).toEqual({ text: "Tip", at: [3000, 0], size: [w, h] });
   });
 });

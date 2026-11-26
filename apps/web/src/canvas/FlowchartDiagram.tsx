@@ -538,7 +538,7 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
   );
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
   /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
-  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
+  const resizeNote = useRef<(sticky: Sticky, box: Rect, moved: boolean) => void>(() => {});
 
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const nodesRef = useRef(nodes);
@@ -595,7 +595,7 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
             editing: editing === sticky.id,
             onEdit: () => setEditing(sticky.id),
             onDone: (text) => finishEditing(sticky, text),
-            onResize: (box: Rect) => resizeNote.current(sticky, box),
+            onResize: (box: Rect, moved: boolean) => resizeNote.current(sticky, box, moved),
             onLinkDrag: (at) => setLinking({ sticky: sticky.id, at }),
             onLinkDrop: (at) => dropLink.current(sticky.id, at),
             linkTo: "a block",
@@ -790,7 +790,7 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
 
   const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: STICKY_MIN });
   // As it's drawn: snapped, as it was when it was let go.
-  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
+  resizeNote.current = (sticky, box, moved) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box), moved)]);
 
   /** What the selection box being drawn has picked so far, by node ID. */
   const boxed = useRef<Set<string> | null>(null);

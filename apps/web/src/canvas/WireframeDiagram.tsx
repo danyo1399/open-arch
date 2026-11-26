@@ -310,7 +310,7 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, menu
   const wrapper = useRef<HTMLDivElement>(null);
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
   /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
-  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
+  const resizeNote = useRef<(sticky: Sticky, box: Rect, moved: boolean) => void>(() => {});
   const layout = useMemo(() => wireframeLayout(view), [view]);
   const arrows = useMemo(() => screenArrows(view), [view]);
   // Arrows go as the screens and widgets are laid out, not as dragged: one that's dropped moves to its new place, or back.
@@ -378,7 +378,7 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, menu
           type: "sticky",
           ...stickyNodeSize(sticky),
           position: stickyAt[sticky.id]!,
-          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text), onResize: (box: Rect) => resizeNote.current(sticky, box) },
+          data: { sticky, editing: editing === sticky.id, onEdit: () => setEditing(sticky.id), onDone: (text) => finishEditing(sticky, text), onResize: (box: Rect, moved: boolean) => resizeNote.current(sticky, box, moved) },
           selected: selection?.kind === "sticky" && selection.id === sticky.id,
           measured: measured(stickyNodeId(sticky.id)),
           connectable: false,
@@ -414,7 +414,7 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, menu
 
   const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: notesSnap, isTarget: linesUpWith, minSize: STICKY_MIN });
   // As it's drawn: snapped, as it was when it was let go.
-  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
+  resizeNote.current = (sticky, box, moved) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box), moved)]);
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((nds) => applyNodeChanges(snapChanges(changes), nds)), [snapChanges]);
 
   const onNodeDragStop = useCallback(

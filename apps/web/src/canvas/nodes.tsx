@@ -31,14 +31,22 @@ export type StickyNodeData = {
   onLinkDrop?(at: Point | null): void;
   /** What the dot can be dragged to, as its tooltip says: "a box, the frame or an arrow", unless this says. */
   linkTo?: string;
-  /** Its new corner and size, once its resizer is let go. Without it, the note has no resizer. */
-  onResize?(box: Rect): void;
+  /**
+   * Its new corner and size, once its resizer is let go, and whether its left or top edge moved.
+   * Without it, the note has no resizer.
+   */
+  onResize?(box: Rect, moved: boolean): void;
 };
 export type StickyFlowNode = Node<StickyNodeData, "sticky">;
 
-/** The edit that gives a note the corner and size it was resized to. */
-export function stickyResizeOp(view: string, sticky: Sticky, box: Rect): Operation {
-  return { op: "update-sticky", view, id: sticky.id, at: [Math.round(box.x), Math.round(box.y)], size: [Math.max(1, Math.round(box.w)), Math.max(1, Math.round(box.h))] };
+/**
+ * The edit that gives a note the size it was resized to. Its corner is saved too when the resize
+ * moved it, or when it already had one: a note the designer places, beside what it's on or
+ * beside the diagram, stays placed there when only its right or bottom edge is dragged.
+ */
+export function stickyResizeOp(view: string, sticky: Sticky, box: Rect, moved: boolean): Operation {
+  const size: [number, number] = [Math.max(1, Math.round(box.w)), Math.max(1, Math.round(box.h))];
+  return { op: "update-sticky", view, id: sticky.id, ...((moved || sticky.at) && { at: [Math.round(box.x), Math.round(box.y)] as [number, number] }), size };
 }
 
 /**
@@ -312,6 +320,8 @@ export function StickyNode({ id, data, selected }: NodeProps<StickyFlowNode>) {
   const height = useStore((s) => s.nodeLookup.get(id)?.height);
   // A note with a size is that wide, and at least that tall. While it's resized, it's as big as its resizer says.
   const sized = width !== undefined || height !== undefined || !!sticky.size ? { width: width ?? sticky.size?.[0], minHeight: height ?? sticky.size?.[1] } : undefined;
+  /** Where the note's corner was when its resizer was picked up. */
+  const resizedFrom = useRef<Point | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   // Escape ends editing, and the text box losing focus as it goes mustn't then save it.
   const finished = useRef(false);
@@ -349,7 +359,14 @@ export function StickyNode({ id, data, selected }: NodeProps<StickyFlowNode>) {
           color="var(--accent)"
           minWidth={STICKY_MIN}
           minHeight={STICKY_MIN}
-          onResizeEnd={(_, r) => data.onResize?.({ x: r.x, y: r.y, w: r.width, h: r.height })}
+          onResizeStart={(_, r) => {
+            resizedFrom.current = { x: r.x, y: r.y };
+          }}
+          onResizeEnd={(_, r) => {
+            const from = resizedFrom.current;
+            resizedFrom.current = null;
+            data.onResize?.({ x: r.x, y: r.y, w: r.width, h: r.height }, !from || from.x !== r.x || from.y !== r.y);
+          }}
         />
       )}
       {editing ? (

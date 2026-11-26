@@ -702,7 +702,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
 
   const stickySize = useMediaQuery(TOUCH) ? TOUCH_STICKY : STICKY;
   /** Gives a note the corner and size its resizer was let go at: set below, once the snap is known. */
-  const resizeNote = useRef<(sticky: Sticky, box: Rect) => void>(() => {});
+  const resizeNote = useRef<(sticky: Sticky, box: Rect, moved: boolean) => void>(() => {});
 
   /** A note whose dot is being dragged to a box, the frame or an arrow, to put the note on it: the note, and where the dot is on the diagram. */
   const [linking, setLinking] = useState<{ sticky: string; at: Point } | null>(null);
@@ -742,7 +742,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
             editing: editing === sticky.id,
             onEdit: () => setEditing(sticky.id),
             onDone: (text) => finishEditing(sticky, text),
-            onResize: (box: Rect) => resizeNote.current(sticky, box),
+            onResize: (box: Rect, moved: boolean) => resizeNote.current(sticky, box, moved),
             ...(linkable && { onLinkDrag: (at: Point) => setLinking({ sticky: sticky.id, at }), onLinkDrop: (at: Point | null) => dropLink.current(sticky.id, at) }),
           },
           selected: picked.stickies.includes(sticky.id),
@@ -1010,7 +1010,7 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
 
   const { snapChanges, dropped, resized, guides } = useSnap<FlowNode>(snap.settings, { snaps: snapsHere, isTarget: snapsHere, minSize: STICKY_MIN });
   // As it's drawn: snapped, as it was when it was let go.
-  resizeNote.current = (sticky, box) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box))]);
+  resizeNote.current = (sticky, box, moved) => void edit([stickyResizeOp(view.id, sticky, resized(stickyNodeId(sticky.id), box), moved)]);
 
   const onNodesChange = useCallback(
     (made: NodeChange<FlowNode>[]) => {

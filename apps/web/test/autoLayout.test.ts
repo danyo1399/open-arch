@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { elkLayout, gridLayout, layOut, loadOnce, NODE_H, NODE_W, placeMissing, placeStickies, ROW_GAP, rowGap, STICKY, stickyBox, stickyHeight, TOUCH_STICKY } from "../src/canvas/autoLayout.js";
+import { elkLayout, freeSpotAmong, gridLayout, layOut, loadOnce, NODE_H, NODE_W, placeMissing, placeStickies, ROW_GAP, rowGap, STICKY, stickyBox, stickyHeight, TOUCH_STICKY } from "../src/canvas/autoLayout.js";
 
 describe("layOut", () => {
   const nodes = [
@@ -197,9 +197,40 @@ describe("placeStickies", () => {
     expect(at.second).toEqual({ x: 700 + 400 + 80, y: 40 + 200 + 24 });
   });
 
+  it("puts notes beside what they're on clear of the boxes and each other, at their sizes", () => {
+    const overlap = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const notes = [
+      { id: "big", text: "Big", size: [500, 300] as [number, number] },
+      { id: "next", text: "Next" },
+    ];
+    const boxes = [
+      { x: 0, y: 0 },
+      { x: 600, y: 0 },
+    ];
+    // Both are beside the first box, so the second has to go round the first, all 500 by 300 of it.
+    const at = placeStickies(notes, boxes, STICKY, { big: { x: 0, y: 200 }, next: { x: 0, y: 200 } });
+    const rects = {
+      big: { ...at.big!, w: 500, h: 300 },
+      next: { ...at.next!, ...{ w: STICKY.width, h: stickyHeight("Next") } },
+    };
+    for (const b of boxes) for (const r of Object.values(rects)) expect(overlap(r, { ...b, w: NODE_W, h: NODE_H })).toBe(false);
+    expect(overlap(rects.big, rects.next)).toBe(false);
+  });
+
   it("puts notes at the origin of an empty view", () => {
     expect(placeStickies([{ id: "a", text: "Hi" }], [])).toEqual({ a: { x: 0, y: 0 } });
     expect(placeStickies([{ id: "a", text: "Hi" }], [{ x: 10, y: 10 }]).a).toEqual({ x: 10 + NODE_W + 80, y: 10 });
+  });
+});
+
+describe("freeSpotAmong", () => {
+  it("keeps something of the size given clear of what's there, at its own size", () => {
+    const wide = { x: 0, y: 0, w: 600, h: 100 };
+    const spot = freeSpotAmong({ x: 300, y: 0 }, [wide], { w: 100, h: 50 });
+    expect(spot.x >= 600 || spot.y >= 100 || spot.y + 50 <= 0).toBe(true);
+    // A box's size, without one.
+    expect(freeSpotAmong({ x: 0, y: 0 }, [{ x: 0, y: 0 }])).not.toEqual({ x: 0, y: 0 });
+    expect(freeSpotAmong({ x: 0, y: 0 }, [{ x: NODE_W + 40, y: 0 }])).toEqual({ x: 0, y: 0 });
   });
 });
 

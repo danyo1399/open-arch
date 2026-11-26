@@ -174,9 +174,19 @@ export function placeMissing(ids: string[], saved: Record<string, Point>, auto: 
   return result;
 }
 
-/** The free spot nearest `start`, in any direction, that doesn't overlap any box at `occupied`. */
-export function freeSpotAmong(start: Point, occupied: Point[]): Point {
-  const overlaps = (p: Point) => occupied.some((q) => Math.abs(p.x - q.x) < NODE_W + GAP / 2 && Math.abs(p.y - q.y) < NODE_H + GAP / 2);
+/** Something on a diagram, at its top-left corner: a box's size, unless it says how big it is. */
+export type Spot = Point & { w?: number; h?: number };
+
+/**
+ * The free spot nearest `start`, in any direction, where something of `size`, a box's unless it
+ * says, doesn't overlap anything in `occupied`.
+ */
+export function freeSpotAmong(start: Point, occupied: Spot[], size: { w: number; h: number } = { w: NODE_W, h: NODE_H }): Point {
+  const overlaps = (p: Point) =>
+    occupied.some((q) => {
+      const [w, h] = [q.w ?? NODE_W, q.h ?? NODE_H];
+      return p.x < q.x + w + GAP / 2 && q.x < p.x + size.w + GAP / 2 && p.y < q.y + h + GAP / 2 && q.y < p.y + size.h + GAP / 2;
+    });
   const candidates: Point[] = [];
   for (let row = -4; row <= 4; row++) {
     for (let col = -4; col <= 4; col++) candidates.push({ x: Math.round(start.x + col * (NODE_W / 2 + GAP)), y: Math.round(start.y + row * (NODE_H / 2 + GAP)) });
@@ -234,16 +244,21 @@ export function placeStickies(
   size = STICKY,
   beside: Record<string, Point> = {},
 ): Record<string, Point> {
-  const placed = stickies.filter((s) => s.at).map((s) => ({ x: s.at![0], y: s.at![1], width: stickyBox(s, size).width }));
+  const noteAt = (s: (typeof stickies)[number], at: Point) => {
+    const box = stickyBox(s, size);
+    return { ...at, w: box.width, h: box.height };
+  };
+  const placed = stickies.filter((s) => s.at).map((s) => noteAt(s, { x: s.at![0], y: s.at![1] }));
   const out: Record<string, Point> = {};
-  const taken: Point[] = [...boxes, ...placed];
+  // Each note beside what it's on is clear of the boxes and the other notes, at their sizes.
+  const taken: Spot[] = [...boxes, ...placed];
   for (const s of stickies) {
     if (s.at || !beside[s.id]) continue;
-    out[s.id] = freeSpotAmong(beside[s.id]!, taken);
-    taken.push(out[s.id]!);
+    const box = stickyBox(s, size);
+    out[s.id] = freeSpotAmong(beside[s.id]!, taken, { w: box.width, h: box.height });
+    taken.push(noteAt(s, out[s.id]!));
   }
-  const besides = stickies.flatMap((s) => (out[s.id] ? [{ ...out[s.id]!, width: stickyBox(s, size).width }] : []));
-  const rights = [...boxes.map((b) => b.x + NODE_W), ...[...placed, ...besides].map((p) => p.x + p.width)];
+  const rights = [...boxes.map((b) => b.x + NODE_W), ...taken.slice(boxes.length).map((p) => p.x + p.w!)];
   const x = rights.length ? Math.max(...rights) + 80 : 0;
   let y = boxes.length ? Math.min(...boxes.map((b) => b.y)) : 0;
   for (const s of stickies) {

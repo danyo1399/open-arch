@@ -331,7 +331,8 @@ On a flowchart view, a note can be on a block, with a line to it.
   --at <x,y>             Top-left corner (default: the designer puts it beside what it's on,
                          or else beside the diagram)
   --size <width,height>  How big it is (default: the usual width, and as tall as its text).
-                         A note with more text than fits grows taller to show it all
+                         A note with more text than fits grows taller to show it all. A
+                         sequence view lists its notes at the usual size
   --notes <markdown>     More than the note should say: the designer opens them from the note,
                          and the docs show them after its text (or --notes-file <path>, - for stdin)
 `,
