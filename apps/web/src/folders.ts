@@ -401,10 +401,22 @@ export class FolderHost implements WorkspaceHost {
   /**
    * Rewrites the docs folder from `text`, as a save does, without writing the file: so a view's
    * page is there, and up to date, for an agent to read. Null when the workspace names no docs folder.
+   * As with a save, a file changed outside since the designer read it is kept: the docs aren't
+   * written from the old copy, and the file reloads.
    */
   async writeDocs(text: string): Promise<DocsSummary | null> {
     const ws = loadWorkspace(text);
     if (!ws.valid) throw new Error(`Refusing to write the docs: the workspace has structural errors (${ws.diagnostics.map((d) => d.message).join(" ")})`);
+    let now: string;
+    try {
+      now = await readText(await fileAt(this.root, this.path));
+    } catch (error) {
+      throw isMissing(error) ? new Error(`${this.location} isn't there any more, so the docs weren't brought up to date.`) : error;
+    }
+    if (this.known !== null && now !== this.known) {
+      this.reload?.();
+      throw new Error(`${this.location} changed outside the designer, so the docs weren't brought up to date from the copy here. The file is reloaded: try again.`);
+    }
     const docs = ws.doc.export?.docs;
     const parts = this.docsIn(docs, "written");
     return parts && docs ? this.saveDocs(ws, docs, parts) : null;

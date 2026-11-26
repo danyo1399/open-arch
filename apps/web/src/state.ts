@@ -63,12 +63,13 @@ export interface WorkspaceState {
   unsaved: boolean;
   /** Marks the text as saved or exported (memory only): `text` when given, the text now otherwise. */
   markSaved(text?: string): void;
-  /** What the last save did to the docs folder (desktop). */
+  /** What the last save, or writeDocs, did to the docs folder: on desktop, and in a folder. */
   docs: DocsSummary | null;
   /**
    * Brings the docs folder up to date with the workspace, without writing the file, in its turn
    * after any save, for a host whose saves write the docs. Resolves to what it did, as a save says
-   * it: null when it wrote none, as the workspace names no docs folder or nothing saves it to a file.
+   * it: null when the workspace names no docs folder. It throws when the docs weren't written:
+   * nothing saves the workspace to a file any more, or the file changed outside.
    */
   writeDocs(): Promise<DocsSummary | null>;
   message: { kind: "error" | "info"; text: string } | null;
@@ -436,7 +437,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[],
     writeDocs: () =>
       enqueue(async () => {
         const now = current.current;
-        if (isDeleted.current || now === null || !host.writeDocs) return null;
+        // Nothing to write the docs from, or nothing writes them now: not the same as a workspace with no docs folder.
+        if (isDeleted.current || now === null || !host.writeDocs) throw new Error("The workspace isn't saved to a file any more, so the docs weren't brought up to date.");
         const summary = await host.writeDocs(now);
         setDocs(summary);
         return summary;

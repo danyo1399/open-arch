@@ -237,6 +237,22 @@ describe("bringing the docs up to date without saving", () => {
     await expect(host.writeDocs(JSON.stringify({ openarch: 21, name: "Shop", elements: { a: { kind: "nope" } } }))).rejects.toThrow("Refusing to write the docs");
     expect(root.files()).toEqual({ "shop.openarch": workspace("Shop") });
   });
+
+  it("doesn't write the docs from the designer's copy once the file changed outside, and reloads it", async () => {
+    const root = new FakeFolder("repo");
+    root.put("shop.openarch", workspace("Shop", "docs"));
+    const host = new FolderHost("1", root, "shop.openarch", { pollMs: 60_000 });
+    const reloads = vi.fn();
+    const stop = host.watch(reloads);
+    await host.load();
+    root.put("shop.openarch", workspace("Shop 2", "docs"));
+    await expect(host.writeDocs(workspace("Shop", "docs"))).rejects.toThrow("repo/shop.openarch changed outside the designer, so the docs weren't brought up to date from the copy here. The file is reloaded: try again.");
+    expect(reloads).toHaveBeenCalled();
+    expect(Object.keys(root.files())).toEqual(["shop.openarch"]);
+    root.entries.delete("shop.openarch");
+    await expect(host.writeDocs(workspace("Shop", "docs"))).rejects.toThrow("repo/shop.openarch isn't there any more, so the docs weren't brought up to date.");
+    stop();
+  });
 });
 
 describe("keeping the docs folder", () => {

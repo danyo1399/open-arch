@@ -135,6 +135,10 @@ describe("the path to a view's page in the docs", () => {
     expect(viewDocsPath("C:\\repo\\a.openarch", "docs/arch", "context", false)).toBe("C:\\repo\\docs\\arch\\views\\context.md");
     expect(viewDocsPath("C:\\a.openarch", "..", "context", false)).toBe("C:\\views\\context.md");
     expect(viewDocsPath("\\\\server\\share\\a.openarch", "../docs", "context", false)).toBe("\\\\server\\share\\docs\\views\\context.md");
+    // On Linux and macOS, as there, `\` is part of a name, not a separator.
+    expect(viewDocsPath("/repo/a.openarch", "docs\\arch", "context", false)).toBe("/repo/docs\\arch/views/context.md");
+    expect(viewDocsPath("/re\\po/a.openarch", "docs", "context", false)).toBe("/re\\po/docs/views/context.md");
+    expect(viewDocsPath("C:\\repo\\a.openarch", "docs\\arch", "context", false)).toBe("C:\\repo\\docs\\arch\\views\\context.md");
   });
 });
 
