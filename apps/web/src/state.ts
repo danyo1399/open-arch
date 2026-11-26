@@ -110,6 +110,7 @@ export function changeLabel(summary: string[]): string {
 /** What went wrong with the docs, when the file was saved but the docs folder couldn't all be written. */
 export function docsProblem(docs: DocsSummary): string {
   const changed = docs.written + docs.deleted;
+  if (docs.nested) return `Saved, but the docs weren't updated: ${docs.error} Keep docs beside the file, in the workspace's details, fixes it.`;
   return changed > 0
     ? `Saved, but updating the docs in ${docs.dir}/ stopped partway, after ${changed} page${changed === 1 ? "" : "s"}: ${docs.error}`
     : `Saved, but the docs in ${docs.dir}/ weren't updated: ${docs.error}`;

@@ -448,7 +448,7 @@ export class FolderHost implements WorkspaceHost {
   private async saveDocs(ws: Workspace, docs: string, parts: string[]): Promise<DocsSummary> {
     const summary: DocsSummary = { dir: docs.replace(/\\/g, "/").replace(/\/+$/, ""), written: 0, deleted: 0, skipped: [] };
     const nested = nestedDocsProblem(this.folder, docs);
-    if (nested) return { ...summary, error: nested.message };
+    if (nested) return { ...summary, error: nested.message, nested: true };
     const changes: DocsChanges = { written: [], deleted: [], skipped: [] };
     const counts = () => ({ ...summary, written: changes.written.length, deleted: changes.deleted.length, skipped: changes.skipped });
     try {

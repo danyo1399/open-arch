@@ -792,7 +792,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const canCopy = canCopyImages();
   // Where saves write the view's page in the docs, to paste into a chat with an agent: in a folder, the path in it; in the desktop app, the full path.
   const pagePath = (cv: ComputedView, doc = ws.doc) =>
-    syncsDocs && !docsNested && (host instanceof FolderHost || host instanceof DesktopHost)
+    syncsDocs && (host instanceof FolderHost || host instanceof DesktopHost)
       ? viewDocsPath(host.path, doc.export?.docs, cv.view.id, host instanceof FolderHost)
       : null;
   // The clipboard is asked for straight away, while the click still counts. Then the docs are
@@ -819,7 +819,20 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
       state.notify({ kind: "info", text: `${copied}. Paste it into a chat to have an agent, such as Claude, read it.${where}` });
     });
   const exportItems = (cv: ComputedView, path = pagePath(cv)): MenuItem[] => [
-    ...(path ? [{ label: "Copy path", onSelect: () => copyPath(cv, path) }] : []),
+    ...(path
+      ? [
+          {
+            label: "Copy path",
+            // No page is written where the docs folder repeats the file's own: it says so, and shows the fix, rather than copy a path to nothing.
+            onSelect: docsNested
+              ? () => {
+                  showDetails({ kind: "workspace" });
+                  state.notify({ kind: "error", text: `There's no page for “${cv.view.title}” to copy the path of, as the docs aren't written. ${docsNested} Keep docs beside the file, in the workspace's details, fixes it.` });
+                }
+              : () => copyPath(cv, path),
+          },
+        ]
+      : []),
     {
       label: "Copy as Mermaid",
       divider: !!path,

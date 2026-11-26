@@ -29,7 +29,7 @@ function refreshDocs(file: string, ws: Workspace): DocsSummary | null {
   const docs = syncDocs(file, ws);
   if (!docs) return null;
   const summary = { dir: relative(dirname(file), docs.dir) || ".", written: docs.written.length, deleted: docs.deleted.length, skipped: docs.skipped };
-  return docs.held ? { ...summary, error: docs.held } : summary;
+  return docs.held ? { ...summary, error: docs.held, nested: true } : summary;
 }
 
 export class Saver {

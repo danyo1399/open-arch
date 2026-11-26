@@ -23,6 +23,8 @@ export interface DocsSummary {
   skipped: string[];
   /** Why the docs couldn't be written, when the file was saved but they weren't. */
   error?: string;
+  /** They weren't written as the docs folder repeats the file's own (nestedDocsProblem), which the workspace's details fix. */
+  nested?: true;
 }
 
 /** What a save did beside writing the file. */

@@ -72,7 +72,7 @@ describe("saving a workspace whose docs folder repeats its own folder", () => {
     const file = join(folder, "architecture.openarch");
     doc.export = { docs: "docs/architecture" };
     const nested = "The docs folder, docs/architecture/, is relative to the workspace file, which is in docs/architecture/ already, so the docs would go in docs/architecture/docs/architecture/. They aren't written there.";
-    expect(saver.save(file, doc)).toEqual({ docs: { dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested } });
+    expect(saver.save(file, doc)).toEqual({ docs: { dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested, nested: true } });
     expect(existsSync(file)).toBe(true);
     expect(existsSync(join(folder, "docs"))).toBe(false);
     const agents = readFileSync(join(root, "AGENTS.md"), "utf8");

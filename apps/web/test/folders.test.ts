@@ -4,6 +4,7 @@ import { emptyDocument, GENERATED_MARKER, loadWorkspace, serializeDocument } fro
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { allowed, exportToFolder, findWorkspaces, folderIdInHash, FolderHost, folderInUrl, hashForFolder, FolderList, writeDocs, type FolderHandle, type StoredFolder } from "../src/folders.js";
 import { exampleHost, MemoryHost, savesDocs, savesSkill } from "../src/hosts.js";
+import { saveProblem } from "../src/state.js";
 import { FakeFile, FakeFolder } from "./fakeFolder.js";
 
 const workspace = (name: string, docs?: string) => {
@@ -72,8 +73,11 @@ describe("a workspace in a folder", () => {
     expect(host.folder).toBe("docs/architecture");
     const nested = "The docs folder, docs/architecture/, is relative to the workspace file, which is in docs/architecture/ already, so the docs would go in docs/architecture/docs/architecture/. They aren't written there.";
     await host.load();
-    expect(await host.save(workspace("Shop 2", "docs/architecture"))).toEqual({ docs: { dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested } });
-    expect(await host.writeDocs(workspace("Shop 2", "docs/architecture"))).toEqual({ dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested });
+    expect(await host.save(workspace("Shop 2", "docs/architecture"))).toEqual({ docs: { dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested, nested: true } });
+    expect(await host.writeDocs(workspace("Shop 2", "docs/architecture"))).toEqual({ dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested, nested: true });
+    // What the designer says after the save, with how to fix it.
+    const saved = await host.save(workspace("Shop 2", "docs/architecture"));
+    expect(saveProblem(saved)).toBe(`Saved, but the docs weren't updated: ${nested} Keep docs beside the file, in the workspace's details, fixes it.`);
     expect(root.files()).toEqual({ "docs/architecture/shop.openarch": workspace("Shop 2", "docs/architecture") });
     // The folders above the one opened aren't the project's, so they don't count.
     const own = new FakeFolder("architecture");
