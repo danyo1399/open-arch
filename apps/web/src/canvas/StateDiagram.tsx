@@ -33,8 +33,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueStateId } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
+import { elkLayout, freeSpotAmong, layOut, newStickySpace, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, spotOf, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { FrameNode, FrameNotes, NotesOpener, StickyNode, stickyNodeSize, stickyResizeOp, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
@@ -448,7 +448,7 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
   const addState = (at?: Point) => {
     const center = at ?? middle();
     const id = uniqueStateId(view, "new-state");
-    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
+    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => spotOf(n, stickySize));
     const spot = freeSpotAmong({ x: center.x - STATE_W / 2, y: center.y - 30 }, occupied);
     // The first state is where the view starts.
     const first = view.states.length === 0;
@@ -461,8 +461,8 @@ export function StateDiagram({ computed: cv, selection, onSelect, edit, menus, o
   const addSticky = (at?: Point) => {
     const center = at ?? middle();
     const id = newStickyId(view.stickies);
-    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
-    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
+    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => spotOf(n, stickySize));
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied, newStickySpace(stickySize));
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
       if (!ok) return;
       select({ kind: "sticky", id });

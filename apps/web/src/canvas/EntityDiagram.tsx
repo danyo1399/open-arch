@@ -33,8 +33,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { newStickyId, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
+import { elkLayout, freeSpotAmong, layOut, newStickySpace, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { AutoLayoutButton, DRAWING_Z, fitBelowToolbar, noteRect, spotOf, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { CROW_FOOT, crowFoot, ENTITY, entityHeight, entityWidth, keyColumns } from "./entityLayout.js";
 import { diagramItems, moveItems, noSuchArrow, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
@@ -551,7 +551,7 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, menus, 
   /** A new entity goes in the middle of the canvas, or from a right-click menu, where that was. */
   const addEntity = (at?: Point) => {
     const center = at ?? middle();
-    const occupied = nodesRef.current.filter((n) => n.type === "entity" || n.type === "sticky").map((n) => n.position);
+    const occupied = nodesRef.current.filter((n) => n.type === "entity" || n.type === "sticky").map((n) => spotOf(n, stickySize));
     const spot = freeSpotAmong({ x: center.x - 110, y: center.y - 40 }, occupied);
     const { ops, id } = addEntityOps(view, [spot.x, spot.y]);
     void edit([...fixPlaced(), ...ops]).then((ok) => ok && onSelect({ kind: "entity", id }, { isNew: true }));
@@ -567,8 +567,8 @@ export function EntityDiagram({ computed: cv, selection, onSelect, edit, menus, 
   const addSticky = (at?: Point) => {
     const center = at ?? middle();
     const id = newStickyId(view);
-    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
-    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
+    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => spotOf(n, stickySize));
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied, newStickySpace(stickySize));
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
       if (!ok) return;
       select({ kind: "sticky", id });

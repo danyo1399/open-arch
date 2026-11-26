@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { buildWorkspace, serializeDocument, type OpenArchDocument } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
-import { freeSpotAmong, STICKY } from "../src/canvas/autoLayout.js";
+import { freeSpotAmong, newStickySpace, STICKY, stickyHeight } from "../src/canvas/autoLayout.js";
 import { addCardAtOp } from "../src/canvas/EventDiagram.js";
 import { eventLayout, EVT } from "../src/canvas/eventLayout.js";
 import type { MemoryHost } from "../src/hosts.js";
@@ -193,10 +193,10 @@ describe("a lane's right-click menu on an event view", () => {
 
     await d.rightClick(d.node("lane:customer")!, { x: 300, y: 40 });
     await d.pick("Add", "Sticky note");
-    // By the click, clear of the cards and the other note.
+    // By the click, clear of the cards and the other note, at its size, as a new note's.
     const view = await d.saved();
-    const taken = [...[...eventLayout(view).cards.values()].map((box) => ({ x: box.x, y: box.y })), { x: 1500, y: 0 }];
-    const spot = freeSpotAmong({ x: 300 - STICKY.width / 2, y: 40 - 50 }, taken);
+    const taken = [...[...eventLayout(view).cards.values()].map((box) => ({ x: box.x, y: box.y })), { x: 1500, y: 0, w: STICKY.width, h: stickyHeight("Read me") }];
+    const spot = freeSpotAmong({ x: 300 - STICKY.width / 2, y: 40 - 50 }, taken, newStickySpace());
     expect(view.stickies.find((s) => s.id === "note-2")).toMatchObject({ text: "New note", at: [spot.x, spot.y] });
     expect(Math.hypot(spot.x - 300, spot.y - 40)).toBeLessThan(400);
     expect(document.activeElement).toBe(d.node("sticky:note-2")!.querySelector("textarea"));

@@ -59,7 +59,7 @@ import {
 } from "../model.js";
 import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, NODE_H, NODE_W, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, stickyBox, TOUCH_STICKY, type LayoutEdge, type LayoutNode, type Point, type StickySize } from "./autoLayout.js";
+import { elkLayout, freeSpotAmong, layOut, newStickySpace, NODE_H, NODE_W, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, stickyBox, TOUCH_STICKY, type LayoutEdge, type LayoutNode, type Point, type StickySize, type Spot } from "./autoLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, stickyItems } from "./menuItems.js";
 import { classHeight, FrameNotes, nodeTypes, NotesOpener, StickyLines, StickyLinking, stickyNodeSize, stickyResizeOp, type ElementFlowNode, type FrameFlowNode, type StickyFlowNode } from "./nodes.js";
@@ -438,6 +438,14 @@ export function boxAt(nodes: FlowNode[], at: Point): ElementFlowNode | undefined
 export function noteRect(n: StickyFlowNode, size: StickySize): Rect {
   const box = stickyBox(n.data.sticky, size);
   return { x: n.position.x, y: n.position.y, w: n.measured?.width ?? box.width, h: n.measured?.height ?? box.height };
+}
+
+/**
+ * Where something on a diagram is, for finding a free spot near it: a note at its size, as it's
+ * drawn, and anything else at its corner, as big as a box.
+ */
+export function spotOf(n: { type?: string; position: Point }, size: StickySize): Spot {
+  return n.type === "sticky" ? noteRect(n as unknown as StickyFlowNode, size) : n.position;
 }
 
 /** An arrow as the canvas draws it: its route, and the box its label is drawn in, when it has one. */
@@ -1100,8 +1108,8 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
   const addSticky = (at?: Point) => {
     const center = addPoint(at);
     const id = newStickyId(view);
-    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
-    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
+    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => spotOf(n, stickySize));
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied, newStickySpace(stickySize));
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
       if (!ok) return;
       onSelect({ kind: "sticky", id });

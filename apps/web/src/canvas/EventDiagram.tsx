@@ -32,8 +32,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { cardArrowDeleteOps, uniqueAmong } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, NODE_W, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { fitBelowToolbar, noteRect, STICKY_Z, type Selection } from "./Canvas.js";
+import { freeSpotAmong, newStickySpace, NODE_W, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { fitBelowToolbar, noteRect, spotOf, STICKY_Z, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { dropOps, dropSpot, eventLayout, EVT, type EventLayout } from "./eventLayout.js";
 import { diagramItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
@@ -305,8 +305,8 @@ export function EventDiagram({ computed: cv, selection, onSelect, edit, menus, e
     const rect = wrapper.current!.getBoundingClientRect();
     const center = at ?? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
     const id = newStickyId(view.stickies);
-    const occupied = nodesRef.current.filter((n) => n.type !== "lane").map((n) => n.position);
-    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
+    const occupied = nodesRef.current.filter((n) => n.type !== "lane").map((n) => spotOf(n, stickySize));
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied, newStickySpace(stickySize));
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
       if (!ok) return;
       select({ kind: "sticky", id });

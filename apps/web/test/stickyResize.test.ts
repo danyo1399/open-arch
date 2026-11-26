@@ -34,7 +34,13 @@ class FakeResizeObserver {
     this.watching.clear();
   }
 }
-const size = (el: HTMLElement) => (el.classList.contains("react-flow__node") ? { width: 200, height: 100 } : { width: 1000, height: 800 });
+/** Whether a note with a size is measured at it, as a browser would, rather than 200 by 100. */
+let notesAtTheirSize = false;
+const size = (el: HTMLElement) => {
+  const drawnAt = notesAtTheirSize ? el.querySelector<HTMLElement>(".sticky")?.style : undefined;
+  if (drawnAt?.width) return { width: parseFloat(drawnAt.width), height: parseFloat(drawnAt.minHeight) };
+  return el.classList.contains("react-flow__node") ? { width: 200, height: 100 } : { width: 1000, height: 800 };
+};
 const real = {
   ResizeObserver: globalThis.ResizeObserver,
   offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth"),
@@ -260,5 +266,39 @@ describe("resizing a sticky note on the other kinds of view", () => {
     const near = 1 / zoomOf(host) + 1;
     expect([Math.abs(w - 260) <= near, Math.abs(h - 140) <= near]).toEqual([true, true]);
     expect((await saved()).views[id]!.stickies!.tip).toEqual({ text: "Tip", at: [3000, 0], size: [w, h] });
+  });
+});
+
+describe("adding a sticky note beside a resized one", () => {
+  it("keeps the new note clear of all of it, not only of a box's size at its corner", async () => {
+    const model = structuredClone(doc);
+    model.views.containers!.stickies = { big: { text: "Big", at: [600, 300], size: [500, 300] } };
+    notesAtTheirSize = true;
+    try {
+      const { host, saved } = await designer(model);
+      // Right-click the background in the middle of the big note, and add a note there.
+      const transform = host.querySelector<HTMLElement>(".react-flow__viewport")!.style.transform;
+      const [x, y, zoom] = /translate\(([-\d.]+)px, ?([-\d.]+)px\) scale\(([-\d.]+)\)/.exec(transform)!.slice(1).map(Number) as [number, number, number];
+      const point = { clientX: 850 * zoom + x, clientY: 450 * zoom + y };
+      const pane = host.querySelector(".react-flow__pane")!;
+      await act(async () => {
+        pane.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerId: 1, ...point }));
+        pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ...point }));
+        await new Promise<void>((resolve) => setTimeout(resolve));
+      });
+      for (const wanted of ["Add", "Sticky note"]) {
+        const lists = document.querySelectorAll(".context-menu");
+        const item = [...lists[lists.length - 1]!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent!.replace("›", "").trim() === wanted);
+        if (!item) throw new Error(`The menu has no ${wanted}.`);
+        await click(item);
+      }
+      await settle();
+      const added = Object.entries((await saved()).views.containers!.stickies!).find(([id]) => id !== "big")![1];
+      const [nx, ny] = added.at!;
+      // The new note, about 200 by 50, is clear of the big one, from 600 to 1100 across and 300 to 600 down.
+      expect(nx + 200 <= 600 || nx >= 1100 || ny + 50 <= 300 || ny >= 600).toBe(true);
+    } finally {
+      notesAtTheirSize = false;
+    }
   });
 });

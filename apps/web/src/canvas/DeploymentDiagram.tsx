@@ -45,8 +45,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { arrowNotes, connectionChoices, connectionEndChoices, nodeChoices, stopRunning, uniqueNodeId, type DeploymentChoice } from "../model.js";
 import { MenuButton, menuPoint, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, NODE_W, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
+import { freeSpotAmong, newStickySpace, NODE_W, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { fitBelowToolbar, spotOf, STICKY_Z, type Selection } from "./Canvas.js";
 import { holdsAnything, layOutDeployment, placeDeploymentLabels, type DeploymentLayout } from "./deploymentLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
@@ -443,8 +443,8 @@ export function DeploymentDiagram({ ws, computed: cv, selection, onSelect, edit,
     const rect = wrapper.current!.getBoundingClientRect();
     const center = at ?? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
     const id = newStickyId(view.stickies);
-    const occupied = nodesRef.current.filter((n) => n.type === "deploymentBox" || n.type === "sticky").map((n) => n.position);
-    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
+    const occupied = nodesRef.current.filter((n) => n.type === "deploymentBox" || n.type === "sticky").map((n) => spotOf(n, stickySize));
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied, newStickySpace(stickySize));
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
       if (!ok) return;
       select({ kind: "sticky", id });

@@ -37,8 +37,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { blockText, flowchartItemsOf, idFromName, NEW_LANE_NAME, newStickyId, selectFlowchart, toggleFlowchartItem, uniqueAmong, type FlowchartItems } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { elkLayout, freeSpotAmong, layOut, NODE_W, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { addsToSelection, AutoLayoutButton, DRAWING_Z, fitBelowToolbar, MULTI_KEYS, noteRect, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
+import { elkLayout, freeSpotAmong, layOut, newStickySpace, NODE_W, placeMissing, placeStickies, rowGap, STICKY, STICKY_MIN, stickiesBackOps, TOUCH_STICKY, type Point, type Spot } from "./autoLayout.js";
+import { addsToSelection, AutoLayoutButton, DRAWING_Z, fitBelowToolbar, MULTI_KEYS, noteRect, spotOf, STICKY_Z, useAutoLayout, type AutoLayout, type Selection } from "./Canvas.js";
 import { blockHeight, blockWidth, dropInLane, LANE, laneColumns, laneOf, outlineToward, placeInLanes, routeToOutlines, savedAt, type LaneColumn } from "./flowchartLayout.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, moveItems, noSuchArrow, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
@@ -409,7 +409,7 @@ export interface Surroundings {
   /** Left out where there are no lanes. */
   head?: number;
   middle: Point;
-  occupied: Point[];
+  occupied: Spot[];
 }
 
 /**
@@ -839,7 +839,7 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
    * with no flow to it.
    */
   const addBlock = (kind: BlockKind, where: { after: Selection } | { at: Point; lane?: string }) => {
-    const occupied = nodesRef.current.filter((n) => n.type === "block" || n.type === "sticky").map((n) => n.position);
+    const occupied = nodesRef.current.filter((n) => n.type === "block" || n.type === "sticky").map((n) => spotOf(n, stickySize));
     const after = "after" in where ? where.after : null;
     const place = "at" in where ? blockPlaceAt(kind, where.at, { columns, occupied }, where.lane) : newBlockPlace(view, kind, after, { columns, boxes, top: laneNodes[0]?.position.y ?? 0, head, middle: middle(), occupied });
     const { ops, id } = addBlockOps(view, kind, after, place.at, place.lane);
@@ -856,8 +856,8 @@ export function FlowchartDiagram({ ws, computed: cv, selection, onSelect, edit, 
   const addSticky = (at?: Point) => {
     const center = at ?? middle();
     const id = newStickyId(view);
-    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => n.position);
-    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
+    const occupied = nodesRef.current.filter((n) => n.type !== "frame").map((n) => spotOf(n, stickySize));
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied, newStickySpace(stickySize));
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
       if (!ok) return;
       select({ kind: "sticky", id });

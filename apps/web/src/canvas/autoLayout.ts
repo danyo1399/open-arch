@@ -216,6 +216,11 @@ export function stickyHeight(text: string, size = STICKY): number {
   return 26 + lines * size.lineHeight;
 }
 
+/** How big a new note is, with the text it's added with, for finding a free spot for it. */
+export function newStickySpace(size = STICKY): { w: number; h: number } {
+  return { w: size.width, h: stickyHeight("New note", size) };
+}
+
 /** The smallest a sticky note can be resized to, across or down. */
 export const STICKY_MIN = 60;
 /** How much of a note's width its padding takes, either side of its text (see `.sticky` in styles.css). */

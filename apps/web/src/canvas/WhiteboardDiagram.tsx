@@ -57,8 +57,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { boardItemsOf, HEADS_TEXT, newStickyId, selectBoard, uniqueAmong, whiteboardDeleteOps } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY } from "./autoLayout.js";
-import { fitBelowToolbar, STICKY_Z, type Selection } from "./Canvas.js";
+import { freeSpotAmong, newStickySpace, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY } from "./autoLayout.js";
+import { fitBelowToolbar, spotOf, STICKY_Z, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { NotesOpener, StickyNode, stickyNodeSize, stickyResizeOp, type StickyFlowNode } from "./nodes.js";
@@ -695,7 +695,7 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
   /** + Add's shapes go in the middle of the canvas, where nothing else starts. */
   const addInMiddle = (kind: ShapeKind) => {
     const c = middleOfCanvas();
-    const occupied = nodesRef.current.map((n) => n.position);
+    const occupied = nodesRef.current.map((n) => spotOf(n, stickySize));
     const spot = freeSpotAmong({ x: c.x - 80, y: c.y - 40 }, occupied);
     addShape(kind, [Math.round(spot.x), Math.round(spot.y), 160, 80]);
   };
@@ -704,8 +704,8 @@ export function WhiteboardDiagram({ computed: cv, selection, onSelect, edit, men
   const addSticky = (at?: Point) => {
     const c = at ?? middleOfCanvas();
     const id = newStickyId(view);
-    const occupied = nodesRef.current.map((n) => n.position);
-    const spot = freeSpotAmong({ x: c.x - stickySize.width / 2, y: c.y - 50 }, occupied);
+    const occupied = nodesRef.current.map((n) => spotOf(n, stickySize));
+    const spot = freeSpotAmong({ x: c.x - stickySize.width / 2, y: c.y - 50 }, occupied, newStickySpace(stickySize));
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [Math.round(spot.x), Math.round(spot.y)] }]).then((ok) => {
       if (!ok) return;
       select({ kind: "sticky", id });

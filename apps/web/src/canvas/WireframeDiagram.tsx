@@ -48,8 +48,8 @@ import { useMediaQuery } from "../mediaQuery.js";
 import { uniqueAmong, widgetName } from "../model.js";
 import { MenuButton, type MenuAction, type MenuItem } from "../panels/ContextMenu.js";
 import type { Edit } from "../state.js";
-import { freeSpotAmong, NODE_W, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY, type Point } from "./autoLayout.js";
-import { fitBelowToolbar, SELECTED_LIFT, STICKY_Z, type Selection } from "./Canvas.js";
+import { freeSpotAmong, newStickySpace, NODE_W, placeStickies, STICKY, STICKY_MIN, TOUCH_STICKY, type Point } from "./autoLayout.js";
+import { fitBelowToolbar, SELECTED_LIFT, spotOf, STICKY_Z, type Selection } from "./Canvas.js";
 import { useDiagramMenu, type MenuHost } from "./DiagramMenu.js";
 import { diagramItems, stickyItems, withDelete, type MenuEdits } from "./menuItems.js";
 import { NotesOpener, StickyNode, stickyNodeSize, stickyResizeOp, type StickyFlowNode } from "./nodes.js";
@@ -464,8 +464,8 @@ export function WireframeDiagram({ computed: cv, selection, onSelect, edit, menu
     const center = at ?? rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
     const id = uniqueAmong(view.stickies.map((s) => s.id), "note");
     // Notes are kept clear of each other, as screens and widgets are drawn where their order puts them.
-    const occupied = nodesRef.current.filter((n) => n.type === "sticky").map((n) => n.position);
-    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied);
+    const occupied = nodesRef.current.filter((n) => n.type === "sticky").map((n) => spotOf(n, stickySize));
+    const spot = freeSpotAmong({ x: center.x - stickySize.width / 2, y: center.y - 50 }, occupied, newStickySpace(stickySize));
     void edit([{ op: "add-sticky", view: view.id, id, text: "New note", at: [spot.x, spot.y] }]).then((ok) => {
       if (!ok) return;
       select({ kind: "sticky", id });
