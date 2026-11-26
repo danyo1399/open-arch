@@ -11,7 +11,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, checkbox, choose, click, menusFor, mount, select, type } from "./dom.js";
+import { button, checkbox, choose, click, menusFor, mount, pick, picker, select, type } from "./dom.js";
 
 /** A web app and an API in a cluster in a cloud region, a database beside it, behind a load balancer. */
 const doc: OpenArchDocument = {
@@ -255,14 +255,17 @@ describe("a connection's details", () => {
   it("change its ends to nodes or what they run, and delete it", async () => {
     const { host, edits } = panel({ kind: "connection", number: 1 });
     // Where it goes now, then where it can go: not to the load balancer it's from, nor the cloud that's round it.
-    expect([...select(host, "To").querySelectorAll("option")].map((o) => o.textContent)).toEqual([
+    expect(picker(host, "To").textContent).toBe("Web [Container]");
+    await click(picker(host, "To"));
+    // In alphabetical order.
+    expect([...host.querySelectorAll('[role="option"]')].map((o) => o.textContent)).toEqual([
+      "API [Container]",
       "Cluster [Deployment node]",
       "Database server [Deployment node]",
-      "API [Container]",
       "DB [Container]",
       "Web [Container]",
     ]);
-    await choose(select(host, "To"), "cluster");
+    await pick(host, "To", "Cluster [Deployment node]");
     await click(button(host, "Delete connection"));
     expect(edits).toEqual([[{ op: "update-connection", view: "production", connection: 1, to: "cluster" }], [{ op: "remove-connection", view: "production", connection: 1 }]]);
   });

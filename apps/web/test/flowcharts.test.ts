@@ -15,7 +15,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, choose, click, menusFor, mount, select } from "./dom.js";
+import { button, choose, click, menusFor, mount, pick, select } from "./dom.js";
 
 /** A return, each block placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
@@ -487,7 +487,7 @@ describe("a flow's details", () => {
     const text = host.querySelector<HTMLInputElement>('input[aria-label="Text"]')!;
     expect(text.value).toBe("No");
     expect(host.textContent).toContain("It's a way out of a decision, so say which answer it's for.");
-    await choose(select(host, "To"), "done");
+    await pick(host, "To", "Done");
     await write(text, "");
     await click(button(host, "Move up"));
     await click(button(host, "Delete flow"));

@@ -93,6 +93,35 @@ export function select(host: HTMLElement, label: string): HTMLSelectElement {
   return found;
 }
 
+/** The button of a field that picks from a list with a search box (see SearchSelect), by the field's label. */
+export function picker(host: HTMLElement, label: string): HTMLButtonElement {
+  const field = [...host.querySelectorAll(".search-select")].find((f) => f.querySelector(".field-label")?.textContent === label);
+  const found = field?.querySelector<HTMLButtonElement>(".search-select-button");
+  if (!found) throw new Error(`No field "${label}" to pick from.`);
+  return found;
+}
+
+/** What a field with a search box lists, in order: none when it's turned off. Opens the list to read it, and closes it again. */
+export async function choicesIn(host: HTMLElement, label: string): Promise<{ value: string; label: string }[]> {
+  const button = picker(host, label);
+  if (button.disabled) return [];
+  await click(button);
+  const field = button.closest(".search-select")!;
+  const found = [...field.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => ({ value: o.dataset.value!, label: o.textContent! }));
+  await key(field.querySelector('input[type="search"]')!, "Escape");
+  return found;
+}
+
+/** Picks the choice with this name in a field with a search box, as a person would: opening its list, unless it's open, searching for the name, and clicking it. */
+export async function pick(host: HTMLElement, label: string, name: string): Promise<void> {
+  if (picker(host, label).getAttribute("aria-expanded") !== "true") await click(picker(host, label));
+  const field = picker(host, label).closest(".search-select")!;
+  await type(field.querySelector<HTMLInputElement>('input[type="search"]')!, name);
+  const option = [...field.querySelectorAll('[role="option"]')].find((o) => o.textContent === name);
+  if (!option) throw new Error(`No "${name}" to pick in "${label}".`);
+  await click(option);
+}
+
 /**
  * What a diagram's right-click menus need, for a diagram drawn on its own, with no designer round
  * it: nothing is ever on its way, so a menu is for what was clicked, in the view with this ID.

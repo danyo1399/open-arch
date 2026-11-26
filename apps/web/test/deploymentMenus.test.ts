@@ -8,7 +8,7 @@ import type { Selection } from "../src/canvas/Canvas.js";
 import { connectionEndChoices, connectionEnds, deploymentAfter, deploymentOffers, nodeChoices, stopRunning, type DeploymentOffer } from "../src/model.js";
 import { Properties } from "../src/panels/Properties.js";
 import type { Edit } from "../src/state.js";
-import { button, checkbox, choose, click, key, mount, select } from "./dom.js";
+import { button, checkbox, choicesIn, choose, click, key, mount, select } from "./dom.js";
 import { designer as open, put, SlowHost, write } from "./menuDesigner.js";
 
 /**
@@ -277,7 +277,7 @@ function nodeMenus(ws: Workspace, view: ViewDef, node: DeploymentNode): Operatio
 }
 
 describe("a deployment view's details", () => {
-  it.each(models)("offer the edits its menus do, and only what core makes: with %s", (_, model) => {
+  it.each(models)("offer the edits its menus do, and only what core makes: with %s", async (_, model) => {
     const ws = buildWorkspace(model);
     const view = ws.views.get("production")!;
     const sorted = (ops: Operation[]) => ops.map(text).sort();
@@ -305,7 +305,12 @@ describe("a deployment view's details", () => {
     }
     for (const c of view.connections) {
       const { host } = details(ws, view, { kind: "connection", number: c.number });
-      const ends = (["from", "to"] as const).flatMap((end) => options(select(host, end === "from" ? "From" : "To")).map((id): Operation => ({ op: "update-connection", view: "production", connection: c.number, [end]: id })));
+      const ends: Operation[] = [];
+      for (const end of ["from", "to"] as const) {
+        // What it offers to change to: not what it is now.
+        const offered = (await choicesIn(host, end === "from" ? "From" : "To")).filter((choice) => choice.value !== c[end]);
+        ends.push(...offered.map((choice): Operation => ({ op: "update-connection", view: "production", connection: c.number, [end]: choice.value })));
+      }
       const menu = (["from", "to"] as const).flatMap((end) => connectionEndChoices(ws, view, c, end).map((choice) => choice.op));
       expect(sorted(ends), `connection ${c.number}`).toEqual(sorted(menu));
       shown.push(...ends);
@@ -398,7 +403,7 @@ describe("a deployment view's details", () => {
     expect(details(fine, fine.views.get("production")!, { kind: "node", id: "server" }).host.querySelector("ul.plain + .field-hint")).toBeNull();
   });
 
-  it("offer a node's place, and a connection's ends, only where core would put them", () => {
+  it("offer a node's place, and a connection's ends, only where core would put them", async () => {
     const ws = buildWorkspace(doc);
     const view = ws.views.get("production")!;
     // The region can't go inside the edge node: Routes would then join that and the load balancer inside it.
@@ -410,12 +415,12 @@ describe("a deployment view's details", () => {
     expect([...select(server.host, "Inside").options].map((o) => o.textContent)).toEqual(["(nothing: at the top)", "Edge", "Region", "Database server"]);
     // Forwards goes from the load balancer: not to itself, nor to the region it's inside.
     const forwards = details(ws, view, { kind: "connection", number: 1 });
-    expect([...select(forwards.host, "To").options].map((o) => o.textContent)).toEqual([
-      "Edge [Deployment node]",
-      "Database server [Deployment node]",
-      "Server [Deployment node]",
+    expect((await choicesIn(forwards.host, "To")).map((c) => c.label)).toEqual([
       "API [Container]",
+      "Database server [Deployment node]",
       "DB [Container]",
+      "Edge [Deployment node]",
+      "Server [Deployment node]",
       "Web [Container]",
     ]);
   });

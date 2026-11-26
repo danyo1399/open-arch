@@ -9,7 +9,7 @@ import { followRenames, shownInProperties, uniqueStateId, viewAction } from "../
 import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import type { Edit } from "../src/state.js";
-import { button, checkbox, choose, click, mount, select, type } from "./dom.js";
+import { button, checkbox, choose, click, mount, pick, select, type } from "./dom.js";
 
 const doc: OpenArchDocument = {
   openarch: 21,
@@ -149,7 +149,7 @@ describe("a transition's details", () => {
   it("change its ends and move it", async () => {
     const { host, edits, selected } = panel({ kind: "transition", number: 1 });
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Event"]')!.value).toBe("Payment taken");
-    await choose(select(host, "To"), "placed");
+    await pick(host, "To", "Placed");
     await click(button(host, "Move down"));
     expect(edits).toEqual([
       [{ op: "update-transition", view: "order-states", transition: 1, to: "placed" }],

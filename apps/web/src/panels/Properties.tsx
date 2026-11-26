@@ -120,6 +120,7 @@ import { SKILL_TARGETS } from "../skill.js";
 import { docsProblem, type Edit } from "../state.js";
 import { MenuButton } from "./ContextMenu.js";
 import { Field, NotesField, TagsEditor } from "./fields.js";
+import { SearchSelect } from "./SearchSelect.js";
 
 interface PropertiesProps {
   ws: Workspace;
@@ -592,18 +593,9 @@ function StepProperties({ ws, view, computed, step, edit, onSelect, onEditNotes 
   const name = (id: string) => ws.elements.get(id)?.name ?? id;
   const count = view.steps.length;
   const move = (to: number) => void edit([{ op: "update-step", view: view.id, step: step.number, newStep: to }]).then((ok) => ok && onSelect({ kind: "step", number: to }));
+  const choices = elements.map((e) => ({ value: e.id, label: `${e.name} [${kindLabel(e)}]` }));
   const end = (field: "from" | "to", label: string) => (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <select value={step[field]} onChange={(e) => set({ [field]: e.target.value })}>
-        {!ws.elements.has(step[field]) && <option value={step[field]}>{step[field]} (not an element)</option>}
-        {elements.map((e) => (
-          <option key={e.id} value={e.id}>
-            {e.name} [{kindLabel(e)}]
-          </option>
-        ))}
-      </select>
-    </label>
+    <SearchSelect label={label} value={step[field]} choices={choices} missing={`${step[field]} (not an element)`} onChange={(id) => set({ [field]: id })} />
   );
   // A call without a description is labelled with its relationship's.
   const fallback = !step.reply && !step.description ? computedStep?.label : undefined;
@@ -883,18 +875,9 @@ function FlowProperties({ view, flow, edit, onSelect }: PropertiesProps & { view
   const count = view.flows.length;
   const move = (to: number) => void edit([{ op: "update-flow", view: view.id, flow: flow.number, newFlow: to }]).then((ok) => ok && onSelect({ kind: "flow", number: to }));
   const fromDecision = view.blocks.find((b) => b.id === flow.from)?.kind === "decision";
+  const choices = view.blocks.map((b) => ({ value: b.id, label: blockText(b) }));
   const end = (field: "from" | "to", label: string) => (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <select value={flow[field]} onChange={(e) => set({ [field]: e.target.value })}>
-        {!view.blocks.some((b) => b.id === flow[field]) && <option value={flow[field]}>{flow[field]} (not a block)</option>}
-        {view.blocks.map((b) => (
-          <option key={b.id} value={b.id}>
-            {blockText(b)}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SearchSelect label={label} value={flow[field]} choices={choices} missing={`${flow[field]} (not a block)`} onChange={(id) => set({ [field]: id })} />
   );
   return (
     <>
@@ -1085,18 +1068,9 @@ function LinkProperties({ view, link, edit, onSelect }: PropertiesProps & { view
   const count = view.links.length;
   const move = (to: number) => void edit([{ op: "update-link", view: view.id, link: link.number, newLink: to }]).then((ok) => ok && onSelect({ kind: "link", number: to }));
   const [fromName, toName] = [entityName(view, link.from), entityName(view, link.to)];
+  const choices = view.entities.map((e) => ({ value: e.id, label: e.name }));
   const end = (field: "from" | "to", label: string) => (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <select value={link[field]} onChange={(e) => set({ [field]: e.target.value })}>
-        {!view.entities.some((e) => e.id === link[field]) && <option value={link[field]}>{link[field]} (not an entity)</option>}
-        {view.entities.map((e) => (
-          <option key={e.id} value={e.id}>
-            {e.name}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SearchSelect label={label} value={link[field]} choices={choices} missing={`${link[field]} (not an entity)`} onChange={(id) => set({ [field]: id })} />
   );
   // How many of one end there can be, for each one of the other.
   const howMany = (i: 0 | 1, label: string, hint: string) => (
@@ -1151,18 +1125,9 @@ function TransitionProperties({ view, transition, edit, onSelect }: PropertiesPr
     void edit([{ op: "update-transition", view: view.id, transition: transition.number, ...fields }]);
   const count = view.transitions.length;
   const move = (to: number) => void edit([{ op: "update-transition", view: view.id, transition: transition.number, newTransition: to }]).then((ok) => ok && onSelect({ kind: "transition", number: to }));
+  const choices = view.states.map((s) => ({ value: s.id, label: s.name }));
   const end = (field: "from" | "to", label: string) => (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <select value={transition[field]} onChange={(e) => set({ [field]: e.target.value })}>
-        {!view.states.some((s) => s.id === transition[field]) && <option value={transition[field]}>{transition[field]} (not a state)</option>}
-        {view.states.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SearchSelect label={label} value={transition[field]} choices={choices} missing={`${transition[field]} (not a state)`} onChange={(id) => set({ [field]: id })} />
   );
   return (
     <>
@@ -1390,26 +1355,17 @@ function ConnectionProperties({ ws, view, connection, edit, onSelect }: Properti
   const end = (field: "from" | "to", label: string) => {
     const offered = choices[field];
     return (
-      <label className="field">
-        <span className="field-label">{label}</span>
-        <select
-          value={connection[field]}
-          disabled={offered.length === 0}
-          onChange={(e) => {
-            const choice = offered.find((c) => c.id === e.target.value);
-            if (choice) void edit([choice.op]);
-          }}
-        >
-          {!ends.some((e) => e.id === connection[field]) && <option value={connection[field]}>{connection[field]} (not in this view)</option>}
-          {ends
-            .filter((e) => e.id === connection[field] || offered.some((c) => c.id === e.id))
-            .map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.label}
-              </option>
-            ))}
-        </select>
-      </label>
+      <SearchSelect
+        label={label}
+        value={connection[field]}
+        choices={ends.filter((e) => e.id === connection[field] || offered.some((c) => c.id === e.id)).map((e) => ({ value: e.id, label: e.label }))}
+        missing={`${connection[field]} (not in this view)`}
+        disabled={offered.length === 0}
+        onChange={(id) => {
+          const choice = offered.find((c) => c.id === id);
+          if (choice) void edit([choice.op]);
+        }}
+      />
     );
   };
   return (

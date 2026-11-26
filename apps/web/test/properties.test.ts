@@ -7,7 +7,7 @@ import type { Selection } from "../src/canvas/Canvas.js";
 import type { NotesOwner } from "../src/model.js";
 import { Properties } from "../src/panels/Properties.js";
 import type { Edit } from "../src/state.js";
-import { button, checkbox, choose, click, mount, select } from "./dom.js";
+import { button, checkbox, choose, click, mount, pick, picker, select } from "./dom.js";
 
 const doc: OpenArchDocument = {
   openarch: 21,
@@ -235,8 +235,8 @@ describe("a step's details", () => {
 
   it("shows a call's ends, and the relationship it goes along", () => {
     const host = mount(step(1).element);
-    expect(select(host, "From").value).toBe("customer");
-    expect(select(host, "Calls").value).toBe("shop");
+    expect(picker(host, "From").textContent).toBe("Customer [Person]");
+    expect(picker(host, "Calls").textContent).toBe("Shop [System]");
     expect(checkbox(host, "A reply to an earlier call, drawn dashed").checked).toBe(false);
     // Without a description of its own, a call shows its relationship's.
     expect(placeholder(host, "Description")).toBe("Buys things (from the relationship)");
@@ -247,7 +247,7 @@ describe("a step's details", () => {
 
   it("shows a reply as one, answering the element it goes back to", () => {
     const host = mount(step(2).element);
-    expect(select(host, "Replies to").value).toBe("customer");
+    expect(picker(host, "Replies to").textContent).toBe("Customer [Person]");
     expect(checkbox(host, "A reply to an earlier call, drawn dashed").checked).toBe(true);
     expect(placeholder(host, "Description")).toBe("e.g. Submits the order");
   });
@@ -255,7 +255,7 @@ describe("a step's details", () => {
   it("changes a step's ends, and whether it's a reply", async () => {
     const { element, edits } = step(1);
     const host = mount(element);
-    await choose(select(host, "Calls"), "mail");
+    await pick(host, "Calls", "Mail [System]");
     await click(checkbox(host, "A reply to an earlier call, drawn dashed"));
     expect(edits).toEqual([
       [{ op: "update-step", view: "order", step: 1, to: "mail" }],

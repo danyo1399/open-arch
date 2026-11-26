@@ -11,7 +11,7 @@ import { NewViewDialog } from "../src/panels/dialogs.js";
 import { Properties } from "../src/panels/Properties.js";
 import { SNAP_DEFAULTS } from "../src/settings.js";
 import type { Edit } from "../src/state.js";
-import { button, checkbox, choose, click, key, mount, select, type, menusFor } from "./dom.js";
+import { button, checkbox, choose, click, key, mount, pick, select, type, menusFor } from "./dom.js";
 
 /** What the shop's DB keeps: customers and their orders, with a customer referring another. Each entity is placed, so nothing waits for ELK. */
 const doc: OpenArchDocument = {
@@ -455,7 +455,7 @@ describe("a link's details", () => {
     expect([...select(host, "How many Order").options].map((o) => o.textContent)).toEqual(["Exactly one", "Zero or one", "One or more", "Zero or more"]);
     await choose(select(host, "How many Order"), "one-or-more");
     await choose(select(host, "How many Customer"), "zero-or-one");
-    await choose(select(host, "To"), "product");
+    await pick(host, "To", "Product");
     await write(input(host, "Text"), "");
     await click(button(host, "Move down"));
     await click(button(host, "Delete link"));
