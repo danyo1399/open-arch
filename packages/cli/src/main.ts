@@ -52,10 +52,9 @@ named, it goes here if this folder is empty but for hidden things like .agents/,
 folder of its own, architecture/: say, at the top of a Git repository. Its docs go beside it
 when it has its folder to itself, and otherwise in docs/architecture beside it, apart from
 what's there, unless the file is in docs/architecture already. --docs names another folder,
-relative to the file. Also installs the open-arch
-agent skill into .agents/skills/ and .claude/skills/ and adds an open-arch section to
-AGENTS.md, at the repository root. Safe to run again: it keeps the file and refreshes the
-skill and the section.
+relative to the file. Also installs the open-arch agent skill into .agents/skills/ and
+.claude/skills/ and adds an open-arch section to AGENTS.md, at the repository root. Safe to
+run again: it keeps the file and refreshes the skill and the section.
 If AGENTS.md can't be read, isn't UTF-8 text, or has a section that can't be told apart from
 the rest of it (a marker without its pair, the markers out of order, more than one section),
 init leaves AGENTS.md alone and exits 1. So it does when the path of the workspace or its docs
@@ -113,9 +112,10 @@ of another workspace whose file is in the same folder as this one are left alone
 same docs folder; workspaces in different folders need docs folders of their own. With
 --check, exits 1 if the docs are out of date.
 A docs folder that repeats the folder the file is in, such as docs/architecture for a file in
-docs/architecture, would nest the docs in docs/architecture/docs/architecture. Nothing writes
-them there: export without a folder exits 1, and the other commands save the file but not the
-docs, and say so. open-arch update-workspace --docs . keeps them beside the file.
+docs/architecture, would nest the docs in docs/architecture/docs/architecture. Only folders in
+the file's Git repository count, or outside one, its whole path. Nothing writes them there:
+export without a folder exits 1, and the other commands save the file but not the docs, and
+say so. open-arch update-workspace --docs . keeps them beside the file.
 `,
     options: { ...FILE, check: b },
     run: (io, v, p) => exportCommand(io, { file: str(v.file), dir: p[0], check: bool(v.check) }),

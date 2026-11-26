@@ -37,7 +37,7 @@ export function App({ folders = folderList }: { folders?: FolderList }) {
     if (desktop) {
       // The desktop app reopens the last file.
       void desktop.lastFile().then((file) => {
-        if (file && !cancelled) setHost(new DesktopHost(desktop, file.path, file.name));
+        if (file && !cancelled) setHost(new DesktopHost(desktop, file.path, file.name, undefined, file.folder));
       });
     } else if (restoring && folderIdInHash(idInUrl()) !== null) {
       folderInUrl(idInUrl(), folders)

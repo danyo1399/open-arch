@@ -4,7 +4,8 @@ import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { Designer } from "../src/Designer.js";
 import { FolderHost } from "../src/folders.js";
-import { MemoryHost } from "../src/hosts.js";
+import type { DesktopBridge } from "../src/bridge.js";
+import { DesktopHost, MemoryHost } from "../src/hosts.js";
 import { button, click, mount } from "./dom.js";
 import { FakeFolder } from "./fakeFolder.js";
 
@@ -31,6 +32,8 @@ describe("a docs folder that repeats the file's own folder, in the designer", ()
     const host = mount(createElement(Designer, { host: new FolderHost("f1", root, "docs/architecture/shop.openarch"), onClose() {}, onHostChange() {} }));
     await until(() => !!host.querySelector(".ws-name"));
     expect(host.querySelector(".problems .count.warn")?.textContent).toBe("1");
+    // The status doesn't say the docs are kept where nothing writes them.
+    expect(host.querySelector(".storage")?.textContent).toBe("Saved");
     // Opening the problem shows the workspace's details, which say it and offer the fix.
     if (!host.querySelector(".problem")) await click(button(host, "Problems"));
     await click(host.querySelector<HTMLButtonElement>(".problem")!);
@@ -43,6 +46,35 @@ describe("a docs folder that repeats the file's own folder, in the designer", ()
     expect(Object.keys(root.files()).some((path) => path.startsWith("docs/architecture/docs/"))).toBe(false);
     expect(host.textContent).not.toContain(NESTED);
     expect(host.textContent).not.toContain("Keep docs beside the file");
+    expect(host.querySelector(".problems .count")?.textContent).toBe("0");
+    expect(host.querySelector(".storage")?.textContent).toBe("Saved · docs in ./");
+  });
+
+  it("is a problem in the desktop app, from the file's folder in its repository the app gives", async () => {
+    let text = shop("docs/architecture");
+    const bridge = {
+      load: async () => text,
+      save: async (_path: string, next: string) => {
+        text = next;
+        return { docs: { dir: ".", written: 1, deleted: 0, skipped: [] } };
+      },
+      watch: () => () => {},
+    } as unknown as DesktopBridge;
+    const file = "C:\\work\\shop\\docs\\architecture\\shop.openarch";
+    const host = mount(createElement(Designer, { host: new DesktopHost(bridge, file, "shop.openarch", undefined, "docs/architecture"), onClose() {}, onHostChange() {} }));
+    await until(() => !!host.querySelector(".ws-name"));
+    expect(host.querySelector(".problems .count.warn")?.textContent).toBe("1");
+    await click(host.querySelector<HTMLButtonElement>(".ws-name")!);
+    expect(host.textContent).toContain(NESTED);
+    await click(button(host, "Keep docs beside the file"));
+    await until(() => JSON.parse(text).export.docs === ".");
+    await until(() => host.querySelector(".problems .count")?.textContent === "0");
+  });
+
+  it("isn't one for folders above the repository, which the desktop app leaves out", async () => {
+    const bridge = { load: async () => shop("docs/architecture"), watch: () => () => {} } as unknown as DesktopBridge;
+    const host = mount(createElement(Designer, { host: new DesktopHost(bridge, "/home/me/docs/architecture/shop.openarch", "shop.openarch", undefined, ""), onClose() {}, onHostChange() {} }));
+    await until(() => !!host.querySelector(".ws-name"));
     expect(host.querySelector(".problems .count")?.textContent).toBe("0");
   });
 

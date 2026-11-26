@@ -8,6 +8,8 @@ export interface OpenedFile {
   path: string;
   /** File name, for display. */
   name: string;
+  /** The file's folder, from the top of its Git repository, or its full path outside one, to check the docs folder against. */
+  folder?: string;
   /** For a file the app made (New workspace, Save as), what the save that made it did beside writing it. */
   saved?: SaveSummary;
 }

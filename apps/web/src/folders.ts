@@ -211,7 +211,7 @@ export async function newWorkspace(root: FolderHandle): Promise<{ path: string; 
     if (!isMissing(error)) throw error;
     own = null;
   }
-  // A folder opened that's docs, holding architecture/, keeps the docs beside the file, as docs/architecture there would nest them.
+  // A folder opened that's docs, holding architecture/, keeps the docs beside the file, as docs/architecture there likely nests them.
   const apart = "docs/architecture";
   const beside = own === null || (await isFreeFolder(own)) || nestedDocsProblem(`${root.name}/architecture`, apart);
   return { path: `architecture/${file}`, docs: beside ? "." : apart };
@@ -316,9 +316,9 @@ export class FolderHost implements WorkspaceHost {
     return `${this.root.name}/${this.path}`;
   }
 
-  /** The file's folder, from the folder opened: as much of its path as the browser tells. */
+  /** The file's folder, in the folder opened: what's above that is outside the project, as far as it can tell. */
   get folder(): string {
-    return [this.root.name, ...this.path.split("/").slice(0, -1)].join("/");
+    return this.path.split("/").slice(0, -1).join("/");
   }
 
   /**

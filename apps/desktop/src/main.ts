@@ -11,6 +11,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FILE_EXTENSION, loadWorkspace, type OpenArchDocument } from "@open-arch/core";
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { projectFolder } from "open-arch/workspace";
 import type { AgentContext } from "../../web/src/bridge.js";
 import { problemText } from "../../web/src/problems.js";
 import { agentContext, type AgentBackend, type AgentEvent } from "./agent.js";
@@ -55,13 +56,13 @@ function readState(): { lastFile?: string } {
  * Allow the renderer to use this file, and remember it for next time. Opened again, its first save
  * brings the skill and AGENTS.md up to date again, unless it's `fresh`: just made, and set up then.
  */
-function grant(path: string, fresh = false): { path: string; name: string } {
+function grant(path: string, fresh = false): { path: string; name: string; folder: string } {
   const abs = resolve(path);
   opened.add(abs);
   if (!fresh) agentSetup.opened(abs);
   mkdirSync(dirname(statePath()), { recursive: true });
   writeFileSync(statePath(), JSON.stringify({ ...readState(), lastFile: abs }));
-  return { path: abs, name: basename(abs) };
+  return { path: abs, name: basename(abs), folder: projectFolder(abs) };
 }
 
 function allowed(path: string): string {

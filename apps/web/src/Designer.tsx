@@ -666,7 +666,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
       try {
         if (desktop) {
           const file = await desktop.saveAs(state.text);
-          if (file) await carryOn(new DesktopHost(desktop, file.path, file.name, file.saved));
+          if (file) await carryOn(new DesktopHost(desktop, file.path, file.name, file.saved, file.folder));
           return;
         }
         const record = await browserLibrary.add(host.name, state.text);
@@ -709,9 +709,11 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const agentReload = state.message?.kind === "info" && state.message.text === RELOADED && (agentRunning || askNews === "finished");
   const message = state.message?.kind === "info" && fileAgent && (askOpen || agentReload) ? null : state.message;
   const syncsDocs = savesDocs(host, state.storage);
+  // A docs folder that repeats the file's own, which saves don't write.
+  const docsNested = diagnostics.find((d) => d.rule === "docs-folder-nested")?.message ?? null;
   const status =
     state.storage === "file"
-      ? syncsDocs && ws.doc.export?.docs && !state.docs?.error
+      ? syncsDocs && ws.doc.export?.docs && !state.docs?.error && !docsNested
         ? `Saved · docs in ${ws.doc.export.docs}/`
         : "Saved"
       : state.storage === "browser"
@@ -790,7 +792,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   const canCopy = canCopyImages();
   // Where saves write the view's page in the docs, to paste into a chat with an agent: in a folder, the path in it; in the desktop app, the full path.
   const pagePath = (cv: ComputedView, doc = ws.doc) =>
-    syncsDocs && (host instanceof FolderHost || host instanceof DesktopHost)
+    syncsDocs && !docsNested && (host instanceof FolderHost || host instanceof DesktopHost)
       ? viewDocsPath(host.path, doc.export?.docs, cv.view.id, host instanceof FolderHost)
       : null;
   // The clipboard is asked for straight away, while the click still counts. Then the docs are
@@ -1195,7 +1197,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         syncsDocs={syncsDocs}
         syncsSkill={savesSkill(host, state.storage)}
         docs={state.docs}
-        docsNested={diagnostics.find((d) => d.rule === "docs-folder-nested")?.message ?? null}
+        docsNested={docsNested}
         fileName={fileName}
         edit={edit}
         onSelect={select}

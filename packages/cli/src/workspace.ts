@@ -118,7 +118,23 @@ export function isFreeFolder(dir: string, except?: string): boolean {
  */
 export function newDocsFolder(file: string): string {
   const own = "docs/architecture";
-  return isFreeFolder(dirname(file), basename(file)) || nestedDocsProblem(dirname(file), own) ? "." : own;
+  return isFreeFolder(dirname(file), basename(file)) || nestedDocsProblem(projectFolder(file), own) ? "." : own;
+}
+
+/**
+ * The folder `file` is in, to check its docs folder against (nestedDocsProblem): from the top of
+ * the Git repository it's in, as the folders above that aren't the project's, with `/` between
+ * folders. Outside a repository, there's no top to go by, so it's the full path.
+ */
+export function projectFolder(file: string): string {
+  const dir = dirname(resolve(file));
+  const root = repositoryRoot(dir);
+  return root === undefined ? dir : relative(root, dir).split(sep).join("/");
+}
+
+/** What's wrong with the document's docs folder, if it repeats the file's own folder in its project. */
+export function nestedDocs(file: string, doc: OpenArchDocument): string | undefined {
+  return nestedDocsProblem(projectFolder(file), doc.export?.docs)?.message;
 }
 
 export interface DocsResult {
@@ -217,8 +233,8 @@ export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?
 export function syncDocs(file: string, ws: Workspace, options: { dryRun?: boolean } = {}): DocsResult | undefined {
   const dir = docsFolder(file, ws.doc);
   if (!dir) return undefined;
-  const nested = nestedDocsProblem(dirname(file), ws.doc.export?.docs);
-  if (nested) return { dir, written: [], deleted: [], skipped: [], held: nested.message };
+  const held = nestedDocs(file, ws.doc);
+  if (held) return { dir, written: [], deleted: [], skipped: [], held };
   return writeDocs(dir, exportDocs(ws, basename(file)), { ...options, workspaceDir: dirname(file) });
 }
 

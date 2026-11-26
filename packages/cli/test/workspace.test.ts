@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GENERATED_MARKER } from "@open-arch/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { keepAgentsSection, keepSkill, repositoryRoot, writeDocs } from "../src/workspace.js";
+import { keepAgentsSection, keepSkill, projectFolder, repositoryRoot, writeDocs } from "../src/workspace.js";
 
 const temps: string[] = [];
 
@@ -21,6 +21,19 @@ const page = (body: string) => `${GENERATED_MARKER} from x.openarch. -->\n\n${bo
 
 afterEach(() => {
   for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe("the folder a docs folder is checked against", () => {
+  it("is the file's folder from the top of its repository, or its full path outside one", () => {
+    const { dir } = setup();
+    const repo = join(dir, "docs", "architecture");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(join(repo, "design", "c4"), { recursive: true });
+    // The folders above the repository aren't the project's.
+    expect(projectFolder(join(repo, "a.openarch"))).toBe("");
+    expect(projectFolder(join(repo, "design", "c4", "a.openarch"))).toBe("design/c4");
+    expect(projectFolder(join(dir, "docs", "a.openarch"))).toBe(join(dir, "docs"));
+  });
 });
 
 describe("writeDocs", () => {

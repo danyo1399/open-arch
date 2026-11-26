@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { agentsSection, buildWorkspace, emptyDocument, FILE_EXTENSION, lineEnding, LineBreakInPath, nameFromFileName, withAgentsSection } from "@open-arch/core";
 import { skillDir } from "@open-arch/skill";
 import { CliError, type Io } from "../io.js";
-import { displayPath, isFreeFolder, newDocsFolder, readWorkspaceFile, SKILL_TARGETS, syncDocs, writeWorkspaceFile } from "../workspace.js";
+import { displayPath, isFreeFolder, nestedDocs, newDocsFolder, readWorkspaceFile, SKILL_TARGETS, syncDocs, writeWorkspaceFile } from "../workspace.js";
 import { describeDocs } from "./export.js";
 
 export interface InitOptions {
@@ -48,8 +48,10 @@ export function init(io: Io, opts: InitOptions): number {
     const agentsMd = join(project, "AGENTS.md");
     const existed = existsSync(agentsMd);
     const workspace = relative(project, file).split(sep).join("/");
-    const docsDir = readWorkspaceFile(file).doc.export?.docs;
-    const docsPath = docsDir ? relative(project, resolve(dirname(file), docsDir)).split(sep).join("/") : undefined;
+    const saved = readWorkspaceFile(file).doc;
+    const docsDir = saved.export?.docs;
+    // As the desktop app does, AGENTS.md doesn't point agents at a docs folder that isn't written.
+    const docsPath = docsDir && !nestedDocs(file, saved) ? relative(project, resolve(dirname(file), docsDir)).split(sep).join("/") : undefined;
     let text: string;
     try {
       // As the designer does: a byte-order mark is kept, and bytes that aren't UTF-8 would be changed, so they're refused.

@@ -1,7 +1,7 @@
 import { basename, dirname, resolve } from "node:path";
-import { exportDocs, nestedDocsProblem } from "@open-arch/core";
+import { exportDocs } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
-import { displayPath, docsFolder, findWorkspaceFile, readWorkspaceFile, writeDocs, type DocsResult } from "../workspace.js";
+import { displayPath, docsFolder, findWorkspaceFile, nestedDocs, readWorkspaceFile, writeDocs, type DocsResult } from "../workspace.js";
 import { plural } from "./check.js";
 
 export interface ExportOptions {
@@ -16,8 +16,8 @@ export function exportCommand(io: Io, opts: ExportOptions): number {
   const ws = readWorkspaceFile(file);
   const dir = opts.dir ? resolve(io.cwd, opts.dir) : docsFolder(file, ws.doc);
   if (!dir) throw new CliError("Say where to write the docs: `open-arch export <folder>`, or set a folder with `open-arch update-workspace --docs <folder>`.", 2);
-  const nested = opts.dir ? null : nestedDocsProblem(dirname(file), ws.doc.export?.docs);
-  if (nested) throw new CliError(`${nested.message} ${NESTED_FIX}`);
+  const nested = opts.dir ? undefined : nestedDocs(file, ws.doc);
+  if (nested) throw new CliError(`${nested} ${NESTED_FIX}`);
   const result = writeDocs(dir, exportDocs(ws, basename(file)), { dryRun: opts.check, workspaceDir: dirname(file) });
   if (opts.check) {
     const stale = result.written.length + result.deleted.length;
