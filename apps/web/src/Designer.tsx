@@ -4,6 +4,7 @@ import {
   OpError,
   renderMermaid,
   scopeProblems,
+  STICKY_TARGET_LEVELS,
   viewMarkdown,
   WIDGET_KIND_LABELS,
   type ComputedView,
@@ -20,7 +21,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { askContext } from "./ai/context.js";
 import { Canvas, canAutoLayout, type AutoLayout, type CanvasClipboard, type Selection } from "./canvas/Canvas.js";
-import { deleteOps } from "./copyPaste.js";
+import { copySource, deleteOps } from "./copyPaste.js";
 import { SequenceDiagram } from "./canvas/SequenceDiagram.js";
 import { DeploymentDiagram } from "./canvas/DeploymentDiagram.js";
 import { EventDiagram } from "./canvas/EventDiagram.js";
@@ -541,8 +542,15 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
   /** Hides boxes selected together from the view, as one step for Undo. Notes selected with them stay. */
   const hideAll = (ids: string[]) => view && void edit(ids.map((id): Operation => ({ op: "hide-in-view", view: view.id, id: current(id) }))).then(() => select(null));
 
-  /** Whether the open diagram can copy this selection: boxes and notes on a view of boxes. */
-  const copyable = (what: Selection) => !!clipboard.current?.canCopy(what);
+  /**
+   * Whether the open diagram can copy this selection: boxes and notes on a view of boxes. Worked
+   * out from the view, not the diagram, which only says what it can copy once it's drawn.
+   */
+  const copyable = (what: Selection) => {
+    if (!view || !STICKY_TARGET_LEVELS.includes(view.level)) return false;
+    const { elements, stickies } = copySource(what);
+    return elements.some((id) => ws?.elements.has(id)) || stickies.some((id) => view.stickies.some((s) => s.id === id));
+  };
   /** Copies what's selected, for the menus and the details, and says what it copied. Ctrl+C does it without a word. */
   const copySelected = () =>
     attempt(async () => {

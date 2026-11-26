@@ -5,6 +5,7 @@ import {
   isInside,
   KIND_RANK,
   kindLabel,
+  OpError,
   scopeProblems,
   stickyAnchor,
   STICKY_TARGET_LEVELS,
@@ -182,8 +183,6 @@ interface CanvasProps {
 
 /** Copy on a view of boxes, for the designer's menus and details: Ctrl+C (⌘C on a Mac) and Paste are the canvas's own. */
 export interface CanvasClipboard {
-  /** Whether what's selected can be copied: boxes, sticky notes, or both. */
-  canCopy(selection: Selection): boolean;
   /** Puts what's selected on the clipboard. Resolves to what it copied, or null when there was nothing to. */
   copy(): Promise<Copied | null>;
 }
@@ -1108,9 +1107,9 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
   };
 
   /** What Copy copies from the selection now, with every box and note where it's shown, or null when nothing is selected that it can copy. */
-  const copied = (now: Selection = selection): Copied | null => {
+  const copied = (): Copied | null => {
     const notes = Object.fromEntries(nodesRef.current.flatMap((n) => (n.type === "sticky" ? [[n.data.sticky.id, [Math.round(n.position.x), Math.round(n.position.y)] as [number, number]]] : [])));
-    return copyOf(ws, view, copySource(now), { boxes: currentLayout(), notes });
+    return copyOf(ws, view, copySource(selection), { boxes: currentLayout(), notes });
   };
 
   /** How many times what's on the clipboard has been pasted on this view with Ctrl+V, by the clipboard's text. */
@@ -1133,9 +1132,15 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
     const layout = currentLayout();
     let made = { elements: [] as string[], stickies: [] as string[] };
     void edit((now) => {
-      const pasted = pasteOps(now, view.id, what, layout, center, { width: NODE_W, height: NODE_H });
-      made = pasted;
-      return pasted.ops;
+      try {
+        const pasted = pasteOps(now, view.id, what, layout, center, { width: NODE_W, height: NODE_H });
+        made = pasted;
+        return pasted.ops;
+      } catch (e) {
+        // What's on the clipboard came from elsewhere: whatever's wrong with it is said, as a refused edit is.
+        if (e instanceof OpError) throw e;
+        throw new OpError(`What's on the clipboard couldn't be pasted: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }).then((ok) => ok && onSelect(selectShapes(made)));
   };
 
@@ -1178,7 +1183,6 @@ export function Canvas({ ws, view, diagnostics, selection, onSelect, edit, menus
   useEffect(() => {
     if (!clipboardHandle) return;
     clipboardHandle.current = {
-      canCopy: (now) => clipboard.current.copied(now) !== null,
       copy: async () => {
         const what = clipboard.current.copied();
         if (what) await copyText(copiedText(what));

@@ -27,6 +27,9 @@ import {
 import type { Selection } from "./canvas/Canvas.js";
 import { uniqueAmong, viewAction } from "./model.js";
 
+/** Each kind of element, as a view that shows them is said to. */
+const KIND_PLURALS: Record<ElementKind, string> = { person: "people", system: "systems", container: "containers", component: "components", library: "libraries", class: "classes" };
+
 /** What the clipboard's text says it is, so text copied from anywhere else isn't pasted as boxes. */
 const MARK = "open-arch/copied";
 
@@ -179,7 +182,21 @@ export function copiedText(copied: Copied): string {
   return JSON.stringify(copied);
 }
 
-/** What the clipboard's text is, when it's what Copy put there, or else null. */
+const isObject = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
+const optional = (x: unknown, is: (x: unknown) => boolean) => x === undefined || is(x);
+const isString = (x: unknown) => typeof x === "string";
+const isStrings = (x: unknown) => Array.isArray(x) && x.every(isString);
+const isTags = (x: unknown) => isObject(x) && Object.values(x).every(isString);
+const isPoint = (x: unknown) => Array.isArray(x) && x.length === 2 && x.every((n) => typeof n === "number" && Number.isFinite(n));
+
+/** Whether each of these fields is missing, or is what it should be. */
+const fieldsAre = (x: Record<string, unknown>, fields: Record<string, (x: unknown) => boolean>) => Object.entries(fields).every(([name, is]) => optional(x[name], is));
+
+/**
+ * What the clipboard's text is, when it's what Copy put there, or else null. Clipboard text can
+ * come from anywhere, so every field is checked to be what it should be, and pasting reads only
+ * these fields: what's in them is checked again as the paste's operations are applied.
+ */
 export function readCopied(text: string): Copied | null {
   let value: unknown;
   try {
@@ -187,16 +204,21 @@ export function readCopied(text: string): Copied | null {
   } catch {
     return null;
   }
-  if (!value || typeof value !== "object") return null;
-  const c = value as Partial<Copied>;
-  if (c.copied !== MARK || !Array.isArray(c.elements) || !Array.isArray(c.relationships) || !Array.isArray(c.stickies)) return null;
-  // The rest is checked as the paste's operations are applied.
-  const isObject = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object";
-  const isPoint = (p: unknown) => p === undefined || (Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === "number" && Number.isFinite(n)));
-  if (!c.elements.every((e) => isObject(e) && typeof e.id === "string" && typeof e.kind === "string" && typeof e.name === "string" && isPoint(e.at))) return null;
-  if (!c.relationships.every((r) => isObject(r) && typeof r.from === "string" && typeof r.to === "string")) return null;
-  if (!c.stickies.every((s) => isObject(s) && typeof s.text === "string" && isPoint(s.at))) return null;
-  return c as Copied;
+  if (!isObject(value) || value.copied !== MARK || !optional(value.view, isString)) return null;
+  const { elements, relationships, stickies } = value;
+  if (!Array.isArray(elements) || !Array.isArray(relationships) || !Array.isArray(stickies)) return null;
+  const element = (e: unknown) =>
+    isObject(e) &&
+    isString(e.id) &&
+    isString(e.kind) &&
+    isString(e.name) &&
+    fieldsAre(e, { parent: isString, description: isString, technology: isString, external: (x) => typeof x === "boolean", shape: isString, stereotype: isString, members: isStrings, libraries: isStrings, tags: isTags, notes: isString, picked: (x) => typeof x === "boolean", at: isPoint });
+  const relationship = (r: unknown) =>
+    isObject(r) && isString(r.from) && isString(r.to) && fieldsAre(r, { kind: isString, bidirectional: (x) => typeof x === "boolean", description: isString, technology: isString, tags: isTags, notes: isString });
+  const on = (x: unknown) => isObject(x) && (isString(x.element) || (isString(x.from) && isString(x.to) && optional(x.kind, isString)));
+  const sticky = (n: unknown) => isObject(n) && isString(n.text) && fieldsAre(n, { color: isString, notes: isString, on, at: isPoint });
+  if (!elements.every(element) || !relationships.every(relationship) || !stickies.every(sticky)) return null;
+  return value as unknown as Copied;
 }
 
 /**
@@ -205,7 +227,8 @@ export function readCopied(text: string): Copied | null {
  * was in, if this workspace has it.
  */
 function pasteParent(ws: Workspace, view: ViewDef, e: CopiedElement): string | undefined {
-  const kinds = PARENT_KINDS[e.kind] ?? [];
+  if (!Object.hasOwn(PARENT_KINDS, e.kind)) throw new OpError(`"${e.name}" is a ${e.kind}, which isn't a kind of element, so nothing was pasted.`);
+  const kinds = PARENT_KINDS[e.kind];
   if (!kinds.length) return undefined;
   const fits = (id: string | undefined) => {
     const parent = id === undefined ? undefined : ws.elements.get(id);
@@ -257,7 +280,19 @@ export function pasteOps(ws: Workspace, viewId: string, copied: Copied, layout: 
     ),
     ...copied.relationships
       .filter((r) => ids.has(r.from) && ids.has(r.to))
-      .map((r): Operation => ({ op: "add-relationship", ...r, from: to(r.from), to: to(r.to) })),
+      .map(
+        (r): Operation => ({
+          op: "add-relationship",
+          from: to(r.from),
+          to: to(r.to),
+          kind: r.kind,
+          bidirectional: r.bidirectional,
+          description: r.description,
+          technology: r.technology,
+          tags: r.tags,
+          notes: r.notes,
+        }),
+      ),
   ];
 
   // The elements that were selected show on this view, where it can draw them.
@@ -265,6 +300,10 @@ export function pasteOps(ws: Workspace, viewId: string, copied: Copied, layout: 
   const viewAfter = after.views.get(viewId)!;
   const computed = scopeProblems(after, viewAfter).length ? null : computeView(after, viewAfter);
   const picked = copied.elements.filter((e) => e.picked).map((e) => to(e.id));
+  // Nothing's pasted that this view can't draw: it would be in the model, but nowhere to be seen.
+  // A library is the exception, as one added on such a view is: it's in the model, for containers to be built with.
+  const undrawn = copied.elements.find((e) => e.picked && e.kind !== "library" && !viewAction(after, viewAfter, computed, to(e.id)));
+  if (undrawn) throw new OpError(`This view can't draw the ${undrawn.kind} "${undrawn.name}", so nothing was pasted. Paste it on a view that shows ${KIND_PLURALS[undrawn.kind]}.`);
   const shown = picked.filter((id) => viewAction(after, viewAfter, computed, id) === "show").map((id): Operation => ({ op: "show-in-view", view: viewId, id }));
 
   // Centred on `center`, as they were relative to each other. A box's place is its top left corner.

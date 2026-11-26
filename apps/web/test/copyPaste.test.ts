@@ -1,4 +1,4 @@
-import { applyOperations, buildWorkspace, loadWorkspace, serializeDocument, type OpenArchDocument, type Operation, type Workspace } from "@open-arch/core";
+import { applyOperations, buildWorkspace, loadWorkspace, OpError, serializeDocument, type OpenArchDocument, type Operation, type Workspace } from "@open-arch/core";
 import { describe, expect, it } from "vitest";
 import { copiedMiddle, copiedText, copyOf, copySource, deleteOps, pasteOps, readCopied } from "../src/copyPaste.js";
 import { deletePlan } from "../src/model.js";
@@ -90,6 +90,23 @@ describe("readCopied", () => {
     expect(readCopied(JSON.stringify({ ...copied, elements: [{ id: "web" }] }))).toBeNull();
     expect(readCopied(JSON.stringify({ ...copied, elements: [{ ...copied.elements[0], at: ["x", 1] }] }))).toBeNull();
   });
+
+  it("checks every field, as clipboard text can come from anywhere", () => {
+    const copied = copyOf(ws, view, { elements: ["web", "api"], stickies: ["why"] }, places)!;
+    const element = copied.elements[0]!;
+    for (const bad of [
+      { ...copied, elements: [{ ...element, libraries: "logging" }] },
+      { ...copied, elements: [{ ...element, tags: { team: 1 } }] },
+      { ...copied, elements: [{ ...element, external: "yes" }] },
+      { ...copied, relationships: [{ from: "web", to: "api", description: 2 }] },
+      { ...copied, stickies: [{ text: "Hi", on: "web" }] },
+      { ...copied, stickies: [{ text: "Hi", on: { from: "web" } }] },
+      { ...copied, view: 3 },
+      { ...copied, elements: {} },
+    ]) {
+      expect(readCopied(JSON.stringify(bad))).toBeNull();
+    }
+  });
 });
 
 describe("pasteOps", () => {
@@ -152,6 +169,25 @@ describe("pasteOps", () => {
   it("says why a container can't be pasted where there's no system for it", () => {
     const empty = buildWorkspace({ openarch: 21, name: "New", elements: {}, views: { landscape: { title: "Landscape", level: "landscape" } } });
     expect(() => pasteOps(empty, "landscape", copied, {}, { x: 0, y: 0 }, BOX)).toThrow(`There's no system here for the container "Web" to go in. Paste it on a view of one.`);
+  });
+
+  it("pastes only what it knows of each relationship, so text on the clipboard can't make it another operation", () => {
+    const text = JSON.stringify({ ...copied, relationships: [{ from: "web", to: "api", op: "remove-element", id: "shop" }] });
+    const sneaky = readCopied(text)!;
+    const pasted = pasteOps(ws, "containers", sneaky, places.boxes, { x: 0, y: 0 }, BOX);
+    expect(pasted.ops.map((op) => op.op)).not.toContain("remove-element");
+    expect(pasted.ops.find((op) => op.op === "add-relationship")).toEqual({ op: "add-relationship", from: "web-2", to: "api-2" });
+    expect(after(ws, pasted.ops).elements.has("shop")).toBe(true);
+  });
+
+  it("says why an element of no kind it knows can't be pasted", () => {
+    const odd = readCopied(JSON.stringify({ ...copied, elements: [{ id: "x", kind: "constructor", name: "X", picked: true }], relationships: [], stickies: [] }))!;
+    expect(() => pasteOps(ws, "containers", odd, {}, { x: 0, y: 0 }, BOX)).toThrow(OpError);
+  });
+
+  it("pastes nothing on a view that can't draw what was copied, and says so", () => {
+    // In the same workspace there's a shop for the web app to go in, but a landscape doesn't draw containers.
+    expect(() => pasteOps(ws, "landscape", copied, {}, { x: 0, y: 0 }, BOX)).toThrow(`This view can't draw the container "Web", so nothing was pasted. Paste it on a view that shows containers.`);
   });
 
   it("pastes a person on a landscape, where it's drawn", () => {

@@ -162,7 +162,67 @@ describe("several boxes selected together", () => {
   });
 });
 
+describe("several sticky notes selected together", () => {
+  it("are deleted at once with Delete, without asking, and one Undo brings them back", async () => {
+    const d = await designer();
+    await click(d.node("sticky:why")!);
+    await addToSelection(d.node("sticky:loose")!);
+    expect(d.details()).toBe("2 sticky notes");
+    await key(document.body, "Delete");
+    expect(d.host.querySelector(".modal")).toBeNull();
+    await d.settle();
+    expect((await d.saved()).stickies).toEqual([]);
+    expect(await elements(d)).toEqual(["api", "customer", "orders", "shop", "web"]);
+    await click(button(d.host, "Undo"));
+    await d.settle();
+    expect((await d.saved()).stickies.map((s) => s.id).sort()).toEqual(["loose", "why"]);
+  });
+
+  it("are deleted with Delete notes in their details", async () => {
+    const d = await designer();
+    await click(d.node("sticky:why")!);
+    await addToSelection(d.node("sticky:loose")!);
+    await click(button(d.host.querySelector<HTMLElement>(".properties")!, "Delete notes"));
+    await d.settle();
+    expect((await d.saved()).stickies).toEqual([]);
+  });
+});
+
+describe("the several boxes' menu", () => {
+  it("hides them all from the view, as one step for Undo", async () => {
+    const d = await designer();
+    await selectThree(d);
+    await d.rightClick(d.node("api")!);
+    await d.pick("Hide from this view");
+    expect((await d.saved()).exclude.sort()).toEqual(["api", "web"]);
+    expect(await elements(d)).toEqual(["api", "customer", "orders", "shop", "web"]);
+    await click(button(d.host, "Undo"));
+    await d.settle();
+    expect((await d.saved()).exclude).toEqual([]);
+  });
+});
+
 describe("Copy and Paste in the menus", () => {
+  it("copies one box from Copy in its details", async () => {
+    const d = await designer();
+    let clipboard = "";
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text) => void (clipboard = text));
+    await click(d.node("web")!);
+    await click(button(d.host.querySelector<HTMLElement>(".properties")!, "Copy"));
+    await d.settle();
+    expect(JSON.parse(clipboard).elements.map((e: { id: string }) => e.id)).toEqual(["web"]);
+    expect(d.host.querySelector(".toast")?.textContent).toContain("Copied 1 box.");
+  });
+
+  it("says why what's on the clipboard can't be pasted, and pastes none of it", async () => {
+    const d = await designer();
+    const odd = { copied: "open-arch/copied", elements: [{ id: "x", kind: "constructor", name: "X", picked: true }], relationships: [], stickies: [] };
+    await clipboardEvent("paste", JSON.stringify(odd));
+    await d.settle();
+    expect(d.host.querySelector(".toast")?.textContent).toContain(`"X" is a constructor, which isn't a kind of element, so nothing was pasted.`);
+    expect(await elements(d)).toEqual(["api", "customer", "orders", "shop", "web"]);
+  });
+
   it("copies one box from its menu, and pastes it from the background's where it was clicked", async () => {
     const d = await designer();
     let clipboard = "";
