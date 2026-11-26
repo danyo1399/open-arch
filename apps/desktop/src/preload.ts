@@ -14,6 +14,7 @@ const bridge: DesktopBridge = {
   lastFile: () => ipcRenderer.invoke("lastFile"),
   load: (path: string) => ipcRenderer.invoke("load", path),
   save: (path: string, text: string) => ipcRenderer.invoke("save", path, text),
+  writeDocs: (path: string, text: string) => ipcRenderer.invoke("writeDocs", path, text),
   watch(path: string, onChange: () => void) {
     const listener = () => onChange();
     ipcRenderer.on("file-changed", listener);

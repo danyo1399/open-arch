@@ -65,6 +65,12 @@ export interface WorkspaceState {
   markSaved(text?: string): void;
   /** What the last save did to the docs folder (desktop). */
   docs: DocsSummary | null;
+  /**
+   * Brings the docs folder up to date with the workspace, without writing the file, in its turn
+   * after any save, for a host whose saves write the docs. Resolves to what it did, as a save says
+   * it: null when it wrote none, as the workspace names no docs folder or nothing saves it to a file.
+   */
+  writeDocs(): Promise<DocsSummary | null>;
   message: { kind: "error" | "info"; text: string } | null;
   /** Show a message, for things done outside `edit`, like exporting. */
   notify(message: { kind: "error" | "info"; text: string }): void;
@@ -427,6 +433,14 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[],
     unsaved: storage === "memory" && text !== null && text !== savedText,
     markSaved: (text?: string) => setSavedText(text ?? current.current),
     docs,
+    writeDocs: () =>
+      enqueue(async () => {
+        const now = current.current;
+        if (isDeleted.current || now === null || !host.writeDocs) return null;
+        const summary = await host.writeDocs(now);
+        setDocs(summary);
+        return summary;
+      }),
     message,
     notify: setMessage,
     dismissMessage: () => setMessage(null),

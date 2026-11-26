@@ -215,6 +215,30 @@ describe("leaving agent files alone", () => {
   });
 });
 
+describe("bringing the docs up to date without saving", () => {
+  it("rewrites the docs folder from the text, and leaves the file as it is", async () => {
+    const root = new FakeFolder("repo");
+    root.put("shop.openarch", "As written by hand.");
+    const host = new FolderHost("1", root, "shop.openarch");
+    expect(await host.writeDocs(workspace("Shop", "docs"))).toEqual({ dir: "docs", written: 1, deleted: 0, skipped: [] });
+    expect(root.files()["docs/README.md"]).toContain("# Shop");
+    expect(root.files()["shop.openarch"]).toBe("As written by hand.");
+    // Pages already up to date are left as they are.
+    expect(await host.writeDocs(workspace("Shop", "docs"))).toEqual({ dir: "docs", written: 0, deleted: 0, skipped: [] });
+  });
+
+  it("writes nothing for a workspace that names no docs folder, or one it can't reach", async () => {
+    const root = new FakeFolder("repo");
+    root.put("shop.openarch", workspace("Shop"));
+    const host = new FolderHost("1", root, "shop.openarch");
+    expect(await host.writeDocs(workspace("Shop"))).toBeNull();
+    await expect(host.writeDocs(workspace("Shop", "../docs"))).rejects.toThrow("The docs folder ../docs/ is outside the folder you opened, repo, so nothing was written.");
+    await expect(host.writeDocs(workspace("Shop", "/docs"))).rejects.toThrow("must be relative");
+    await expect(host.writeDocs(JSON.stringify({ openarch: 21, name: "Shop", elements: { a: { kind: "nope" } } }))).rejects.toThrow("Refusing to write the docs");
+    expect(root.files()).toEqual({ "shop.openarch": workspace("Shop") });
+  });
+});
+
 describe("keeping the docs folder", () => {
   const page = (text: string) => `${GENERATED_MARKER} from a.openarch. -->\n${text}`;
 

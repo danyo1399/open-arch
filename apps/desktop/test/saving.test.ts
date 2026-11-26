@@ -63,3 +63,26 @@ describe("making a workspace in the desktop app", () => {
     expect(existsSync(join(root, "shop.openarch"))).toBe(true);
   });
 });
+
+describe("refreshing the docs from the desktop app", () => {
+  it("rewrites the docs folder without writing the file, the skill or AGENTS.md", () => {
+    const { root, saver, doc, skillFile } = repository();
+    const file = join(root, "shop.openarch");
+    writeFileSync(file, "As written by hand.\n");
+    doc.elements = { shop: { kind: "system", name: "Shop" } };
+    doc.views = { context: { title: "Context", level: "context", scope: "shop" } };
+    expect(saver.docs(file, doc)).toEqual({ dir: "shop-docs", written: 3, deleted: 0, skipped: [] });
+    expect(readFileSync(join(root, "shop-docs", "views", "context.md"), "utf8")).toContain("# Context");
+    expect(readFileSync(file, "utf8")).toBe("As written by hand.\n");
+    expect(existsSync(skillFile)).toBe(false);
+    expect(existsSync(join(root, "AGENTS.md"))).toBe(false);
+    // Pages already up to date are left as they are.
+    expect(saver.docs(file, doc)).toEqual({ dir: "shop-docs", written: 0, deleted: 0, skipped: [] });
+  });
+
+  it("does nothing for a workspace that names no docs folder", () => {
+    const { root, saver, doc } = repository();
+    doc.export = undefined;
+    expect(saver.docs(join(root, "shop.openarch"), doc)).toBeNull();
+  });
+});

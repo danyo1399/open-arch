@@ -7,7 +7,7 @@ import { exportDocs, FILE_EXTENSION, type Workspace } from "@open-arch/core";
 import { strToU8, zipSync } from "fflate";
 import exampleText from "../../../examples/shop/shop.openarch?raw";
 import tourText from "../../../examples/food-delivery/food-delivery.openarch?raw";
-import type { DesktopBridge, SaveSummary } from "./bridge.js";
+import type { DesktopBridge, DocsSummary, SaveSummary } from "./bridge.js";
 import { importProblem, type WorkspaceLibrary } from "./library.js";
 import type { LinkParts, ShareClient } from "./share.js";
 import { isAbsolutePath, segments } from "./paths.js";
@@ -24,6 +24,11 @@ export interface WorkspaceHost {
   load(): Promise<string>;
   /** Save the file's new text. May report the docs folder it refreshed, the agent skill, and the section in AGENTS.md. */
   save(text: string): Promise<SaveSummary | void>;
+  /**
+   * Rewrites the docs folder from `text`, as a save does, without writing the file: for a host
+   * that syncsDocs. Null when the workspace names no docs folder.
+   */
+  writeDocs?(text: string): Promise<DocsSummary | null>;
   /** Saving also keeps the agent skill and the AGENTS.md section up to date beside the workspace: on desktop. */
   syncsSkill?: boolean;
   /** For a workspace just made, what the save that made it did: anything that went wrong is said when it opens. */
@@ -41,6 +46,31 @@ export interface WorkspaceHost {
  * One whose file was deleted or moved only lives in the tab, so its docs are exported instead.
  */
 export const savesDocs = (host: WorkspaceHost, storage: WorkspaceHost["storage"]) => !!host.syncsDocs && storage === "file";
+
+/**
+ * Where a save wrote a view's page in the docs, to paste into a chat with an agent so it can read
+ * it. `file` is the .openarch file's path, with `/` or `\` between folders, and `docs` the docs
+ * folder the workspace names, relative to the file. In a folder opened in the browser, `file` is
+ * the path in that folder, and so is the answer. In the desktop app, both are full paths, with
+ * the file's own separators. Null when saves write no page there: with no docs folder named, one
+ * given as a full path, or one outside the folder opened (`inFolder`).
+ */
+export function viewDocsPath(file: string, docs: string | undefined, viewId: string, inFolder: boolean): string | null {
+  if (!docs || isAbsolutePath(docs)) return null;
+  const page = `${docs}/views/${viewId}.md`;
+  const fileDir = file.split(/[\\/]/).slice(0, -1);
+  if (inFolder) return segments([...fileDir, page].join("/"))?.join("/") ?? null;
+  // A full path: `/` or `C:` on its own, or `\\server\share` for a share, is as high as it goes.
+  const parts = [...fileDir];
+  const top = /^[\\/]{2}[^\\/]/.test(file) ? 4 : 1;
+  for (const part of page.split(/[\\/]/)) {
+    if (part === "" || part === ".") continue;
+    if (part !== "..") parts.push(part);
+    else if (parts.length > top) parts.pop();
+  }
+  const separator = /^[a-zA-Z]:|^\\/.test(file) ? "\\" : "/";
+  return parts.join(separator);
+}
 
 /** Whether saving keeps the agent skill up to date now, by the same rule as the docs. */
 export const savesSkill = (host: WorkspaceHost, storage: WorkspaceHost["storage"]) => !!host.syncsSkill && storage === "file";
@@ -306,6 +336,10 @@ export class DesktopHost implements WorkspaceHost {
 
   save(text: string): Promise<SaveSummary> {
     return this.bridge.save(this.path, text);
+  }
+
+  writeDocs(text: string): Promise<DocsSummary | null> {
+    return this.bridge.writeDocs(this.path, text);
   }
 
   watch(onChange: () => void): () => void {

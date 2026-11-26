@@ -45,6 +45,8 @@ export interface DesktopBridge {
   load(path: string): Promise<string>;
   /** Write the file, then refresh its docs folder if it names one, and the agent skill and AGENTS.md section beside it. */
   save(path: string, text: string): Promise<SaveSummary>;
+  /** Refresh the file's docs folder from `text`, without writing the file. Null when it names none. */
+  writeDocs(path: string, text: string): Promise<DocsSummary | null>;
   /** Calls `onChange` when the file changes on disk. Returns a function that stops watching. */
   watch(path: string, onChange: () => void): () => void;
   /** The AI agent, when the app has one. */
