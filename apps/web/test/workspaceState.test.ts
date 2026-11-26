@@ -47,6 +47,41 @@ async function workspaceFor(host: WorkspaceHost, onApplied?: (ops: Operation[], 
 
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 
+describe("bringing the docs up to date without saving", () => {
+  it("waits for a save in flight, and writes the docs from what it saved", async () => {
+    const host = new TestHost("file");
+    let finish = () => {};
+    host.save = (next) => new Promise((resolve) => (finish = () => resolve(void (host.file = next))));
+    const written: string[] = [];
+    const docs = { dir: "docs", written: 1, deleted: 0, skipped: [] };
+    Object.assign(host, { writeDocs: async (from: string) => (written.push(from), docs) });
+    const state = await workspaceFor(host);
+    let saved: Promise<unknown> = Promise.resolve();
+    let refreshed: Promise<DocsSummary | null> = Promise.resolve(null);
+    await act(async () => {
+      saved = state().edit([{ op: "update-workspace", name: "B" }]);
+      refreshed = state().writeDocs();
+    });
+    await settle();
+    expect(written).toEqual([]);
+    await act(async () => finish());
+    await act(async () => void (await saved));
+    expect(await refreshed).toEqual(docs);
+    expect(written).toEqual([host.file]);
+    expect(written[0]).toContain('"name": "B"');
+    expect(state().docs).toEqual(docs);
+  });
+
+  it("says the docs weren't written once the file is deleted or moved, rather than that there are none", async () => {
+    const host = new TestHost("file");
+    Object.assign(host, { writeDocs: async () => ({ dir: "docs", written: 1, deleted: 0, skipped: [] }) });
+    const state = await workspaceFor(host);
+    await act(async () => host.removed());
+    await settle();
+    await expect(state().writeDocs()).rejects.toThrow("The workspace isn't saved to a file any more, so the docs weren't brought up to date.");
+  });
+});
+
 describe("the open workspace", () => {
   it("says a workspace's file was deleted or moved, and keeps it in the tab", async () => {
     const host = new TestHost("file");

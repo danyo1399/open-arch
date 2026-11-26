@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { emptyDocument } from "@open-arch/core";
+import { emptyDocument, serializeDocument } from "@open-arch/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSetup } from "../src/agent-setup.js";
 import { Saver } from "../src/saving.js";
@@ -68,21 +68,36 @@ describe("refreshing the docs from the desktop app", () => {
   it("rewrites the docs folder without writing the file, the skill or AGENTS.md", () => {
     const { root, saver, doc, skillFile } = repository();
     const file = join(root, "shop.openarch");
-    writeFileSync(file, "As written by hand.\n");
     doc.elements = { shop: { kind: "system", name: "Shop" } };
     doc.views = { context: { title: "Context", level: "context", scope: "shop" } };
-    expect(saver.docs(file, doc)).toEqual({ dir: "shop-docs", written: 3, deleted: 0, skipped: [] });
+    // A file as written by hand, not as a save writes it.
+    const text = JSON.stringify(doc);
+    writeFileSync(file, text);
+    expect(saver.docs(file, text)).toEqual({ dir: "shop-docs", written: 3, deleted: 0, skipped: [] });
     expect(readFileSync(join(root, "shop-docs", "views", "context.md"), "utf8")).toContain("# Context");
-    expect(readFileSync(file, "utf8")).toBe("As written by hand.\n");
+    expect(readFileSync(file, "utf8")).toBe(text);
     expect(existsSync(skillFile)).toBe(false);
     expect(existsSync(join(root, "AGENTS.md"))).toBe(false);
     // Pages already up to date are left as they are.
-    expect(saver.docs(file, doc)).toEqual({ dir: "shop-docs", written: 0, deleted: 0, skipped: [] });
+    expect(saver.docs(file, text)).toEqual({ dir: "shop-docs", written: 0, deleted: 0, skipped: [] });
+    // As a save writes it, after an edit.
+    writeFileSync(file, serializeDocument(doc));
+    expect(saver.docs(file, text)).toEqual({ dir: "shop-docs", written: 0, deleted: 0, skipped: [] });
+  });
+
+  it("doesn't write the docs from the designer's copy once the file changed outside", () => {
+    const { root, saver, doc } = repository();
+    const file = join(root, "shop.openarch");
+    writeFileSync(file, serializeDocument({ ...doc, name: "Shop 2" }));
+    expect(() => saver.docs(file, serializeDocument(doc))).toThrow("shop.openarch changed outside the designer, so the docs weren't brought up to date");
+    expect(existsSync(join(root, "shop-docs"))).toBe(false);
   });
 
   it("does nothing for a workspace that names no docs folder", () => {
     const { root, saver, doc } = repository();
     doc.export = undefined;
-    expect(saver.docs(join(root, "shop.openarch"), doc)).toBeNull();
+    const file = join(root, "shop.openarch");
+    writeFileSync(file, serializeDocument(doc));
+    expect(saver.docs(file, serializeDocument(doc))).toBeNull();
   });
 });

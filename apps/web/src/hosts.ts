@@ -58,18 +58,19 @@ export const savesDocs = (host: WorkspaceHost, storage: WorkspaceHost["storage"]
 export function viewDocsPath(file: string, docs: string | undefined, viewId: string, inFolder: boolean): string | null {
   if (!docs || isAbsolutePath(docs)) return null;
   const page = `${docs}/views/${viewId}.md`;
-  const fileDir = file.split(/[\\/]/).slice(0, -1);
-  if (inFolder) return segments([...fileDir, page].join("/"))?.join("/") ?? null;
-  // A full path: `/` or `C:` on its own, or `\\server\share` for a share, is as high as it goes.
-  const parts = [...fileDir];
-  const top = /^[\\/]{2}[^\\/]/.test(file) ? 4 : 1;
-  for (const part of page.split(/[\\/]/)) {
+  if (inFolder) return segments([...file.split(/[\\/]/).slice(0, -1), page].join("/"))?.join("/") ?? null;
+  // A full path, split as the app's save splits it: on Windows `\` is a separator too, but
+  // elsewhere it's part of a name. `/`, `C:`, or `\\server\share` for a share, is as high as it goes.
+  const windows = /^[a-zA-Z]:|^\\/.test(file);
+  const separators = windows ? /[\\/]/ : /\//;
+  const parts = file.split(separators).slice(0, -1);
+  const top = windows && /^[\\/]{2}[^\\/]/.test(file) ? 4 : 1;
+  for (const part of page.split(separators)) {
     if (part === "" || part === ".") continue;
     if (part !== "..") parts.push(part);
     else if (parts.length > top) parts.pop();
   }
-  const separator = /^[a-zA-Z]:|^\\/.test(file) ? "\\" : "/";
-  return parts.join(separator);
+  return parts.join(windows ? "\\" : "/");
 }
 
 /** Whether saving keeps the agent skill up to date now, by the same rule as the docs. */

@@ -38,11 +38,20 @@ export class Saver {
   }
 
   /**
-   * Refresh the docs folder from a document, as a save does, without writing the file: so a
-   * view's page is there, and up to date, for an agent to read. Null when it names no docs folder.
+   * Refresh the docs folder from the designer's `text`, as a save does, without writing the file:
+   * so a view's page is there, and up to date, for an agent to read. Null when it names no docs
+   * folder. A file changed outside since the designer read it, which its watcher will reload, is
+   * kept: the docs aren't written from the old copy.
    */
-  docs(file: string, doc: OpenArchDocument): DocsSummary | null {
-    return refreshDocs(file, loadWorkspace(serializeDocument(doc)));
+  docs(file: string, text: string): DocsSummary | null {
+    const ws = loadWorkspace(text);
+    if (!ws.valid) throw new Error(`Refusing to write the docs: the workspace has structural errors (${ws.diagnostics.map((d) => d.message).join(" ")})`);
+    // The designer has the file as it read it, or as its last save wrote it, which is how it's written.
+    const now = readFileSync(file, "utf8");
+    if (now !== text && now !== serializeDocument(ws.doc)) {
+      throw new Error(`${basename(file)} changed outside the designer, so the docs weren't brought up to date from the copy here. It's reloading: try again.`);
+    }
+    return refreshDocs(file, ws);
   }
 
   /**
