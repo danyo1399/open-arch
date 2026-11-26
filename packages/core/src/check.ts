@@ -4,9 +4,15 @@ import type { ArchElement, Diagnostic, Relationship, Sticky, ViewDef } from "./t
 import { computeView, didYouMean, scopeProblems, stickyAnchor, type ComputedView } from "./views.js";
 import type { Workspace } from "./workspace.js";
 
-/** Every problem in the workspace: the file's shape, then the model's meaning. */
-export function checkWorkspace(ws: Workspace): Diagnostic[] {
+/**
+ * Every problem in the workspace: the file's shape, then the model's meaning. `fileDir`, the path
+ * of the folder the file is in, as far as it's known, lets it check the docs folder too
+ * (nestedDocsProblem).
+ */
+export function checkWorkspace(ws: Workspace, { fileDir }: { fileDir?: string } = {}): Diagnostic[] {
   const out = [...ws.diagnostics];
+  const nested = fileDir === undefined ? null : nestedDocsProblem(fileDir, ws.doc.export?.docs);
+  if (nested) out.push(nested);
   for (const id of ws.elements.keys()) {
     if (ws.views.has(id)) {
       out.push({ severity: "error", rule: "id-duplicate", message: `"${id}" is the ID of both an element and a view.`, path: `views.${id}`, fix: "Rename the view." });
@@ -16,6 +22,32 @@ export function checkWorkspace(ws: Workspace): Diagnostic[] {
   for (const element of ws.elements.values()) checkElement(ws, element, implied, out);
   for (const view of ws.views.values()) checkView(ws, view, out);
   return out;
+}
+
+/**
+ * The problem with a docs folder that repeats the end of the folder the workspace file is in: a
+ * file in docs/architecture whose docs folder is docs/architecture, which would put its pages in
+ * docs/architecture/docs/architecture. The docs folder is relative to the file, so it was named as
+ * if from the project's top, as one is once the file is moved into it. Tools that write the docs
+ * don't write them there. `fileDir` is the path of the file's folder, as far as it's known, with
+ * `/` or `\` between folders. Null for any other docs folder, and for none.
+ */
+export function nestedDocsProblem(fileDir: string, docs: string | undefined): Diagnostic | null {
+  const parts = (path: string) => path.split(/[\\/]/).filter((part) => part !== "" && part !== ".");
+  const named = parts(docs ?? "");
+  if (named.length === 0 || named.includes("..")) return null;
+  const dir = parts(fileDir);
+  const end = dir.slice(dir.length - named.length);
+  // Windows and macOS don't tell Docs from docs, and elsewhere a folder named so alike is as likely a mistake.
+  if (end.length < named.length || end.some((part, i) => part.toLowerCase() !== named[i]!.toLowerCase())) return null;
+  const folder = named.join("/");
+  return {
+    severity: "warning",
+    rule: "docs-folder-nested",
+    message: `The docs folder, ${folder}/, is relative to the workspace file, which is in ${end.join("/")}/ already, so the docs would go in ${folder}/${folder}/. They aren't written there.`,
+    path: "export.docs",
+    fix: "Set the docs folder to . to keep the docs beside the file, or choose another folder.",
+  };
 }
 
 /** A problem as it's printed, for an agent or a person to read: where it is, what's wrong, and how to fix it. */

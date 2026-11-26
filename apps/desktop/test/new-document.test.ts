@@ -17,6 +17,11 @@ describe("a new desktop workspace", () => {
       // In a folder with other things in it, such as a README.md, the docs get a folder of their own.
       writeFileSync(join(dir, "README.md"), "# Mine\n");
       expect(newDocument(join(dir, "shop.openarch")).export).toEqual({ docs: "docs/architecture" });
+      // Unless the file is in docs/architecture already, which that would nest.
+      const own = join(dir, "docs", "architecture");
+      mkdirSync(own, { recursive: true });
+      writeFileSync(join(own, "overview.md"), "# Overview\n");
+      expect(newDocument(join(own, "shop.openarch")).export).toEqual({ docs: "." });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -21,6 +21,8 @@ export interface WorkspaceHost {
   storage: "file" | "browser" | "memory";
   /** Saving also refreshes the docs folder: on desktop, and for a workspace in a folder (folders.ts). */
   syncsDocs?: boolean;
+  /** The path of the file's folder, as much of it as is known, to check the docs folder against: for a host that syncsDocs. */
+  folder?: string;
   load(): Promise<string>;
   /** Save the file's new text. May report the docs folder it refreshed, the agent skill, and the section in AGENTS.md. */
   save(text: string): Promise<SaveSummary | void>;
@@ -329,6 +331,11 @@ export class DesktopHost implements WorkspaceHost {
 
   get key(): string {
     return `file/${this.path}`;
+  }
+
+  get folder(): string {
+    // A full path, with `/`, or on Windows `\`, between folders: the file's name is the last part.
+    return this.path.replace(/[^\\/]*$/, "");
   }
 
   load(): Promise<string> {

@@ -273,7 +273,8 @@ export function useWorkspace(host: WorkspaceHost, onApplied?: (ops: Operation[],
   }, [host, enqueue]);
 
   const ws = useMemo(() => (text === null ? null : loadWorkspace(text)), [text]);
-  const diagnostics = useMemo(() => (ws ? checkWorkspace(ws) : []), [ws]);
+  // Where saves write the docs, the docs folder is checked against the file's own.
+  const diagnostics = useMemo(() => (ws ? checkWorkspace(ws, { fileDir: host.syncsDocs ? host.folder : undefined }) : []), [ws, host]);
 
   /** The message saying the last save went wrong, if that's still the one showing. */
   const problem = useRef<WorkspaceState["message"]>(null);

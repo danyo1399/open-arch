@@ -64,6 +64,25 @@ describe("making a workspace in the desktop app", () => {
   });
 });
 
+describe("saving a workspace whose docs folder repeats its own folder", () => {
+  it("writes the file but no docs, says why, and keeps the docs folder out of AGENTS.md", () => {
+    const { root, saver, doc } = repository();
+    const folder = join(root, "docs", "architecture");
+    mkdirSync(folder, { recursive: true });
+    const file = join(folder, "architecture.openarch");
+    doc.export = { docs: "docs/architecture" };
+    const nested = "The docs folder, docs/architecture/, is relative to the workspace file, which is in docs/architecture/ already, so the docs would go in docs/architecture/docs/architecture/. They aren't written there.";
+    expect(saver.save(file, doc)).toEqual({ docs: { dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested } });
+    expect(existsSync(file)).toBe(true);
+    expect(existsSync(join(folder, "docs"))).toBe(false);
+    const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
+    expect(agents).toContain("in `docs/architecture/architecture.openarch`.");
+    expect(agents).not.toContain("Readable docs");
+    expect(saver.docs(file, serializeDocument(doc))?.error).toBe(nested);
+    expect(existsSync(join(folder, "docs"))).toBe(false);
+  });
+});
+
 describe("refreshing the docs from the desktop app", () => {
   it("rewrites the docs folder without writing the file, the skill or AGENTS.md", () => {
     const { root, saver, doc, skillFile } = repository();

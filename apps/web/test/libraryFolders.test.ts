@@ -173,6 +173,18 @@ describe("opening a folder from the start page", () => {
     expect(loadWorkspace(busy.files()["architecture/architecture.openarch"]!).doc.export).toEqual({ docs: "docs/architecture" });
     expect(busy.files()["architecture/README.md"]).toBe("# Drawings");
     expect(busy.files()["architecture/docs/architecture/README.md"]).toContain("# Site");
+
+    // A docs folder opened, whose architecture/ has things, keeps them beside the file, not in docs/architecture/docs/architecture.
+    const docs = new FakeFolder("docs");
+    docs.put("architecture/overview.md", "# Overview");
+    picked = docs;
+    await click(button(host, "Open folder…"));
+    await until(host, "Create architecture/architecture.openarch there, with its docs beside it?");
+    await click(button(host, "Create architecture/architecture.openarch"));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(loadWorkspace(docs.files()["architecture/architecture.openarch"]!).doc.export).toEqual({ docs: "." });
+    expect(docs.files()["architecture/README.md"]).toContain("# Docs");
+    expect(docs.files()["architecture/overview.md"]).toBe("# Overview");
   });
 
   it("says plainly when a file named architecture is where the workspace's folder would go", async () => {

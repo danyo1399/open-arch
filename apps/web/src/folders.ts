@@ -6,7 +6,7 @@
  * skill or AGENTS.md, which `open-arch init` adds for agents with the CLI. The folders opened are remembered in IndexedDB: the browser can
  * keep a folder's handle, and asks again before the page may change it.
  */
-import { applyOperations, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, generatedFrom, loadWorkspace, parseDocument, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
+import { applyOperations, DOCS_PAGE_FOLDERS, exportDocs, FILE_EXTENSION, generatedFrom, loadWorkspace, nestedDocsProblem, parseDocument, serializeDocument, type ExportedFile, type Workspace } from "@open-arch/core";
 import type { DocsSummary, SaveSummary } from "./bridge.js";
 import { isAbsolutePath, segments } from "./paths.js";
 import { isNamed, problemText } from "./problems.js";
@@ -197,7 +197,8 @@ export async function writeDocs(
  * Where a new workspace goes in a folder with none, and its docs folder, as `open-arch init` puts
  * them: architecture.openarch at the folder's top if it has the folder to itself (isFreeFolder), or
  * else in a folder of its own, architecture/. Its docs go beside it when it has its folder to
- * itself, and otherwise in docs/architecture, so its pages don't mix with what's there.
+ * itself, and otherwise in docs/architecture, so its pages don't mix with what's there, unless
+ * that would nest them (nestedDocsProblem).
  */
 export async function newWorkspace(root: FolderHandle): Promise<{ path: string; docs: string }> {
   const file = `architecture${FILE_EXTENSION}`;
@@ -210,7 +211,10 @@ export async function newWorkspace(root: FolderHandle): Promise<{ path: string; 
     if (!isMissing(error)) throw error;
     own = null;
   }
-  return { path: `architecture/${file}`, docs: own === null || (await isFreeFolder(own)) ? "." : "docs/architecture" };
+  // A folder opened that's docs, holding architecture/, keeps the docs beside the file, as docs/architecture there would nest them.
+  const apart = "docs/architecture";
+  const beside = own === null || (await isFreeFolder(own)) || nestedDocsProblem(`${root.name}/architecture`, apart);
+  return { path: `architecture/${file}`, docs: beside ? "." : apart };
 }
 
 /**
@@ -310,6 +314,11 @@ export class FolderHost implements WorkspaceHost {
    */
   get location(): string {
     return `${this.root.name}/${this.path}`;
+  }
+
+  /** The file's folder, from the folder opened: as much of its path as the browser tells. */
+  get folder(): string {
+    return [this.root.name, ...this.path.split("/").slice(0, -1)].join("/");
   }
 
   /**
@@ -431,9 +440,14 @@ export class FolderHost implements WorkspaceHost {
     return parts;
   }
 
-  /** Rewrites the docs folder. A docs folder that can't be written is reported, with what was changed before it stopped. */
+  /**
+   * Rewrites the docs folder. A docs folder that can't be written is reported, with what was changed
+   * before it stopped. One that repeats the file's own folder isn't written, and the summary says why.
+   */
   private async saveDocs(ws: Workspace, docs: string, parts: string[]): Promise<DocsSummary> {
     const summary: DocsSummary = { dir: docs.replace(/\\/g, "/").replace(/\/+$/, ""), written: 0, deleted: 0, skipped: [] };
+    const nested = nestedDocsProblem(this.folder, docs);
+    if (nested) return { ...summary, error: nested.message };
     const changes: DocsChanges = { written: [], deleted: [], skipped: [] };
     const counts = () => ({ ...summary, written: changes.written.length, deleted: changes.deleted.length, skipped: changes.skipped });
     try {

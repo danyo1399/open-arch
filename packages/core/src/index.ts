@@ -1,7 +1,7 @@
 export * from "./types.js";
 export { parseDocument, serializeDocument, emptyDocument, nameFromFileName, elementOrder, nodeOrder, type ParseResult } from "./document.js";
 export { buildWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
-export { checkWorkspace, errorCount, formatDiagnostic } from "./check.js";
+export { checkWorkspace, errorCount, formatDiagnostic, nestedDocsProblem } from "./check.js";
 export { applyOperations, parseOperations, pruneLayouts, OpError, OPERATION_NAMES, LEVEL_TITLE, type Operation, type OperationName, type ApplyResult, type NewElements, type TagChanges } from "./operations.js";
 export { DOCS_PAGE_FOLDERS, exportDocs, GENERATED_MARKER, generatedFrom, type ExportedFile } from "./export.js";
 export {

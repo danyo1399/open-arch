@@ -139,6 +139,8 @@ interface PropertiesProps {
   /** Saving also keeps the agent skill and AGENTS.md section up to date beside the workspace: on desktop. */
   syncsSkill: boolean;
   docs: DocsSummary | null;
+  /** What's wrong with a docs folder that repeats the file's own folder, so saves don't write it, or null. */
+  docsNested?: string | null;
   /** The workspace's file, for display: for one in a folder, with the folder and the path in it. */
   fileName: string;
   edit(edit: Edit): Promise<boolean>;
@@ -2471,7 +2473,7 @@ function BoxViewFacts({ ws, view, computed, scope }: { ws: Workspace; view: View
   );
 }
 
-function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }: PropertiesProps) {
+function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, docsNested, fileName }: PropertiesProps) {
   const docsFolder = ws.doc.export?.docs;
   return (
     <>
@@ -2494,8 +2496,13 @@ function WorkspaceProperties({ ws, edit, syncsDocs, syncsSkill, docs, fileName }
             : "Used by the desktop app and the open-arch CLI. Here, Export zip puts the docs where a save would. With none, or one the zip has no place for, it puts them beside the file. In Chrome and Edge, Export to folder keeps them beside the file when none is set, and won't export a docs folder outside the folder chosen."
         }
       />
-      {syncsDocs && !docsFolder && <button onClick={() => void edit([{ op: "update-workspace", docs: "." }])}>Keep docs beside the file</button>}
-      {syncsDocs && docs?.error && (
+      {syncsDocs && docsNested && (
+        <p className="error small" role="alert">
+          {docsNested}
+        </p>
+      )}
+      {syncsDocs && (!docsFolder || docsNested) && <button onClick={() => void edit([{ op: "update-workspace", docs: "." }])}>Keep docs beside the file</button>}
+      {syncsDocs && docs?.error && !docsNested && (
         <p className="error small" role="alert">
           {docsProblem(docs)}
         </p>

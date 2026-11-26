@@ -95,7 +95,7 @@ Tags are names with values. `--tag owner=payments` sets one, and `--tag pii` set
 | `add-link <view> <from> <to>` | Entity views only. `--cardinality <a,b>` (how many of `<from>` for each `<to>`, then of `<to>` for each `<from>`, each `one`, `zero-or-one`, `one-or-more` or `zero-or-more`; default: `one,zero-or-more`), `--text` (what it says, like `places`), `--link <n>` (its number: 1 is the first; default: after the last) |
 | `update-link <view> <n>` | `--from`, `--to`, `--cardinality` (`--cardinality ""` puts it back to `one,zero-or-more`), `--text`, `--move-to <n>` |
 | `remove-link <view> <n>` | The ones after it move up one |
-| `update-workspace` | `--name`, `--description`, `--docs <folder>` (`--docs ""` stops generating docs) |
+| `update-workspace` | `--name`, `--description`, `--docs <folder>` (relative to the file; `--docs .` keeps them beside it, `--docs ""` stops generating docs) |
 | `apply [file\|-]` | A JSON list of operations, all or nothing (see below) |
 | `init [file]` | `--name`, `--docs <folder>`, `--no-skills`, `--no-agents-md` |
 | `fmt [--check]` | Rewrites the file in canonical form |

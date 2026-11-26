@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { checkWorkspace, errorCount, formatDiagnostic } from "@open-arch/core";
 import type { Io } from "../io.js";
 import { displayPath, findWorkspaceFile, readWorkspaceFile } from "../workspace.js";
@@ -11,7 +12,7 @@ export interface CheckOptions {
 export function check(io: Io, opts: CheckOptions): number {
   const file = findWorkspaceFile(io.cwd, opts.file);
   const ws = readWorkspaceFile(file);
-  const diagnostics = checkWorkspace(ws);
+  const diagnostics = checkWorkspace(ws, { fileDir: dirname(file) });
   const errors = errorCount(diagnostics);
   const warnings = diagnostics.length - errors;
   const ok = errors === 0 && !(opts.strict && warnings > 0);

@@ -641,6 +641,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
     const target = diagnosticTarget(d);
     if (target?.kind === "view" && ws?.views.has(target.id)) showView(target.id);
     else if (target?.kind === "element" && ws?.elements.has(target.id)) showDetails({ kind: "element", id: target.id });
+    else if (d.path === "export.docs") showDetails({ kind: "workspace" });
   };
 
   const attempt = (task: () => Promise<void>) => void task().catch((e: unknown) => state.notify({ kind: "error", text: problemText(e) }));
@@ -1194,6 +1195,7 @@ export function Designer({ host, onClose, onHostChange, askFetch }: DesignerProp
         syncsDocs={syncsDocs}
         syncsSkill={savesSkill(host, state.storage)}
         docs={state.docs}
+        docsNested={diagnostics.find((d) => d.rule === "docs-folder-nested")?.message ?? null}
         fileName={fileName}
         edit={edit}
         onSelect={select}

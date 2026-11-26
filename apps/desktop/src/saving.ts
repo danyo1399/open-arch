@@ -21,10 +21,15 @@ export function newDocument(file: string): OpenArchDocument {
   return doc;
 }
 
-/** Rewrites the docs folder the workspace names, and says what it did, for the UI. */
+/**
+ * Rewrites the docs folder the workspace names, and says what it did, for the UI. One that repeats
+ * the file's own folder isn't written, and the summary says why.
+ */
 function refreshDocs(file: string, ws: Workspace): DocsSummary | null {
   const docs = syncDocs(file, ws);
-  return docs ? { dir: relative(dirname(file), docs.dir) || ".", written: docs.written.length, deleted: docs.deleted.length, skipped: docs.skipped } : null;
+  if (!docs) return null;
+  const summary = { dir: relative(dirname(file), docs.dir) || ".", written: docs.written.length, deleted: docs.deleted.length, skipped: docs.skipped };
+  return docs.held ? { ...summary, error: docs.held } : summary;
 }
 
 export class Saver {
@@ -60,7 +65,8 @@ export class Saver {
    */
   save(file: string, doc: OpenArchDocument): SaveSummary {
     const { ws, docs } = this.write(file, doc);
-    return { docs, ...this.setup.keep(file, docsFolder(file, ws.doc)) };
+    // AGENTS.md doesn't point agents at a docs folder that isn't written.
+    return { docs, ...this.setup.keep(file, docs?.error ? undefined : docsFolder(file, ws.doc)) };
   }
 
   /**

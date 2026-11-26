@@ -1,5 +1,5 @@
 import { basename, dirname, resolve } from "node:path";
-import { exportDocs } from "@open-arch/core";
+import { exportDocs, nestedDocsProblem } from "@open-arch/core";
 import { CliError, type Io } from "../io.js";
 import { displayPath, docsFolder, findWorkspaceFile, readWorkspaceFile, writeDocs, type DocsResult } from "../workspace.js";
 import { plural } from "./check.js";
@@ -16,6 +16,8 @@ export function exportCommand(io: Io, opts: ExportOptions): number {
   const ws = readWorkspaceFile(file);
   const dir = opts.dir ? resolve(io.cwd, opts.dir) : docsFolder(file, ws.doc);
   if (!dir) throw new CliError("Say where to write the docs: `open-arch export <folder>`, or set a folder with `open-arch update-workspace --docs <folder>`.", 2);
+  const nested = opts.dir ? null : nestedDocsProblem(dirname(file), ws.doc.export?.docs);
+  if (nested) throw new CliError(`${nested.message} ${NESTED_FIX}`);
   const result = writeDocs(dir, exportDocs(ws, basename(file)), { dryRun: opts.check, workspaceDir: dirname(file) });
   if (opts.check) {
     const stale = result.written.length + result.deleted.length;
@@ -26,7 +28,11 @@ export function exportCommand(io: Io, opts: ExportOptions): number {
   return 0;
 }
 
+/** How to fix a docs folder that repeats the file's own folder, from the command line. */
+export const NESTED_FIX = "To keep the docs beside the file, run `open-arch update-workspace --docs .`; or name another folder with --docs.";
+
 export function describeDocs(io: Io, r: DocsResult): string {
+  if (r.held) return `Docs not written: ${r.held} ${NESTED_FIX}`;
   const where = displayPath(io.cwd, r.dir);
   const parts = [r.written.length ? `wrote ${plural(r.written.length, "page")}` : "", r.deleted.length ? `removed ${plural(r.deleted.length, "old page")}` : ""].filter(Boolean);
   const lines = [parts.length ? `Docs in ${where}: ${parts.join(", ")}.` : `Docs in ${where} are up to date.`];

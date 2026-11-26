@@ -13,6 +13,7 @@ import {
   generatedFrom,
   lineEnding,
   loadWorkspace,
+  nestedDocsProblem,
   serializeDocument,
   withAgentsSection,
   type ExportedFile,
@@ -111,10 +112,13 @@ export function isFreeFolder(dir: string, except?: string): boolean {
 
 /**
  * The docs folder of a new workspace at `file`: beside it when it has the folder to itself, or
- * else docs/architecture, so its pages don't mix with what's there, such as a README.md.
+ * else docs/architecture, so its pages don't mix with what's there, such as a README.md. A file
+ * in docs/architecture already has them beside it, as docs/architecture there would nest them
+ * (nestedDocsProblem).
  */
 export function newDocsFolder(file: string): string {
-  return isFreeFolder(dirname(file), basename(file)) ? "." : "docs/architecture";
+  const own = "docs/architecture";
+  return isFreeFolder(dirname(file), basename(file)) || nestedDocsProblem(dirname(file), own) ? "." : own;
 }
 
 export interface DocsResult {
@@ -123,6 +127,8 @@ export interface DocsResult {
   deleted: string[];
   /** Files in the way that open-arch didn't generate, so it left them alone. */
   skipped: string[];
+  /** Why nothing was written, when the docs folder repeats the file's own folder (nestedDocsProblem). */
+  held?: string;
 }
 
 /**
@@ -204,10 +210,16 @@ export function writeDocs(dir: string, files: ExportedFile[], options: { dryRun?
   return result;
 }
 
-/** Regenerate the document's docs folder, if it names one. */
+/**
+ * Regenerate the document's docs folder, if it names one. One that repeats the file's own folder
+ * (nestedDocsProblem) is left alone, and the result says why in `held`.
+ */
 export function syncDocs(file: string, ws: Workspace, options: { dryRun?: boolean } = {}): DocsResult | undefined {
   const dir = docsFolder(file, ws.doc);
-  return dir ? writeDocs(dir, exportDocs(ws, basename(file)), { ...options, workspaceDir: dirname(file) }) : undefined;
+  if (!dir) return undefined;
+  const nested = nestedDocsProblem(dirname(file), ws.doc.export?.docs);
+  if (nested) return { dir, written: [], deleted: [], skipped: [], held: nested.message };
+  return writeDocs(dir, exportDocs(ws, basename(file)), { ...options, workspaceDir: dirname(file) });
 }
 
 /** The file a relative path names inside `root`. Nothing may escape `root`. */

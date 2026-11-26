@@ -65,6 +65,26 @@ describe("a workspace in a folder", () => {
     expect(root.files()[`arch/${docs}/README.md`]).toContain("shop.openarch");
   });
 
+  it("saves the file but writes no docs in a docs folder that repeats the file's own folder, and says why", async () => {
+    const root = new FakeFolder("repo");
+    root.put("docs/architecture/shop.openarch", workspace("Shop", "docs/architecture"));
+    const host = new FolderHost("1", root, "docs/architecture/shop.openarch");
+    expect(host.folder).toBe("repo/docs/architecture");
+    const nested = "The docs folder, docs/architecture/, is relative to the workspace file, which is in docs/architecture/ already, so the docs would go in docs/architecture/docs/architecture/. They aren't written there.";
+    await host.load();
+    expect(await host.save(workspace("Shop 2", "docs/architecture"))).toEqual({ docs: { dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested } });
+    expect(await host.writeDocs(workspace("Shop 2", "docs/architecture"))).toEqual({ dir: "docs/architecture", written: 0, deleted: 0, skipped: [], error: nested });
+    expect(root.files()).toEqual({ "docs/architecture/shop.openarch": workspace("Shop 2", "docs/architecture") });
+    // The folder opened counts too: as much of the path as the browser tells.
+    const own = new FakeFolder("architecture");
+    own.put("shop.openarch", workspace("Shop", "architecture"));
+    expect((await new FolderHost("2", own, "shop.openarch").save(workspace("Shop", "architecture"))).docs?.error).toContain("would go in architecture/architecture/");
+    expect(Object.keys(own.files())).toEqual(["shop.openarch"]);
+    // Beside the file, they're written.
+    expect((await host.save(workspace("Shop 2", "."))).docs).toEqual({ dir: ".", written: 1, deleted: 0, skipped: [] });
+    expect(root.files()["docs/architecture/README.md"]).toContain("# Shop 2");
+  });
+
   it("refuses a docs folder outside the folder opened, and saves nothing", async () => {
     const root = new FakeFolder("arch");
     root.put("shop.openarch", workspace("Shop"));

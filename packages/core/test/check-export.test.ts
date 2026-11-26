@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkspace, checkWorkspace, computeView, exportDocs, formatDiagnostic, GENERATED_MARKER, renderMermaid, viewMarkdown, type OpenArchDocument } from "../src/index.js";
+import { buildWorkspace, checkWorkspace, computeView, exportDocs, formatDiagnostic, GENERATED_MARKER, nestedDocsProblem, renderMermaid, viewMarkdown, type OpenArchDocument } from "../src/index.js";
 import { apply, rules, shop } from "./helpers.js";
 
 describe("checkWorkspace", () => {
@@ -24,6 +24,40 @@ describe("checkWorkspace", () => {
       "parent-not-allowed elements.top.parent",
       "view-scope-kind views.bad.scope",
     ]);
+  });
+
+  it("warns of a docs folder that repeats the folder the file is in, once it knows that folder", () => {
+    const doc = shop();
+    doc.export = { docs: "docs/architecture" };
+    expect(checkWorkspace(buildWorkspace(doc)).map((d) => d.rule)).toEqual([]);
+    expect(checkWorkspace(buildWorkspace(doc), { fileDir: "/repo" }).map((d) => d.rule)).toEqual([]);
+    expect(checkWorkspace(buildWorkspace(doc), { fileDir: "/repo/docs/architecture" })).toEqual([
+      {
+        severity: "warning",
+        rule: "docs-folder-nested",
+        message: "The docs folder, docs/architecture/, is relative to the workspace file, which is in docs/architecture/ already, so the docs would go in docs/architecture/docs/architecture/. They aren't written there.",
+        path: "export.docs",
+        fix: "Set the docs folder to . to keep the docs beside the file, or choose another folder.",
+      },
+    ]);
+  });
+
+  it("tells a nested docs folder by its folders, on any system", () => {
+    const nested = (fileDir: string, docs: string | undefined) => nestedDocsProblem(fileDir, docs) !== null;
+    expect(nested("C:\\repo\\docs\\architecture", "docs/architecture")).toBe(true);
+    expect(nested("C:\\repo\\Docs\\Architecture\\", "./docs\\architecture/")).toBe(true);
+    expect(nested("repo/docs", "docs")).toBe(true);
+    expect(nested("docs/architecture", "docs/architecture")).toBe(true);
+    // Not the end of the file's folder, or not below it at all.
+    expect(nested("/repo/docs/architecture/c4", "docs/architecture")).toBe(false);
+    expect(nested("/repo/architecture", "docs/architecture")).toBe(false);
+    expect(nested("/repo/my-docs", "docs")).toBe(false);
+    expect(nested("/repo/docs", "../docs")).toBe(false);
+    expect(nested("/repo/docs", ".")).toBe(false);
+    expect(nested("/repo/docs", "")).toBe(false);
+    expect(nested("/repo/docs", undefined)).toBe(false);
+    expect(nested("", "docs")).toBe(false);
+    expect(nestedDocsProblem("C:\\repo\\Docs", "docs")?.message).toContain("which is in Docs/ already, so the docs would go in docs/docs/.");
   });
 
   it("prints a problem with where it is, what's wrong and how to fix it", () => {

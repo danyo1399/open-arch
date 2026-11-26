@@ -51,7 +51,8 @@ Creates an empty workspace file, architecture.openarch, and writes its docs. Wit
 named, it goes here if this folder is empty but for hidden things like .agents/, or else in a
 folder of its own, architecture/: say, at the top of a Git repository. Its docs go beside it
 when it has its folder to itself, and otherwise in docs/architecture beside it, apart from
-what's there. --docs names another folder, relative to the file. Also installs the open-arch
+what's there, unless the file is in docs/architecture already. --docs names another folder,
+relative to the file. Also installs the open-arch
 agent skill into .agents/skills/ and .claude/skills/ and adds an open-arch section to
 AGENTS.md, at the repository root. Safe to run again: it keeps the file and refreshes the
 skill and the section.
@@ -111,6 +112,10 @@ and old ones are only looked for at the folder's top and in views/ and elements/
 of another workspace whose file is in the same folder as this one are left alone, even in the
 same docs folder; workspaces in different folders need docs folders of their own. With
 --check, exits 1 if the docs are out of date.
+A docs folder that repeats the folder the file is in, such as docs/architecture for a file in
+docs/architecture, would nest the docs in docs/architecture/docs/architecture. Nothing writes
+them there: export without a folder exits 1, and the other commands save the file but not the
+docs, and say so. open-arch update-workspace --docs . keeps them beside the file.
 `,
     options: { ...FILE, check: b },
     run: (io, v, p) => exportCommand(io, { file: str(v.file), dir: p[0], check: bool(v.check) }),
@@ -834,7 +839,7 @@ An empty value removes a field.
     `Usage: open-arch update-workspace [--name <name>] [--description <text>] [--docs <folder>]
 
 --docs sets the folder (relative to the .openarch file) kept up to date with generated docs;
---docs "" turns that off.
+--docs . keeps them beside the file, and --docs "" turns that off.
 `,
     { name: s, description: s, docs: s },
   ),
