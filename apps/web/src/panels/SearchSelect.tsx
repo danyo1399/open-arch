@@ -111,6 +111,10 @@ export function SearchSelect({ label, value, choices, onChange, missing, disable
         aria-expanded={open}
         disabled={disabled}
         aria-labelledby={`${id}-label ${id}-value`}
+        // While the list is open, pressing the button keeps the focus in the search box, so the
+        // box isn't left first, which would close the list for the click to open it again: Safari
+        // doesn't focus a button it's pressing, so the box's blur doesn't say it went to the button.
+        onMouseDown={(e) => open && e.preventDefault()}
         onClick={() => (open ? close(true) : openList())}
         onKeyDown={(e) => {
           if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {

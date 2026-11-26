@@ -1350,7 +1350,7 @@ function ConnectionProperties({ ws, view, connection, edit, onSelect }: Properti
   const count = view.connections.length;
   const move = (to: number) => void edit([{ op: "update-connection", view: view.id, connection: connection.number, newConnection: to }]).then((ok) => ok && onSelect({ kind: "connection", number: to }));
   const ends = connectionEnds(ws, view);
-  // Where it is now, then only where it can go, as its right-click menu offers (see connectionEndChoices).
+  // Where it is now, and only where it can go, as its right-click menu offers (see connectionEndChoices).
   const choices = useMemo(() => ({ from: connectionEndChoices(ws, view, connection, "from"), to: connectionEndChoices(ws, view, connection, "to") }), [ws, view, connection]);
   const end = (field: "from" | "to", label: string) => {
     const offered = choices[field];

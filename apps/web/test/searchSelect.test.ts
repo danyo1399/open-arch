@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { matchingChoices, SearchSelect, sortedChoices, type Choice } from "../src/panels/SearchSelect.js";
 import { click, key, mount, picker, type } from "./dom.js";
@@ -90,6 +90,40 @@ describe("a field that picks from a list with a search box", () => {
     expect(search()!.value).toBe("");
     await key(search()!, "Enter");
     expect(changes).toEqual([]);
+  });
+
+  it("closes, changing nothing, when the focus goes elsewhere, or Tab leaves it", async () => {
+    const { host, changes, search } = field();
+    const outside = host.appendChild(document.createElement("button"));
+    await click(picker(host, "To"));
+    await type(search()!, "step");
+    // A click on something outside it, which the focus goes to.
+    await act(async () => {
+      search()!.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: outside }));
+    });
+    expect(search()).toBeNull();
+    await click(picker(host, "To"));
+    await key(search()!, "Tab");
+    expect(search()).toBeNull();
+    expect(changes).toEqual([]);
+    expect(picker(host, "To").textContent).toBe("Customer");
+  });
+
+  it("closes when its button is pressed again, keeping the focus in the search box until the click, as Safari doesn't move it to the button", async () => {
+    const { host, search } = field();
+    await click(picker(host, "To"));
+    const press = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    await act(async () => {
+      picker(host, "To").dispatchEvent(press);
+    });
+    expect(press.defaultPrevented).toBe(true);
+    expect(search()).not.toBeNull();
+    await click(picker(host, "To"));
+    expect(search()).toBeNull();
+    // Closed, pressing it lets the focus go to it as usual.
+    const again = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    picker(host, "To").dispatchEvent(again);
+    expect(again.defaultPrevented).toBe(false);
   });
 
   it("keeps Delete and Backspace from the designer, which would delete what's selected", async () => {
