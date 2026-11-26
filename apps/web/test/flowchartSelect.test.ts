@@ -350,6 +350,19 @@ describe("selecting several blocks and notes on a flowchart", () => {
     expect(f.selectedNodes()).toEqual(["refund", "refuse", "sticky:n1"]);
   });
 
+  it("moves blocks dragged together each into the lane it's let go of over", async () => {
+    const f = await flowchart({ kind: "blocks", blocks: ["asked", "refund"], stickies: [] }, lanedDoc);
+    // Customer's lane is from 0 to 260 and Shop's from 260, and each block is kept from inside its lane's left.
+    expect([f.at("lane:customer")[0], f.at("lane:shop")[0], f.at("asked")[0], f.at("refund")[0]]).toEqual([0, 260, 30, 290]);
+    await f.drag("asked", 300, 0);
+    expect(f.edits).toEqual([
+      [
+        { op: "update-block", view: "returns", id: "asked", lane: "shop", at: [40, 0] },
+        { op: "update-block", view: "returns", id: "refund", at: [300, 300] },
+      ],
+    ]);
+  });
+
   it("moves just a block that isn't selected, and selects it", async () => {
     const f = await flowchart({ kind: "blocks", blocks: ["refund", "refuse"], stickies: [] });
     await f.drag("done", 40, 60);

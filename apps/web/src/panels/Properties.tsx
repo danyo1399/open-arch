@@ -2294,7 +2294,7 @@ function ViewProperties({ ws, view, computed, edit, onDeleteView, onSelect, onEd
             <dd>{view.flows.length}</dd>
           </dl>
           <p className="muted small">
-            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it. Drag across the background to select several blocks and notes, and drag any of them to move them all. + Add adds a lane too, a column for the blocks of one actor, team or system: drag a block into a lane to put it there. Right-click a block, a flow, a lane, a sticky note or the background for a menu of what you can do there.
+            A flowchart shows the steps of a process, and the decisions on the way. Use + Add to add a block: with a block selected, the new one goes under it, with a flow to it. Drag from the dot under a block to another to add a flow. Select a block or a flow to change it. With a mouse, drag across the background to select several blocks and notes, and drag any of them to move them all; scroll to move round the diagram. + Add adds a lane too, a column for the blocks of one actor, team or system: drag a block into a lane to put it there. Right-click a block, a flow, a lane, a sticky note or the background for a menu of what you can do there.
           </p>
         </>
       ) : view.level === "whiteboard" ? (
