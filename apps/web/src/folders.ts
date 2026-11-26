@@ -211,7 +211,8 @@ export async function newWorkspace(root: FolderHandle): Promise<{ path: string; 
     if (!isMissing(error)) throw error;
     own = null;
   }
-  // A folder opened that's docs, holding architecture/, keeps the docs beside the file, as docs/architecture there likely nests them.
+  // A folder opened that's docs, holding architecture/, keeps the docs beside the file, as docs/architecture there likely nests
+  // them. Unlike FolderHost's check, this counts the folder opened's own name: it only picks the default, and `.` is always safe.
   const apart = "docs/architecture";
   const beside = own === null || (await isFreeFolder(own)) || nestedDocsProblem(`${root.name}/architecture`, apart);
   return { path: `architecture/${file}`, docs: beside ? "." : apart };

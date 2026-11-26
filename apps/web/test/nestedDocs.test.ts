@@ -34,6 +34,12 @@ describe("a docs folder that repeats the file's own folder, in the designer", ()
     expect(host.querySelector(".problems .count.warn")?.textContent).toBe("1");
     // The status doesn't say the docs are kept where nothing writes them.
     expect(host.querySelector(".storage")?.textContent).toBe("Saved");
+    // No page is written for Copy path to point to.
+    await click(button(host, "Export"));
+    const items = () => [...document.querySelectorAll<HTMLElement>('.context-menu [role="menuitem"]')].map((item) => item.textContent?.trim());
+    expect(items()).toContain("Copy as Mermaid");
+    expect(items()).not.toContain("Copy path");
+    await click(button(host, "Export"));
     // Opening the problem shows the workspace's details, which say it and offer the fix.
     if (!host.querySelector(".problem")) await click(button(host, "Problems"));
     await click(host.querySelector<HTMLButtonElement>(".problem")!);
@@ -48,6 +54,8 @@ describe("a docs folder that repeats the file's own folder, in the designer", ()
     expect(host.textContent).not.toContain("Keep docs beside the file");
     expect(host.querySelector(".problems .count")?.textContent).toBe("0");
     expect(host.querySelector(".storage")?.textContent).toBe("Saved · docs in ./");
+    await click(button(host, "Export"));
+    expect(items()).toContain("Copy path");
   });
 
   it("is a problem in the desktop app, from the file's folder in its repository the app gives", async () => {
