@@ -191,7 +191,18 @@ export function freeSpotAmong(start: Point, occupied: Spot[], size: { w: number;
   for (let row = -4; row <= 4; row++) {
     for (let col = -4; col <= 4; col++) candidates.push({ x: Math.round(start.x + col * (NODE_W / 2 + GAP)), y: Math.round(start.y + row * (NODE_H / 2 + GAP)) });
   }
-  candidates.sort((a, b) => Math.hypot(a.x - start.x, a.y - start.y) - Math.hypot(b.x - start.x, b.y - start.y));
+  // Past the far side of each thing there, too, for when something bigger than the grid covers it all.
+  for (const q of occupied) {
+    const [w, h] = [q.w ?? NODE_W, q.h ?? NODE_H];
+    candidates.push(
+      { x: Math.round(q.x + w + GAP), y: Math.round(start.y) },
+      { x: Math.round(q.x - size.w - GAP), y: Math.round(start.y) },
+      { x: Math.round(start.x), y: Math.round(q.y + h + GAP) },
+      { x: Math.round(start.x), y: Math.round(q.y - size.h - GAP) },
+    );
+  }
+  const away = (p: Point) => Math.hypot(p.x - start.x, p.y - start.y);
+  candidates.sort((a, b) => away(a) - away(b));
   return candidates.find((p) => !overlaps(p)) ?? { x: Math.round(start.x), y: Math.round(start.y) };
 }
 

@@ -232,6 +232,12 @@ describe("freeSpotAmong", () => {
     expect(freeSpotAmong({ x: 0, y: 0 }, [{ x: 0, y: 0 }])).not.toEqual({ x: 0, y: 0 });
     expect(freeSpotAmong({ x: 0, y: 0 }, [{ x: NODE_W + 40, y: 0 }])).toEqual({ x: 0, y: 0 });
   });
+
+  it("finds a spot past the edge of something bigger than the spots it tries near the start", () => {
+    const huge = { x: 0, y: 0, w: 3000, h: 2000 };
+    const spot = freeSpotAmong({ x: 1400, y: 900 }, [huge], { w: 200, h: 50 });
+    expect(spot.x >= 3000 || spot.x + 200 <= 0 || spot.y >= 2000 || spot.y + 50 <= 0).toBe(true);
+  });
 });
 
 describe("stickyBox", () => {
